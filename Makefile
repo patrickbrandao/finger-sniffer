@@ -17,7 +17,7 @@ GOOSE_VERSION         := v3.29.0
 LEFTHOOK_VERSION      := v2.2.2
 GOVULNCHECK_VERSION   := v1.9.0
 
-.PHONY: all tools build test fmt lint verify-quick verify-full deploy clean
+.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy clean
 
 all: build
 
@@ -27,6 +27,12 @@ tools:
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 	go install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	go install github.com/evilmartians/lefthook/v2@$(LEFTHOOK_VERSION)
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+# Só o que o verify-full precisa (usado no CI)
+tools-ci:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 # Binários estáticos linux/amd64 para a vps602 (ADR 0009)
