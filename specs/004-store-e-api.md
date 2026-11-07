@@ -73,8 +73,11 @@ Formato do registro (resumo; o completo está no openapi.yaml):
 Consome: `fs.v1.>`. Publica: nada além do push para clientes da API.
 
 ## Dados
-Tabelas (definidas na migration 0001): `connections`, `packets` (BLOB por pacote ou lote), `pcaps` (BLOB),
-`app_events`, `raw_streams` (BLOB), `dns_queries`, `probes`, `stray_packets`. Retenção conforme RF-06.
+Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql)): `probes`, `connections`
+(registro completo em `record_json`), `packets` (BLOB por pacote até a conexão fechar), `pcaps` (BLOB),
+`app_events`, `raw_streams` (BLOB), `dns_queries`, `stray_packets`. Tabelas filhas com `ON DELETE CASCADE`
+sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme RF-06. O store abre o banco com
+`foreign_keys=ON`, `journal_mode=WAL` e `auto_vacuum=INCREMENTAL`.
 
 ## Critérios de aceite
 - [ ] Uma sondagem por probe aparece completa em `GET /api/v1/probes/{id}` em ≤ 500 ms após o fechamento.

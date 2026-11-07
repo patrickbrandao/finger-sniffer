@@ -1,180 +1,951 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.0.0-draft
+  version: 0.1.0
+  summary: Espelho de análise de conexões.
   description: |
-    API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007).
-    Servida em 9000 (HTTPS) e 9001 (HTTP), fora da captura.
-    RASCUNHO v0: esquemas completos dos registros são definidos na task 004.
+    API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
+    registrado é público por até 10 minutos (ADR 0012).
+
+    Servida em 9000 (HTTPS) e 9001 (HTTP), portas fora da captura. CORS `*`. Nomes em inglês.
+    Tempos em RFC 3339 UTC com nanossegundos. Durações relativas em milissegundos (float) contadas a
+    partir de `times.syn` (TCP) ou do primeiro datagrama (UDP), salvo quando indicado.
+
+    Compatibilidade (ADR 0001): `/api/v1` só recebe mudanças aditivas.
   license:
     name: Apache-2.0
+    identifier: Apache-2.0
+# Sem autenticação (ADR 0007).
+security: []
 servers:
   - url: https://vps602.tmsoft.com.br:9000
+    description: HTTPS (mesmo certificado do espelho)
   - url: http://vps602.tmsoft.com.br:9001
+    description: HTTP
+tags:
+  - name: health
+    description: Saúde e contrato.
+  - name: probes
+    description: Agrupamento por probe ID.
+  - name: connections
+    description: Conexões TCP/UDP registradas.
+  - name: dns
+    description: Consultas DNS da zona.
+  - name: packets
+    description: Pacotes avulsos.
+  - name: realtime
+    description: Eventos ao vivo.
 paths:
   /api/v1/health:
     get:
+      tags: [health]
       operationId: getHealth
+      summary: Saúde agregada por serviço
       responses:
         "200":
-          description: Saúde agregada por serviço.
+          description: Estado de cada serviço e do host. `ok` é false se algum serviço estiver `down`.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
   /api/v1/probes/{id}:
     parameters:
-      - { name: id, in: path, required: true, schema: { $ref: "#/components/schemas/ProbeID" } }
+      - $ref: "#/components/parameters/ProbeIDPath"
     get:
+      tags: [probes]
       operationId: getProbe
+      summary: Conexões e consultas DNS de um probe
       parameters:
-        - { name: wait, in: query, schema: { type: string, examples: ["10s"] } }
+        - name: wait
+          in: query
+          description: |
+            Long-poll: espera até todas as conexões do probe estarem fechadas ou o prazo acabar
+            (duração Go, máx. 60s). Sem `wait`, responde na hora.
+          schema: { type: string, pattern: "^[0-9]+(ms|s)$", examples: ["10s"] }
       responses:
-        "200": { description: Conexões e consultas DNS do probe, content: { application/json: { schema: { $ref: "#/components/schemas/Probe" } } } }
-        "404": { description: Probe desconhecido ou expirado }
+        "200":
+          description: Probe completo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Probe" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
     delete:
+      tags: [probes]
       operationId: deleteProbe
+      summary: Apaga o probe, suas conexões e consultas DNS
       responses:
-        "204": { description: Apagado }
+        "204": { description: Apagado. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/connections:
     get:
+      tags: [connections]
       operationId: listConnections
+      summary: Lista resumida de conexões, mais novas primeiro
       parameters:
         - { name: src_ip, in: query, schema: { type: string } }
-        - { name: dst_port, in: query, schema: { type: integer } }
-        - { name: since, in: query, schema: { type: string, format: date-time } }
-        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: dst_port, in: query, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: since, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: until, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
         - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
-        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 1000 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
-        "200": { description: Lista resumida, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/ConnectionSummary" } } } } }
+        "200":
+          description: Conexões que casam com os filtros.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ConnectionSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/connections/{conn_id}:
     parameters:
-      - { name: conn_id, in: path, required: true, schema: { type: string } }
+      - $ref: "#/components/parameters/ConnIDPath"
     get:
+      tags: [connections]
       operationId: getConnection
+      summary: Registro completo de uma conexão (specs 008–013)
       responses:
-        "200": { description: Registro completo, content: { application/json: { schema: { $ref: "#/components/schemas/Connection" } } } }
-        "404": { description: Desconhecida ou expirada }
+        "200":
+          description: Registro completo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Connection" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/connections/{conn_id}/pcap:
     parameters:
-      - { name: conn_id, in: path, required: true, schema: { type: string } }
+      - $ref: "#/components/parameters/ConnIDPath"
     get:
+      tags: [connections]
       operationId: getConnectionPcap
+      summary: pcap da conexão (dois sentidos)
       responses:
-        "200": { description: pcap da conexão, content: { application/vnd.tcpdump.pcap: { schema: { type: string, contentMediaType: application/vnd.tcpdump.pcap } } } }
+        "200":
+          description: Arquivo pcap (libpcap, nanossegundos). Se `pcap_truncated`, pacotes além do teto vêm só com cabeçalhos.
+          content:
+            application/vnd.tcpdump.pcap:
+              schema: { type: string, contentMediaType: application/vnd.tcpdump.pcap }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/connections/{conn_id}/raw:
     parameters:
-      - { name: conn_id, in: path, required: true, schema: { type: string } }
-      - { name: dir, in: query, required: true, schema: { type: string, enum: [in, out] } }
+      - $ref: "#/components/parameters/ConnIDPath"
+      - name: dir
+        in: query
+        required: true
+        description: "`in` = o que o cliente mandou; `out` = o que o espelho mandou."
+        schema: { type: string, enum: [in, out] }
     get:
+      tags: [connections]
       operationId: getConnectionRaw
+      summary: Bytes de aplicação de um sentido
       responses:
-        "200": { description: Bytes de aplicação do sentido pedido, content: { application/octet-stream: { schema: { type: string, contentMediaType: application/octet-stream } } } }
+        "200":
+          description: Bytes crus (depois do TLS, quando houver).
+          content:
+            application/octet-stream:
+              schema: { type: string, contentMediaType: application/octet-stream }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/dns:
     get:
+      tags: [dns]
       operationId: listDNSQueries
+      summary: Consultas DNS recebidas pela zona
       parameters:
         - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
-        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: since, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
-        "200": { description: Consultas DNS, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } } } } }
+        "200":
+          description: Consultas, mais novas primeiro.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DNSQuery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/packets:
     get:
+      tags: [packets]
       operationId: listStrayPackets
+      summary: Pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto)
       parameters:
-        - { name: since, in: query, schema: { type: string, format: date-time } }
-        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: since, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - { name: until, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
         - { name: src_ip, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
-        "200": { description: Pacotes avulsos, content: { application/json: { schema: { type: array, items: { type: object } } } } }
+        "200":
+          description: Pacotes avulsos.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StrayPacket" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/stream:
     get:
+      tags: [realtime]
       operationId: streamEvents
-      description: Server-Sent Events; sem filtro = feed global.
+      summary: Tempo real por Server-Sent Events
+      description: |
+        Cada evento SSE tem `event: <kind>` e `data: <LiveEvent em JSON>`. Sem filtros = feed global.
       parameters:
-        - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
-        - { name: src_ip, in: query, schema: { type: string } }
-        - { name: dst_port, in: query, schema: { type: integer } }
-        - { name: kind, in: query, schema: { type: string } }
+        - $ref: "#/components/parameters/LiveProbe"
+        - $ref: "#/components/parameters/LiveSrcIP"
+        - $ref: "#/components/parameters/LiveDstPort"
+        - $ref: "#/components/parameters/LiveKind"
       responses:
-        "200": { description: Fluxo SSE, content: { text/event-stream: { schema: { type: string } } } }
+        "200":
+          description: Fluxo SSE; cada `data` é um LiveEvent.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/ws:
     get:
+      tags: [realtime]
       operationId: websocketEvents
-      description: WebSocket com os mesmos filtros do /stream.
+      summary: Tempo real por WebSocket
+      description: Mesmos filtros do `/stream`; cada mensagem de texto é um LiveEvent em JSON.
+      parameters:
+        - $ref: "#/components/parameters/LiveProbe"
+        - $ref: "#/components/parameters/LiveSrcIP"
+        - $ref: "#/components/parameters/LiveDstPort"
+        - $ref: "#/components/parameters/LiveKind"
       responses:
-        "101": { description: Switching Protocols }
+        "101": { description: Switching Protocols. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
   /api/v1/openapi.yaml:
     get:
+      tags: [health]
       operationId: getOpenAPI
+      summary: Este contrato
       responses:
-        "200": { description: Este contrato, content: { application/yaml: { schema: { type: string } } } }
+        "200":
+          description: OpenAPI em YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "500": { $ref: "#/components/responses/InternalError" }
+
 components:
+  parameters:
+    ProbeIDPath:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ProbeID" }
+    ConnIDPath:
+      name: conn_id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ConnID" }
+    LiveProbe: { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
+    LiveSrcIP: { name: src_ip, in: query, schema: { type: string } }
+    LiveDstPort: { name: dst_port, in: query, schema: { type: integer, minimum: 0, maximum: 65535 } }
+    LiveKind:
+      name: kind
+      in: query
+      description: Lista separada por vírgula de `LiveEvent.kind`.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Parâmetro inválido.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Desconhecido ou expirado (retenção de 10 min).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InternalError:
+      description: Erro interno.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
   schemas:
+    # ------------------------------------------------------------------ básicos
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 UTC com nanossegundos.
+      examples: ["2026-11-07T12:00:00.000000123Z"]
+    NullableTimestamp:
+      type: [string, "null"]
+      format: date-time
     ProbeID:
       type: string
       pattern: "^[a-z0-9]{8,32}$"
+    ConnID:
+      type: string
+      description: ULID.
+      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+    Base64:
+      type: string
+      contentEncoding: base64
+    Hex:
+      type: string
+      pattern: "^([0-9a-f]{2})*$"
+    Endpoint:
+      type: object
+      required: [ip, port]
+      properties:
+        ip: { type: string }
+        port: { type: integer, minimum: 0, maximum: 65535 }
+    TimedLength:
+      type: array
+      description: "[t_ms, bytes]"
+      prefixItems:
+        - { type: number }
+        - { type: integer, minimum: 0 }
+      minItems: 2
+      maxItems: 2
+    CodeName:
+      type: object
+      required: [code]
+      properties:
+        code: { type: integer }
+        name: { type: string, description: "Nome IANA legível, quando conhecido." }
+        grease: { type: boolean }
+
+    # ------------------------------------------------------------------ health
     Health:
       type: object
       required: [ok, version, services]
       properties:
         ok: { type: boolean }
         version: { type: string }
+        versions_match: { type: boolean, description: false se algum serviço roda versão diferente. }
         services:
           type: object
-          additionalProperties:
+          additionalProperties: { $ref: "#/components/schemas/ServiceHealth" }
+        host: { $ref: "#/components/schemas/HostHealth" }
+    ServiceHealth:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, degraded, down] }
+        version: { type: string }
+        commit: { type: string }
+        last_heartbeat: { $ref: "#/components/schemas/NullableTimestamp" }
+        reasons: { type: array, items: { type: string } }
+        metrics:
+          type: object
+          additionalProperties: { type: number }
+    HostHealth:
+      type: object
+      properties:
+        kernel: { type: string }
+        iface: { type: string }
+        mtu: { type: integer }
+        offloads:
+          type: object
+          additionalProperties: { type: string, enum: ["on", "off", unknown] }
+        aggregating_offload: { type: boolean }
+        sysctls:
+          type: object
+          additionalProperties: { type: string }
+        syncookies_sent: { type: integer, description: Contador do kernel (TcpExtSyncookiesSent). }
+        conntrack_loaded: { type: boolean }
+        nft_ruleset_lines: { type: integer }
+        ntp_synchronized: { type: boolean }
+        tls_server:
+          type: object
+          description: Configuração TLS fixa do espelho (spec 008 RF-06).
+          properties:
+            min_version: { type: string }
+            max_version: { type: string }
+            cipher_suites: { type: array, items: { type: string } }
+        certificates:
+          type: array
+          items:
             type: object
             properties:
-              status: { type: string, enum: [ok, degraded, down] }
-              version: { type: string }
-              last_heartbeat: { type: string, format: date-time }
-        host: { type: object, description: kernel, sysctls, offloads, certificado, disco, NTP }
-    Endpoint:
+              names: { type: array, items: { type: string } }
+              issuer: { type: string }
+              not_after: { $ref: "#/components/schemas/Timestamp" }
+              self_signed: { type: boolean }
+        store:
+          type: object
+          properties:
+            db_bytes: { type: integer }
+            max_bytes: { type: integer }
+            retention: { type: string }
+            connections: { type: integer }
+            oldest: { $ref: "#/components/schemas/NullableTimestamp" }
+
+    # ------------------------------------------------------------------ probe e conexões
+    Probe:
       type: object
+      required: [probe_id, connections, dns]
       properties:
-        ip: { type: string }
-        port: { type: integer }
+        probe_id: { $ref: "#/components/schemas/ProbeID" }
+        all_closed: { type: boolean, description: true quando todas as conexões do probe terminaram. }
+        connections: { type: array, items: { $ref: "#/components/schemas/Connection" } }
+        dns: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } }
+
     ConnectionSummary:
       type: object
+      required: [conn_id, proto, l4, family, src, dst, started]
       properties:
-        conn_id: { type: string }
-        probe_id: { type: [string, "null"] }
-        proto: { type: string }
+        conn_id: { $ref: "#/components/schemas/ConnID" }
+        probe_id: { type: [string, "null"], pattern: "^[a-z0-9]{8,32}$" }
+        proto:
+          type: string
+          description: Pilha detectada, ex. `tcp`, `http1.1`, `h2c`, `tls/http1.1`, `tls/h2`, `quic/h3`, `tls/raw`, `raw`, `dns`.
+        l4: { type: string, enum: [tcp, udp] }
+        family: { type: integer, enum: [4, 6] }
         src: { $ref: "#/components/schemas/Endpoint" }
         dst: { $ref: "#/components/schemas/Endpoint" }
-        started: { type: string, format: date-time }
-        ended: { type: [string, "null"], format: date-time }
+        started: { $ref: "#/components/schemas/Timestamp" }
+        ended: { $ref: "#/components/schemas/NullableTimestamp" }
+        requests: { type: integer, description: Requisições HTTP (h1/h2/h3) na conexão. }
+        degraded: { type: boolean }
+
     Connection:
-      description: Registro completo (specs 008–013). Esquemas detalhados na task 004.
       allOf:
         - $ref: "#/components/schemas/ConnectionSummary"
         - type: object
           properties:
-            family: { type: integer, enum: [4, 6] }
-            l4: { type: string, enum: [tcp, udp] }
-            degraded: { type: boolean }
-            times: { type: object }
-            close: { type: object }
-            ip: { type: object }
-            tcp: { type: object }
-            tls: { type: object }
-            http: { type: array, items: { type: object } }
-            http2: { type: object }
-            http3: { type: object }
-            websocket: { type: object }
-            raw: { type: object }
-    Probe:
+            pcap_truncated: { type: boolean }
+            offload_suspect: { type: boolean, description: Algum pacote veio maior que MTU + 14. }
+            times: { $ref: "#/components/schemas/Times" }
+            close: { $ref: "#/components/schemas/Close" }
+            totals: { $ref: "#/components/schemas/Totals" }
+            ip: { $ref: "#/components/schemas/IPInfo" }
+            tcp: { $ref: "#/components/schemas/TCPInfo" }
+            tls: { $ref: "#/components/schemas/TLSInfo" }
+            http: { type: array, items: { $ref: "#/components/schemas/HTTP1Request" } }
+            http2: { $ref: "#/components/schemas/HTTP2Info" }
+            http3: { $ref: "#/components/schemas/HTTP3Info" }
+            websocket: { $ref: "#/components/schemas/WebSocketInfo" }
+            raw: { $ref: "#/components/schemas/RawInfo" }
+
+    Times:
+      type: object
+      description: Spec 013 RF-01.
+      properties:
+        syn: { $ref: "#/components/schemas/NullableTimestamp" }
+        syn_ack: { $ref: "#/components/schemas/NullableTimestamp" }
+        established: { $ref: "#/components/schemas/NullableTimestamp" }
+        tls_done: { $ref: "#/components/schemas/NullableTimestamp" }
+        first_data: { $ref: "#/components/schemas/NullableTimestamp" }
+        client_fin: { $ref: "#/components/schemas/NullableTimestamp" }
+        server_fin: { $ref: "#/components/schemas/NullableTimestamp" }
+        client_rst: { $ref: "#/components/schemas/NullableTimestamp" }
+        server_rst: { $ref: "#/components/schemas/NullableTimestamp" }
+        end: { $ref: "#/components/schemas/NullableTimestamp" }
+
+    Close:
+      type: object
+      description: Spec 013 RF-02.
+      properties:
+        by: { type: string, enum: [client, server, unknown] }
+        how: { type: string, enum: [fin, rst, timeout, open] }
+        idle_before_close_ms: { type: [number, "null"] }
+        half_close: { type: boolean }
+
+    DirectionTotals:
       type: object
       properties:
-        probe_id: { $ref: "#/components/schemas/ProbeID" }
-        connections: { type: array, items: { $ref: "#/components/schemas/Connection" } }
-        dns: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } }
+        app_bytes: { type: integer }
+        segments: { type: integer }
+        data_segments: { type: integer }
+        retransmits: { type: integer }
+        out_of_order: { type: integer }
+    Totals:
+      type: object
+      properties:
+        in: { $ref: "#/components/schemas/DirectionTotals" }
+        out: { $ref: "#/components/schemas/DirectionTotals" }
+
+    IPInfo:
+      type: object
+      description: Spec 013 RF-04/RF-05 (SYN e primeiro segmento com dados; resumo do resto).
+      properties:
+        ttl: { type: integer, description: TTL (IPv4) ou hop limit (IPv6) observado. }
+        ttl_initial: { type: integer, enum: [32, 64, 128, 255] }
+        hops: { type: integer }
+        ip_id_syn: { type: [integer, "null"] }
+        ip_id_pattern: { type: string, enum: [zero, incremental, random, constant, unknown] }
+        df: { type: boolean }
+        tos: { type: integer }
+        dscp: { type: integer }
+        ecn: { type: string, enum: [not-ect, ect0, ect1, ce] }
+        options_hex: { $ref: "#/components/schemas/Hex" }
+        fragmented: { type: boolean }
+        flow_label: { type: [integer, "null"] }
+        traffic_class: { type: [integer, "null"] }
+
+    TCPOption:
+      type: array
+      description: |
+        Uma opção TCP na ordem em que chegou: `[kind, valores...]`. Ex.: `["mss",1460]`, `["nop"]`,
+        `["wscale",7]`, `["sack_perm"]`, `["ts",123456,0]`, `["tfo","<hex>"]`, `["eol"]`, `["md5","<hex>"]`,
+        `["unknown",<código>,"<hex>"]`.
+      prefixItems:
+        - type: string
+          enum: [mss, nop, wscale, sack_perm, sack, ts, tfo, eol, md5, mptcp, unknown]
+      minItems: 1
+    TCPSyn:
+      type: object
+      properties:
+        src_port: { type: integer }
+        isn: { type: integer }
+        window: { type: integer }
+        flags: { type: string, description: "Letras S, A, F, R, P, U, E (ECE), C (CWR)." }
+        urgent_ptr: { type: integer }
+        header_len: { type: integer }
+        options: { type: array, items: { $ref: "#/components/schemas/TCPOption" } }
+        payload_b64: { type: [string, "null"], contentEncoding: base64, description: Dados no SYN (TFO). }
+        tfo: { type: boolean }
+    TCPInfo:
+      type: object
+      description: Spec 013 RF-06..RF-12.
+      properties:
+        syn: { $ref: "#/components/schemas/TCPSyn" }
+        ja4t: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
+        p0f: { type: [string, "null"] }
+        os_guess: { type: [string, "null"] }
+        window_series:
+          type: array
+          description: "[t_ms, janela com escala aplicada] a cada mudança, sentido in."
+          items: { $ref: "#/components/schemas/TimedLength" }
+        ack_pattern: { type: string, enum: [delayed, immediate, mixed, unknown] }
+        psh_used: { type: boolean }
+        keepalive_probes: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
+        zero_window: { type: boolean }
+        rst_with_data: { type: boolean }
+        segments_in: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
+        segments_out: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
+        ts_clock_hz: { type: [number, "null"] }
+        ts_initial: { type: [integer, "null"] }
+        ts_clock_group: { type: [string, "null"], description: Conexões com o mesmo valor vêm do mesmo relógio (host). }
+        rtt_handshake_ms: { type: [number, "null"] }
+        rtt_app_ms: { type: [number, "null"] }
+        syn_cookie_server: { type: boolean }
+        retransmits_in: { type: integer }
+
+    # ------------------------------------------------------------------ TLS
+    TLSExtension:
+      type: object
+      required: [type]
+      properties:
+        type: { type: integer }
+        name: { type: string }
+        grease: { type: boolean }
+        data_hex: { $ref: "#/components/schemas/Hex" }
+    TLSInfo:
+      type: object
+      description: Spec 008.
+      properties:
+        client_hello_b64: { $ref: "#/components/schemas/Base64" }
+        client_hello_records: { type: integer }
+        client_hello_segments: { type: integer }
+        record_version: { type: integer }
+        handshake_version: { type: integer }
+        random_hex: { $ref: "#/components/schemas/Hex" }
+        session_id_len: { type: integer }
+        cipher_suites: { type: array, items: { $ref: "#/components/schemas/CodeName" } }
+        compression_methods: { type: array, items: { type: integer } }
+        extensions: { type: array, items: { $ref: "#/components/schemas/TLSExtension" } }
+        sni: { type: [string, "null"] }
+        alpn: { type: array, items: { type: string } }
+        supported_groups: { type: array, items: { $ref: "#/components/schemas/CodeName" } }
+        ec_point_formats: { type: array, items: { type: integer } }
+        signature_algorithms: { type: array, items: { $ref: "#/components/schemas/CodeName" } }
+        supported_versions: { type: array, items: { $ref: "#/components/schemas/CodeName" } }
+        key_share:
+          type: array
+          items:
+            type: object
+            properties:
+              group: { $ref: "#/components/schemas/CodeName" }
+              length: { type: integer }
+        psk_key_exchange_modes: { type: array, items: { type: integer } }
+        pre_shared_key: { type: boolean }
+        early_data: { type: boolean }
+        padding_len: { type: [integer, "null"] }
+        compress_certificate: { type: array, items: { type: integer } }
+        record_size_limit: { type: [integer, "null"] }
+        alps: { type: array, items: { type: string } }
+        encrypted_client_hello: { type: boolean }
+        session_ticket: { type: boolean }
+        status_request: { type: boolean }
+        delegated_credentials: { type: array, items: { $ref: "#/components/schemas/CodeName" } }
+        ja3: { type: string }
+        ja3_md5: { type: string }
+        ja3n: { type: string }
+        ja3n_md5: { type: string }
+        ja4: { type: string }
+        ja4_r: { type: string }
+        ja4_o: { type: string }
+        ja4_stable: { type: string }
+        negotiated:
+          type: [object, "null"]
+          properties:
+            version: { type: string }
+            cipher: { type: string }
+            group: { type: string }
+            alpn: { type: [string, "null"] }
+            resumed: { type: boolean }
+        handshake_ms: { type: [number, "null"] }
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              dir: { type: string, enum: [in, out] }
+              level: { type: integer }
+              description: { type: integer }
+              name: { type: string }
+
+    # ------------------------------------------------------------------ HTTP/1
+    HTTPField:
+      type: array
+      description: "`[nome na caixa original, separador literal, valor, terminador]`."
+      prefixItems:
+        - { type: string }
+        - { type: string }
+        - { type: string }
+        - { type: string, enum: [crlf, lf] }
+      minItems: 4
+      maxItems: 4
+    ProxySignal:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, examples: [via, forwarded, x-forwarded-for, proxy-authorization, absolute-form-direct, host-sni-mismatch] }
+        field: { type: [string, "null"] }
+        detail: { type: [string, "null"] }
+    Controls:
+      type: object
+      description: Controles de resposta aplicados (spec 005 RF-07).
+      properties:
+        params:
+          type: object
+          additionalProperties: { type: string }
+        clamped: { type: array, items: { type: string }, description: Parâmetros reduzidos ao teto. }
+        invalid: { type: array, items: { type: string } }
+    HTTP1Request:
+      type: object
+      description: Spec 009.
+      required: [index, raw_head_b64, request_line, fields]
+      properties:
+        index: { type: integer }
+        raw_head_b64: { $ref: "#/components/schemas/Base64" }
+        request_line:
+          type: object
+          properties:
+            method: { type: string }
+            target: { type: string }
+            form: { type: string, enum: [origin, absolute, authority, asterisk] }
+            version: { type: string }
+            terminator: { type: string, enum: [crlf, lf] }
+        fields: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
+        field_count: { type: integer }
+        head_size: { type: integer }
+        obs_fold: { type: boolean }
+        duplicates: { type: array, items: { type: string } }
+        head_too_large: { type: boolean }
+        body:
+          type: object
+          properties:
+            framing: { type: string, enum: [none, content-length, chunked, close] }
+            size: { type: integer }
+            sha256: { type: [string, "null"] }
+            raw_b64: { type: [string, "null"], contentEncoding: base64, description: Até FS_RAW_BODY_MAX_BYTES. }
+            chunks:
+              type: array
+              items:
+                type: object
+                properties:
+                  size: { type: integer }
+                  size_literal: { type: string }
+                  ext: { type: [string, "null"] }
+            trailers: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
+        expect_continue:
+          type: [object, "null"]
+          properties:
+            waited: { type: boolean }
+            wait_ms: { type: [number, "null"] }
+        pipelined: { type: boolean }
+        upgrade: { type: [string, "null"], enum: [h2c, websocket, null] }
+        t_first_byte_ms: { type: [number, "null"], description: Do fim do handshake TCP/TLS até o primeiro byte. }
+        t_since_prev_response_ms: { type: [number, "null"] }
+        proxy_signals: { type: array, items: { $ref: "#/components/schemas/ProxySignal" } }
+        controls: { $ref: "#/components/schemas/Controls" }
+        status: { type: integer }
+        response_sent_b64: { $ref: "#/components/schemas/Base64" }
+
+    # ------------------------------------------------------------------ HTTP/2
+    HPACKField:
+      type: object
+      properties:
+        name: { type: string }
+        value: { type: string }
+        repr: { type: string, enum: [indexed, literal-indexed, literal-not-indexed, literal-never-indexed] }
+        index: { type: [integer, "null"] }
+        huffman_name: { type: [boolean, "null"] }
+        huffman_value: { type: [boolean, "null"] }
+    H2Frame:
+      type: object
+      properties:
+        dir: { type: string, enum: [in, out] }
+        t_ms: { type: number }
+        type: { type: string }
+        flags: { type: integer }
+        stream_id: { type: integer }
+        length: { type: integer }
+    HTTP2Stream:
+      type: object
+      properties:
+        stream_id: { type: integer }
+        pseudo_order: { type: array, items: { type: string } }
+        fields: { type: array, items: { $ref: "#/components/schemas/HPACKField" } }
+        priority:
+          type: [object, "null"]
+          properties:
+            exclusive: { type: boolean }
+            depends_on: { type: integer }
+            weight: { type: integer }
+        end_stream: { type: boolean }
+        ja4h: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
+        status: { type: integer }
+        controls: { $ref: "#/components/schemas/Controls" }
+    HTTP2Info:
+      type: object
+      description: Spec 010.
+      properties:
+        mode: { type: string, enum: [alpn, prior-knowledge, upgrade] }
+        preface_ok: { type: boolean }
+        settings:
+          type: array
+          description: "`[id, valor]` na ordem recebida."
+          items:
+            type: array
+            prefixItems: [{ type: integer }, { type: integer }]
+            minItems: 2
+            maxItems: 2
+        window_update: { type: [integer, "null"] }
+        priorities:
+          type: array
+          items:
+            type: object
+            properties:
+              stream_id: { type: integer }
+              exclusive: { type: boolean }
+              depends_on: { type: integer }
+              weight: { type: integer }
+        priority_frames_capped: { type: boolean }
+        akamai: { type: string }
+        streams: { type: array, items: { $ref: "#/components/schemas/HTTP2Stream" } }
+        frames: { type: array, items: { $ref: "#/components/schemas/H2Frame" } }
+
+    # ------------------------------------------------------------------ HTTP/3 e QUIC
+    HTTP3Info:
+      type: object
+      description: Spec 011.
+      properties:
+        version: { type: string, description: Versão QUIC em hex. }
+        dcid_hex: { $ref: "#/components/schemas/Hex" }
+        scid_hex: { $ref: "#/components/schemas/Hex" }
+        token_len: { type: integer }
+        initial_datagram_size: { type: integer }
+        padded_to_1200: { type: boolean }
+        coalesced_packets: { type: integer }
+        transport_params:
+          type: array
+          description: "`[id, nome, valor_hex]` na ordem recebida."
+          items:
+            type: array
+            prefixItems: [{ type: integer }, { type: string }, { type: string }]
+            minItems: 3
+            maxItems: 3
+        client_hello: { $ref: "#/components/schemas/TLSInfo" }
+        h3_settings:
+          type: array
+          items:
+            type: array
+            prefixItems: [{ type: integer }, { type: integer }]
+            minItems: 2
+            maxItems: 2
+        requests:
+          type: array
+          items:
+            type: object
+            properties:
+              stream_id: { type: integer }
+              pseudo_order: { type: array, items: { type: string } }
+              fields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    value: { type: string }
+                    repr: { type: string }
+              status: { type: integer }
+              controls: { $ref: "#/components/schemas/Controls" }
+
+    # ------------------------------------------------------------------ WebSocket e raw
+    WebSocketInfo:
+      type: object
+      description: Spec 012.
+      properties:
+        over: { type: string, enum: [http1.1, h2] }
+        path: { type: string }
+        extensions: { type: [string, "null"] }
+        subprotocol: { type: [string, "null"] }
+        frames:
+          type: array
+          items:
+            type: object
+            properties:
+              dir: { type: string, enum: [in, out] }
+              t_ms: { type: number }
+              opcode: { type: integer }
+              fin: { type: boolean }
+              rsv: { type: integer, description: Bits RSV1–3. }
+              masked: { type: boolean }
+              mask_key_hex: { type: [string, "null"] }
+              length: { type: integer }
+        close:
+          type: [object, "null"]
+          properties:
+            by: { type: string, enum: [client, server] }
+            code: { type: [integer, "null"] }
+            reason: { type: [string, "null"] }
+    RawInfo:
+      type: object
+      description: Spec 006.
+      properties:
+        mode: { type: string, enum: [echo, banner, sink, source] }
+        tls: { type: boolean }
+        banner: { type: [string, "null"] }
+        probe_line: { type: [string, "null"] }
+        reads_in: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
+        writes_out: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
+        half_close:
+          type: [object, "null"]
+          properties:
+            server_sent_after_client_fin: { type: boolean }
+            bytes: { type: integer }
+
+    # ------------------------------------------------------------------ DNS e pacotes
     DNSQuery:
       type: object
-      description: Spec 007 RF-06. Esquema detalhado na task 004.
+      description: Spec 007 RF-06.
+      required: [ts, resolver, proto, qname, qtype]
       properties:
-        ts: { type: string, format: date-time }
+        ts: { $ref: "#/components/schemas/Timestamp" }
         probe_id: { type: [string, "null"] }
         resolver: { $ref: "#/components/schemas/Endpoint" }
-        qname: { type: string }
+        proto: { type: string, enum: [udp, tcp] }
+        conn_id: { type: [string, "null"], description: "Conexão TCP correlacionada, quando proto=tcp." }
+        id: { type: integer }
+        opcode: { type: integer }
+        flags:
+          type: object
+          properties:
+            rd: { type: boolean }
+            cd: { type: boolean }
+            ad: { type: boolean }
+        qname: { type: string, description: Caixa original (0x20). }
         qtype: { type: string }
+        qclass: { type: string }
+        edns:
+          type: [object, "null"]
+          properties:
+            version: { type: integer }
+            udp_size: { type: integer }
+            do: { type: boolean }
+            cookie_hex: { type: [string, "null"] }
+            ecs:
+              type: [object, "null"]
+              properties:
+                family: { type: integer }
+                source_prefix: { type: integer }
+                scope_prefix: { type: integer }
+                address: { type: string }
+            padding_len: { type: [integer, "null"] }
+            options:
+              type: array
+              items:
+                type: object
+                properties:
+                  code: { type: integer }
+                  data_hex: { $ref: "#/components/schemas/Hex" }
+        response:
+          type: object
+          properties:
+            rcode: { type: string }
+            truncated: { type: boolean }
+            answers:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  type: { type: string }
+                  ttl: { type: integer }
+                  data: { type: string }
+        rate_limited: { type: boolean }
+        raw_b64: { $ref: "#/components/schemas/Base64" }
+
+    StrayPacket:
+      type: object
+      required: [ts, dir, l4, length]
+      properties:
+        ts: { $ref: "#/components/schemas/Timestamp" }
+        dir: { type: string, enum: [in, out] }
+        l4: { type: string, enum: [tcp, udp, icmp, icmpv6, other] }
+        family: { type: integer, enum: [4, 6] }
+        src: { $ref: "#/components/schemas/Endpoint" }
+        dst: { $ref: "#/components/schemas/Endpoint" }
+        tcp_flags: { type: [string, "null"] }
+        length: { type: integer }
+        summary: { type: string }
+        frame_b64: { $ref: "#/components/schemas/Base64" }
+
+    # ------------------------------------------------------------------ tempo real
+    LiveEvent:
+      type: object
+      required: [kind, ts]
+      description: |
+        Evento do `/stream` e do `/ws`. `data` depende de `kind`: ConnectionSummary (connection.*),
+        HTTP1Request, HTTP2Stream ou requisição h3 (http.request), DNSQuery (dns.query),
+        StrayPacket (packet.stray).
+      properties:
+        kind:
+          type: string
+          enum: [connection.opened, connection.updated, connection.closed, http.request, dns.query, packet.stray]
+        ts: { $ref: "#/components/schemas/Timestamp" }
+        conn_id: { type: [string, "null"] }
+        probe_id: { type: [string, "null"] }
+        data:
+          anyOf:
+            - $ref: "#/components/schemas/ConnectionSummary"
+            - $ref: "#/components/schemas/HTTP1Request"
+            - $ref: "#/components/schemas/HTTP2Stream"
+            - $ref: "#/components/schemas/DNSQuery"
+            - $ref: "#/components/schemas/StrayPacket"

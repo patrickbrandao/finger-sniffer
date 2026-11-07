@@ -13,8 +13,9 @@ NATS para o store correlacionar e analisar. Não analisa nada além do necessár
 - RF-02: filtro BPF exclui as portas `FS_CAPTURE_EXCLUDE_PORTS` (padrão 48022, 48161, 9000, 9001) em TCP e UDP,
   origem ou destino. Todo o resto entra: TCP, UDP, ICMP/ICMPv6, fragmentos, inclusive fluxos iniciados pelo próprio
   servidor (ACME, NTP, apt).
-- RF-03: cada pacote vira um evento `fs.v1.capture.packet` com timestamp do kernel (ns UTC), direção
-  (`in`/`out`), tamanho no fio, bytes crus do frame e a 5-tupla quando houver.
+- RF-03: cada pacote vira um registro do lote `fs.v1.capture.packet` em formato binário FSPB v1 (ADR 0015):
+  timestamp do kernel (ns UTC), direção (`in`/`out`), flags, tamanho no fio e o frame Ethernet completo. A
+  5-tupla é extraída do frame pelo store.
 - RF-04: publicação em lote (agrupamento até 5 ms ou 256 pacotes) para respeitar RNF-02 com menos mensagens.
 - RF-05: se o NATS estiver fora, buffer até `FS_PRODUCER_BUFFER_MAX_AGE` (30 s) / `FS_PRODUCER_BUFFER_MAX_BYTES`
   (16 MiB); acima disso descarta e incrementa `dropped_events_total`.
@@ -47,5 +48,6 @@ Não persiste nada. Pacotes pertencem ao store após o ingest.
 
 ## Decisões relacionadas
 - specs/decisions/0004-pacotes-pelo-nats.md
+- specs/decisions/0015-lote-binario-de-pacotes.md
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0006-portas-e-api-sem-captura.md

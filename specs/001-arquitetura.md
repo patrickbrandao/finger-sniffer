@@ -70,7 +70,9 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 ## Barramento (NATS)
 - Subjects versionados `fs.v1.<origem>.<tipo>` (ex.: `fs.v1.capture.packet`, `fs.v1.web.http1.request`,
   `fs.v1.dns.query`, `fs.v1.svc.heartbeat`); request/reply `fs.v1.dns.acme.set`/`.clear` para o TXT do DNS-01.
-- Envelope comum: `schema_version`, `service`, `service_version`, `ts` (ns UTC), `flow` (5-tupla), `payload`.
+- Envelope comum (JSON): `schema_version`, `service`, `service_version`, `ts` (ns UTC), `flow` (5-tupla),
+  `probe_id`, `payload`. Exceção: o lote de pacotes `fs.v1.capture.packet` é binário (FSPB v1, envelope nos
+  cabeçalhos NATS — ADR 0015).
 - Stream JetStream `FS_EVENTS` (`fs.v1.>`), `max_age` 60 s, `max_bytes` 64 MiB, consumidor durável `store`.
 - Contrato: [eventbus/nats/asyncapi.yaml](../eventbus/nats/asyncapi.yaml); configuração:
   [eventbus/nats/nats.conf](../eventbus/nats/nats.conf).
@@ -132,3 +134,4 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 - specs/decisions/0008-zona-dns-e-acme.md
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
+- specs/decisions/0015-lote-binario-de-pacotes.md

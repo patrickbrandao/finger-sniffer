@@ -1,70 +1,168 @@
-asyncapi: 3.0.0
+asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.0.0-draft
+  version: 0.1.0
   description: |
-    Eventos internos no NATS local (ADR 0003). Subjects fs.v1.<origem>.<tipo>.
-    RASCUNHO v0: payloads detalhados definidos na task 004.
+    Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`; todos os subjects
+    `fs.v1.>` vão para o stream JetStream `FS_EVENTS` (max_age 60 s, max_bytes 64 MiB), exceto os
+    request/reply `fs.v1.dns.acme.*`, que são NATS core.
+
+    Dois formatos:
+    - **Eventos de aplicação** (JSON, `application/json`): `Envelope` com `payload` tipado. Os payloads
+      usam os mesmos esquemas da API (`cmd/finger-sniffer-store/openapi.yaml`).
+    - **Lote de pacotes** (`fs.v1.capture.packet`, binário, ADR 0015): envelope nos cabeçalhos NATS e
+      corpo no formato FSPB v1.
+
+    Compatibilidade (ADR 0001): `fs.v1.*` só recebe mudanças aditivas; campos desconhecidos são ignorados.
   license:
     name: Apache-2.0
 defaultContentType: application/json
+
 servers:
   local:
     host: 127.0.0.1:4222
     protocol: nats
+    description: Somente loopback.
+
 channels:
   capturePacket:
     address: fs.v1.capture.packet
-    messages: { packetBatch: { $ref: "#/components/messages/PacketBatch" } }
+    messages:
+      packetBatch: { $ref: "#/components/messages/PacketBatch" }
   webTLSClientHello:
     address: fs.v1.web.tls.client_hello
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      tlsClientHello: { $ref: "#/components/messages/TLSClientHello" }
   webTLSHandshake:
     address: fs.v1.web.tls.handshake
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      tlsHandshake: { $ref: "#/components/messages/TLSHandshake" }
   webHTTP1Request:
     address: fs.v1.web.http1.request
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      http1Request: { $ref: "#/components/messages/HTTP1Request" }
   webHTTP2Connection:
     address: fs.v1.web.http2.connection
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      http2Connection: { $ref: "#/components/messages/HTTP2Connection" }
   webHTTP2Stream:
     address: fs.v1.web.http2.stream
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      http2Stream: { $ref: "#/components/messages/HTTP2Stream" }
   webHTTP3Connection:
     address: fs.v1.web.http3.connection
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      http3Connection: { $ref: "#/components/messages/HTTP3Connection" }
   webWebSocketFrame:
     address: fs.v1.web.websocket.frame
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      websocketFrame: { $ref: "#/components/messages/WebSocketFrame" }
   webStreamBytes:
     address: fs.v1.web.stream.bytes
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      streamBytes: { $ref: "#/components/messages/StreamBytes" }
   rawSession:
     address: fs.v1.raw.session
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      rawSession: { $ref: "#/components/messages/RawSession" }
   rawRead:
     address: fs.v1.raw.read
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      streamBytes: { $ref: "#/components/messages/StreamBytes" }
   dnsQuery:
     address: fs.v1.dns.query
-    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+    messages:
+      dnsQuery: { $ref: "#/components/messages/DNSQuery" }
   dnsACMESet:
     address: fs.v1.dns.acme.set
-    messages: { acmeTXT: { $ref: "#/components/messages/ACMETXT" } }
+    messages:
+      acmeRequest: { $ref: "#/components/messages/ACMERequest" }
   dnsACMEClear:
     address: fs.v1.dns.acme.clear
-    messages: { acmeTXT: { $ref: "#/components/messages/ACMETXT" } }
+    messages:
+      acmeRequest: { $ref: "#/components/messages/ACMERequest" }
+  dnsACMEReply:
+    address: null
+    description: Inbox de resposta do request/reply (NATS core).
+    messages:
+      acmeReply: { $ref: "#/components/messages/ACMEReply" }
   svcHeartbeat:
     address: fs.v1.svc.heartbeat
-    messages: { heartbeat: { $ref: "#/components/messages/Heartbeat" } }
+    messages:
+      heartbeat: { $ref: "#/components/messages/Heartbeat" }
+
 operations:
-  publishPackets: { action: send, channel: { $ref: "#/channels/capturePacket" } }
-  publishHeartbeat: { action: send, channel: { $ref: "#/channels/svcHeartbeat" } }
-  requestACMESet: { action: send, channel: { $ref: "#/channels/dnsACMESet" } }
-  requestACMEClear: { action: send, channel: { $ref: "#/channels/dnsACMEClear" } }
+  publishPackets:
+    action: send
+    channel: { $ref: "#/channels/capturePacket" }
+    summary: capture publica lotes de pacotes.
+  consumePackets:
+    action: receive
+    channel: { $ref: "#/channels/capturePacket" }
+    summary: store consome (consumidor durável `store`).
+  publishTLSClientHello:
+    action: send
+    channel: { $ref: "#/channels/webTLSClientHello" }
+    summary: web e raw publicam o ClientHello analisado.
+  publishTLSHandshake:
+    action: send
+    channel: { $ref: "#/channels/webTLSHandshake" }
+  publishHTTP1Request:
+    action: send
+    channel: { $ref: "#/channels/webHTTP1Request" }
+  publishHTTP2Connection:
+    action: send
+    channel: { $ref: "#/channels/webHTTP2Connection" }
+  publishHTTP2Stream:
+    action: send
+    channel: { $ref: "#/channels/webHTTP2Stream" }
+  publishHTTP3Connection:
+    action: send
+    channel: { $ref: "#/channels/webHTTP3Connection" }
+  publishWebSocketFrame:
+    action: send
+    channel: { $ref: "#/channels/webWebSocketFrame" }
+  publishStreamBytes:
+    action: send
+    channel: { $ref: "#/channels/webStreamBytes" }
+  publishRawSession:
+    action: send
+    channel: { $ref: "#/channels/rawSession" }
+  publishRawRead:
+    action: send
+    channel: { $ref: "#/channels/rawRead" }
+  publishDNSQuery:
+    action: send
+    channel: { $ref: "#/channels/dnsQuery" }
+  requestACMESet:
+    action: send
+    channel: { $ref: "#/channels/dnsACMESet" }
+    summary: web pede ao dns para publicar o TXT do DNS-01.
+    reply:
+      channel: { $ref: "#/channels/dnsACMEReply" }
+  requestACMEClear:
+    action: send
+    channel: { $ref: "#/channels/dnsACMEClear" }
+    reply:
+      channel: { $ref: "#/channels/dnsACMEReply" }
+  publishHeartbeat:
+    action: send
+    channel: { $ref: "#/channels/svcHeartbeat" }
+    summary: Todos os serviços, a cada 5 s.
+
 components:
   schemas:
+    Flow:
+      type: object
+      description: 5-tupla do ponto de vista do cliente (src = cliente, dst = espelho).
+      required: [l4, src_ip, src_port, dst_ip, dst_port]
+      properties:
+        l4: { type: string, enum: [tcp, udp] }
+        src_ip: { type: string }
+        src_port: { type: integer }
+        dst_ip: { type: string }
+        dst_port: { type: integer }
+        quic_dcid_hex: { type: string, description: DCID do Initial (QUIC). }
     Envelope:
       type: object
       required: [schema_version, service, service_version, ts]
@@ -72,29 +170,234 @@ components:
         schema_version: { type: integer, const: 1 }
         service: { type: string, enum: [capture, web, raw, dns, store] }
         service_version: { type: string }
-        ts: { type: string, description: "RFC 3339 com nanossegundos, UTC" }
-        flow:
-          type: object
+        ts: { type: string, description: "RFC 3339 UTC com nanossegundos: quando o fato ocorreu." }
+        flow: { $ref: "#/components/schemas/Flow" }
+        probe_id: { type: [string, "null"], description: Probe já extraído pelo produtor, quando houver. }
+    StreamBytesPayload:
+      type: object
+      required: [dir, offset, data_b64]
+      properties:
+        dir: { type: string, enum: [in, out] }
+        offset: { type: integer, description: Posição no fluxo de aplicação do sentido. }
+        data_b64: { type: string, contentEncoding: base64 }
+    WebSocketFramePayload:
+      type: object
+      properties:
+        dir: { type: string, enum: [in, out] }
+        opcode: { type: integer }
+        fin: { type: boolean }
+        rsv: { type: integer }
+        masked: { type: boolean }
+        mask_key_hex: { type: [string, "null"] }
+        length: { type: integer }
+        upgrade:
+          type: [object, "null"]
+          description: Presente no primeiro frame; dados do Upgrade e extensões negociadas.
           properties:
-            l4: { type: string, enum: [tcp, udp, icmp, icmpv6, other] }
-            src_ip: { type: string }
-            src_port: { type: integer }
-            dst_ip: { type: string }
-            dst_port: { type: integer }
-        payload: { type: object }
+            over: { type: string, enum: [http1.1, h2] }
+            path: { type: string }
+            extensions: { type: [string, "null"] }
+            subprotocol: { type: [string, "null"] }
+        close:
+          type: [object, "null"]
+          properties:
+            by: { type: string, enum: [client, server] }
+            code: { type: [integer, "null"] }
+            reason: { type: [string, "null"] }
+    TLSHandshakePayload:
+      type: object
+      properties:
+        negotiated:
+          type: [object, "null"]
+          properties:
+            version: { type: string }
+            cipher: { type: string }
+            group: { type: string }
+            alpn: { type: [string, "null"] }
+            resumed: { type: boolean }
+        handshake_ms: { type: [number, "null"] }
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              dir: { type: string, enum: [in, out] }
+              level: { type: integer }
+              description: { type: integer }
+    HeartbeatPayload:
+      type: object
+      required: [status, commit, started_at]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        reasons: { type: array, items: { type: string } }
+        commit: { type: string }
+        started_at: { type: string }
+        metrics:
+          type: object
+          description: Contadores e medidas para o /metrics agregado (ex. dropped_events_total).
+          additionalProperties: { type: number }
+
+  messageTraits:
+    JSONEvent:
+      contentType: application/json
+
   messages:
     PacketBatch:
-      payload: { $ref: "#/components/schemas/Envelope" }
-      description: Lote de pacotes (até 5 ms / 256), com ts do kernel, direção, tamanho no fio e frame cru.
-    AppEvent:
-      payload: { $ref: "#/components/schemas/Envelope" }
-    ACMETXT:
+      name: PacketBatch
+      title: Lote de pacotes (FSPB v1)
+      contentType: application/octet-stream
+      summary: Até 5 ms ou 256 pacotes por mensagem (spec 003 RF-04).
+      description: |
+        Corpo binário FSPB v1 (ADR 0015), little-endian, sequência de registros:
+
+        | Campo | Tipo | Descrição |
+        | --- | --- | --- |
+        | ts_ns | u64 | timestamp do kernel, ns desde a época Unix (UTC) |
+        | dir | u8 | 0 = in (para o espelho), 1 = out (do espelho) |
+        | flags | u8 | bit0 = offload_suspect (frame > MTU + 14), bit1 = truncado pelo snaplen |
+        | reserved | u16 | zero |
+        | wire_len | u32 | tamanho no fio |
+        | cap_len | u32 | bytes capturados que seguem |
+        | frame | cap_len bytes | frame Ethernet completo (L2) |
+
+        Cabeçalho do registro: 20 bytes. A mensagem não tem cabeçalho de arquivo; o número de registros
+        vai no cabeçalho NATS `Fs-Count`.
+      headers:
+        type: object
+        required: [Fs-Schema-Version, Fs-Service, Fs-Service-Version, Fs-Format, Fs-Count]
+        properties:
+          Fs-Schema-Version: { type: string, const: "1" }
+          Fs-Service: { type: string, const: capture }
+          Fs-Service-Version: { type: string }
+          Fs-Format: { type: string, const: fspb1 }
+          Fs-Count: { type: string, description: Número de registros (decimal). }
+          Fs-Iface: { type: string }
+      payload:
+        type: string
+        format: binary
+
+    TLSClientHello:
+      name: TLSClientHello
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: ClientHello cru e analisado (spec 008), de web ou raw.
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/TLSInfo" }
+    TLSHandshake:
+      name: TLSHandshake
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "#/components/schemas/TLSHandshakePayload" }
+    HTTP1Request:
+      name: HTTP1Request
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Uma requisição HTTP/1.x e a resposta enviada (spec 009).
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP1Request" }
+    HTTP2Connection:
+      name: HTTP2Connection
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Nível de conexão h2 (prefácio, SETTINGS, PRIORITY, Akamai, frames); `streams` vazio.
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP2Info" }
+    HTTP2Stream:
+      name: HTTP2Stream
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP2Stream" }
+    HTTP3Connection:
+      name: HTTP3Connection
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Initial QUIC analisado e requisições h3 (spec 011).
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP3Info" }
+    WebSocketFrame:
+      name: WebSocketFrame
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "#/components/schemas/WebSocketFramePayload" }
+    StreamBytes:
+      name: StreamBytes
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Bytes de aplicação de um sentido (para /raw?dir=), em pedaços com offset.
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "#/components/schemas/StreamBytesPayload" }
+    RawSession:
+      name: RawSession
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Sessão TCP crua (spec 006), publicada no fim da sessão.
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/RawInfo" }
+    DNSQuery:
+      name: DNSQuery
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Consulta e resposta DNS (spec 007 RF-06).
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/DNSQuery" }
+    ACMERequest:
+      name: ACMERequest
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload:
         type: object
         required: [name, value]
         properties:
-          name: { type: string }
+          name: { type: string, description: "Nome completo, ex. _acme-challenge.dns-monitor.tmsoft.com.br." }
           value: { type: string }
+    ACMEReply:
+      name: ACMEReply
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      payload:
+        type: object
+        required: [ok]
+        properties:
+          ok: { type: boolean }
+          error: { type: [string, "null"] }
     Heartbeat:
-      payload: { $ref: "#/components/schemas/Envelope" }
-      description: A cada 5 s; payload com status, métricas resumidas e versão.
+      name: Heartbeat
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: A cada 5 s; o store marca `down` após 15 s sem heartbeat.
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "#/components/schemas/HeartbeatPayload" }
