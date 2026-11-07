@@ -11,6 +11,7 @@ Detalhe das decisões em `specs/decisions/`.
 - VPS: unit de rede (offloads off, sysctl TCP fixado), 7 units systemd + target com hardening, NATS v2.15.2 e p0f.fp com checksum, journald 24 h/200 MB, `make deploy [SVC=]` idempotente com trava remota e smoke test (task 003).
 - Contratos 0.1.0: OpenAPI com esquemas completos dos registros, AsyncAPI 3.1 com payloads, lote de pacotes binário FSPB v1 (ADR 0015), migration SQLite 00001 com cascata; validação dos contratos no verify (task 004).
 - `pkg/detect` (protocolo pelos primeiros bytes, bytes reentregues) e `pkg/probe` (probe ID em host, caminho e linha PROBE, rótulos de controle), 100% de cobertura e fuzz (task 005).
+- Spike de carga (test/spike, docs/dev/spike-carga.md): 50 conexões/s em 1 vCPU com CPU ~22%; gargalo no JetStream em arquivo (p95 ~1–2 s), resolvido com stream em memória (p95 178 ms); SQLite com BLOBs viável (task 006).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
