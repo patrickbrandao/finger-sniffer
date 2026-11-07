@@ -1,0 +1,43 @@
+{
+  "summary": "Uma conexão aberta e uma encerrada",
+  "value": [
+    {
+      "conn_id": "01M6TY2FG00000000000000002",
+      "degraded": false,
+      "dst": {
+        "ip": "172.233.24.85",
+        "port": 7700
+      },
+      "ended": null,
+      "family": 4,
+      "l4": "tcp",
+      "probe_id": null,
+      "proto": "tcp",
+      "requests": 0,
+      "src": {
+        "ip": "192.0.2.20",
+        "port": 50000
+      },
+      "started": "2026-11-07T12:00:00.000000000Z"
+    },
+    {
+      "conn_id": "01M6TY2FG00000000000000001",
+      "degraded": false,
+      "dst": {
+        "ip": "172.233.24.85",
+        "port": 7700
+      },
+      "ended": "2026-11-07T12:00:01.060000000Z",
+      "family": 4,
+      "l4": "tcp",
+      "probe_id": "t1a2b3c4",
+      "proto": "tcp",
+      "requests": 0,
+      "src": {
+        "ip": "192.0.2.10",
+        "port": 41234
+      },
+      "started": "2026-11-07T12:00:00.000000000Z"
+    }
+  ]
+}

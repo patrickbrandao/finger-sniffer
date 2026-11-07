@@ -73,6 +73,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Probe" }
+              examples:
+                probe: { $ref: "./testdata/probe-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
@@ -103,6 +105,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/ConnectionSummary" }
+              examples:
+                two: { $ref: "./testdata/connections-list-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/v1/connections/{conn_id}:
@@ -118,6 +122,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Connection" }
+              examples:
+                closed_http: { $ref: "./testdata/connection-example.json" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/connections/{conn_id}/pcap:
@@ -173,6 +179,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/DNSQuery" }
+              examples:
+                with_ecs: { $ref: "./testdata/dns-list-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/v1/packets:
@@ -193,6 +201,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StrayPacket" }
+              examples:
+                rst: { $ref: "./testdata/packets-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
 
   /api/v1/stream:

@@ -55,3 +55,14 @@ func dbStats(ctx context.Context, db *sql.DB, path string) (size int64, conns in
 	_ = db.QueryRowContext(ctx, "SELECT count(*), min(started_ns) FROM connections").Scan(&conns, &oldestNs)
 	return size, conns, oldestNs
 }
+
+// OpenReadDB abre conexões só de leitura para a API (WAL permite ler enquanto o ingest escreve).
+func OpenReadDB(path string, maxConns int) (*sql.DB, error) {
+	dsn := "file:" + path + "?_pragma=query_only(1)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(maxConns)
+	return db, nil
+}

@@ -1,0 +1,53 @@
+{
+  "summary": "Consulta A com ECS",
+  "value": [
+    {
+      "conn_id": null,
+      "edns": {
+        "cookie_hex": null,
+        "do": false,
+        "ecs": {
+          "address": "200.1.2.0",
+          "family": 1,
+          "scope_prefix": 0,
+          "source_prefix": 24
+        },
+        "options": [],
+        "padding_len": null,
+        "udp_size": 1232,
+        "version": 0
+      },
+      "flags": {
+        "ad": false,
+        "cd": false,
+        "rd": false
+      },
+      "id": 4242,
+      "opcode": 0,
+      "probe_id": "t1a2b3c4",
+      "proto": "udp",
+      "qclass": "IN",
+      "qname": "T1a2B3c4.dns-monitor.tmsoft.com.br.",
+      "qtype": "A",
+      "rate_limited": false,
+      "raw_b64": "EJIAAAABAAAAAAAB",
+      "resolver": {
+        "ip": "198.51.100.53",
+        "port": 53124
+      },
+      "response": {
+        "answers": [
+          {
+            "data": "172.233.24.85",
+            "name": "T1a2B3c4.dns-monitor.tmsoft.com.br.",
+            "ttl": 5,
+            "type": "A"
+          }
+        ],
+        "rcode": "NOERROR",
+        "truncated": false
+      },
+      "ts": "2026-11-07T11:59:59.900000000Z"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ package store
 
 import (
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -117,9 +118,12 @@ func (c *conn) isStray() bool {
 	return !c.serverSeen
 }
 
-// flowTable guarda as conexões abertas.
+// flowTable guarda as conexões abertas. É usada pelo ingest e consultada pela API (registro ao vivo).
 type flowTable struct {
+	mu          sync.Mutex
 	conns       map[flowKey]*conn
+	byID        map[string]*conn
+	newID       func(ts int64) string
 	grace       time.Duration
 	tcpIdle     time.Duration
 	udpIdle     time.Duration
@@ -131,9 +135,25 @@ type flowTable struct {
 
 func newFlowTable(tcpIdle, udpIdle, grace time.Duration, maxOpen, maxNewPerS int) *flowTable {
 	return &flowTable{
-		conns: map[flowKey]*conn{}, grace: grace, tcpIdle: tcpIdle, udpIdle: udpIdle,
-		maxOpen: maxOpen, maxNewPerS: maxNewPerS,
+		conns: map[flowKey]*conn{}, byID: map[string]*conn{}, grace: grace, tcpIdle: tcpIdle, udpIdle: udpIdle,
+		maxOpen: maxOpen, maxNewPerS: maxNewPerS, newID: newULID,
 	}
+}
+
+// newULID gera o conn_id com o instante do primeiro pacote.
+func newULID(ts int64) string {
+	return ulid.MustNew(ulid.Timestamp(time.Unix(0, ts)), ulid.DefaultEntropy()).String()
+}
+
+// live devolve o registro atual de uma conexão ainda aberta.
+func (t *flowTable) live(id string) (connectionJSON, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	c, ok := t.byID[id]
+	if !ok {
+		return connectionJSON{}, false
+	}
+	return c.record(0, ""), true
 }
 
 // result descreve o que o ingest deve fazer com um pacote.
@@ -146,6 +166,8 @@ type result struct {
 
 // handle correlaciona um pacote (spec 004 RF-02/RF-03).
 func (t *flowTable) handle(fi frameInfo, ts int64) result {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if !fi.ok || !fi.ports || (fi.proto != protoTCP && fi.proto != protoUDP) {
 		return result{stray: true}
 	}
@@ -157,6 +179,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	// Um SYN novo sobre uma conexão que já fechou abre outra conexão (reuso da 5-tupla).
 	if c != nil && isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))) {
 		delete(t.conns, k)
+		delete(t.byID, c.id)
 		res.ended, c = c, nil
 	}
 	if c == nil {
@@ -165,11 +188,12 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 			return result{stray: true, ended: res.ended}
 		}
 		c = &conn{
-			id: ulid.MustNew(ulid.Timestamp(time.Unix(0, ts)), ulid.DefaultEntropy()).String(),
+			id: t.newID(ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
 		}
 		c.degraded = t.overloaded(ts)
 		t.conns[k] = c
+		t.byID[c.id] = c
 		res.created = true
 	}
 	c.observe(fi, ts, t.grace)
@@ -188,6 +212,8 @@ func (t *flowTable) overloaded(ts int64) bool {
 
 // due tira da tabela e devolve as conexões que terminaram (fechamento + folga, ou ociosidade).
 func (t *flowTable) due(now int64) []*conn {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	var out []*conn
 	for k, c := range t.conns {
 		idle := t.tcpIdle
@@ -197,10 +223,15 @@ func (t *flowTable) due(now int64) []*conn {
 		if (c.closing() && now >= c.closeAt) || now-c.lastSeen > idle.Nanoseconds() {
 			out = append(out, c)
 			delete(t.conns, k)
+			delete(t.byID, c.id)
 		}
 	}
 	return out
 }
 
 // open devolve quantas conexões estão abertas.
-func (t *flowTable) open() int { return len(t.conns) }
+func (t *flowTable) open() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.conns)
+}
