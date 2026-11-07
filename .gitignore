@@ -26,6 +26,8 @@ coverage.*
 .env
 *.env
 !.env.example
+# Versões fixadas do deploy (não é segredo)
+!deploy/versions.env
 *.key
 *.pem
 !**/testdata/**/*.pem
