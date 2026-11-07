@@ -47,6 +47,10 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+              examples:
+                # Gerado pelo próprio handler (internal/store TestHealthExample) e validado contra o schema
+                # no verify (redocly, no-invalid-media-type-examples).
+                all_up: { $ref: "./testdata/health-example.json" }
         "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/probes/{id}:

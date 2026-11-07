@@ -1,5 +1,4 @@
-// Comando finger-sniffer-store: stub do serviço store (task 001).
-// Por enquanto só identifica a versão e aguarda o sinal de parada, para o systemd manter a unit ativa.
+// Comando finger-sniffer-store: dono dos registros, API e health (spec 004).
 package main
 
 import (
@@ -7,17 +6,17 @@ import (
 	_ "embed"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/store"
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
 const serviceName = "finger-sniffer-store"
 
-// openAPISpec é o contrato da API (spec 004), embutido para ser servido em /api/v1/openapi.yaml (task 007).
+// openAPISpec é o contrato da API (spec 004), servido em /api/v1/openapi.yaml.
 //
 //go:embed openapi.yaml
 var openAPISpec []byte
@@ -25,19 +24,28 @@ var openAPISpec []byte
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
-
 	if *showVersion {
 		fmt.Println(version.String(serviceName))
 		return
 	}
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, serviceName+":", err)
+		os.Exit(1)
+	}
+}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("service started", "service", serviceName, "version", version.Version, "commit", version.Commit, "stub", true, "openapi_bytes", len(openAPISpec))
-
-	// Aguarda SIGINT/SIGTERM (systemd stop) para encerrar de forma limpa.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
-
-	logger.Info("service stopped", "service", serviceName)
+func run() error {
+	svc, err := service.New(event.ServiceStore)
+	if err != nil {
+		return err
+	}
+	cfg, err := store.LoadConfig()
+	if err != nil {
+		return err
+	}
+	st, err := store.New(context.Background(), svc, cfg, openAPISpec)
+	if err != nil {
+		return err
+	}
+	return svc.Run(st.Run)
 }

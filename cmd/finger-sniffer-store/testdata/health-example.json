@@ -1,0 +1,87 @@
+{
+  "summary": "Todos os serviços no ar",
+  "value": {
+    "ok": true,
+    "version": "0.1.0",
+    "versions_match": true,
+    "services": {
+      "capture": {
+        "status": "ok",
+        "version": "0.1.0",
+        "commit": "abc1234",
+        "last_heartbeat": "2026-11-07T12:00:00.000000000Z",
+        "metrics": {
+          "dropped_events_total": 0,
+          "published_events_total": 42
+        }
+      },
+      "dns": {
+        "status": "ok",
+        "version": "0.1.0",
+        "commit": "abc1234",
+        "last_heartbeat": "2026-11-07T12:00:00.000000000Z",
+        "metrics": {
+          "dropped_events_total": 0,
+          "published_events_total": 42
+        }
+      },
+      "raw": {
+        "status": "ok",
+        "version": "0.1.0",
+        "commit": "abc1234",
+        "last_heartbeat": "2026-11-07T12:00:00.000000000Z",
+        "metrics": {
+          "dropped_events_total": 0,
+          "published_events_total": 42
+        }
+      },
+      "store": {
+        "status": "ok",
+        "version": "0.1.0",
+        "commit": "abc1234",
+        "last_heartbeat": "2026-11-07T12:00:00.000000000Z",
+        "metrics": {
+          "dropped_events_total": 0,
+          "published_events_total": 42
+        }
+      },
+      "web": {
+        "status": "ok",
+        "version": "0.1.0",
+        "commit": "abc1234",
+        "last_heartbeat": "2026-11-07T12:00:00.000000000Z",
+        "metrics": {
+          "dropped_events_total": 0,
+          "published_events_total": 42
+        }
+      }
+    },
+    "host": {
+      "kernel": "6.12.115+deb13.1-amd64",
+      "iface": "eth0",
+      "mtu": 1500,
+      "offloads": {
+        "generic-receive-offload": "off",
+        "rx-gro-hw": "off",
+        "tcp-segmentation-offload": "off"
+      },
+      "aggregating_offload": false,
+      "sysctls": {
+        "net.core.somaxconn": "4096",
+        "net.ipv4.ip_local_port_range": "32768 60999",
+        "net.ipv4.tcp_syncookies": "1"
+      },
+      "syncookies_sent": 3,
+      "conntrack_loaded": false,
+      "nft_ruleset_lines": 0,
+      "ntp_synchronized": true,
+      "store": {
+        "db_bytes": 1048576,
+        "max_bytes": 2147483648,
+        "retention": "10m",
+        "connections": 0,
+        "oldest": null
+      }
+    }
+  }
+}

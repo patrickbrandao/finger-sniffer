@@ -13,6 +13,7 @@ Detalhe das decisões em `specs/decisions/`.
 - `pkg/detect` (protocolo pelos primeiros bytes, bytes reentregues) e `pkg/probe` (probe ID em host, caminho e linha PROBE, rótulos de controle), 100% de cobertura e fuzz (task 005).
 - Spike de carga (test/spike, docs/dev/spike-carga.md): 50 conexões/s em 1 vCPU com CPU ~22%; gargalo no JetStream em arquivo (p95 ~1–2 s), resolvido com stream em memória (p95 178 ms); SQLite com BLOBs viável (task 006).
 - ADRs 0004 e 0005 aceitas; ADR 0016: stream FS_EVENTS em memória (32 MiB) e NATS com MemoryMax 192M (task 006).
+- `pkg/event` (envelope v1, FSPB v1), `pkg/service` (config FS_*, slog JSON, NATS com reconexão, buffer 30 s/16 MiB, heartbeat 5 s); store mínimo: SQLite migrado, stream FS_EVENTS em memória, `/api/v1/health`, `/api/v1/openapi.yaml` e `/metrics` na 9001; os 5 serviços publicam heartbeat (task 007).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).

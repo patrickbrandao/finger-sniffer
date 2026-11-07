@@ -1,0 +1,6 @@
+# Configuração do Redocly CLI usado no verify (passo "contratos").
+extends:
+  - recommended
+rules:
+  # Exemplos do contrato (ex.: health gerado pelo handler) precisam validar contra o schema.
+  no-invalid-media-type-examples: error
