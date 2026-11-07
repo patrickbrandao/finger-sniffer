@@ -19,3 +19,4 @@ reaberta diante de um fato novo, com uma nova ADR que a substitui.
 | [0012](0012-retencao-curta.md) | Retenção curta, logs e sem backup | aceita | 10 min / 2 GiB, journald 24 h / 200 MB, sem backup |
 | [0013](0013-verificacao-dois-niveis.md) | Verificação em dois níveis | aceita | verify quick/full, níveis de teste, cobertura, lint, CI, deploy local |
 | [0014](0014-organizacao-agentes.md) | Organização dos agentes | aceita | Claude Code, 10 papéis, propriedade, Git, DoD, escalonamento |
+| [0015](0015-lote-binario-de-pacotes.md) | Lote de pacotes binário (FSPB v1) | aceita | formato binário de fs.v1.capture.packet, envelope nos cabeçalhos NATS |

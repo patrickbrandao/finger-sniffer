@@ -24,7 +24,9 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 - RF-07: roda todos os passos; código de saída ≠ 0 se algum falhar.
 
 ### Nível completo (sob pedido, antes de PR e de release; CI sempre)
-- RF-08: `golangci-lint run ./...`, `gofumpt -l`, `go vet ./...`, `go test -race -cover ./...` (banco isolado:
+- RF-08: `golangci-lint run ./...`, `gofumpt -l`, `go vet ./...`, validação dos contratos (`openapi.yaml` com
+  Redocly CLI e `asyncapi.yaml` com AsyncAPI CLI, via `npx`, versões fixadas; erros falham, avisos não — no quick,
+  só quando um dos dois mudou), `go test -race -cover ./...` (banco isolado:
   arquivo SQLite temporário novo migrado do zero), metas de cobertura (≥ 80% em `pkg/{detect,probe,tlsparse,h1,
   h2passive,quicparse,fingerprint}`, ≥ 60% total), fuzz curto (10 s por alvo), `govulncheck ./...`,
   build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados na vps602 por ssh.

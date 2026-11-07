@@ -26,6 +26,11 @@ TEMPLATE_DB="tmp/testdb/template.sqlite"
 COVER_STRICT_PKGS="pkg/detect pkg/probe pkg/tlsparse pkg/h1 pkg/h2passive pkg/quicparse pkg/fingerprint"
 COVER_STRICT_MIN=80
 COVER_TOTAL_MIN=60
+OPENAPI_FILE="cmd/finger-sniffer-store/openapi.yaml"
+ASYNCAPI_FILE="eventbus/nats/asyncapi.yaml"
+# Validadores dos contratos (Node, via npx; versões fixadas)
+REDOCLY_CLI="@redocly/cli@2.76.0"
+ASYNCAPI_CLI="@asyncapi/cli@6.3.0"
 FUZZ_TIME="${FS_FUZZ_TIME:-10s}"
 VPS_SSH="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
@@ -171,6 +176,21 @@ prepare_test_db() {
 	return 0
 }
 
+# Valida openapi.yaml (Redocly) e asyncapi.yaml (AsyncAPI CLI). Erros falham; avisos não.
+contracts_check() {
+	local rc=0
+	command -v npx >/dev/null || {
+		echo "npx não encontrado (instale Node.js para validar os contratos)"
+		return 1
+	}
+	export REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true
+	npx -y "$REDOCLY_CLI" lint --format=summary "$OPENAPI_FILE" || rc=1
+	# Sem telemetria do AsyncAPI CLI (preferência de privacidade)
+	npx -y "$ASYNCAPI_CLI" config analytics --disable >/dev/null 2>&1 || true
+	npx -y "$ASYNCAPI_CLI" validate "$ASYNCAPI_FILE" --fail-severity=error || rc=1
+	return $rc
+}
+
 gofumpt_check() {
 	local out
 	out=$(gofumpt -l "$@")
@@ -202,6 +222,7 @@ verify_quick() {
 	pkgs=$(packages_of_dirs $dirs)
 	migrations_changed=$(echo "$files" | grep -c "^$MIGRATIONS_DIR/" || true)
 	gomod_changed=$(echo "$files" | grep -cE '^go\.(mod|sum)$' || true)
+	contracts_changed=$(echo "$files" | grep -cE "^($OPENAPI_FILE|$ASYNCAPI_FILE)\$" || true)
 
 	echo "== verify quick"
 	echo "arquivos alterados: $(echo "$files" | grep -c . || true); pacotes afetados: $(echo "$pkgs" | grep -c . || true)"
@@ -250,7 +271,14 @@ verify_quick() {
 		record "banco-modelo sqlite" fail "$start"
 	fi
 
-	# 4. testes ligados ao que mudou (ou os explícitos)
+	# 4. contratos, só se mudaram
+	if [ "$contracts_changed" -gt 0 ]; then
+		run_step "contratos (alterados)" contracts_check
+	else
+		skip_step "contratos (alterados)" "openapi/asyncapi sem mudança"
+	fi
+
+	# 5. testes ligados ao que mudou (ou os explícitos)
 	if [ ${#explicit[@]} -gt 0 ]; then
 		run_step "testes (explícitos)" go test "${explicit[@]}"
 	else
@@ -375,6 +403,7 @@ verify_full() {
 	run_step "format" gofumpt_check .
 	run_step "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
+	run_step "contratos" contracts_check
 	run_step "testes -race + cobertura" full_tests
 
 	if has_fuzz; then
