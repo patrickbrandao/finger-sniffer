@@ -1,12 +1,13 @@
-// Comando finger-sniffer-capture: stub do serviço capture. Na F1 só publica heartbeat (task 007); a função do
-// serviço chega nas fases seguintes do PLAN.
+// Comando finger-sniffer-capture: captura AF_PACKET da eth0 e publica lotes FSPB v1 no NATS (spec 003).
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/capture"
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -21,12 +22,20 @@ func main() {
 		fmt.Println(version.String(serviceName))
 		return
 	}
-	svc, err := service.New(event.ServiceCapture)
-	if err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, serviceName+":", err)
 		os.Exit(1)
 	}
-	if err := svc.Run(nil); err != nil {
-		os.Exit(1)
+}
+
+func run() error {
+	cfg, err := capture.LoadConfig()
+	if err != nil {
+		return err
 	}
+	svc, err := service.New(event.ServiceCapture)
+	if err != nil {
+		return err
+	}
+	return svc.Run(func(ctx context.Context) error { return capture.Run(ctx, svc, cfg) })
 }
