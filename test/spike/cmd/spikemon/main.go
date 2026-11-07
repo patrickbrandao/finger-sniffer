@@ -95,11 +95,13 @@ func read(want []string) map[string]sample {
 	out := map[string]sample{}
 	dirs, _ := filepath.Glob("/proc/[0-9]*")
 	for _, d := range dirs {
-		comm, err := os.ReadFile(d + "/comm") //nolint:gosec // caminho em /proc
-		if err != nil {
+		// Nome pelo executável no cmdline: o comm é cortado em 15 caracteres
+		// (finger-sniffer-capture e finger-sniffer-store ficariam iguais).
+		cmd, err := os.ReadFile(d + "/cmdline") //nolint:gosec // caminho em /proc
+		if err != nil || len(cmd) == 0 {
 			continue
 		}
-		name := strings.TrimSpace(string(comm))
+		name := filepath.Base(strings.SplitN(string(cmd), "\x00", 2)[0])
 		match := false
 		for _, w := range want {
 			if name == w {

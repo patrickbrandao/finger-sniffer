@@ -14,7 +14,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC por 4-tupla + DCID; associação ao
   probe assim que o ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
 - RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto) ficam como "pacotes
-  avulsos", consultáveis por janela de tempo.
+  avulsos", consultáveis por janela de tempo. Regra: fluxo TCP que nunca completou o handshake (sem SYN-ACK — inclui
+  SYN recusado com RST e varreduras) e fluxo UDP sem nenhuma resposta viram avulsos quando terminam.
 - RF-04: pcap por conexão (dois sentidos), teto `FS_PCAP_MAX_BYTES_PER_CONN` (16 MiB); acima disso guarda só os
   cabeçalhos dos pacotes e marca `pcap_truncated`.
 - RF-05: persistência em SQLite (modernc, WAL) — registros, índices e **BLOBs** (pcap, bytes crus de cada sentido).
