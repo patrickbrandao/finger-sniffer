@@ -1,0 +1,23 @@
+{
+  "summary": "RST sem conexão",
+  "value": [
+    {
+      "dir": "in",
+      "dst": {
+        "ip": "172.233.24.85",
+        "port": 7700
+      },
+      "family": 4,
+      "frame_b64": "AAAAAAAAAAAAAAAACABFAAAoAAAAAEAGAADAAAIKrOkYVaESHhQAAAAAAAAAAFAEAAAAAAAA",
+      "l4": "tcp",
+      "length": 54,
+      "src": {
+        "ip": "192.0.2.10",
+        "port": 41234
+      },
+      "summary": "tcp 192.0.2.10 \u003e 172.233.24.85 [R]",
+      "tcp_flags": "R",
+      "ts": "2026-11-07T12:00:06.000000000Z"
+    }
+  ]
+}

@@ -80,8 +80,11 @@ func LoadConfig() (Config, error) {
 type Store struct {
 	cfg     Config
 	svc     *service.Service
-	db      *sql.DB
+	db      *sql.DB // escrita (ingest, retenção, DELETE)
+	rdb     *sql.DB // leitura (API)
 	tracker *Tracker
+	ingest  *Ingestor
+	queries *Queries
 	openapi []byte
 }
 
@@ -91,7 +94,14 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{cfg: cfg, svc: svc, db: db, tracker: NewTracker(event.Services, cfg.DownAfter), openapi: openapi}
+	rdb, err := OpenReadDB(cfg.DBPath, 4)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	s := &Store{cfg: cfg, svc: svc, db: db, rdb: rdb, tracker: NewTracker(event.Services, cfg.DownAfter), openapi: openapi}
+	s.ingest = NewIngestor(db, cfg.Ingest, svc.Log, svc.Metrics)
+	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
 	svc.SetStatus(func() (string, []string) {
 		if _, reasons := ReadHost(cfg.Host); len(reasons) > 0 {
@@ -118,7 +128,7 @@ func (s *Store) HealthAt(ctx context.Context, now time.Time) Health {
 
 // Run cria o stream, assina os heartbeats e serve a API até ctx terminar.
 func (s *Store) Run(ctx context.Context) error {
-	defer func() { _ = s.db.Close() }()
+	defer func() { _ = s.db.Close(); _ = s.rdb.Close() }()
 
 	sub, err := s.svc.NC.Subscribe(event.SubjectHeartbeat, func(m *nats.Msg) {
 		if err := s.tracker.Observe(m.Data, time.Now()); err != nil {
@@ -136,14 +146,13 @@ func (s *Store) Run(ctx context.Context) error {
 		if cons == nil {
 			return
 		}
-		in := NewIngestor(s.db, s.cfg.Ingest, s.svc.Log, s.svc.Metrics)
-		if err := in.Run(ctx, cons); err != nil {
+		if err := s.ingest.Run(ctx, cons); err != nil {
 			s.svc.Log.Error("ingest stopped", "err", err)
 		}
 	}()
 	go s.retentionLoop(ctx)
 
-	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now}
+	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db}
 	srv := &http.Server{
 		Addr: s.cfg.HTTPAddr, Handler: api.Handler(),
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
