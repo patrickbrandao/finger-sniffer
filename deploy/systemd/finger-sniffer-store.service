@@ -1,0 +1,40 @@
+# Serviço store (spec 001, spec 016 RF-05..RF-07).
+[Unit]
+Description=finger-sniffer: store
+After=finger-sniffer-net.service finger-sniffer-nats.service
+Wants=finger-sniffer-nats.service
+PartOf=finger-sniffer.target
+
+[Service]
+Type=simple
+User=finger-sniffer
+Group=finger-sniffer
+EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env
+ExecStart=/finger-sniffer/bin/finger-sniffer-store
+Restart=always
+RestartSec=2
+RestartSteps=5
+RestartMaxDelaySec=30
+Environment=GOMEMLIMIT=320MiB
+MemoryMax=384M
+LimitNOFILE=65536
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/finger-sniffer/var
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=finger-sniffer.target

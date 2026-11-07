@@ -1,0 +1,16 @@
+# Offloads e sysctl antes de tudo (spec 016 RF-01..RF-04, ADR 0011).
+[Unit]
+Description=finger-sniffer: preparação da rede (offloads, sysctl)
+After=network.target
+Before=finger-sniffer-nats.service finger-sniffer-store.service finger-sniffer-capture.service
+Before=finger-sniffer-web.service finger-sniffer-raw.service finger-sniffer-dns.service
+PartOf=finger-sniffer.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/finger-sniffer/etc/finger-sniffer.env
+ExecStart=/finger-sniffer/deploy/net/finger-sniffer-net.sh
+
+[Install]
+WantedBy=finger-sniffer.target

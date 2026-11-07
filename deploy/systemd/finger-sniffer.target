@@ -1,0 +1,8 @@
+# Agrupa todas as units do finger-sniffer (spec 016 RF-05).
+[Unit]
+Description=finger-sniffer (espelho de análise de conexões)
+Wants=finger-sniffer-net.service finger-sniffer-nats.service finger-sniffer-store.service
+Wants=finger-sniffer-capture.service finger-sniffer-web.service finger-sniffer-raw.service finger-sniffer-dns.service
+
+[Install]
+WantedBy=multi-user.target
