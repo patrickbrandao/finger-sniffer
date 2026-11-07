@@ -10,7 +10,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 
 ## Requisitos
 - RF-01: consumidor durável `store` do stream JetStream `FS_EVENTS`; cria/ajusta o stream no start
-  (`max_age` 60 s, `max_bytes` 64 MiB).
+  (`MemoryStorage`, `max_age` 60 s, `max_bytes` 32 MiB, `DiscardOld` — ADR 0016).
 - RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC por 4-tupla + DCID; associação ao
   probe assim que o ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
 - RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto) ficam como "pacotes

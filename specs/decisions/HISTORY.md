@@ -7,9 +7,9 @@ reaberta diante de um fato novo, com uma nova ADR que a substitui.
 | --- | --- | --- | --- |
 | [0001](0001-decisoes-iniciais.md) | Decisões iniciais (agrupadas) | aceita | nome, escopo genérico, uso do fingerproxy como referência, MVP com h3, metas numéricas, fora de escopo, rotas, tetos, modos raw, tipos DNS, endereços, SemVer, compatibilidade, config, observabilidade, ambiente único, ameaças, sem limite por IP |
 | [0002](0002-arquitetura-cinco-servicos.md) | Cinco serviços, um binário cada | aceita | capture, web, raw, dns, store; units e binários próprios |
-| [0003](0003-nats-jetstream.md) | NATS local com JetStream | aceita | barramento, subjects fs.v1, stream FS_EVENTS, buffer do produtor |
-| [0004](0004-pacotes-pelo-nats.md) | Pacotes pelo NATS; IP/TCP no store | provisória | todos os pacotes publicados; store analisa; captura inclui tráfego do servidor |
-| [0005](0005-sqlite-com-blobs.md) | SQLite com BLOBs e goose | provisória | modernc sqlite, BLOBs, migrations, teto 2 GiB, MemoryMax |
+| [0003](0003-nats-jetstream.md) | NATS local com JetStream | aceita (stream: ver 0016) | barramento, subjects fs.v1, stream FS_EVENTS, buffer do produtor |
+| [0004](0004-pacotes-pelo-nats.md) | Pacotes pelo NATS; IP/TCP no store | aceita | todos os pacotes publicados; store analisa; captura inclui tráfego do servidor (confirmada pelo spike) |
+| [0005](0005-sqlite-com-blobs.md) | SQLite com BLOBs e goose | aceita | modernc sqlite, BLOBs, migrations, teto 2 GiB, MemoryMax |
 | [0006](0006-portas-e-api-sem-captura.md) | Portas capturadas e API sem captura | aceita | lista de portas, 9000 HTTPS / 9001 HTTP, exclusões do BPF |
 | [0007](0007-api-aberta-e-feed-global.md) | API aberta e feed global | aceita | sem autenticação, feed global, risco de dados de terceiros |
 | [0008](0008-zona-dns-e-acme.md) | Zona dos probes e ACME embutido | aceita | dns-monitor, certmagic, DNS-01 próprio, HTTP-01, falhas |
@@ -20,3 +20,4 @@ reaberta diante de um fato novo, com uma nova ADR que a substitui.
 | [0013](0013-verificacao-dois-niveis.md) | Verificação em dois níveis | aceita | verify quick/full, níveis de teste, cobertura, lint, CI, deploy local |
 | [0014](0014-organizacao-agentes.md) | Organização dos agentes | aceita | Claude Code, 10 papéis, propriedade, Git, DoD, escalonamento |
 | [0015](0015-lote-binario-de-pacotes.md) | Lote de pacotes binário (FSPB v1) | aceita | formato binário de fs.v1.capture.packet, envelope nos cabeçalhos NATS |
+| [0016](0016-stream-em-memoria.md) | Stream FS_EVENTS em memória | aceita | stream em memória de 32 MiB (resultado do spike), MemoryMax 192M no NATS |

@@ -1,7 +1,7 @@
 # 0004 — Todos os pacotes pelo NATS; análise IP/TCP no store
 
-Status: provisória (revisar se o spike de carga da task 006 ou o teste de carga da F5 não atingir RNF-01..04 da
-spec 000 por CPU/RAM do NATS ou do store)
+Status: aceita (confirmada pelo spike da task 006 em 2026-11-07: CPU média de 22% a 50 conexões/s; ver
+`docs/dev/spike-carga.md`)
 Data: 2026-11-07
 
 ## Contexto

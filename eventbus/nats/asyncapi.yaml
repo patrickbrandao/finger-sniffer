@@ -4,7 +4,7 @@ info:
   version: 0.1.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`; todos os subjects
-    `fs.v1.>` vão para o stream JetStream `FS_EVENTS` (max_age 60 s, max_bytes 64 MiB), exceto os
+    `fs.v1.>` vão para o stream JetStream `FS_EVENTS` (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016), exceto os
     request/reply `fs.v1.dns.acme.*`, que são NATS core.
 
     Dois formatos:
