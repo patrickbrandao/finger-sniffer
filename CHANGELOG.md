@@ -5,6 +5,9 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+### Adicionado
+- Esqueleto: go.mod, 5 stubs de serviço com `-version`, Makefile (build estático, lint, tools), golangci-lint v2, lefthook, LICENSE Apache-2.0, NOTICE (task 001).
+
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
 - 5 serviços (capture, web, raw, dns, store), 1 binário cada, Go 1.27 estático (ADR 0002, 0009).

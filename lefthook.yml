@@ -1,0 +1,10 @@
+# Hooks do Git (ADR 0013). Instalar com: make tools && lefthook install
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: gofumpt -l {staged_files} | (! grep .)
+    lint:
+      glob: "*.go"
+      run: golangci-lint run --new-from-rev=HEAD

@@ -1,0 +1,22 @@
+finger-sniffer
+Copyright 2026 Patrick Brandão
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes techniques and code adapted from the following projects:
+
+- Fingerproxy (https://github.com/wi1dcard/fingerproxy)
+  Copyright 2024 Weizhe Sun. Licensed under the Apache License, Version 2.0.
+
+- JA4 TLS client fingerprint (https://github.com/FoxIO-LLC/ja4)
+  Copyright (c) 2023 FoxIO. Licensed under the BSD 3-Clause License.
+
+- JA3 (https://github.com/salesforce/ja3)
+  Copyright (c) 2017, Salesforce.com, Inc. Licensed under the BSD 3-Clause License.
+
+JA4+ methods other than JA4 (such as JA4T and JA4H), kept in pkg/fingerprint/ja4plus,
+are licensed under the FoxIO License 1.1 (https://github.com/FoxIO-LLC/ja4/blob/main/License%20FAQ.md),
+which restricts commercial use. See that directory for details.
+
+The p0f fingerprint database (p0f.fp) is distributed separately as a data file under
+the GNU Lesser General Public License 2.1 and is not embedded in the binaries.
