@@ -308,21 +308,32 @@ verify_quick() {
 # Nível completo
 # ---------------------------------------------------------------------------
 coverage_check() {
-	local out="$1" fail=0 p line pct total
-	# Por pacote: os pacotes de parsers/fingerprints exigem >= 80% (só os que existem).
+	local out="$1" fail=0 p line lines pkg pct total
+	# Por pacote: os pacotes de parsers/fingerprints exigem >= 80% (só os que existem). Cada item vale para o
+	# pacote e para os subpacotes com testes (pkg/fingerprint/ja4plus, pkg/fingerprint/p0f…); pacotes só de
+	# apoio a testes, sem arquivos _test.go, não contam.
 	for p in $COVER_STRICT_PKGS; do
 		[ -d "$p" ] || continue
-		line=$(grep -E "[[:space:]]$MODULE/$p[[:space:]]" "$out" | head -1)
-		pct=$(echo "$line" | sed -nE 's/.*coverage: ([0-9.]+)%.*/\1/p')
-		if [ -z "$pct" ]; then
+		lines=$(grep -E "^ok[[:space:]]+$MODULE/$p(/[^[:space:]]+)?[[:space:]]" "$out" || true)
+		if [ -z "$lines" ]; then
 			echo "cobertura: sem dado para $p"
 			fail=1
-		elif awk "BEGIN{exit !($pct < $COVER_STRICT_MIN)}"; then
-			echo "cobertura: $p = $pct% (< $COVER_STRICT_MIN%)"
-			fail=1
-		else
-			echo "cobertura: $p = $pct%"
+			continue
 		fi
+		while read -r line; do
+			pkg=$(echo "$line" | awk '{print $2}')
+			pkg=${pkg#"$MODULE/"}
+			pct=$(echo "$line" | sed -nE 's/.*coverage: ([0-9.]+)%.*/\1/p')
+			if [ -z "$pct" ]; then
+				echo "cobertura: sem dado para $pkg"
+				fail=1
+			elif awk "BEGIN{exit !($pct < $COVER_STRICT_MIN)}"; then
+				echo "cobertura: $pkg = $pct% (< $COVER_STRICT_MIN%)"
+				fail=1
+			else
+				echo "cobertura: $pkg = $pct%"
+			fi
+		done <<<"$lines"
 	done
 	# Total: >= 60%, sem contar cmd/ (funções main não são testáveis por unidade).
 	grep -v "^mode:" "$WORK/cover.out" | grep -v "^$MODULE/cmd/" >"$WORK/cover.nocmd"
