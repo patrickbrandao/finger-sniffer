@@ -1,0 +1,180 @@
+openapi: 3.1.0
+info:
+  title: finger-sniffer API
+  version: 0.0.0-draft
+  description: |
+    API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007).
+    Servida em 9000 (HTTPS) e 9001 (HTTP), fora da captura.
+    RASCUNHO v0: esquemas completos dos registros são definidos na task 004.
+  license:
+    name: Apache-2.0
+servers:
+  - url: https://vps602.tmsoft.com.br:9000
+  - url: http://vps602.tmsoft.com.br:9001
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: Saúde agregada por serviço.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+  /api/v1/probes/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { $ref: "#/components/schemas/ProbeID" } }
+    get:
+      operationId: getProbe
+      parameters:
+        - { name: wait, in: query, schema: { type: string, examples: ["10s"] } }
+      responses:
+        "200": { description: Conexões e consultas DNS do probe, content: { application/json: { schema: { $ref: "#/components/schemas/Probe" } } } }
+        "404": { description: Probe desconhecido ou expirado }
+    delete:
+      operationId: deleteProbe
+      responses:
+        "204": { description: Apagado }
+  /api/v1/connections:
+    get:
+      operationId: listConnections
+      parameters:
+        - { name: src_ip, in: query, schema: { type: string } }
+        - { name: dst_port, in: query, schema: { type: integer } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 1000 } }
+      responses:
+        "200": { description: Lista resumida, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/ConnectionSummary" } } } } }
+  /api/v1/connections/{conn_id}:
+    parameters:
+      - { name: conn_id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getConnection
+      responses:
+        "200": { description: Registro completo, content: { application/json: { schema: { $ref: "#/components/schemas/Connection" } } } }
+        "404": { description: Desconhecida ou expirada }
+  /api/v1/connections/{conn_id}/pcap:
+    parameters:
+      - { name: conn_id, in: path, required: true, schema: { type: string } }
+    get:
+      operationId: getConnectionPcap
+      responses:
+        "200": { description: pcap da conexão, content: { application/vnd.tcpdump.pcap: { schema: { type: string, contentMediaType: application/vnd.tcpdump.pcap } } } }
+  /api/v1/connections/{conn_id}/raw:
+    parameters:
+      - { name: conn_id, in: path, required: true, schema: { type: string } }
+      - { name: dir, in: query, required: true, schema: { type: string, enum: [in, out] } }
+    get:
+      operationId: getConnectionRaw
+      responses:
+        "200": { description: Bytes de aplicação do sentido pedido, content: { application/octet-stream: { schema: { type: string, contentMediaType: application/octet-stream } } } }
+  /api/v1/dns:
+    get:
+      operationId: listDNSQueries
+      parameters:
+        - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200": { description: Consultas DNS, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } } } } }
+  /api/v1/packets:
+    get:
+      operationId: listStrayPackets
+      parameters:
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: src_ip, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Pacotes avulsos, content: { application/json: { schema: { type: array, items: { type: object } } } } }
+  /api/v1/stream:
+    get:
+      operationId: streamEvents
+      description: Server-Sent Events; sem filtro = feed global.
+      parameters:
+        - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
+        - { name: src_ip, in: query, schema: { type: string } }
+        - { name: dst_port, in: query, schema: { type: integer } }
+        - { name: kind, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Fluxo SSE, content: { text/event-stream: { schema: { type: string } } } }
+  /api/v1/ws:
+    get:
+      operationId: websocketEvents
+      description: WebSocket com os mesmos filtros do /stream.
+      responses:
+        "101": { description: Switching Protocols }
+  /api/v1/openapi.yaml:
+    get:
+      operationId: getOpenAPI
+      responses:
+        "200": { description: Este contrato, content: { application/yaml: { schema: { type: string } } } }
+components:
+  schemas:
+    ProbeID:
+      type: string
+      pattern: "^[a-z0-9]{8,32}$"
+    Health:
+      type: object
+      required: [ok, version, services]
+      properties:
+        ok: { type: boolean }
+        version: { type: string }
+        services:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status: { type: string, enum: [ok, degraded, down] }
+              version: { type: string }
+              last_heartbeat: { type: string, format: date-time }
+        host: { type: object, description: kernel, sysctls, offloads, certificado, disco, NTP }
+    Endpoint:
+      type: object
+      properties:
+        ip: { type: string }
+        port: { type: integer }
+    ConnectionSummary:
+      type: object
+      properties:
+        conn_id: { type: string }
+        probe_id: { type: [string, "null"] }
+        proto: { type: string }
+        src: { $ref: "#/components/schemas/Endpoint" }
+        dst: { $ref: "#/components/schemas/Endpoint" }
+        started: { type: string, format: date-time }
+        ended: { type: [string, "null"], format: date-time }
+    Connection:
+      description: Registro completo (specs 008–013). Esquemas detalhados na task 004.
+      allOf:
+        - $ref: "#/components/schemas/ConnectionSummary"
+        - type: object
+          properties:
+            family: { type: integer, enum: [4, 6] }
+            l4: { type: string, enum: [tcp, udp] }
+            degraded: { type: boolean }
+            times: { type: object }
+            close: { type: object }
+            ip: { type: object }
+            tcp: { type: object }
+            tls: { type: object }
+            http: { type: array, items: { type: object } }
+            http2: { type: object }
+            http3: { type: object }
+            websocket: { type: object }
+            raw: { type: object }
+    Probe:
+      type: object
+      properties:
+        probe_id: { $ref: "#/components/schemas/ProbeID" }
+        connections: { type: array, items: { $ref: "#/components/schemas/Connection" } }
+        dns: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } }
+    DNSQuery:
+      type: object
+      description: Spec 007 RF-06. Esquema detalhado na task 004.
+      properties:
+        ts: { type: string, format: date-time }
+        probe_id: { type: [string, "null"] }
+        resolver: { $ref: "#/components/schemas/Endpoint" }
+        qname: { type: string }
+        qtype: { type: string }

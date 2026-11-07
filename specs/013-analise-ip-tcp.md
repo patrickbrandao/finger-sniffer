@@ -1,0 +1,59 @@
+# 013 — Análise IP e TCP
+
+Status: aprovada
+Depende de: 003, 004
+
+## Contexto
+Responde "qual fingerprint TCP chega, é estável, e o que denuncia o proxy (RTT TCP × RTT da aplicação)?" e
+"quantas conexões, quem fechou, quando e como". Calculada **no store** a partir dos pacotes do capture (ADR 0004).
+
+## Requisitos
+### Linha do tempo e fechamento
+- RF-01: tempos (ns UTC): SYN recebido, SYN-ACK enviado, ACK do handshake, primeiro byte do cliente, cada
+  requisição e resposta (vindas dos eventos de aplicação), FIN/RST de cada lado, fim.
+- RF-02: quem fechou primeiro (`client`/`server`), como (`fin`/`rst`/`timeout`), meio-fechamento, tempo ocioso
+  entre a última resposta e o fechamento.
+- RF-03: totais por sentido: bytes de aplicação, segmentos, segmentos com dados, retransmissões, fora de ordem.
+
+### IP (cada pacote do handshake e o primeiro com dados; resumo do resto)
+- RF-04: TTL / hop limit observado, TTL inicial estimado (32/64/128/255), distância em saltos.
+- RF-05: IP ID no SYN e padrão na conexão (`zero`, `incremental`, `random`), DF, TOS/DSCP, ECN, opções IP,
+  fragmentação; IPv6: flow label e traffic class.
+
+### TCP
+- RF-06: SYN completo: porta de origem, ISN, janela, flags (inclusive ECE/CWR), ponteiro urgente, tamanho do
+  cabeçalho, **opções na ordem exata com valores** (MSS, NOP, WScale, SACK-permitted, Timestamps val/ecr, TFO, EOL,
+  MD5, desconhecidas em hex), payload no SYN (TFO).
+- RF-07: fingerprints: **JA4T** (`pkg/fingerprint/ja4plus`, FoxIO License), assinatura **p0f** e palpite de SO pelo
+  banco `p0f.fp` (`FS_P0F_DB`, arquivo de dados externo, LGPL-2.1, instalado pelo deploy).
+- RF-08: comportamento: janela anunciada ao longo da conexão (escala aplicada), padrão de ACK
+  (atrasado/imediato), uso de PSH, keepalive TCP recebido (intervalo entre sondas e tamanho), zero-window, RST com
+  ou sem dados.
+- RF-09: **segmentação**: tamanho e tempo de cada um dos primeiros `FS_TCP_SEGMENTS_TRACKED` (≥ 32) segmentos com
+  dados de cada sentido.
+- RF-10: **relógio de timestamps**: frequência estimada do TSval (Hz) e TSval inicial; com várias conexões do
+  mesmo IP de origem (ou de IPs diferentes na mesma janela), indicar se vêm do mesmo relógio (mesmo host).
+- RF-11: **RTT**: do handshake (SYN-ACK → ACK) e da aplicação (resposta do espelho → próximo byte do cliente que
+  dependa dela: Finished do TLS, próxima requisição).
+- RF-12: indicação de SYN cookie usado pelo servidor (o SYN-ACK do espelho veio de cookie) — vem do contador do
+  kernel e da comparação de opções.
+
+## Interfaces e contratos
+- Campos `ip`, `tcp`, `times`, `close` do registro em [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml).
+
+## Dados
+Calculados e guardados pelo store junto do registro.
+
+## Critérios de aceite
+- [ ] JA4T de Linux, macOS e Windows bate com FoxIO `ja4` (`ja4t`) sobre o mesmo pcap.
+- [ ] p0f do registro igual ao `p0f -r` sobre o mesmo pcap.
+- [ ] RTT do handshake e RTT da aplicação conferem com tshark (diferença < 0,1 ms).
+- [ ] Duas conexões do mesmo host por IPs diferentes são marcadas como mesmo relógio.
+
+## Fora de escopo
+- Fingerprint TCP do lado servidor (JA4TS).
+
+## Decisões relacionadas
+- specs/decisions/0004-pacotes-pelo-nats.md
+- specs/decisions/0010-licenca-apache-e-ja4plus.md
+- specs/decisions/0011-rede-offloads-e-pilha-tcp.md

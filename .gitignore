@@ -1,0 +1,41 @@
+# Fila de trabalho e temporários (obrigatório)
+/tasks/
+/tmp/
+/.grill/
+
+# Artefatos de build
+/bin/
+/dist/
+*.test
+*.out
+coverage.*
+
+# Dados locais e de runtime
+/var/
+*.sqlite
+*.sqlite-*
+*.db
+*.pcap
+*.pcapng
+!pkg/**/testdata/**/*.pcap
+!pkg/**/testdata/**/*.pcapng
+!internal/**/testdata/**/*.pcap
+!internal/**/testdata/**/*.pcapng
+
+# Segredos e configuração local
+.env
+*.env
+!.env.example
+*.key
+*.pem
+!**/testdata/**/*.pem
+!**/testdata/**/*.key
+
+# Logs
+*.log
+
+# Sistema e editores
+.DS_Store
+.idea/
+.vscode/
+*.swp

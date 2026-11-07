@@ -1,0 +1,100 @@
+asyncapi: 3.0.0
+info:
+  title: finger-sniffer events
+  version: 0.0.0-draft
+  description: |
+    Eventos internos no NATS local (ADR 0003). Subjects fs.v1.<origem>.<tipo>.
+    RASCUNHO v0: payloads detalhados definidos na task 004.
+  license:
+    name: Apache-2.0
+defaultContentType: application/json
+servers:
+  local:
+    host: 127.0.0.1:4222
+    protocol: nats
+channels:
+  capturePacket:
+    address: fs.v1.capture.packet
+    messages: { packetBatch: { $ref: "#/components/messages/PacketBatch" } }
+  webTLSClientHello:
+    address: fs.v1.web.tls.client_hello
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webTLSHandshake:
+    address: fs.v1.web.tls.handshake
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webHTTP1Request:
+    address: fs.v1.web.http1.request
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webHTTP2Connection:
+    address: fs.v1.web.http2.connection
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webHTTP2Stream:
+    address: fs.v1.web.http2.stream
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webHTTP3Connection:
+    address: fs.v1.web.http3.connection
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webWebSocketFrame:
+    address: fs.v1.web.websocket.frame
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  webStreamBytes:
+    address: fs.v1.web.stream.bytes
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  rawSession:
+    address: fs.v1.raw.session
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  rawRead:
+    address: fs.v1.raw.read
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  dnsQuery:
+    address: fs.v1.dns.query
+    messages: { appEvent: { $ref: "#/components/messages/AppEvent" } }
+  dnsACMESet:
+    address: fs.v1.dns.acme.set
+    messages: { acmeTXT: { $ref: "#/components/messages/ACMETXT" } }
+  dnsACMEClear:
+    address: fs.v1.dns.acme.clear
+    messages: { acmeTXT: { $ref: "#/components/messages/ACMETXT" } }
+  svcHeartbeat:
+    address: fs.v1.svc.heartbeat
+    messages: { heartbeat: { $ref: "#/components/messages/Heartbeat" } }
+operations:
+  publishPackets: { action: send, channel: { $ref: "#/channels/capturePacket" } }
+  publishHeartbeat: { action: send, channel: { $ref: "#/channels/svcHeartbeat" } }
+  requestACMESet: { action: send, channel: { $ref: "#/channels/dnsACMESet" } }
+  requestACMEClear: { action: send, channel: { $ref: "#/channels/dnsACMEClear" } }
+components:
+  schemas:
+    Envelope:
+      type: object
+      required: [schema_version, service, service_version, ts]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        service: { type: string, enum: [capture, web, raw, dns, store] }
+        service_version: { type: string }
+        ts: { type: string, description: "RFC 3339 com nanossegundos, UTC" }
+        flow:
+          type: object
+          properties:
+            l4: { type: string, enum: [tcp, udp, icmp, icmpv6, other] }
+            src_ip: { type: string }
+            src_port: { type: integer }
+            dst_ip: { type: string }
+            dst_port: { type: integer }
+        payload: { type: object }
+  messages:
+    PacketBatch:
+      payload: { $ref: "#/components/schemas/Envelope" }
+      description: Lote de pacotes (até 5 ms / 256), com ts do kernel, direção, tamanho no fio e frame cru.
+    AppEvent:
+      payload: { $ref: "#/components/schemas/Envelope" }
+    ACMETXT:
+      payload:
+        type: object
+        required: [name, value]
+        properties:
+          name: { type: string }
+          value: { type: string }
+    Heartbeat:
+      payload: { $ref: "#/components/schemas/Envelope" }
+      description: A cada 5 s; payload com status, métricas resumidas e versão.
