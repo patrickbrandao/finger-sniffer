@@ -13,8 +13,8 @@ Restart=always
 RestartSec=2
 RestartSteps=5
 RestartMaxDelaySec=30
-Environment=GOMEMLIMIT=110MiB
-MemoryMax=128M
+Environment=GOMEMLIMIT=170MiB
+MemoryMax=192M
 LimitNOFILE=65536
 CapabilityBoundingSet=
 AmbientCapabilities=

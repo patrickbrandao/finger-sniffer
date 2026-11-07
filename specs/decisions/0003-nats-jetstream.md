@@ -12,6 +12,7 @@ não podem perder eventos.
   unit `finger-sniffer-nats.service`, config em `eventbus/nats/nats.conf`.
 - Subjects `fs.v1.<origem>.<tipo>`; contrato em `eventbus/nats/asyncapi.yaml`.
 - JetStream: stream `FS_EVENTS` (`fs.v1.>`), `max_age` 60 s, `max_bytes` 64 MiB, consumidor durável `store`.
+  (Armazenamento e tamanho do stream substituídos pela ADR 0016: em memória, 32 MiB.)
 - Produtores: se o NATS cair, buffer em memória até 30 s / 16 MiB, depois descartam e contam `dropped_events_total`.
 
 ## Alternativas consideradas

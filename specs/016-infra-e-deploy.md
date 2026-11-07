@@ -25,7 +25,7 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 - RF-06: hardening: usuário de sistema `finger-sniffer`; `ProtectSystem=strict`, `ReadWritePaths=/finger-sniffer/var`,
   `NoNewPrivileges`, `AmbientCapabilities` mínimas (NET_BIND_SERVICE para web/raw/dns; NET_RAW para capture;
   nenhuma para store/nats), `EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env`.
-- RF-07: `MemoryMax` (provisório, ADR 0005): store 384M, nats 128M, demais 96M; `LimitNOFILE=65536`.
+- RF-07: `MemoryMax` (ADR 0005, ADR 0016): store 384M, nats 192M, demais 96M; `LimitNOFILE=65536`.
 - RF-08: journald drop-in: `MaxRetentionSec=24h`, `SystemMaxUse=200M`.
 
 ### NATS
@@ -65,5 +65,6 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 ## Decisões relacionadas
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0003-nats-jetstream.md
+- specs/decisions/0016-stream-em-memoria.md
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0013-verificacao-dois-niveis.md

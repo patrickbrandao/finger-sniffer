@@ -1,7 +1,7 @@
 # 0005 — SQLite com BLOBs, goose e limites de memória
 
-Status: provisória (revisar se o spike da task 006 mostrar I/O, vacuum ou latência do SQLite fora das metas da
-spec 000, ou se o store passar de 384 MiB)
+Status: aceita (confirmada pelo spike da task 006 em 2026-11-07: commit p99 ≤ 27 ms, consulta p95 ~1 ms, store
+≤ 50 MiB; o `MemoryMax` do NATS mudou para 192M na ADR 0016)
 Data: 2026-11-07
 
 ## Contexto
@@ -12,7 +12,7 @@ Retenção curta (10 min / 2 GiB), sem banco permanente, consultas por probe/IP/
 - Pcaps e bytes crus **dentro do SQLite como BLOB**; expurgo em lotes + `PRAGMA incremental_vacuum`.
 - Migrations goose v3 embutidas (`go:embed`) em `database/sqlite/migrations/`, up/down, aplicadas no start do store.
 - Teto de disco `FS_STORE_MAX_BYTES` = 2 GiB.
-- `MemoryMax` das units: store 384M, nats 128M, demais 96M.
+- `MemoryMax` das units: store 384M, nats 128M (192M desde a ADR 0016), demais 96M.
 
 ## Alternativas consideradas
 - Índice em RAM + arquivos em disco (recomendado) — rejeitado pelo usuário.

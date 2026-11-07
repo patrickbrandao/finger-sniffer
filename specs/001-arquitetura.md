@@ -65,7 +65,7 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 | udns.com.br (zona pai) | delegação NS de `dns-monitor` e nomes `vps602`, `fingerprint`, `tcp`, `udp` | fora do nosso controle; health não cobre |
 | NTP (systemd-timesyncd) | tempos ns UTC | health `degraded` se não sincronizado |
 | NATS local | barramento | produtores guardam 30 s / 16 MiB e reenviam; depois descartam e contam `dropped_events` |
-| Store fora do ar | — | JetStream retém 60 s / 64 MiB; consumidor durável retoma |
+| Store fora do ar | — | JetStream retém 60 s / 32 MiB em memória (ADR 0016); consumidor durável retoma |
 
 ## Barramento (NATS)
 - Subjects versionados `fs.v1.<origem>.<tipo>` (ex.: `fs.v1.capture.packet`, `fs.v1.web.http1.request`,
@@ -73,7 +73,8 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 - Envelope comum (JSON): `schema_version`, `service`, `service_version`, `ts` (ns UTC), `flow` (5-tupla),
   `probe_id`, `payload`. Exceção: o lote de pacotes `fs.v1.capture.packet` é binário (FSPB v1, envelope nos
   cabeçalhos NATS — ADR 0015).
-- Stream JetStream `FS_EVENTS` (`fs.v1.>`), `max_age` 60 s, `max_bytes` 64 MiB, consumidor durável `store`.
+- Stream JetStream `FS_EVENTS` (`fs.v1.>`), em memória, `max_age` 60 s, `max_bytes` 32 MiB, consumidor durável
+  `store` (ADR 0016).
 - Contrato: [eventbus/nats/asyncapi.yaml](../eventbus/nats/asyncapi.yaml); configuração:
   [eventbus/nats/nats.conf](../eventbus/nats/nats.conf).
 
@@ -135,3 +136,4 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0015-lote-binario-de-pacotes.md
+- specs/decisions/0016-stream-em-memoria.md

@@ -17,6 +17,8 @@ NATS para o store correlacionar e analisar. Não analisa nada além do necessár
   timestamp do kernel (ns UTC), direção (`in`/`out`), flags, tamanho no fio e o frame Ethernet completo. A
   5-tupla é extraída do frame pelo store.
 - RF-04: publicação em lote (agrupamento até 5 ms ou 256 pacotes) para respeitar RNF-02 com menos mensagens.
+  `block timeout` do TPACKET_V3 em ~10 ms (o padrão de 64 ms levou a latência kernel → lote a p99 72 ms no spike da
+  task 006).
 - RF-05: se o NATS estiver fora, buffer até `FS_PRODUCER_BUFFER_MAX_AGE` (30 s) / `FS_PRODUCER_BUFFER_MAX_BYTES`
   (16 MiB); acima disso descarta e incrementa `dropped_events_total`.
 - RF-06: no start, verifica os offloads (spec 016); se algum agregador estiver ligado, publica health `degraded`
