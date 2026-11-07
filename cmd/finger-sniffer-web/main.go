@@ -1,17 +1,15 @@
-// Comando finger-sniffer-web: stub do serviço web (task 001).
-// Por enquanto só identifica a versão e aguarda o sinal de parada, para o systemd manter a unit ativa.
+// Comando finger-sniffer-web: stub do serviço web. Na F1 só publica heartbeat (task 007); a função do
+// serviço chega nas fases seguintes do PLAN.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
 const serviceName = "finger-sniffer-web"
@@ -19,19 +17,16 @@ const serviceName = "finger-sniffer-web"
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
-
 	if *showVersion {
 		fmt.Println(version.String(serviceName))
 		return
 	}
-
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("service started", "service", serviceName, "version", version.Version, "commit", version.Commit, "stub", true)
-
-	// Aguarda SIGINT/SIGTERM (systemd stop) para encerrar de forma limpa.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-ctx.Done()
-
-	logger.Info("service stopped", "service", serviceName)
+	svc, err := service.New(event.ServiceWeb)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, serviceName+":", err)
+		os.Exit(1)
+	}
+	if err := svc.Run(nil); err != nil {
+		os.Exit(1)
+	}
 }
