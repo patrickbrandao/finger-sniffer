@@ -1,0 +1,84 @@
+package capture
+
+import "encoding/binary"
+
+// Construtores de frames para os testes.
+
+type frameOpt struct {
+	vlan     bool
+	v6       bool
+	proto    byte
+	sport    uint16
+	dport    uint16
+	fragOff  uint16 // IPv4: offset do fragmento (em unidades de 8 bytes)
+	ihlWords int    // IPv4: tamanho do cabeçalho em palavras de 32 bits (padrão 5)
+	src, dst []byte
+	tcpFlags byte
+	payload  int
+}
+
+func buildFrame(o frameOpt) []byte {
+	var f []byte
+	f = append(f, make([]byte, 12)...) // MACs
+	if o.vlan {
+		f = binary.BigEndian.AppendUint16(f, 0x8100)
+		f = binary.BigEndian.AppendUint16(f, 100)
+	}
+	if o.v6 {
+		f = binary.BigEndian.AppendUint16(f, 0x86dd)
+		ip := make([]byte, 40)
+		ip[0] = 0x60
+		ip[6] = o.proto
+		ip[7] = 64
+		src, dst := o.src, o.dst
+		if src == nil {
+			src = make([]byte, 16)
+			src[15] = 1
+		}
+		if dst == nil {
+			dst = make([]byte, 16)
+			dst[15] = 2
+		}
+		copy(ip[8:24], src)
+		copy(ip[24:40], dst)
+		f = append(f, ip...)
+	} else {
+		f = binary.BigEndian.AppendUint16(f, 0x0800)
+		ihl := o.ihlWords
+		if ihl == 0 {
+			ihl = 5
+		}
+		ip := make([]byte, ihl*4)
+		ip[0] = 0x40 | byte(ihl) //nolint:gosec // teste
+		ip[8] = 64
+		ip[9] = o.proto
+		binary.BigEndian.PutUint16(ip[6:8], o.fragOff)
+		src, dst := o.src, o.dst
+		if src == nil {
+			src = []byte{192, 0, 2, 1}
+		}
+		if dst == nil {
+			dst = []byte{172, 233, 24, 85}
+		}
+		copy(ip[12:16], src)
+		copy(ip[16:20], dst)
+		f = append(f, ip...)
+	}
+	switch o.proto {
+	case 6:
+		l4 := make([]byte, 20)
+		binary.BigEndian.PutUint16(l4[0:2], o.sport)
+		binary.BigEndian.PutUint16(l4[2:4], o.dport)
+		l4[12] = 5 << 4
+		l4[13] = o.tcpFlags
+		f = append(f, l4...)
+	case 17:
+		l4 := make([]byte, 8)
+		binary.BigEndian.PutUint16(l4[0:2], o.sport)
+		binary.BigEndian.PutUint16(l4[2:4], o.dport)
+		f = append(f, l4...)
+	default:
+		f = append(f, make([]byte, 8)...)
+	}
+	return append(f, make([]byte, o.payload)...)
+}
