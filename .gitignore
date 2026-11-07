@@ -33,8 +33,9 @@ coverage.*
 !**/testdata/**/*.pem
 !**/testdata/**/*.key
 
-# Logs
+# Logs (gabaritos de teste em testdata são versionados)
 *.log
+!**/testdata/**/*.log
 
 # Sistema e editores
 .DS_Store

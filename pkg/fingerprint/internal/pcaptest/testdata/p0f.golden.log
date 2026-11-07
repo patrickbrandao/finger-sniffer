@@ -1,0 +1,153 @@
+badcurveball.pcap [2020/01/17 20:43:36] mod=syn|cli=172.130.128.76/55318|srv=54.226.182.138/443|subj=cli|os=Mac OS X|dist=0|params=generic fuzzy|raw_sig=4:64+0:0:1386:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+badcurveball.pcap [2020/01/17 20:43:36] mod=syn+ack|cli=172.130.128.76/55318|srv=54.226.182.138/443|subj=srv|os=???|dist=17|params=none|raw_sig=4:238+17:0:1460:26847,7:mss,sok,ts,nop,ws:df:0
+chrome-cloudflare-quic.pcap [2022/11/10 21:06:45] mod=syn|cli=2001:db8:1:0:0:0:0:1/57098|srv=2606:4700:10:0:0:0:6816:826/443|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:1440:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:flow:0
+chrome-cloudflare-quic.pcap [2022/11/10 21:06:45] mod=syn+ack|cli=2001:db8:1:0:0:0:0:1/57098|srv=2606:4700:10:0:0:0:6816:826/443|subj=srv|os=???|dist=8|params=none|raw_sig=6:56+8:0:1360:mss*48,13:mss,sok,ts,nop,ws:flow:0
+CVE-2018-6794.pcap [2018/01/17 10:59:46] mod=syn|cli=192.168.235.1/53649|srv=192.168.235.136/8089|subj=cli|os=Windows 7 or 8|dist=0|params=none|raw_sig=4:128+0:0:1460:8192,8:mss,nop,ws,nop,nop,sok:df,id+:0
+CVE-2018-6794.pcap [2018/01/17 10:59:46] mod=syn+ack|cli=192.168.235.1/53649|srv=192.168.235.136/8089|subj=srv|os=???|dist=0|params=none|raw_sig=4:255+0:0:0:15500,0:::0
+CVE-2018-6794.pcap [2018/01/17 10:59:48] mod=syn|cli=192.168.235.1/53656|srv=192.168.235.136/8089|subj=cli|os=Windows 7 or 8|dist=0|params=none|raw_sig=4:128+0:0:1460:8192,8:mss,nop,ws,nop,nop,sok:df,id+:0
+CVE-2018-6794.pcap [2018/01/17 10:59:48] mod=syn+ack|cli=192.168.235.1/53656|srv=192.168.235.136/8089|subj=srv|os=???|dist=0|params=none|raw_sig=4:255+0:0:0:15500,0:::0
+CVE-2018-6794.pcap [2018/01/17 10:59:49] mod=syn|cli=192.168.235.1/53648|srv=192.168.235.136/8089|subj=cli|os=Windows 7 or 8|dist=0|params=none|raw_sig=4:128+0:0:1460:8192,8:mss,nop,ws,nop,nop,sok:df,id+:0
+CVE-2018-6794.pcap [2018/01/17 10:59:49] mod=syn+ack|cli=192.168.235.1/53648|srv=192.168.235.136/8089|subj=srv|os=???|dist=0|params=none|raw_sig=4:255+0:0:0:15500,0:::0
+edge-cases.pcap [2023/11/14 22:13:20] mod=syn|cli=198.51.100.7/40001|srv=203.0.113.1/443|subj=cli|os=Linux 2.2.x-3.x|dist=0|params=generic|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:21] mod=syn|cli=198.51.100.7/40002|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,0:mss,eol+7:df,id+,opt+:0
+edge-cases.pcap [2023/11/14 22:13:22] mod=syn|cli=198.51.100.7/40003|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1400:mss*44,0:mss,mss,nop,nop,eol+1:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:23] mod=syn|cli=198.51.100.7/40004|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:536:mss*44,0:mss,mss:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:24] mod=syn|cli=198.51.100.7/40005|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,0:mss,?34,?19,sack,eol+1:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:25] mod=syn|cli=198.51.100.7/40006|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,7:mss,nop,ws:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:26] mod=syn|cli=198.51.100.7/40007|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,0:mss,?30:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:27] mod=syn|cli=198.51.100.7/40008|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,0:mss,?30:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:28] mod=syn|cli=198.51.100.7/40009|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,15:mss,nop,ws:df,id+,exws:0
+edge-cases.pcap [2023/11/14 22:13:29] mod=syn|cli=198.51.100.7/40010|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,0:mss,nop,ws:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:30] mod=syn|cli=198.51.100.7/40011|srv=203.0.113.1/443|subj=cli|os=Linux 2.2.x-3.x|dist=0|params=generic fuzzy tos:0x0a|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+,ecn:0
+edge-cases.pcap [2023/11/14 22:13:31] mod=syn|cli=198.51.100.7/40012|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+:+
+edge-cases.pcap [2023/11/14 22:13:32] mod=syn|cli=198.51.100.7/40013|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:4:1460:mss*44,7:mss,sok,ts,nop,ws:id-,0+:0
+edge-cases.pcap [2023/11/14 22:13:33] mod=syn|cli=198.51.100.7/40014|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+,ecn,ack+,uptr+,pushf+:0
+edge-cases.pcap [2023/11/14 22:13:34] mod=syn|cli=198.51.100.7/40015|srv=203.0.113.1/443|subj=cli|os=Linux 2.2.x-3.x|dist=0|params=generic|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:35] mod=syn|cli=198.51.100.7/40016|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+,seq-,urgf+:0
+edge-cases.pcap [2023/11/14 22:13:36] mod=syn|cli=198.51.100.7/40017|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,7:mss,sok,ts,nop,ws:df,id+,ts1-,ts2+:0
+edge-cases.pcap [2023/11/14 22:13:37] mod=syn|cli=198.51.100.7/40018|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:255+0:0:0:1024,0::df,id+:0
+edge-cases.pcap [2023/11/14 22:13:38] mod=syn|cli=198.51.100.7/40019|srv=203.0.113.1/443|subj=cli|os=Linux 2.2.x-3.x (barebone)|dist=31|params=generic fuzzy|raw_sig=4:1+31:0:1460:mss*4,0:mss:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:39] mod=syn|cli=198.51.100.7/40020|srv=203.0.113.1/443|subj=cli|os=Linux 3.1-3.10|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*10,7:mss,sok,ts,nop,ws:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:40] mod=syn|cli=198.51.100.7/40021|srv=203.0.113.1/443|subj=cli|os=Linux 2.2.x-3.x|dist=0|params=generic|raw_sig=4:64+0:0:1460:mtu*4,7:mss,sok,ts,nop,ws:df,id+:0
+edge-cases.pcap [2023/11/14 22:13:41] mod=syn|cli=2001:db8:0:0:0:0:0:7/40022|srv=2001:db8:0:0:0:0:0:1/443|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:1440:mss*45,7:mss,sok,ts,nop,ws:ecn,flow:0
+edge-cases.pcap [2023/11/14 22:13:42] mod=syn|cli=2001:db8:0:0:0:0:0:7/40023|srv=2001:db8:0:0:0:0:0:1/443|subj=cli|os=Linux 2.2.x-3.x|dist=7|params=generic|raw_sig=6:57+7:0:1440:mss*45,7:mss,sok,ts,nop,ws::0
+edge-cases.pcap [2023/11/14 22:13:43] mod=syn|cli=198.51.100.7/40024|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:0:64240,0:nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop,nop:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:45] mod=syn|cli=198.51.100.7/40026|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:0:64240,0:eol+7:df,id+,opt+:0
+edge-cases.pcap [2023/11/14 22:13:46] mod=syn|cli=198.51.100.7/40027|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1281:mss*44,0:mss:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:47] mod=syn|cli=198.51.100.7/40028|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:0:64240,7:ws,eol+0:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:48] mod=syn|cli=198.51.100.7/40029|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:257:mss*44,0:mss:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:49] mod=syn|cli=198.51.100.7/40030|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*44,0:mss,?9:df,id+,bad:0
+edge-cases.pcap [2023/11/14 22:13:50] mod=syn|cli=198.51.100.7/40031|srv=203.0.113.1/443|subj=cli|os=???|dist=0|params=none|raw_sig=4:64+0:0:0:64240,7:ws,eol+4:df,id+,opt+:0
+http-empty-useragent.pcap [2018/11/05 14:41:18] mod=syn|cli=0:0:0:0:0:0:0:1/57722|srv=0:0:0:0:0:0:0:1/9200|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:16324:65535,5:mss,nop,ws,nop,nop,ts,sok,eol+1:flow:0
+http-empty-useragent.pcap [2018/11/05 14:41:18] mod=syn+ack|cli=0:0:0:0:0:0:0:1/57722|srv=0:0:0:0:0:0:0:1/9200|subj=srv|os=???|dist=0|params=none|raw_sig=6:64+0:0:16324:65535,5:mss,nop,ws,nop,nop,ts,sok,eol+1:flow:0
+https3-301-get.pcap [2013/11/25 16:27:01] mod=syn|cli=10.180.156.141/62599|srv=192.30.252.130/443|subj=cli|os=MacOS X 10.9 or newer (sometimes iPhone or iPad)|dist=0|params=none|raw_sig=4:64+0:0:1460:65535,4:mss,nop,ws,nop,nop,ts,sok,eol+1:df,id+:0
+https3-301-get.pcap [2013/11/25 16:27:01] mod=syn+ack|cli=10.180.156.141/62599|srv=192.30.252.130/443|subj=srv|os=Linux 3.x|dist=14|params=none|raw_sig=4:50+14:0:1436:mss*10,10:mss,sok,ts,nop,ws:df:0
+https-connect.pcap [2019/09/02 18:56:53] mod=syn|cli=10.11.12.13/54723|srv=10.9.8.7/8080|subj=cli|os=Linux 2.2.x-3.x (no timestamps)|dist=0|params=generic|raw_sig=4:64+0:0:1460:mss*20,7:mss,nop,nop,sok,nop,ws:df,id+:0
+https-connect.pcap [2019/09/02 18:56:53] mod=syn+ack|cli=10.11.12.13/54723|srv=10.9.8.7/8080|subj=srv|os=???|dist=7|params=none|raw_sig=4:57+7:0:1360:mss*20,7:mss,nop,nop,sok,nop,ws:df:0
+macos_tcp_flags.pcap [2022/10/28 09:46:19] mod=syn|cli=172.16.5.16/61311|srv=172.67.24.71/443|subj=cli|os=Mac OS X|dist=0|params=generic fuzzy|raw_sig=4:64+0:0:1460:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0
+macos_tcp_flags.pcap [2022/10/28 09:46:19] mod=syn+ack|cli=172.16.5.16/61311|srv=172.67.24.71/443|subj=srv|os=???|dist=1|params=none|raw_sig=4:63+1:0:1134:mss*45,8:mss,sok,ts,nop,ws:df,ecn:0
+socks4-https.pcap [2014/11/03 22:27:20] mod=syn|cli=10.0.0.1/50606|srv=10.0.0.2/9901|subj=cli|os=Windows 7 or 8|dist=2|params=none|raw_sig=4:126+2:0:1360:8192,2:mss,nop,ws,nop,nop,sok:df,id+:0
+socks4-https.pcap [2014/11/03 22:27:20] mod=syn+ack|cli=10.0.0.1/50606|srv=10.0.0.2/9901|subj=srv|os=Linux 2.6.x|dist=12|params=none|raw_sig=4:52+12:0:1460:mss*4,7:mss,nop,nop,sok,nop,ws:df:0
+socks-https-example.pcap [2013/12/02 17:14:32] mod=syn|cli=10.180.156.185/53554|srv=10.180.156.249/1080|subj=cli|os=MacOS X 10.9 or newer (sometimes iPhone or iPad)|dist=0|params=none|raw_sig=4:64+0:0:1460:65535,4:mss,nop,ws,nop,nop,ts,sok,eol+1:df,id+:0
+socks-https-example.pcap [2013/12/02 17:14:32] mod=syn+ack|cli=10.180.156.185/53554|srv=10.180.156.249/1080|subj=srv|os=Linux 3.x|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*10,7:mss,sok,ts,nop,ws:df:0
+socks-https-example.pcap [2013/12/02 17:14:35] mod=syn|cli=10.180.156.185/53555|srv=10.180.156.249/1080|subj=cli|os=MacOS X 10.9 or newer (sometimes iPhone or iPad)|dist=0|params=none|raw_sig=4:64+0:0:1460:65535,4:mss,nop,ws,nop,nop,ts,sok,eol+1:df,id+:0
+socks-https-example.pcap [2013/12/02 17:14:35] mod=syn+ack|cli=10.180.156.185/53555|srv=10.180.156.249/1080|subj=srv|os=Linux 3.x|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*10,7:mss,sok,ts,nop,ws:df:0
+socks-https-example.pcap [2013/12/02 17:14:40] mod=syn|cli=10.180.156.185/53556|srv=10.180.156.249/1080|subj=cli|os=MacOS X 10.9 or newer (sometimes iPhone or iPad)|dist=0|params=none|raw_sig=4:64+0:0:1460:65535,4:mss,nop,ws,nop,nop,ts,sok,eol+1:df,id+:0
+socks-https-example.pcap [2013/12/02 17:14:40] mod=syn+ack|cli=10.180.156.185/53556|srv=10.180.156.249/1080|subj=srv|os=Linux 3.x|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*10,7:mss,sok,ts,nop,ws:df:0
+ssh2-malformed.pcap [2013/12/20 18:45:11] mod=syn|cli=10.0.0.1/61672|srv=10.0.0.2/22|subj=cli|os=Linux 2.2.x-3.x (no timestamps)|dist=0|params=generic|raw_sig=4:64+0:0:1460:mss*10,9:mss,nop,nop,sok,nop,ws:df,id+:0
+ssh2-malformed.pcap [2013/12/20 18:45:11] mod=syn+ack|cli=10.0.0.1/61672|srv=10.0.0.2/22|subj=srv|os=Linux 2.6.x|dist=4|params=none|raw_sig=4:60+4:0:1460:mss*4,2:mss,nop,nop,sok,nop,ws:df:0
+ssh2-moloch-crash.pcap [2013/12/20 18:45:11] mod=syn|cli=10.0.0.1/61672|srv=10.0.0.2/22|subj=cli|os=Linux 2.2.x-3.x (no timestamps)|dist=0|params=generic|raw_sig=4:64+0:0:1460:mss*10,9:mss,nop,nop,sok,nop,ws:df,id+:0
+ssh2-moloch-crash.pcap [2013/12/20 18:45:11] mod=syn+ack|cli=10.0.0.1/61672|srv=10.0.0.2/22|subj=srv|os=Linux 2.6.x|dist=4|params=none|raw_sig=4:60+4:0:1460:mss*4,2:mss,nop,nop,sok,nop,ws:df:0
+ssh-r.pcap [2023/07/14 14:41:01] mod=syn|cli=192.168.1.169/64980|srv=192.168.1.197/22|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh-r.pcap [2023/07/14 14:41:01] mod=syn+ack|cli=192.168.1.169/64980|srv=192.168.1.197/22|subj=srv|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*20,7:mss,nop,nop,sok,nop,ws:df:0
+ssh-r.pcap [2023/07/14 14:42:14] mod=syn|cli=192.168.1.197/46394|srv=44.212.59.210/22|subj=cli|os=Linux 3.11 and newer|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*20,7:mss,sok,ts,nop,ws:df,id+:0
+ssh-r.pcap [2023/07/14 14:42:14] mod=syn+ack|cli=192.168.1.197/46394|srv=44.212.59.210/22|subj=srv|os=???|dist=12|params=none|raw_sig=4:116+12:0:1460:62643,7:mss,sok,ts,nop,ws:df:0
+ssh-r.pcap [2023/07/14 14:42:38] mod=syn|cli=192.168.1.197/46396|srv=44.212.59.210/22|subj=cli|os=Linux 3.11 and newer|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*20,7:mss,sok,ts,nop,ws:df,id+:0
+ssh-r.pcap [2023/07/14 14:42:38] mod=syn+ack|cli=192.168.1.197/46396|srv=44.212.59.210/22|subj=srv|os=???|dist=12|params=none|raw_sig=4:116+12:0:1460:62643,7:mss,sok,ts,nop,ws:df:0
+ssh-scp-1050.pcap [2023/07/14 14:49:45] mod=syn|cli=192.168.1.169/49237|srv=192.168.1.197/22|subj=cli|os=Windows NT kernel 5.x|dist=0|params=generic|raw_sig=4:128+0:0:1460:65535,7:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh-scp-1050.pcap [2023/07/14 14:49:45] mod=syn+ack|cli=192.168.1.169/49237|srv=192.168.1.197/22|subj=srv|os=???|dist=0|params=none|raw_sig=4:64+0:0:1460:mss*20,7:mss,nop,nop,sok,nop,ws:df:0
+sshv1.pcap [1999/03/11 13:45:18] mod=syn|cli=3ffe:507:0:1:200:86ff:fe05:80da/1022|srv=3ffe:501:410:0:2c0:dfff:fe47:33e/22|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:1440:8192,0:mss,nop,ws,nop,nop,ts::0
+sshv1.pcap [1999/03/11 13:45:18] mod=syn+ack|cli=3ffe:507:0:1:200:86ff:fe05:80da/1022|srv=3ffe:501:410:0:2c0:dfff:fe47:33e/22|subj=srv|os=???|dist=3|params=none|raw_sig=6:61+3:0:1220:mss*7,0:mss,nop,ws,nop,nop,ts::0
+tls-alpn-h2.pcap [2020/07/05 20:23:28] mod=syn|cli=2001:4998:ef83:14:8000:0:0:100d/64034|srv=2606:4700:0:0:0:0:6811:d209/443|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:1346:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:flow:0
+tls-alpn-h2.pcap [2020/07/05 20:23:28] mod=syn+ack|cli=2001:4998:ef83:14:8000:0:0:100d/64034|srv=2606:4700:0:0:0:0:6811:d209/443|subj=srv|os=???|dist=5|params=none|raw_sig=6:59+5:0:1346:65535,10:mss,nop,nop,sok,nop,ws:flow:0
+v6.pcap [1999/03/11 13:45:18] mod=syn|cli=3ffe:507:0:1:200:86ff:fe05:80da/1022|srv=3ffe:501:410:0:2c0:dfff:fe47:33e/22|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:1440:8192,0:mss,nop,ws,nop,nop,ts::0
+v6.pcap [1999/03/11 13:45:18] mod=syn+ack|cli=3ffe:507:0:1:200:86ff:fe05:80da/1022|srv=3ffe:501:410:0:2c0:dfff:fe47:33e/22|subj=srv|os=???|dist=3|params=none|raw_sig=6:61+3:0:1220:mss*7,0:mss,nop,ws,nop,nop,ts::0
+vps602-mixed.pcap [2026/11/07 23:20:40] mod=syn|cli=172.233.24.85/56746|srv=1.1.1.1/443|subj=cli|os=Linux 2.2.x-3.x|dist=0|params=generic fuzzy|raw_sig=4:128+0:0:1460:mss*44,12:mss,sok,ts,nop,ws:df,id+:0
+vps602-mixed.pcap [2026/11/07 23:20:40] mod=syn+ack|cli=172.233.24.85/56746|srv=1.1.1.1/443|subj=srv|os=???|dist=12|params=none|raw_sig=4:52+12:0:1460:65535,13:mss,sok,ts,nop,ws:df:0
+vps602-mixed.pcap [2026/11/07 23:20:41] mod=syn|cli=198.51.100.10/6706|srv=172.233.24.85/8080|subj=cli|os=Mac OS X|dist=16|params=generic fuzzy|raw_sig=4:48+16:0:1430:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+vps602-mixed.pcap [2026/11/07 23:20:41] mod=syn|cli=198.51.100.10/6707|srv=172.233.24.85/7|subj=cli|os=Mac OS X|dist=16|params=generic fuzzy|raw_sig=4:48+16:0:1430:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+vps602-mixed.pcap [2026/11/07 23:20:41] mod=syn|cli=198.51.100.10/6708|srv=172.233.24.85/80|subj=cli|os=Mac OS X|dist=16|params=generic fuzzy|raw_sig=4:48+16:0:1430:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+vps602-mixed.pcap [2026/11/07 23:20:46] mod=syn|cli=198.51.100.20/53051|srv=172.233.24.85/9541|subj=cli|os=Linux 2.2.x-3.x (barebone)|dist=17|params=generic fuzzy tos:0x10|raw_sig=4:238+17:0:1460:65535,0:mss::0
+vps602-mixed.pcap [2026/11/07 23:20:47] mod=syn|cli=198.51.100.30/40000|srv=172.233.24.85/1927|subj=cli|os=???|dist=16|params=none|raw_sig=4:239+16:0:0:1024,0:::0
+vps602-mixed.pcap [2026/11/07 23:20:51] mod=syn|cli=198.51.100.40/65338|srv=172.233.24.85/194|subj=cli|os=???|dist=17|params=tos:0x0a|raw_sig=4:47+17:0:0:65535,0::id-:0
+vps602-mixed.pcap [2026/11/07 23:20:54] mod=syn|cli=198.51.100.50/56703|srv=172.233.24.85/4786|subj=cli|os=Linux 2.2.x-3.x (barebone)|dist=18|params=generic fuzzy tos:0x10|raw_sig=4:237+18:0:1460:1024,0:mss::0
+vps602-mixed.pcap [2026/11/07 23:21:00] mod=syn|cli=198.51.100.31/40001|srv=172.233.24.85/816|subj=cli|os=???|dist=16|params=none|raw_sig=4:239+16:0:0:1024,0:::0
+browsers-x509.pcapng [2023/08/09 01:51:49] mod=syn|cli=172.27.7.31/54524|srv=13.107.21.239/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+browsers-x509.pcapng [2023/08/09 01:51:49] mod=syn+ack|cli=172.27.7.31/54524|srv=13.107.21.239/443|subj=srv|os=???|dist=16|params=none|raw_sig=4:112+16:0:1440:mss*45,2:mss,nop,ws,sok,eol+1::0
+browsers-x509.pcapng [2023/08/09 01:51:51] mod=syn|cli=172.27.7.31/54525|srv=68.67.160.117/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+browsers-x509.pcapng [2023/08/09 01:51:51] mod=syn+ack|cli=172.27.7.31/54525|srv=68.67.160.117/443|subj=srv|os=???|dist=23|params=none|raw_sig=4:41+23:0:1460:mss*44,2:mss,nop,ws,sok,eol+1::0
+browsers-x509.pcapng [2023/08/09 01:52:14] mod=syn|cli=172.27.7.31/54603|srv=103.42.133.15/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+browsers-x509.pcapng [2023/08/09 01:52:14] mod=syn+ack|cli=172.27.7.31/54603|srv=103.42.133.15/443|subj=srv|os=???|dist=26|params=none|raw_sig=4:229+26:0:1400:mss*46,2:mss,nop,ws,sok,eol+1::0
+http1-with-cookies.pcapng [2023/07/27 18:48:56] mod=syn|cli=127.0.0.1/61256|srv=127.0.0.1/8000|subj=cli|os=Mac OS X|dist=0|params=generic fuzzy|raw_sig=4:64+0:0:16344:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+http1-with-cookies.pcapng [2023/07/27 18:48:56] mod=syn+ack|cli=127.0.0.1/61256|srv=127.0.0.1/8000|subj=srv|os=???|dist=0|params=none|raw_sig=4:64+0:0:16344:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+http2-with-cookies.pcapng [2023/09/22 14:31:33] mod=syn|cli=192.168.2.200/58847|srv=142.250.187.206/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+http2-with-cookies.pcapng [2023/09/22 14:31:33] mod=syn+ack|cli=192.168.2.200/58847|srv=142.250.187.206/443|subj=srv|os=???|dist=11|params=none|raw_sig=4:117+11:0:1412:65535,8:mss,nop,nop,sok,nop,ws:df:0
+ipv6.pcapng [2020/07/05 20:23:28] mod=syn|cli=2001:4998:ef83:14:8000:0:0:100d/64034|srv=2606:4700:0:0:0:0:6811:d209/443|subj=cli|os=???|dist=0|params=none|raw_sig=6:64+0:0:1346:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:flow:0
+ipv6.pcapng [2020/07/05 20:23:28] mod=syn+ack|cli=2001:4998:ef83:14:8000:0:0:100d/64034|srv=2606:4700:0:0:0:0:6811:d209/443|subj=srv|os=???|dist=5|params=none|raw_sig=6:59+5:0:1346:65535,10:mss,nop,nop,sok,nop,ws:flow:0
+latest.pcapng [2023/06/23 21:25:45] mod=syn|cli=172.16.225.48/52936|srv=34.212.93.65/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:45] mod=syn+ack|cli=172.16.225.48/52936|srv=34.212.93.65/443|subj=srv|os=???|dist=28|params=none|raw_sig=4:227+28:0:1460:26883,8:mss,nop,nop,sok,nop,ws:df:0
+latest.pcapng [2023/06/23 21:25:47] mod=syn|cli=172.16.225.48/52937|srv=13.33.165.101/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:47] mod=syn+ack|cli=172.16.225.48/52937|srv=13.33.165.101/443|subj=srv|os=???|dist=10|params=none|raw_sig=4:245+10:0:1440:65535,9:mss,nop,nop,sok,nop,ws:df:0
+latest.pcapng [2023/06/23 21:25:47] mod=syn|cli=172.16.225.48/52938|srv=34.205.195.66/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:47] mod=syn+ack|cli=172.16.225.48/52938|srv=34.205.195.66/443|subj=srv|os=???|dist=21|params=none|raw_sig=4:43+21:0:1300:mss*25,12:mss,nop,nop,sok,nop,ws:df:0
+latest.pcapng [2023/06/23 21:25:47] mod=syn|cli=172.16.225.48/52939|srv=23.43.242.57/80|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:47] mod=syn+ack|cli=172.16.225.48/52939|srv=23.43.242.57/80|subj=srv|os=???|dist=7|params=none|raw_sig=4:57+7:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+latest.pcapng [2023/06/23 21:25:48] mod=syn|cli=172.16.225.48/52940|srv=52.249.29.248/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:49] mod=syn+ack|cli=172.16.225.48/52940|srv=52.249.29.248/443|subj=srv|os=???|dist=19|params=none|raw_sig=4:109+19:0:1440:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:49] mod=syn|cli=172.16.225.48/52941|srv=52.249.29.248/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+latest.pcapng [2023/06/23 21:25:49] mod=syn+ack|cli=172.16.225.48/52941|srv=52.249.29.248/443|subj=srv|os=???|dist=19|params=none|raw_sig=4:109+19:0:1440:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0
+sigalg-grease.pcapng [2026/08/31 16:01:18] mod=syn|cli=192.168.0.1/56544|srv=10.10.10.1/443|subj=cli|os=Mac OS X|dist=0|params=generic fuzzy|raw_sig=4:64+0:0:1460:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df:0
+sigalg-grease.pcapng [2026/08/31 16:01:18] mod=syn+ack|cli=192.168.0.1/56544|srv=10.10.10.1/443|subj=srv|os=???|dist=8|params=tos:0x18|raw_sig=4:120+8:0:1412:65535,8:mss,sok,ts,nop,ws:df:0
+ssh2.pcapng [2023/07/06 19:47:39] mod=syn|cli=172.16.225.48/57361|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:39] mod=syn|cli=172.16.225.48/57362|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:39] mod=syn|cli=172.16.225.48/57363|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:41] mod=syn|cli=172.16.225.48/57368|srv=146.112.255.155/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:41] mod=syn+ack|cli=172.16.225.48/57368|srv=146.112.255.155/443|subj=srv|os=???|dist=11|params=none|raw_sig=4:53+11:0:1300:42600,9:mss,nop,nop,sok,nop,ws:df:0
+ssh2.pcapng [2023/07/06 19:47:41] mod=syn|cli=172.16.225.48/57369|srv=146.112.255.155/1|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:43] mod=syn|cli=172.16.225.48/57371|srv=34.248.242.11/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:43] mod=syn+ack|cli=172.16.225.48/57371|srv=34.248.242.11/443|subj=srv|os=???|dist=20|params=none|raw_sig=4:235+20:0:1460:26883,8:mss,nop,nop,sok,nop,ws:df:0
+ssh2.pcapng [2023/07/06 19:47:46] mod=syn|cli=172.16.225.48/57360|srv=192.168.1.13/80|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:47] mod=syn|cli=172.16.225.48/57374|srv=52.178.17.3/443|subj=cli|os=Windows NT kernel 5.x|dist=0|params=generic|raw_sig=4:128+0:0:1460:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn+ack|cli=172.16.225.48/57374|srv=52.178.17.3/443|subj=srv|os=???|dist=18|params=none|raw_sig=4:110+18:0:1440:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn|cli=172.16.225.48/57375|srv=204.79.197.220/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn+ack|cli=172.16.225.48/57375|srv=204.79.197.220/443|subj=srv|os=???|dist=9|params=none|raw_sig=4:119+9:0:1440:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn|cli=172.16.225.48/57376|srv=52.86.25.233/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn+ack|cli=172.16.225.48/57376|srv=52.86.25.233/443|subj=srv|os=???|dist=14|params=none|raw_sig=4:241+14:0:1460:26883,0:mss:df:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn|cli=172.16.225.48/57377|srv=54.160.114.75/22|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:48] mod=syn+ack|cli=172.16.225.48/57377|srv=54.160.114.75/22|subj=srv|os=???|dist=14|params=none|raw_sig=4:50+14:0:1460:62727,7:mss,nop,nop,sok,nop,ws:df:0
+ssh2.pcapng [2023/07/06 19:47:51] mod=syn|cli=172.16.225.48/57380|srv=184.150.157.177/80|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:47:51] mod=syn+ack|cli=172.16.225.48/57380|srv=184.150.157.177/80|subj=srv|os=???|dist=6|params=none|raw_sig=4:58+6:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+ssh2.pcapng [2023/07/06 19:48:07] mod=syn|cli=172.16.225.48/57388|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:48:07] mod=syn|cli=172.16.225.48/57389|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:48:07] mod=syn|cli=172.16.225.48/57390|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:48:21] mod=syn|cli=172.16.225.48/57396|srv=184.150.157.177/80|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:48:21] mod=syn+ack|cli=172.16.225.48/57396|srv=184.150.157.177/80|subj=srv|os=???|dist=6|params=none|raw_sig=4:58+6:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+ssh2.pcapng [2023/07/06 19:48:31] mod=syn|cli=172.16.225.48/57402|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:48:31] mod=syn|cli=172.16.225.48/57403|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+ssh2.pcapng [2023/07/06 19:48:32] mod=syn|cli=172.16.225.48/57404|srv=10.244.39.47/5000|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63248|srv=54.190.49.36/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn+ack|cli=192.168.1.169/63248|srv=54.190.49.36/443|subj=srv|os=???|dist=29|params=none|raw_sig=4:35+29:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63249|srv=23.222.12.9/80|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn+ack|cli=192.168.1.169/63249|srv=23.222.12.9/80|subj=srv|os=???|dist=7|params=none|raw_sig=4:57+7:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63250|srv=54.190.49.36/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63251|srv=54.190.49.36/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63252|srv=104.21.234.234/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn+ack|cli=192.168.1.169/63252|srv=104.21.234.234/443|subj=srv|os=???|dist=7|params=none|raw_sig=4:57+7:0:1400:mss*44,13:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn+ack|cli=192.168.1.169/63251|srv=54.190.49.36/443|subj=srv|os=???|dist=26|params=none|raw_sig=4:38+26:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn+ack|cli=192.168.1.169/63250|srv=54.190.49.36/443|subj=srv|os=???|dist=29|params=none|raw_sig=4:35+29:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63253|srv=54.190.49.36/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:22] mod=syn|cli=192.168.1.169/63254|srv=54.190.49.36/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:23] mod=syn|cli=192.168.1.169/63255|srv=54.190.49.36/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+tls3.pcapng [2023/08/24 17:33:23] mod=syn+ack|cli=192.168.1.169/63254|srv=54.190.49.36/443|subj=srv|os=???|dist=0|params=none|raw_sig=4:32+0:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:23] mod=syn+ack|cli=192.168.1.169/63255|srv=54.190.49.36/443|subj=srv|os=???|dist=31|params=none|raw_sig=4:33+31:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+tls3.pcapng [2023/08/24 17:33:23] mod=syn+ack|cli=192.168.1.169/63253|srv=54.190.49.36/443|subj=srv|os=???|dist=29|params=none|raw_sig=4:35+29:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0

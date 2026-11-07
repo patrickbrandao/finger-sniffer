@@ -18,6 +18,7 @@ Detalhe das decisões em `specs/decisions/`.
 - Store: ingest do stream (ack após commit), correlação 5-tupla → conn_id ULID (iniciador = cliente, reuso da 5-tupla), pcap no fechamento com teto e truncamento por cabeçalho, pacotes avulsos (TCP sem handshake, UDP sem resposta, ICMP), retenção por tempo e tamanho, modo degradado, recuperação de conexões órfãs (task 009).
 - API de consulta: `/connections` (filtros, mais novas primeiro), `/connections/{id}` (abertas ao vivo), `/pcap` (parcial para abertas), `/raw`, `/packets`, `/dns`, `/probes/{id}` com long-poll `wait`, `DELETE /probes/{id}`; pool de leitura separado; exemplos golden de cada resposta validados contra o openapi (task 010).
 - `pkg/fingerprint/ja4plus`: JA4T a partir do SYN (FoxIO License 1.1, isolado); `pkg/fingerprint/p0f`: assinatura p0f v3, leitor do `p0f.fp` e palpite de SO como o p0f 3.09b; conferidos contra `ja4` da FoxIO e `p0f -r` em 28 pcaps (106 fluxos JA4T, 153 observações p0f) (task 011).
+- `.gitignore`: gabaritos `*.log` em `testdata/` são versionados (o `p0f.golden.log` da task 011 tinha ficado fora do commit) (task 011).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
