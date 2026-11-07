@@ -1,0 +1,38 @@
+# Barramento local NATS + JetStream (ADR 0003).
+[Unit]
+Description=finger-sniffer: NATS
+After=finger-sniffer-net.service
+PartOf=finger-sniffer.target
+
+[Service]
+Type=simple
+User=finger-sniffer
+Group=finger-sniffer
+ExecStart=/finger-sniffer/bin/nats-server -c /finger-sniffer/eventbus/nats/nats.conf
+Restart=always
+RestartSec=2
+RestartSteps=5
+RestartMaxDelaySec=30
+Environment=GOMEMLIMIT=110MiB
+MemoryMax=128M
+LimitNOFILE=65536
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/finger-sniffer/var/nats
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=finger-sniffer.target
