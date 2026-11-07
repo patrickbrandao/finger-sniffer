@@ -86,7 +86,11 @@ func TestIntegrationHealth(t *testing.T) {
 	port := freePort(t)
 	cfg := Config{
 		DBPath: path, HTTPAddr: fmt.Sprintf("127.0.0.1:%d", port), Retention: "10m", MaxBytes: 1 << 30,
-		DownAfter: 600 * time.Millisecond, Host: hostFixture(t, false),
+		DownAfter: 600 * time.Millisecond, Host: hostFixture(t, false), RetentionDur: 10 * time.Minute,
+		Ingest: IngestConfig{
+			PcapMax: 16 << 20, TCPIdle: time.Minute, UDPIdle: 30 * time.Second, CloseGrace: 100 * time.Millisecond,
+			MaxOpen: 200, MaxNewPerS: 50, Snaplen: 65535,
+		},
 	}
 	st, err := New(ctx, storeSvc, cfg, []byte("openapi: 3.1.0\n"))
 	if err != nil {
@@ -127,6 +131,24 @@ func TestIntegrationHealth(t *testing.T) {
 		info, err := s.Info(ctx)
 		return err == nil && info.Config.Storage == jetstream.MemoryStorage && info.Config.MaxBytes == streamMaxMem
 	}, "stream FS_EVENTS not created in memory")
+
+	// Ingest ponta a ponta: um lote FSPB publicado no JetStream vira conexão com pcap.
+	msg := batch(client, mirror, protoTCP, fullTCP)
+	shift := time.Now().UnixNano() - base // tempos atuais, para a folga de fechamento vencer
+	var buf []byte
+	_, _ = event.DecodePackets(msg.data, func(p event.Packet) error {
+		p.TsNs += shift
+		buf = event.AppendPacket(buf, p)
+		return nil
+	})
+	if _, err := js.Publish(ctx, event.SubjectCapturePacket, buf); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, 10*time.Second, func() bool {
+		var n int
+		_ = st.db.QueryRow("SELECT count(*) FROM connections c JOIN pcaps p USING (conn_id) WHERE c.ended_ns IS NOT NULL").Scan(&n)
+		return n == 1
+	}, "published batch never became a finished connection with pcap")
 
 	// Parar o web: vira down depois de DownAfter, e ok fica false.
 	stops[event.ServiceWeb]()

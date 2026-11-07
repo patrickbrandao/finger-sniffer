@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -18,12 +19,14 @@ import (
 
 // Config do store nesta fase.
 type Config struct {
-	DBPath    string
-	HTTPAddr  string
-	Retention string
-	MaxBytes  int64
-	DownAfter time.Duration
-	Host      HostPaths
+	DBPath       string
+	HTTPAddr     string
+	Retention    string
+	RetentionDur time.Duration
+	MaxBytes     int64
+	DownAfter    time.Duration
+	Host         HostPaths
+	Ingest       IngestConfig
 }
 
 // LoadConfig lê FS_* do store.
@@ -43,6 +46,33 @@ func LoadConfig() (Config, error) {
 		return c, err
 	}
 	c.Host.SysctlFile = service.Env("FS_SYSCTL_FILE", c.Host.SysctlFile)
+	if c.RetentionDur, err = time.ParseDuration(c.Retention); err != nil {
+		return c, fmt.Errorf("store: FS_RETENTION: %w", err)
+	}
+	idle, err := service.EnvDuration("FS_IDLE_DEFAULT", 120*time.Second)
+	if err != nil {
+		return c, err
+	}
+	pcapMax, err := service.EnvInt("FS_PCAP_MAX_BYTES_PER_CONN", 16<<20)
+	if err != nil {
+		return c, err
+	}
+	maxOpen, err := service.EnvInt("FS_MAX_CONNS", 200)
+	if err != nil {
+		return c, err
+	}
+	maxNew, err := service.EnvInt("FS_MAX_NEW_CONNS_PER_S", 50)
+	if err != nil {
+		return c, err
+	}
+	snap, err := service.EnvInt("FS_CAPTURE_SNAPLEN", 65535)
+	if err != nil {
+		return c, err
+	}
+	c.Ingest = IngestConfig{
+		PcapMax: int64(pcapMax), TCPIdle: idle + 30*time.Second, UDPIdle: 30 * time.Second,
+		CloseGrace: time.Second, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
+	}
 	return c, nil
 }
 
@@ -100,8 +130,18 @@ func (s *Store) Run(ctx context.Context) error {
 	}
 	defer func() { _ = sub.Unsubscribe() }()
 
-	// O stream é criado em segundo plano: o NATS pode ainda estar subindo.
-	go s.ensureStream(ctx)
+	// O stream é criado em segundo plano (o NATS pode ainda estar subindo); depois começa o ingest.
+	go func() {
+		cons := s.ensureStream(ctx)
+		if cons == nil {
+			return
+		}
+		in := NewIngestor(s.db, s.cfg.Ingest, s.svc.Log, s.svc.Metrics)
+		if err := in.Run(ctx, cons); err != nil {
+			s.svc.Log.Error("ingest stopped", "err", err)
+		}
+	}()
+	go s.retentionLoop(ctx)
 
 	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now}
 	srv := &http.Server{
@@ -126,24 +166,46 @@ func (s *Store) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Store) ensureStream(ctx context.Context) {
+func (s *Store) ensureStream(ctx context.Context) jetstream.Consumer {
 	js, err := jetstream.New(s.svc.NC)
 	if err != nil {
 		s.svc.Log.Error("jetstream", "err", err)
-		return
+		return nil
 	}
 	for ctx.Err() == nil {
 		c, cancel := context.WithTimeout(ctx, 5*time.Second)
-		_, err := EnsureStream(c, js)
+		cons, err := EnsureStream(c, js)
 		cancel()
 		if err == nil {
 			s.svc.Log.Info("stream ready", "stream", StreamName, "storage", "memory")
-			return
+			return cons
 		}
 		s.svc.Log.Warn("stream not ready", "err", err)
 		select {
 		case <-ctx.Done():
 		case <-time.After(2 * time.Second):
+		}
+	}
+	return nil
+}
+
+// retentionLoop expurga a cada 10 s (spec 004 RF-06).
+func (s *Store) retentionLoop(ctx context.Context) {
+	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := r.RunOnce(ctx, time.Now())
+			if err != nil {
+				s.svc.Log.Warn("retention", "err", err)
+			}
+			s.svc.Metrics.Add("store_expunged_total", float64(n))
+			size, _, _ := dbStats(ctx, s.db, s.cfg.DBPath)
+			s.svc.Metrics.Set("store_db_bytes", float64(size))
 		}
 	}
 }
