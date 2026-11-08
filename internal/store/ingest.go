@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
@@ -26,6 +27,12 @@ type IngestConfig struct {
 	MaxOpen    int           // FS_MAX_CONNS
 	MaxNewPerS int           // FS_MAX_NEW_CONNS_PER_S
 	Snaplen    uint32
+	// SegmentsTracked é FS_TCP_SEGMENTS_TRACKED (segmentos com dados guardados por sentido, ≥ 32).
+	SegmentsTracked int
+	// P0F é o banco p0f.fp (FS_P0F_DB); nil dá só a assinatura crua, sem palpite de SO.
+	P0F *p0f.DB
+	// Syncookies lê o contador TcpExt SyncookiesSent (nil desliga a detecção de SYN cookie).
+	Syncookies func() int64
 }
 
 // Ingestor consome o stream e grava pacotes e conexões no SQLite.
@@ -45,7 +52,7 @@ type Ingestor struct {
 func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metrics) *Ingestor {
 	return &Ingestor{
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
-		flows: newFlowTable(cfg.TCPIdle, cfg.UDPIdle, cfg.CloseGrace, cfg.MaxOpen, cfg.MaxNewPerS),
+		flows: newFlowTable(cfg),
 	}
 }
 
@@ -60,6 +67,9 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 		select {
 		case <-tick.C:
 			in.publishMetrics()
+			if in.cfg.Syncookies != nil {
+				in.flows.sampleCookies(in.now().UnixNano(), in.cfg.Syncookies())
+			}
 		default:
 		}
 		batch, err := cons.Fetch(64, jetstream.FetchMaxWait(100*time.Millisecond))

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
 )
 
 // flowKey identifica um fluxo independente do sentido (pontas em ordem canônica).
@@ -42,6 +44,7 @@ type conn struct {
 	truncated                                  bool
 	closeAt                                    int64
 	serverSeen                                 bool
+	ana                                        *analysis
 }
 
 // fromClient informa se o pacote foi enviado pelo cliente da conexão.
@@ -131,13 +134,45 @@ type flowTable struct {
 	maxNewPerS  int
 	newInSecond int
 	secondStart int64
+	segTracked  int
+	p0f         *p0f.DB
+	clocks      clockRegistry
+	cookies     cookieHistory
 }
 
-func newFlowTable(tcpIdle, udpIdle, grace time.Duration, maxOpen, maxNewPerS int) *flowTable {
-	return &flowTable{
-		conns: map[flowKey]*conn{}, byID: map[string]*conn{}, grace: grace, tcpIdle: tcpIdle, udpIdle: udpIdle,
-		maxOpen: maxOpen, maxNewPerS: maxNewPerS, newID: newULID,
+func newFlowTable(cfg IngestConfig) *flowTable {
+	seg := cfg.SegmentsTracked
+	if seg <= 0 {
+		seg = 32
 	}
+	db := cfg.P0F
+	if db == nil {
+		db = &p0f.DB{} // sem banco: assinatura crua sem palpite de SO
+	}
+	return &flowTable{
+		conns: map[flowKey]*conn{}, byID: map[string]*conn{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
+		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
+		segTracked: seg, p0f: db,
+	}
+}
+
+// finish fecha a análise de uma conexão que saiu da tabela: grupo de relógio e SYN cookie.
+func (t *flowTable) finish(c *conn) {
+	if c.ana.cookieJudged {
+		return
+	}
+	c.ana.cookieJudged = true
+	c.ana.clockGroup = t.clocks.assign(c, true)
+	if c.synAck != 0 {
+		c.ana.cookie = c.ana.synCookie(t.cookies.rose(c.synAck))
+	}
+}
+
+// sampleCookies registra uma leitura do contador TcpExt SyncookiesSent.
+func (t *flowTable) sampleCookies(ts, v int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cookies.add(ts, v)
 }
 
 // newULID gera o conn_id com o instante do primeiro pacote.
@@ -153,7 +188,15 @@ func (t *flowTable) live(id string) (connectionJSON, bool) {
 	if !ok {
 		return connectionJSON{}, false
 	}
-	return c.record(0, ""), true
+	r := c.record(0, "")
+	if r.TCP != nil {
+		// provisório: sem registrar grupo novo enquanto a conexão está aberta
+		r.TCP.TSClockGroup = t.clocks.assign(c, false)
+		if c.synAck != 0 {
+			r.TCP.SynCookieServer = c.ana.synCookie(t.cookies.rose(c.synAck))
+		}
+	}
+	return r, true
 }
 
 // result descreve o que o ingest deve fazer com um pacote.
@@ -180,6 +223,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	if c != nil && isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))) {
 		delete(t.conns, k)
 		delete(t.byID, c.id)
+		t.finish(c)
 		res.ended, c = c, nil
 	}
 	if c == nil {
@@ -190,6 +234,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		c = &conn{
 			id: t.newID(ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
+			ana: newAnalysis(),
 		}
 		c.degraded = t.overloaded(ts)
 		t.conns[k] = c
@@ -197,6 +242,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		res.created = true
 	}
 	c.observe(fi, ts, t.grace)
+	c.analyze(fi, ts, c.fromClient(fi), t)
 	res.conn = c
 	return res
 }
@@ -224,6 +270,7 @@ func (t *flowTable) due(now int64) []*conn {
 			out = append(out, c)
 			delete(t.conns, k)
 			delete(t.byID, c.id)
+			t.finish(c)
 		}
 	}
 	return out

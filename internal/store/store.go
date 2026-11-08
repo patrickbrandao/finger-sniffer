@@ -14,6 +14,7 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
@@ -27,6 +28,7 @@ type Config struct {
 	DownAfter    time.Duration
 	Host         HostPaths
 	Ingest       IngestConfig
+	P0FPath      string // FS_P0F_DB
 }
 
 // LoadConfig lê FS_* do store.
@@ -36,6 +38,7 @@ func LoadConfig() (Config, error) {
 		HTTPAddr:  ":" + service.Env("FS_API_HTTP_PORT", "9001"),
 		Retention: service.Env("FS_RETENTION", "10m"),
 		Host:      DefaultHostPaths,
+		P0FPath:   service.Env("FS_P0F_DB", "/finger-sniffer/etc/p0f.fp"),
 	}
 	maxBytes, err := service.EnvInt("FS_STORE_MAX_BYTES", 2<<30)
 	if err != nil {
@@ -69,10 +72,20 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	segs, err := service.EnvInt("FS_TCP_SEGMENTS_TRACKED", 32)
+	if err != nil {
+		return c, err
+	}
+	if segs < 32 {
+		return c, fmt.Errorf("store: FS_TCP_SEGMENTS_TRACKED precisa ser >= 32 (spec 013 RF-09)")
+	}
 	c.Ingest = IngestConfig{
 		PcapMax: int64(pcapMax), TCPIdle: idle + 30*time.Second, UDPIdle: 30 * time.Second,
 		CloseGrace: time.Second, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
+		SegmentsTracked: segs,
 	}
+	netstat := c.Host.ProcNetstat
+	c.Ingest.Syncookies = func() int64 { return readNetstat(netstat, "TcpExt", "SyncookiesSent") }
 	return c, nil
 }
 
@@ -100,6 +113,15 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		return nil, err
 	}
 	s := &Store{cfg: cfg, svc: svc, db: db, rdb: rdb, tracker: NewTracker(event.Services, cfg.DownAfter), openapi: openapi}
+	if cfg.Ingest.P0F == nil && cfg.P0FPath != "" {
+		// Sem o p0f.fp o store sobe assim mesmo: a assinatura p0f sai crua, sem palpite de SO.
+		if fp, err := p0f.LoadDB(cfg.P0FPath); err != nil {
+			svc.Log.Warn("p0f.fp not loaded", "path", cfg.P0FPath, "err", err)
+		} else {
+			cfg.Ingest.P0F = fp
+			svc.Log.Info("p0f.fp loaded", "path", cfg.P0FPath, "tcp_request_sigs", len(fp.TCPRecords(true)))
+		}
+	}
 	s.ingest = NewIngestor(db, cfg.Ingest, svc.Log, svc.Metrics)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).

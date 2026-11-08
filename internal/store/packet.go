@@ -22,7 +22,7 @@ const (
 	tcpACK = 0x10
 )
 
-// frameInfo é o que a correlação precisa de um frame (a análise completa IP/TCP é da task 012).
+// frameInfo é o que a correlação e a análise IP/TCP precisam de um frame. Os slices apontam para o frame.
 type frameInfo struct {
 	ok       bool // IPv4/IPv6 decodificado
 	family   int
@@ -32,8 +32,12 @@ type frameInfo struct {
 	sport    uint16
 	dport    uint16
 	tcpFlags uint8
-	payload  int // bytes de aplicação (TCP/UDP)
-	headers  int // bytes até o fim do cabeçalho L4 (para o pcap truncado)
+	payload  int    // bytes de aplicação (TCP/UDP)
+	headers  int    // bytes até o fim do cabeçalho L4 (para o pcap truncado)
+	frag     bool   // IPv4 com MF ligado ou deslocamento de fragmento
+	l3       []byte // do cabeçalho IP até o fim declarado do pacote
+	l4       []byte // do cabeçalho L4 até o fim do pacote (TCP: cabeçalho, opções e dados)
+	tcpDoff  int    // tamanho do cabeçalho TCP com opções
 }
 
 // parseFrame decodifica Ethernet (VLAN opcional), IPv4/IPv6 e TCP/UDP sem alocar.
@@ -66,9 +70,12 @@ func parseFrame(f []byte) frameInfo {
 		r.src, r.dst = netip.AddrFrom4([4]byte(p[12:16])), netip.AddrFrom4([4]byte(p[16:20]))
 		total := int(binary.BigEndian.Uint16(p[2:4]))
 		end := min(len(p), max(total, ihl))
-		if binary.BigEndian.Uint16(p[6:8])&0x1fff == 0 {
+		fo := binary.BigEndian.Uint16(p[6:8])
+		if fo&0x1fff == 0 {
 			l4, l4off = p[ihl:end], off+ihl
 		}
+		r.frag = fo&0x3fff != 0
+		r.l3 = p[:end]
 		r.headers = off + ihl
 	case 0x86dd:
 		p := f[off:]
@@ -79,6 +86,7 @@ func parseFrame(f []byte) frameInfo {
 		r.src, r.dst = netip.AddrFrom16([16]byte(p[8:24])), netip.AddrFrom16([16]byte(p[24:40]))
 		end := min(len(p), 40+int(binary.BigEndian.Uint16(p[4:6])))
 		l4, l4off = p[40:end], off+40
+		r.l3 = p[:end]
 		r.headers = off + 40
 	default:
 		return frameInfo{}
@@ -94,6 +102,7 @@ func parseFrame(f []byte) frameInfo {
 				r.tcpFlags = l4[13]
 				r.payload = len(l4) - doff
 				r.headers = l4off + doff
+				r.l4, r.tcpDoff = l4, doff
 			}
 		}
 	case protoUDP:
@@ -102,6 +111,7 @@ func parseFrame(f []byte) frameInfo {
 			r.sport, r.dport = binary.BigEndian.Uint16(l4[0:2]), binary.BigEndian.Uint16(l4[2:4])
 			r.payload = len(l4) - 8
 			r.headers = l4off + 8
+			r.l4 = l4
 		}
 	}
 	return r
