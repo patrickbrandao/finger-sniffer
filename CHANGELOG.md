@@ -20,6 +20,8 @@ Detalhe das decisões em `specs/decisions/`.
 - `pkg/fingerprint/ja4plus`: JA4T a partir do SYN (FoxIO License 1.1, isolado); `pkg/fingerprint/p0f`: assinatura p0f v3, leitor do `p0f.fp` e palpite de SO como o p0f 3.09b; conferidos contra `ja4` da FoxIO e `p0f -r` em 28 pcaps (106 fluxos JA4T, 153 observações p0f) (task 011).
 - `.gitignore`: gabaritos `*.log` em `testdata/` são versionados (o `p0f.golden.log` da task 011 tinha ficado fora do commit) (task 011).
 - Store: análise IP/TCP no registro (spec 013): IP do cliente (TTL inicial, saltos, IP ID e padrão, DF, DSCP/ECN, opções, fragmento, flow label), SYN completo com opções na ordem, JA4T, assinatura e palpite p0f (`FS_P0F_DB`), janela com escala, padrão de ACK, PSH, keepalives, janela zero, RST com dados, retransmissões e fora de ordem por sentido, primeiros `FS_TCP_SEGMENTS_TRACKED` segmentos, relógio TSval (Hz) e agrupamento por relógio entre conexões, RTT do handshake, SYN cookie do servidor (task 012).
+- Golden pcaps (`test/golden/`): curl macOS (IPv4/IPv6), curl Linux (IPv4/IPv6), Go, Chrome, keepalive, retransmissão (netem) e RST, com saídas de referência do tshark 4.4, `ja4` da FoxIO e `p0f -r`; `collect.sh` regenera e limpa a vps602; `internal/store/golden_test.go` confere o registro contra elas (task 013).
+- Store: retransmissão, fora de ordem e keep-alive classificados como o tshark (Wireshark 4.4: retransmissão rápida e espúria, limite de fora de ordem pelo iRTT, FIN na sequência, atualização de janela com SACK como ACK duplicado) (task 013).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).

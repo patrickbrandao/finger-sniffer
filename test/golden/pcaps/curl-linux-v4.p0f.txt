@@ -1,0 +1,2 @@
+[2026/11/08 04:42:10] mod=syn|cli=172.233.24.85/36378|srv=104.20.23.154/80|subj=cli|os=Linux 2.2.x-3.x|dist=0|params=generic fuzzy|raw_sig=4:128+0:0:1460:mss*44,12:mss,sok,ts,nop,ws:df,id+:0
+[2026/11/08 04:42:10] mod=syn+ack|cli=172.233.24.85/36378|srv=104.20.23.154/80|subj=srv|os=???|dist=12|params=none|raw_sig=4:52+12:0:1400:65535,13:mss,sok,ts,nop,ws:df:0

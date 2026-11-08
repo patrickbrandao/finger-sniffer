@@ -18,7 +18,6 @@ const (
 	maxWindowSeries = 512
 	maxKeepalives   = 64
 	maxIPIDs        = 64
-	maxSeenSegments = 4096
 )
 
 // Tipos de opção TCP.
@@ -89,17 +88,13 @@ type tcpJSON struct {
 	RetransmitsIn   int         `json:"retransmits_in"`
 }
 
-// dirState acompanha a sequência de um sentido.
+// dirState guarda o que é de cada sentido no registro.
 type dirState struct {
 	isnSet  bool
 	isn     uint32
-	maxEnd  uint32 // maior fim relativo já visto (dados começam em isn+1, relativo 0)
-	seen    map[uint32]struct{}
 	retrans int
 	ooo     int
 	segs    []timedLen
-	finSet  bool
-	finSeq  uint32
 }
 
 // tsSample é um TSval do cliente e o instante de captura.
@@ -129,6 +124,7 @@ type analysis struct {
 	srvSACK    bool
 
 	dir          [2]dirState
+	ws           wsConn
 	window       []timedLen
 	lastWin      int64
 	keepalives   []timedLen
@@ -186,16 +182,12 @@ func (c *conn) analyze(fi frameInfo, ts int64, cli bool, t *flowTable) {
 				v := int64(opts.tsVal)
 				a.tsInitial = &v
 			}
-		} else if d.isnSet && seq == d.isn {
-			d.retrans++ // SYN retransmitido
 		}
 	case syn && ack && !cli:
 		if !a.synAckSeen {
 			a.synAckSeen = true
 			d.isnSet, d.isn = true, seq
 			a.srvWS, a.srvTS, a.srvTSval, a.srvSACK = opts.ws, opts.hasTS, opts.tsVal, opts.sackPerm
-		} else if d.isnSet && seq == d.isn {
-			d.retrans++
 		}
 	}
 
@@ -208,32 +200,27 @@ func (c *conn) analyze(fi frameInfo, ts int64, cli bool, t *flowTable) {
 		a.tsCount++
 	}
 
-	keepalive := false
-	if !syn && d.isnSet {
-		rel := seq - d.isn - 1
-		counted := false // no máximo uma retransmissão por pacote, como no tshark
-		switch {
-		case cli && ack && !fin && !rst && payload <= 1 && c.established != 0 && rel == d.maxEnd-1:
-			// sonda de keepalive: um byte (ou nada) antes do próximo número de sequência esperado
-			keepalive = true
-			if len(a.keepalives) < maxKeepalives {
-				a.keepalives = append(a.keepalives, timedLen{msSince(c.started, ts), float64(payload)})
-			}
-		case payload > 0:
-			before := d.retrans
-			d.data(rel, uint32(payload)) //nolint:gosec // payload < 64 KiB
-			counted = d.retrans > before
-			if len(d.segs) < t.segTracked {
-				d.segs = append(d.segs, timedLen{msSince(c.started, ts), float64(payload)})
-			}
+	// retransmissão, fora de ordem e keep-alive como o tshark (seqanalysis.go)
+	di := 1
+	if cli {
+		di = 0
+	}
+	ackNum := binary.BigEndian.Uint32(tcp[8:12])
+	res := a.ws.classify(di, ts, seq, ackNum, uint32(payload), flags, uint32(win), opts.sack) //nolint:gosec // payload < 64 KiB
+	if res&segRetransmission != 0 {
+		d.retrans++
+	}
+	if res&segOutOfOrder != 0 {
+		d.ooo++
+	}
+	keepalive := res&segKeepAlive != 0
+	switch {
+	case keepalive && cli:
+		if len(a.keepalives) < maxKeepalives {
+			a.keepalives = append(a.keepalives, timedLen{msSince(c.started, ts), float64(payload)})
 		}
-		if fin {
-			fs := seq + uint32(payload) //nolint:gosec // payload < 64 KiB
-			if !counted && d.finSet && fs == d.finSeq {
-				d.retrans++
-			}
-			d.finSet, d.finSeq = true, fs
-		}
+	case payload > 0 && !keepalive && len(d.segs) < t.segTracked:
+		d.segs = append(d.segs, timedLen{msSince(c.started, ts), float64(payload)})
 	}
 
 	if cli {
@@ -262,31 +249,6 @@ func (c *conn) analyze(fi frameInfo, ts int64, cli bool, t *flowTable) {
 		}
 	} else if payload > 0 && !syn {
 		a.srvDataSegs++
-	}
-}
-
-// data registra um segmento com dados: retransmissão quando o início já foi visto, fora de ordem quando
-// chega abaixo do maior fim sem ter sido visto (preenche um buraco).
-func (d *dirState) data(rel, n uint32) {
-	if d.seen == nil {
-		d.seen = map[uint32]struct{}{}
-	}
-	_, dup := d.seen[rel]
-	switch {
-	case dup:
-		d.retrans++
-	case int32(rel-d.maxEnd) < 0: //nolint:gosec // comparação de sequência com wrap
-		if len(d.seen) >= maxSeenSegments {
-			d.retrans++ // sem memória para distinguir: conta como retransmissão
-		} else {
-			d.ooo++
-		}
-	}
-	if len(d.seen) < maxSeenSegments {
-		d.seen[rel] = struct{}{}
-	}
-	if end := rel + n; int32(end-d.maxEnd) > 0 { //nolint:gosec // comparação de sequência com wrap
-		d.maxEnd = end
 	}
 }
 
@@ -415,6 +377,7 @@ type tcpOpts struct {
 	hasTS    bool
 	tsVal    uint32
 	sackPerm bool
+	sack     bool
 	tfo      bool
 }
 
@@ -449,6 +412,7 @@ func parseOpts(b []byte) tcpOpts {
 			o.sackPerm = true
 			o.list = append(o.list, []any{"sack_perm"})
 		case k == optSACK && (l-2)%8 == 0:
+			o.sack = true
 			e := []any{"sack"}
 			for j := 0; j+8 <= len(v); j += 8 {
 				e = append(e, int64(binary.BigEndian.Uint32(v[j:])), int64(binary.BigEndian.Uint32(v[j+4:])))
