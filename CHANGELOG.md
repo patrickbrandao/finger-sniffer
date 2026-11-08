@@ -22,6 +22,7 @@ Detalhe das decisões em `specs/decisions/`.
 - Store: análise IP/TCP no registro (spec 013): IP do cliente (TTL inicial, saltos, IP ID e padrão, DF, DSCP/ECN, opções, fragmento, flow label), SYN completo com opções na ordem, JA4T, assinatura e palpite p0f (`FS_P0F_DB`), janela com escala, padrão de ACK, PSH, keepalives, janela zero, RST com dados, retransmissões e fora de ordem por sentido, primeiros `FS_TCP_SEGMENTS_TRACKED` segmentos, relógio TSval (Hz) e agrupamento por relógio entre conexões, RTT do handshake, SYN cookie do servidor (task 012).
 - Golden pcaps (`test/golden/`): curl macOS (IPv4/IPv6), curl Linux (IPv4/IPv6), Go, Chrome, keepalive, retransmissão (netem) e RST, com saídas de referência do tshark 4.4, `ja4` da FoxIO e `p0f -r`; `collect.sh` regenera e limpa a vps602; `internal/store/golden_test.go` confere o registro contra elas (task 013).
 - Store: retransmissão, fora de ordem e keep-alive classificados como o tshark (Wireshark 4.4: retransmissão rápida e espúria, limite de fora de ordem pelo iRTT, FIN na sequência, atualização de janela com SACK como ACK duplicado) (task 013).
+- E2E da F2 (`test/e2e/`, `make verify-full ARGS="--e2e"`): curl e nc a uma porta capturada com SYN, JA4T, p0f, RTT, close e pcap aberto no tshark; SYN para porta fechada em `/packets`; portas 48022/9000/9001/48161 ausentes; respostas reais validadas contra o openapi pelo Redocly; retenção de 10 min com `FS_E2E_LONG=1` (task 014).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
