@@ -21,6 +21,8 @@ coverage.*
 !pkg/**/testdata/**/*.pcapng
 !internal/**/testdata/**/*.pcap
 !internal/**/testdata/**/*.pcapng
+# golden pcaps da task 013
+!test/golden/pcaps/*.pcap
 
 # Segredos e configuração local
 .env

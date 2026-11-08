@@ -1,0 +1,2 @@
+[2026/11/08 04:42:04] mod=syn|cli=2001:db8:0:0:0:0:0:10/50419|srv=2600:3c0d:0:0:f03c:93ff:fe26:8fd9/7700|subj=cli|os=???|dist=15|params=none|raw_sig=6:49+15:0:1432:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:ecn,flow:0
+[2026/11/08 04:42:04] mod=syn+ack|cli=2001:db8:0:0:0:0:0:10/50419|srv=2600:3c0d:0:0:f03c:93ff:fe26:8fd9/7700|subj=srv|os=???|dist=0|params=none|raw_sig=6:64+0:0:1440:mss*45,12:mss,sok,ts,nop,ws:ecn,flow:0
