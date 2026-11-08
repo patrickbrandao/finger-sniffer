@@ -6,8 +6,8 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
-// Estruturas do registro de conexão (schema Connection do openapi.yaml). Nesta fase: resumo, times, close e
-// totals básicos; ip/tcp completos vêm na task 012 e as camadas de aplicação na F3.
+// Estruturas do registro de conexão (schema Connection do openapi.yaml): resumo, times, close, totals, ip e
+// tcp (análise em analysis.go); as camadas de aplicação vêm na F3.
 
 type endpointJSON struct {
 	IP   string `json:"ip"`
@@ -64,6 +64,8 @@ type connectionJSON struct {
 	Times         *timesJSON   `json:"times,omitempty"`
 	Close         closeJSON    `json:"close"`
 	Totals        totalsJSON   `json:"totals"`
+	IP            *ipJSON      `json:"ip,omitempty"`
+	TCP           *tcpJSON     `json:"tcp,omitempty"`
 }
 
 func tsPtr(ns int64) *string {
@@ -84,11 +86,19 @@ func (c *conn) record(ended int64, how string) connectionJSON {
 		Degraded: c.degraded, PcapTruncated: c.truncated,
 		Close: closeJSON{By: "unknown", How: "open"},
 		Totals: totalsJSON{
-			In:  dirTotalsJSON{AppBytes: c.inBytes, Segments: c.inSegs, DataSegments: c.inData},
-			Out: dirTotalsJSON{AppBytes: c.outBytes, Segments: c.outSegs, DataSegments: c.outData},
+			In: dirTotalsJSON{
+				AppBytes: c.inBytes, Segments: c.inSegs, DataSegments: c.inData,
+				Retransmits: c.ana.dir[0].retrans, OutOfOrder: c.ana.dir[0].ooo,
+			},
+			Out: dirTotalsJSON{
+				AppBytes: c.outBytes, Segments: c.outSegs, DataSegments: c.outData,
+				Retransmits: c.ana.dir[1].retrans, OutOfOrder: c.ana.dir[1].ooo,
+			},
 		},
+		IP: c.ana.ipJSON(),
 	}
 	if c.l4 == protoTCP {
+		r.TCP = c.ana.tcpJSON(c)
 		r.Times = &timesJSON{
 			Syn: tsPtr(c.syn), SynAck: tsPtr(c.synAck), Established: tsPtr(c.established), FirstData: tsPtr(c.firstData),
 			ClientFin: tsPtr(c.clientFin), ServerFin: tsPtr(c.serverFin), ClientRst: tsPtr(c.clientRst),

@@ -15,6 +15,21 @@
     },
     "ended": "2026-11-07T12:00:01.060000000Z",
     "family": 4,
+    "ip": {
+      "df": false,
+      "dscp": 0,
+      "ecn": "not-ect",
+      "flow_label": null,
+      "fragmented": false,
+      "hops": 0,
+      "ip_id_pattern": "zero",
+      "ip_id_syn": 0,
+      "options_hex": "",
+      "tos": 0,
+      "traffic_class": null,
+      "ttl": 64,
+      "ttl_initial": 64
+    },
     "l4": "tcp",
     "pcap_truncated": false,
     "probe_id": "t1a2b3c4",
@@ -25,6 +40,57 @@
       "port": 41234
     },
     "started": "2026-11-07T12:00:00.000000000Z",
+    "tcp": {
+      "ack_pattern": "unknown",
+      "ja4t": "0_00_00_00",
+      "keepalive_probes": [
+        [
+          20,
+          0
+        ]
+      ],
+      "os_guess": null,
+      "p0f": "4:64+0:0:0:0,0::id-,seq-:0",
+      "psh_used": true,
+      "retransmits_in": 0,
+      "rst_with_data": false,
+      "rtt_app_ms": null,
+      "rtt_handshake_ms": 10,
+      "segments_in": [
+        [
+          25,
+          100
+        ]
+      ],
+      "segments_out": [
+        [
+          35,
+          1000
+        ]
+      ],
+      "syn": {
+        "flags": "S",
+        "header_len": 20,
+        "isn": 0,
+        "options": [],
+        "payload_b64": null,
+        "src_port": 41234,
+        "tfo": false,
+        "urgent_ptr": 0,
+        "window": 0
+      },
+      "syn_cookie_server": false,
+      "ts_clock_group": null,
+      "ts_clock_hz": null,
+      "ts_initial": null,
+      "window_series": [
+        [
+          0,
+          0
+        ]
+      ],
+      "zero_window": true
+    },
     "times": {
       "client_fin": "2026-11-07T12:00:01.040000000Z",
       "client_rst": null,
@@ -41,14 +107,14 @@
       "in": {
         "app_bytes": 100,
         "data_segments": 1,
-        "out_of_order": 0,
+        "out_of_order": 1,
         "retransmits": 0,
         "segments": 6
       },
       "out": {
         "app_bytes": 1000,
         "data_segments": 1,
-        "out_of_order": 0,
+        "out_of_order": 1,
         "retransmits": 0,
         "segments": 3
       }
