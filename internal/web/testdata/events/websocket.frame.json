@@ -1,0 +1,30 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 55987,
+    "l4": "tcp",
+    "src_ip": "127.0.0.1",
+    "src_port": 55989
+  },
+  "payload": {
+    "close": null,
+    "dir": "in",
+    "fin": true,
+    "length": 1,
+    "mask_key_hex": "6691fa47",
+    "masked": true,
+    "opcode": 1,
+    "rsv": 0,
+    "upgrade": {
+      "extensions": null,
+      "over": "http1.1",
+      "path": "/p/abcdefgh/ws",
+      "subprotocol": null
+    }
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T05:03:43.280884000Z"
+}

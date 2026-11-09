@@ -89,9 +89,6 @@ func (s *h1Session) control(req *h1.Request, probeID, rawQuery string) response 
 	if !ctl.Valid() {
 		return textResponse(http.StatusBadRequest, ctl.InvalidText())
 	}
-	if ctl.Upgrade == "ws" {
-		return s.upgradeWS(req, ctl)
-	}
 	text, contentType := s.mirrorBody(req, probeID, ctl.Inline)
 	var body io.Reader = strings.NewReader(text)
 	size := int64(len(text))
@@ -155,11 +152,6 @@ func (s *h1Session) control(req *h1.Request, probeID, rawQuery string) response 
 		r.abrupt = r.cut != cutNone || r.rst
 	}
 	return r
-}
-
-// upgradeWS é o gancho do upgrade=ws (spec 012, task 026); até lá, 501.
-func (s *h1Session) upgradeWS(_ *h1.Request, _ *Controls) response {
-	return textResponse(http.StatusNotImplemented, "upgrade=ws is not available yet\n")
 }
 
 // sleep espera d ou a parada do serviço; false se o serviço parou.

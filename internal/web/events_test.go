@@ -116,6 +116,7 @@ func contractBlocks(t *testing.T) map[string]string {
 		event.SubjectWebStreamBytes:     join(async, "StreamBytesPayload"),
 		event.SubjectWebHTTP2Connection: join(openapi, "HTTP2Info", "H2Frame"),
 		event.SubjectWebHTTP2Stream:     join(openapi, "HTTP2Stream", "HPACKField", "Controls"),
+		event.SubjectWebWebSocketFrame:  join(async, "WebSocketFramePayload"),
 		"envelope":                      join(async, "Envelope", "Flow"),
 	}
 }
