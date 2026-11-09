@@ -1,0 +1,1 @@
+- Web: no HTTP/1 sobre TLS, `Alt-Svc` sai depois dos campos padrão e antes dos de `h=` (antes ia no fim); `Date` continua o primeiro campo e `hsize` segue exato (spec 005 RF-04, task 085).

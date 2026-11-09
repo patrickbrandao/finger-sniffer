@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
@@ -27,12 +28,20 @@ func noAltSvc(rawQuery string) bool {
 	return off
 }
 
-// addAltSvc acrescenta o Alt-Svc ao cabeçalho HTTP/1 quando o anúncio vale.
-func (c *conn) addAltSvc(head *h1.Response, rawQuery string) {
+// addAltSvc põe o Alt-Svc no cabeçalho HTTP/1 quando o anúncio vale: depois dos campos padrão e antes
+// dos de h= (spec 005 RF-04); sem h=, no fim. O Date entra depois, como primeiro campo (ADR 0021).
+func (c *conn) addAltSvc(r *response, rawQuery string) {
 	c.mu.Lock()
 	tlsOn := c.tlsOn
 	c.mu.Unlock()
-	if head != nil && c.srv.altSvcOn(tlsOn, rawQuery) {
-		head.Fields = append(head.Fields, h1.HeaderField{Name: "Alt-Svc", Value: altSvcH3})
+	if r.head == nil || !c.srv.altSvcOn(tlsOn, rawQuery) {
+		return
 	}
+	alt := h1.HeaderField{Name: "Alt-Svc", Value: altSvcH3}
+	at := r.userAt
+	if at <= 0 || at > len(r.head.Fields) {
+		r.head.Fields = append(r.head.Fields, alt)
+		return
+	}
+	r.head.Fields = slices.Insert(r.head.Fields, at, alt)
 }

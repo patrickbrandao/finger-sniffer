@@ -144,7 +144,7 @@ func (s *h1Session) serveOne(idx int) bool {
 	}
 	resp := s.route(req, probeID)
 	if _, rawQuery, ok := target(req.RequestLine); ok {
-		s.c.addAltSvc(resp.head, rawQuery)
+		s.c.addAltSvc(&resp, rawQuery)
 	}
 	if expect && cont == ContinueLate {
 		resp.interim = append([]h1.Interim{{Status: http.StatusContinue}}, resp.interim...)
@@ -336,6 +336,9 @@ type response struct {
 	abrupt               bool
 	// noDate omite o Date automático (date=0).
 	noDate bool
+	// userAt é o índice em head.Fields onde começam os campos de h= (0: a resposta não tem h=); o
+	// Alt-Svc entra ali, depois dos campos padrão e antes dos h= (spec 005 RF-04).
+	userAt int
 }
 
 // textResponse monta uma resposta text/plain pequena.

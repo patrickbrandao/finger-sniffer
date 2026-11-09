@@ -130,6 +130,9 @@ func (s *h1Session) control(req *h1.Request, probeID, rawQuery string) response 
 	head.Fields = append(fields, ctl.Fields...)
 
 	r := response{head: head, body: body, delayHead: ctl.DelayHead, delayBody: ctl.DelayBody, noDate: ctl.NoDate}
+	if len(ctl.Fields) > 0 {
+		r.userAt = len(fields)
+	}
 	for _, st := range ctl.Interim {
 		r.interim = append(r.interim, h1.Interim{Status: st})
 	}
