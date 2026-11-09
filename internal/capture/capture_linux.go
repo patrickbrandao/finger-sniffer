@@ -23,7 +23,7 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("capture: %w", err)
 	}
-	prog, err := ExcludeFilter(cfg.Exclude)
+	prog, err := ExcludeFilter(cfg.Exclude, cfg.Snaplen)
 	if err != nil {
 		return err
 	}
@@ -50,13 +50,17 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 		return fmt.Errorf("capture: attach bpf: %w", err)
 	}
 
-	cls := &classifier{local: localAddrs(ifc), excluded: toSet(cfg.Exclude), mtu: ifc.MTU}
 	health := NewHealth(cfg.Iface, cfg.NetStatus)
+	// Leitura inicial dos offloads (RF-06); o heartbeat (Status) a refaz a cada 5 s.
+	aggOn, aggErr := health.Refresh()
+	cls := &classifier{local: localAddrs(ifc), excluded: toSet(cfg.Exclude), mtu: ifc.MTU, aggregating: health.Aggregating}
 	svc.SetStatus(health.Status)
 	batch := NewBatcher(cfg.BatchMax, cfg.BatchWait, cfg.Iface)
 	m := svc.Metrics
+	initMetrics(m)
 	svc.Log.Info("capture started", "iface", cfg.Iface, "exclude", cfg.Exclude, "bpf_len", len(raw),
-		"block_timeout", cfg.BlockTimeout.String())
+		"snaplen", cfg.Snaplen, "block_timeout", cfg.BlockTimeout.String(), "aggregating_offloads", aggOn,
+		"offload_check_error", errString(aggErr))
 
 	flush := func() {
 		if msg := batch.Take(); msg != nil {
@@ -101,9 +105,14 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 		}
 		dir := cls.direction(fr)
 		fl := cls.flags(ci.Length, ci.CaptureLength)
-		if fl&event.FlagOffloadSuspect != 0 {
+		if cls.oversize(ci.Length) {
 			health.ObserveSuspect(1)
+		}
+		if fl&event.FlagOffloadSuspect != 0 {
 			m.Add("capture_offload_suspect_total", 1)
+		}
+		if fl&event.FlagTruncated != 0 {
+			m.Add("capture_truncated_total", 1)
 		}
 		if dir == event.DirOut {
 			m.Add("capture_packets_out_total", 1)
@@ -114,13 +123,23 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 			m.Set("capture_max_frame_bytes", float64(ci.Length))
 		}
 		now := time.Now()
-		if batch.Add(event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: dir, Flags: fl, WireLen: uint32(ci.Length), Frame: data}, now) || //nolint:gosec // frame < 64 KiB
-			batch.Due(now) {
+		pkt := event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: dir, Flags: fl, WireLen: uint32(ci.Length), Frame: data} //nolint:gosec // frame <= maxSnap
+		if !batch.Fits(pkt) {
+			flush()
+		}
+		if batch.Add(pkt, now) || batch.Due(now) {
 			flush()
 		}
 	}
 	flush()
 	return nil
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func localAddrs(ifc *net.Interface) map[netip.Addr]bool {

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -22,6 +23,8 @@ type Health struct {
 	netStatus string
 	// features lê o estado atual dos offloads ("nome: on|off"); padrão: ethtool -k.
 	features func(ctx context.Context, iface string) (string, error)
+	// aggregating guarda a última leitura dos offloads de agregação (true = algum ligado).
+	aggregating atomic.Bool
 
 	mu        sync.Mutex
 	drops     uint64 // total acumulado do kernel
@@ -49,7 +52,7 @@ func (h *Health) ObserveDrops(total uint64) {
 	h.mu.Unlock()
 }
 
-// ObserveSuspect soma frames maiores que MTU + 14 (offload_suspect).
+// ObserveSuspect soma frames maiores que MTU + 14.
 func (h *Health) ObserveSuspect(n uint64) {
 	h.mu.Lock()
 	h.suspect += n
@@ -60,7 +63,7 @@ func (h *Health) ObserveSuspect(n uint64) {
 // boot pela unit de rede quando o ethtool não responde, e marca perdas e frames suspeitos desde o último heartbeat.
 func (h *Health) Status() (string, []string) {
 	var reasons []string
-	if on, err := h.aggregatingNow(); err != nil {
+	if on, err := h.Refresh(); err != nil {
 		reasons = append(reasons, err.Error())
 	} else if len(on) > 0 {
 		reasons = append(reasons, "aggregating offload on: "+strings.Join(on, ","))
@@ -82,6 +85,20 @@ func (h *Health) Status() (string, []string) {
 	}
 	return event.StatusOK, nil
 }
+
+// Refresh relê os offloads de agregação, guarda o resultado para Aggregating e devolve os que estão ligados. Sem
+// leitura possível, mantém o último estado conhecido.
+func (h *Health) Refresh() ([]string, error) {
+	on, err := h.aggregatingNow()
+	if err == nil {
+		h.aggregating.Store(len(on) > 0)
+	}
+	return on, err
+}
+
+// Aggregating informa se, na última leitura, algum offload de agregação estava ligado (custo de um load atômico;
+// chamado a cada pacote).
+func (h *Health) Aggregating() bool { return h.aggregating.Load() }
 
 func (h *Health) aggregatingNow() ([]string, error) {
 	if out, err := h.features(context.Background(), h.iface); err == nil {

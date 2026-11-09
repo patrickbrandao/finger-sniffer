@@ -51,7 +51,7 @@ func parseFrame(f []byte) l3l4 {
 			return l3l4{}
 		}
 		r.src, r.dst = netip.AddrFrom16([16]byte(p[8:24])), netip.AddrFrom16([16]byte(p[24:40]))
-		proto, l4 = p[6], p[40:]
+		proto, l4 = v6Upper(p[6], p[40:])
 	default:
 		return l3l4{}
 	}
@@ -63,11 +63,51 @@ func parseFrame(f []byte) l3l4 {
 	return r
 }
 
+// v6Upper atravessa os cabeçalhos de extensão IPv6 (os mesmos do filtro BPF, até v6ExtMaxUser) e devolve o
+// protocolo de transporte e o que vem depois dele. Fragmento não inicial, cabeçalho truncado ou extensões demais
+// devolvem l4 nil (sem portas).
+func v6Upper(next byte, p []byte) (byte, []byte) {
+	for range v6ExtMaxUser {
+		switch next {
+		case ipv6HopByHop, ipv6Routing, ipv6DstOpts, ipv6AH:
+			if len(p) < 8 {
+				return next, nil
+			}
+			n := (int(p[1]) + 1) * 8
+			if next == ipv6AH {
+				n = (int(p[1]) + 2) * 4
+			}
+			if len(p) < n {
+				return next, nil
+			}
+			next, p = p[0], p[n:]
+		case ipv6Fragment:
+			if len(p) < 8 || binary.BigEndian.Uint16(p[2:4])&0xfff8 != 0 {
+				return next, nil
+			}
+			next, p = p[0], p[8:]
+		default:
+			return next, p
+		}
+	}
+	switch next {
+	case ipv6HopByHop, ipv6Routing, ipv6DstOpts, ipv6AH, ipv6Fragment:
+		return next, nil
+	}
+	return next, p
+}
+
+// v6ExtMaxUser é o limite do percurso em espaço de usuário, maior que o do BPF: o que o kernel deixou passar por
+// excesso de extensões ainda é conferido aqui.
+const v6ExtMaxUser = 16
+
 // classifier decide direção e flags de cada pacote.
 type classifier struct {
 	local    map[netip.Addr]bool
 	excluded map[uint16]bool
 	mtu      int
+	// aggregating informa se algum offload de agregação está ligado agora (spec 003 RF-06).
+	aggregating func() bool
 }
 
 // direction devolve DirOut quando a origem é um IP local; DirIn nos demais casos.
@@ -84,10 +124,16 @@ func (c *classifier) excludedPort(fr l3l4) bool {
 	return fr.ports && (c.excluded[fr.sport] || c.excluded[fr.dport])
 }
 
-// flags marca offload suspeito (frame > MTU + 14 + VLAN) e truncamento pelo snaplen.
+// oversize informa se o frame passa de MTU + 14 + VLAN (sinal de offload, spec 003 RNF-02).
+func (c *classifier) oversize(wireLen int) bool {
+	return c.mtu > 0 && wireLen > c.mtu+18
+}
+
+// flags marca offload suspeito (frame grande demais ou offload de agregação ligado, RF-06) e truncamento pelo
+// snaplen.
 func (c *classifier) flags(wireLen, capLen int) uint8 {
 	var f uint8
-	if c.mtu > 0 && wireLen > c.mtu+18 {
+	if c.oversize(wireLen) || (c.aggregating != nil && c.aggregating()) {
 		f |= event.FlagOffloadSuspect
 	}
 	if capLen < wireLen {
