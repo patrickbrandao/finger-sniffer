@@ -213,6 +213,7 @@ func parseProbeWait(get func(string) string) (ProbeWait, error) {
 		return pw, nil
 	}
 	var err error
+	pw.Given = true
 	if pw.Wait, err = dur("wait", wait); err != nil {
 		return pw, err
 	}

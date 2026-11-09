@@ -235,13 +235,14 @@ func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx, force bool) er
 // createEventOnly grava uma conexão sem pacotes a partir do evento (capture fora do ar ou atrasado).
 func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent) (target, error) {
 	k := ev.key()
+	// updated_ns é o relógio do store (settle do long-poll, ADR 0029), não o ts do evento.
 	now := in.now().UnixNano()
 	id := in.flows.claimReserved(k, ev.ts)
 	rec, _ := json.Marshal(eventOnlyRecord(id, ev, ev.ts))
 	if _, err := tx.ExecContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port,
 		proto, started_ns, ended_ns, degraded, record_json, updated_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
 		id, l4Name(ev.l4), familyOf(ev), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(),
-		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), ev.ts); err != nil {
+		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), max(ev.ts, now)); err != nil {
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
 	in.eventOnly[k] = &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()}
