@@ -109,6 +109,11 @@ func TestCase9WebSocket(t *testing.T) {
 				t.Errorf("extensions = %v, esperado permessage-deflate com os parâmetros", ptr(w.Extensions))
 			}
 			checkWSFrames(t, w, tc.deflate)
+			if tc.scheme == "wss" {
+				requireConnFields(t, []record{rc}, "9", "9/h1", "7")
+			} else {
+				requireConnFields(t, []record{rc}, "9", "9/h1")
+			}
 		})
 	}
 }
@@ -281,6 +286,7 @@ func TestCase9WebSocketH2(t *testing.T) {
 		if w.Close == nil || w.Close.By != "client" || ptr(w.Close.Code) != 1000 {
 			t.Errorf("RFC 8441: close = %+v", w.Close)
 		}
+		requireConnFields(t, []record{c}, "9", "9/h2", "7")
 		return
 	}
 	t.Fatal("RFC 8441: nenhuma conexão com websocket no registro")

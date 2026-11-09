@@ -2,7 +2,8 @@
 
 // Package e2e roda os testes ponta a ponta contra a vps602 com a main implantada (spec 017, PLAN.md F2).
 // Uso: make verify-full ARGS="--e2e"  ou  go test -count=1 -tags e2e ./test/e2e/
-// O teste de retenção (10 min) só roda com FS_E2E_LONG=1.
+// O teste de retenção (10 min) só roda com FS_E2E_LONG=1; com ele a suíte passa de 10 min e precisa de
+// GOFLAGS=-timeout=45m (o padrão do go test é 10 min).
 package e2e
 
 import (
@@ -336,6 +337,9 @@ func TestRetention(t *testing.T) {
 	if os.Getenv("FS_E2E_LONG") != "1" {
 		t.Skip("teste longo (~12 min): defina FS_E2E_LONG=1")
 	}
+	// paralelo: os 12 min de espera correm junto com os outros casos (a 7701 só é usada aqui e no
+	// TestF2ExitCriterion, que não é paralelo e termina antes)
+	t.Parallel()
 	var h struct {
 		Host struct {
 			Store struct {

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"syscall"
@@ -55,14 +56,17 @@ func TestCase1HeadersVerbatim(t *testing.T) {
 	for _, req := range []string{req1, req2} {
 		c := dialTCP(t, 80)
 		c.send(t, req)
-		if r := c.readResponse(t); r.Status != 200 || !bytes.Contains(r.Body, []byte("probe_id: "+id)) {
+		r := c.readResponse(t)
+		if r.Status != 200 || !bytes.Contains(r.Body, []byte("probe_id: "+id)) {
 			t.Fatalf("resposta inesperada: %d %q", r.Status, r.Body)
 		}
+		checkDateFirst(t, r.Head)
 		_ = c.Close()
 	}
 
 	p := waitProbe(t, id, atLeast(2, 80))
 	cs := p.conns(80)
+	requireConnFields(t, cs, "1")
 	byTarget := map[string]h1Request{}
 	for _, c := range cs {
 		if c.Proto != "http1.1" || len(c.HTTP) != 1 {
@@ -142,6 +146,7 @@ func TestCase2HTTP10(t *testing.T) {
 	_ = c.Close()
 
 	p := waitProbe(t, id, atLeast(2, 80))
+	requireConnFields(t, p.conns(80), "2")
 	for _, c := range p.conns(80) {
 		if c.Proto != "http1.0" {
 			t.Errorf("%s: proto = %q, esperado http1.0", c.ConnID, c.Proto)
@@ -206,8 +211,12 @@ func TestCase3Persistent(t *testing.T) {
 	_ = c.Close()
 
 	p := waitProbe(t, id, atLeast(3, 80))
+	requireConnFields(t, p.conns(80), "3")
 	for _, c := range p.conns(80) {
 		target := c.HTTP[0].RequestLine.Target
+		if len(c.HTTP) > 1 {
+			requireConnFields(t, []record{c}, "3/multi")
+		}
 		switch {
 		case strings.Contains(target, "seq="):
 			if len(c.HTTP) != 5 || c.Requests != 5 {
@@ -288,6 +297,7 @@ func TestCase4Bodies(t *testing.T) {
 	_ = c.Close()
 
 	p := waitProbe(t, id, atLeast(3, 80))
+	requireConnFields(t, p.conns(80), "4")
 	seen := 0
 	for _, c := range p.conns(80) {
 		for _, r := range c.HTTP {
@@ -295,12 +305,14 @@ func TestCase4Bodies(t *testing.T) {
 			switch {
 			case strings.HasSuffix(r.RequestLine.Target, "body=cl"):
 				seen++
+				requireReqFields(t, c, r.Index, "4/cl")
 				if r.Body.Framing != "content-length" || r.Body.Size != len(clBody) || ptr(r.Body.SHA256) != sum(clBody) ||
 					r.Body.RawB64 == nil || string(b64(t, *r.Body.RawB64)) != clBody {
 					t.Errorf("Content-Length: body = %+v", r.Body)
 				}
 			case strings.HasSuffix(r.RequestLine.Target, "body=chunked"):
 				seen++
+				requireReqFields(t, c, r.Index, "4/chunked")
 				if r.Body.Framing != "chunked" || r.Body.Size != 15 || ptr(r.Body.SHA256) != sum("hello0123456789") {
 					t.Errorf("chunked: framing=%s size=%d sha=%v", r.Body.Framing, r.Body.Size, ptr(r.Body.SHA256))
 				}
@@ -318,6 +330,7 @@ func TestCase4Bodies(t *testing.T) {
 				fieldsEqual(t, "trailers", r.Body.Trailers, [][4]string{{"X-Trailer-One", ": ", "t1", "crlf"}, {"x-trailer-two", ":", "t2", "crlf"}})
 			case strings.HasSuffix(r.RequestLine.Target, "body=expect"):
 				seen++
+				requireReqFields(t, c, r.Index, "4/continue")
 				if r.ExpectContinue == nil || !r.ExpectContinue.Waited || r.ExpectContinue.WaitMs == nil || *r.ExpectContinue.WaitMs < 150 {
 					t.Errorf("Expect com espera: expect_continue = %+v (wait_ms %v)", r.ExpectContinue, waitMs(r))
 				}
@@ -326,6 +339,7 @@ func TestCase4Bodies(t *testing.T) {
 				}
 			case strings.HasSuffix(r.RequestLine.Target, "body=nowait"):
 				seen++
+				requireReqFields(t, c, r.Index, "4/continue")
 				if r.ExpectContinue == nil || r.ExpectContinue.Waited {
 					t.Errorf("Expect sem espera: expect_continue = %+v", r.ExpectContinue)
 				}
@@ -437,6 +451,7 @@ func TestCase5Controls(t *testing.T) {
 	_ = c.Close()
 
 	p := waitProbe(t, id, atLeast(6, 80))
+	requireConnFields(t, p.conns(80), "5")
 	check := 0
 	for _, conn := range p.conns(80) {
 		for _, rq := range conn.HTTP {
@@ -546,6 +561,21 @@ func TestCase5Idle(t *testing.T) {
 			}
 			addLive("probe-example.json", body)
 		})
+	}
+}
+
+// checkDateFirst: Date (IMF-fixdate, UTC) é o primeiro campo depois da linha de status de toda resposta final
+// HTTP/1 (spec 005 RF-07a, ADR 0021, task 065).
+func checkDateFirst(t *testing.T, head string) {
+	t.Helper()
+	lines := strings.Split(head, "\r\n")
+	if len(lines) < 2 || !strings.HasPrefix(lines[1], "Date: ") {
+		t.Errorf("resposta sem Date como primeiro campo: %q", head)
+		return
+	}
+	d, err := time.Parse(http.TimeFormat, strings.TrimPrefix(lines[1], "Date: "))
+	if err != nil || time.Since(d).Abs() > time.Minute {
+		t.Errorf("Date %q: %v (fora do IMF-fixdate ou do relógio)", lines[1], err)
 	}
 }
 
