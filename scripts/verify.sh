@@ -15,6 +15,8 @@
 #   FS_VPS_PORT          porta ssh (padrão 48022)
 #   FS_TEST_PEBBLE       binário do Pebble para os testes de ACME (padrão: o do PATH, instalado por make tools);
 #                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
+#   FS_E2E_TIMEOUT       -timeout do go test no passo e2e (padrão 45m; com FS_E2E_LONG=1 a suíte passa dos
+#                        10 min padrão do go test)
 #
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
@@ -38,6 +40,7 @@ ASYNCAPI_EXAMPLES_DIR="scripts/asyncapi-examples"
 FUZZ_TIME="${FS_FUZZ_TIME:-10s}"
 VPS_SSH="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
+E2E_TIMEOUT="${FS_E2E_TIMEOUT:-45m}"
 
 export PATH="$(go env GOPATH)/bin:$PATH"
 
@@ -532,7 +535,7 @@ verify_full() {
 
 	if [ "$e2e" = 1 ]; then
 		if [ -d test/e2e ] && ls test/e2e/*_test.go >/dev/null 2>&1; then
-			run_step "e2e (vps602)" go test -count=1 -tags e2e ./test/e2e/...
+			run_step "e2e (vps602)" go test -count=1 -timeout "$E2E_TIMEOUT" -tags e2e ./test/e2e/...
 		else
 			skip_step "e2e (vps602)" "test/e2e ainda não existe"
 		fi
