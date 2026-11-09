@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.1.0
+  version: 0.2.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -425,7 +425,9 @@ components:
         probe_id: { type: [string, "null"], pattern: "^[a-z0-9]{8,32}$" }
         proto:
           type: string
-          description: Pilha detectada, ex. `tcp`, `http1.1`, `h2c`, `tls/http1.1`, `tls/h2`, `quic/h3`, `tls/raw`, `raw`, `dns`.
+          description: |
+            Pilha detectada (regra na spec 004), ex. `tcp`, `udp`, `http1.1`, `h2c`, `tls/http1.1`, `tls/h2`,
+            `tls/http1.1/ws`, `quic/h3`, `tls/raw`, `raw`, `raw/unknown`, `dns`.
         l4: { type: string, enum: [tcp, udp] }
         family: { type: integer, enum: [4, 6] }
         src: { $ref: "#/components/schemas/Endpoint" }
@@ -441,6 +443,12 @@ components:
         - type: object
           properties:
             pcap_truncated: { type: boolean }
+            raw_truncated:
+              type: object
+              description: Sentidos cujo fluxo de aplicação passou de FS_RAW_STREAM_MAX_BYTES (ADR 0018).
+              properties:
+                in: { type: boolean }
+                out: { type: boolean }
             offload_suspect: { type: boolean, description: Algum pacote veio maior que MTU + 14. }
             times: { $ref: "#/components/schemas/Times" }
             close: { $ref: "#/components/schemas/Close" }
@@ -573,6 +581,7 @@ components:
       description: Spec 008.
       properties:
         client_hello_b64: { $ref: "#/components/schemas/Base64" }
+        client_hello_truncated: { type: boolean, description: "Inline cortado em FS_EVENT_INLINE_MAX (ADR 0018)." }
         client_hello_records: { type: integer }
         client_hello_segments: { type: integer }
         record_version: { type: integer }
@@ -666,7 +675,10 @@ components:
       required: [index, raw_head_b64, request_line, fields]
       properties:
         index: { type: integer }
+        in_offset: { type: integer, description: "Início da requisição no fluxo `in` (`/raw?dir=in`, ADR 0018)." }
+        out_offset: { type: [integer, "null"], description: "Início da resposta no fluxo `out`." }
         raw_head_b64: { $ref: "#/components/schemas/Base64" }
+        raw_head_truncated: { type: boolean, description: "Inline cortado em FS_EVENT_INLINE_MAX (ADR 0018)." }
         request_line:
           type: object
           properties:
@@ -676,6 +688,7 @@ components:
             version: { type: string }
             terminator: { type: string, enum: [crlf, lf] }
         fields: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
+        fields_truncated: { type: boolean, description: "Lista cortada para caber no teto do evento (ADR 0018)." }
         field_count: { type: integer }
         head_size: { type: integer }
         obs_fold: { type: boolean }
@@ -687,7 +700,8 @@ components:
             framing: { type: string, enum: [none, content-length, chunked, close] }
             size: { type: integer }
             sha256: { type: [string, "null"] }
-            raw_b64: { type: [string, "null"], contentEncoding: base64, description: Até FS_RAW_BODY_MAX_BYTES. }
+            raw_b64: { type: [string, "null"], contentEncoding: base64, description: Até FS_RAW_BODY_MAX_BYTES (128 KiB). }
+            raw_truncated: { type: boolean }
             chunks:
               type: array
               items:
@@ -707,9 +721,12 @@ components:
         t_first_byte_ms: { type: [number, "null"], description: Do fim do handshake TCP/TLS até o primeiro byte. }
         t_since_prev_response_ms: { type: [number, "null"] }
         proxy_signals: { type: array, items: { $ref: "#/components/schemas/ProxySignal" } }
+        ja4h: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
         controls: { $ref: "#/components/schemas/Controls" }
         status: { type: integer }
         response_sent_b64: { $ref: "#/components/schemas/Base64" }
+        response_sent_truncated: { type: boolean, description: "Inline cortado em FS_EVENT_INLINE_MAX (ADR 0018)." }
+        response_sent_size: { type: integer, description: Bytes enviados na resposta inteira (1xx incluídos). }
 
     # ------------------------------------------------------------------ HTTP/2
     HPACKField:
@@ -774,6 +791,7 @@ components:
         akamai: { type: string }
         streams: { type: array, items: { $ref: "#/components/schemas/HTTP2Stream" } }
         frames: { type: array, items: { $ref: "#/components/schemas/H2Frame" } }
+        frames_truncated: { type: boolean, description: "Lista cortada para caber no teto do evento (ADR 0018)." }
 
     # ------------------------------------------------------------------ HTTP/3 e QUIC
     HTTP3Info:
@@ -843,6 +861,7 @@ components:
               masked: { type: boolean }
               mask_key_hex: { type: [string, "null"] }
               length: { type: integer }
+        frames_truncated: { type: boolean, description: Frames além do teto não são listados (ADR 0018). }
         close:
           type: [object, "null"]
           properties:
@@ -851,7 +870,7 @@ components:
             reason: { type: [string, "null"] }
     RawInfo:
       type: object
-      description: Spec 006.
+      description: Spec 006; também usado pelo web para conexões `raw/unknown` (spec 005, modo sink).
       properties:
         mode: { type: string, enum: [echo, banner, sink, source] }
         tls: { type: boolean }

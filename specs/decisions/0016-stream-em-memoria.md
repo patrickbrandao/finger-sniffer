@@ -14,6 +14,7 @@ O spike de carga (task 006, `docs/dev/spike-carga.md`) mostrou, a 50 conexões n
 ## Decisão
 - O stream `FS_EVENTS` (`fs.v1.>`) usa **`MemoryStorage`**, `max_bytes` **32 MiB**, `max_age` 60 s, `DiscardOld`,
   consumidor durável `store`. Substitui, na ADR 0003, os 64 MiB e o armazenamento implícito em arquivo.
+  (Subjects do stream substituídos pela ADR 0017: lista explícita de eventos, request/reply fora.)
 - `nats.conf`: `max_memory_store` 64 MB (folga sobre os 32 MiB do stream); `max_file_store` mantido para uso futuro.
 - Unit `finger-sniffer-nats`: `MemoryMax` **192M** e `GOMEMLIMIT` 170MiB (substitui os 128M da ADR 0005 e da spec 016).
 - O resto das ADRs 0003, 0004 e 0005 continua valendo.

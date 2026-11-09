@@ -24,6 +24,8 @@ Detalhe das decisões em `specs/decisions/`.
 - Store: retransmissão, fora de ordem e keep-alive classificados como o tshark (Wireshark 4.4: retransmissão rápida e espúria, limite de fora de ordem pelo iRTT, FIN na sequência, atualização de janela com SACK como ACK duplicado) (task 013).
 - E2E da F2 (`test/e2e/`, `make verify-full ARGS="--e2e"`): curl e nc a uma porta capturada com SYN, JA4T, p0f, RTT, close e pcap aberto no tshark; SYN para porta fechada em `/packets`; portas 48022/9000/9001/48161 ausentes; respostas reais validadas contra o openapi pelo Redocly; retenção de 10 min com `FS_E2E_LONG=1` (task 014).
 
+- Contratos 0.2.0 para a F3 (aditivos): `fs.v1.web.raw.session`, `fs.v1.store.conn_id`, `truncated` no fluxo, `ja4h`/offsets/tamanho da resposta no HTTP/1, `frames_truncated`, `raw_truncated`; semântica de conjunto do TXT ACME; `pkg/certs` com nomes fixos em `FS_CERT_DIR` e `FS_ACME_ENABLE`; regras de correlação e montagem do registro no store (task 015).
+
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
 - 5 serviços (capture, web, raw, dns, store), 1 binário cada, Go 1.27 estático (ADR 0002, 0009).
@@ -35,3 +37,5 @@ Detalhe das decisões em `specs/decisions/`.
 - Apache-2.0; JA4+ isolado (FoxIO License) (ADR 0010).
 - Verificação em dois níveis, CI = full, deploy local (ADR 0013).
 - 10 papéis de agente, worktree por agente, trunk-based (ADR 0014).
+- Stream `FS_EVENTS` com lista explícita de subjects de eventos (request/reply fora); `fs.v1.store.conn_id` reserva o `conn_id` para o web (ADR 0017) (task 015).
+- Eventos ≤ 900 KiB: campos inline ≤ 128 KiB com `*_truncated`, bytes completos pelo fluxo até 16 MiB por sentido, `in_offset`/`out_offset` por requisição; `FS_RAW_BODY_MAX_BYTES` passa a 128 KiB (ADR 0018) (task 015).

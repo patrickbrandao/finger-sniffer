@@ -69,12 +69,15 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 
 ## Barramento (NATS)
 - Subjects versionados `fs.v1.<origem>.<tipo>` (ex.: `fs.v1.capture.packet`, `fs.v1.web.http1.request`,
-  `fs.v1.dns.query`, `fs.v1.svc.heartbeat`); request/reply `fs.v1.dns.acme.set`/`.clear` para o TXT do DNS-01.
+  `fs.v1.dns.query`, `fs.v1.svc.heartbeat`); request/reply NATS core `fs.v1.dns.acme.set`/`.clear` para o TXT do
+  DNS-01 e `fs.v1.store.conn_id` para o web saber o `conn_id` da conexão (ADR 0017).
 - Envelope comum (JSON): `schema_version`, `service`, `service_version`, `ts` (ns UTC), `flow` (5-tupla),
   `probe_id`, `payload`. Exceção: o lote de pacotes `fs.v1.capture.packet` é binário (FSPB v1, envelope nos
   cabeçalhos NATS — ADR 0015).
-- Stream JetStream `FS_EVENTS` (`fs.v1.>`), em memória, `max_age` 60 s, `max_bytes` 32 MiB, consumidor durável
-  `store` (ADR 0016).
+- Stream JetStream `FS_EVENTS` com lista explícita de subjects de eventos (`fs.v1.capture.>`, `fs.v1.web.>`,
+  `fs.v1.raw.>`, `fs.v1.dns.query`, `fs.v1.svc.>` — ADR 0017), em memória, `max_age` 60 s, `max_bytes` 32 MiB,
+  consumidor durável `store` (ADR 0016). Request/reply fica fora do stream.
+- Nenhum evento JSON passa de 900 KiB; bytes grandes vão pelo fluxo de aplicação (ADR 0018).
 - Contrato: [eventbus/nats/asyncapi.yaml](../eventbus/nats/asyncapi.yaml); configuração:
   [eventbus/nats/nats.conf](../eventbus/nats/nats.conf).
 
@@ -137,3 +140,5 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0015-lote-binario-de-pacotes.md
 - specs/decisions/0016-stream-em-memoria.md
+- specs/decisions/0017-request-reply-e-conn-id.md
+- specs/decisions/0018-tamanho-dos-eventos.md

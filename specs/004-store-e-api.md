@@ -10,9 +10,12 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 
 ## Requisitos
 - RF-01: consumidor durável `store` do stream JetStream `FS_EVENTS`; cria/ajusta o stream no start
-  (`MemoryStorage`, `max_age` 60 s, `max_bytes` 32 MiB, `DiscardOld` — ADR 0016).
+  (`MemoryStorage`, `max_age` 60 s, `max_bytes` 32 MiB, `DiscardOld` — ADR 0016), com a lista explícita de subjects
+  de eventos da ADR 0017 (request/reply fica fora).
 - RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC por 4-tupla + DCID; associação ao
   probe assim que o ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
+- RF-02a: responde o request/reply `fs.v1.store.conn_id` (ADR 0017): devolve o ID da conexão aberta com a 5-tupla
+  ou reserva um ULID por 30 s para a próxima conexão criada pelos pacotes com essa 5-tupla.
 - RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto) ficam como "pacotes
   avulsos", consultáveis por janela de tempo. Regra: fluxo TCP que nunca completou o handshake (sem SYN-ACK — inclui
   SYN recusado com RST e varreduras) e fluxo UDP sem nenhuma resposta viram avulsos quando terminam.
@@ -22,8 +25,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   Schema em [database/sqlite/migrations/](../database/sqlite/migrations/) aplicado por goose embutido no start.
 - RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (2 GiB): o primeiro atingido expurga o mais
   antigo, em lotes, com `incremental_vacuum`.
-- RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente) e 9001 (HTTP), CORS `*`, sem
-  autenticação, JSON, nomes em inglês.
+- RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
+  e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês.
 - RF-08: tempo real: SSE `GET /api/v1/stream` e WebSocket `GET /api/v1/ws`, filtros `probe`, `src_ip`,
   `dst_port`, `kind`; sem filtro = feed global.
 - RF-09: health agregado: heartbeat de cada serviço (5 s; `down` após 15 s sem heartbeat), versões
@@ -35,6 +38,33 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 
 ## Comportamento
 - Fim de conexão: FIN dos dois lados, RST, ou ociosidade > `idle` + 30 s sem pacotes.
+- Eventos de aplicação (`fs.v1.web.*`, `fs.v1.raw.*`, `fs.v1.dns.query`) são associados pela `flow` do envelope à
+  conexão com a mesma 5-tupla cujo intervalo contém o `ts` do evento (com folga de 2 s antes do início, porque o
+  evento pode chegar antes do lote de pacotes do SYN):
+  - evento sem conexão ainda: espera até 2 s numa fila pendente; depois disso, cria a conexão só com os dados do
+    evento (sem pacotes: `times.syn` nulo, sem `ip`/`tcp`, sem pcap) — é o caso do capture fora do ar;
+  - evento de conexão já finalizada (até `FS_RETENTION`): atualiza o registro gravado;
+  - todo evento é guardado em `app_events`; os fluxos (`stream.bytes`, `raw.read`) vão para `raw_streams`.
+- Montagem do registro a partir dos eventos:
+
+| Evento | Campo do registro | Regra |
+| --- | --- | --- |
+| `web.tls.client_hello` | `tls` (ClientHello) | substitui; `client_hello_segments` calculado pelo store a partir dos segmentos do cliente que cobrem o ClientHello |
+| `web.tls.handshake` | `tls.negotiated`, `tls.handshake_ms`, `tls.alerts`, `times.tls_done` | funde no `tls` |
+| `web.http1.request` | `http[]` | acrescenta, ordenado por `index`; `requests` = total h1+h2+h3 |
+| `web.http2.connection` | `http2` (nível de conexão) | a última versão vale; preserva `streams` |
+| `web.http2.stream` | `http2.streams[]` | acrescenta ou substitui por `stream_id` |
+| `web.websocket.frame` | `websocket` | o primeiro frame com `upgrade` preenche `over/path/extensions/subprotocol`; frames acrescentados (teto da ADR 0018, `frames_truncated`); `close` preenche `websocket.close` |
+| `raw.session`, `web.raw.session` | `raw` | substitui |
+| `web.stream.bytes`, `raw.read` | `raw_streams`, `raw_truncated` | grava o pedaço pelo `offset`; `truncated` marca o sentido |
+| `dns.query` | tabela `dns_queries` | `conn_id` preenchido quando `proto=tcp` e houver conexão |
+
+- `proto` da conexão, derivado dos eventos: `tls/` como prefixo quando houve `client_hello`; depois `http1.0` ou
+  `http1.1` (versão da primeira requisição), `h2` (ALPN) ou `h2c` (prior knowledge/Upgrade), `ws` acrescentado como
+  sufixo quando houve Upgrade (ex. `tls/http1.1/ws`), `raw` (raw), `raw/unknown` (web sem protocolo reconhecido),
+  `dns` (fluxo da porta 53 com `dns.query`), `quic/h3` (F4). Sem evento de aplicação: `tcp` ou `udp`.
+- `probe_id` da conexão: o primeiro `probe_id` não nulo dos envelopes da conexão; a tabela `probes` é atualizada
+  (`first_seen`/`last_seen`) a cada conexão ou consulta DNS com probe.
 - Long-poll `GET /api/v1/probes/{id}?wait=10s`: responde quando todas as conexões do probe estiverem fechadas ou no
   fim do prazo (máx 60 s).
 - Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
@@ -71,7 +101,8 @@ Formato do registro (resumo; o completo está no openapi.yaml):
 }
 ```
 
-Consome: `fs.v1.>`. Publica: nada além do push para clientes da API.
+Consome: os subjects de eventos do stream (ADR 0017). Responde: `fs.v1.store.conn_id`. Publica: nada além do push
+para clientes da API.
 
 ## Dados
 Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql)): `probes`, `connections`
@@ -96,3 +127,5 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - specs/decisions/0007-api-aberta-e-feed-global.md
 - specs/decisions/0012-retencao-curta.md
 - specs/decisions/0004-pacotes-pelo-nats.md
+- specs/decisions/0017-request-reply-e-conn-id.md
+- specs/decisions/0018-tamanho-dos-eventos.md
