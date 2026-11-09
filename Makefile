@@ -4,7 +4,12 @@ MODULE   := github.com/patrickbrandao/finger-sniffer
 SERVICES := capture web raw dns store
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-LDFLAGS  := -s -w -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
+# Build reproduzível (task 070): sem build ID, sem carimbo de VCS e sem caminhos locais (-trimpath);
+# a versão e o commit entram só pelo -X. Mesmo commit + mesma toolchain = mesmo SHA-256.
+LDFLAGS  := -s -w -buildid= -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
+GOBUILD_FLAGS := -trimpath -buildvcs=false -mod=readonly
+# Toolchain exata fixada no go.mod (diretiva toolchain); usada por release e pelo teste de reprodutibilidade
+GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
 BIN      := bin
 ARGS     ?=
 SVC      ?=
@@ -19,7 +24,7 @@ GOVULNCHECK_VERSION   := v1.9.0
 # Servidor ACME de teste (spec 015; usado pelos testes da task 027 via FS_TEST_PEBBLE)
 PEBBLE_VERSION        := v2.10.1
 
-.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy clean
+.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy release repro-check clean
 
 all: build
 
@@ -44,7 +49,7 @@ build:
 	@mkdir -p $(BIN)
 	@for s in $(SERVICES); do \
 		echo "build finger-sniffer-$$s"; \
-		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '$(LDFLAGS)' \
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GOBUILD_FLAGS) -ldflags '$(LDFLAGS)' \
 			-o $(BIN)/finger-sniffer-$$s ./cmd/finger-sniffer-$$s || exit 1; \
 	done
 
@@ -70,5 +75,15 @@ deploy:
 	@test -x deploy/deploy.sh || { echo "deploy/deploy.sh não implementado (task 003)"; exit 1; }
 	SVC=$(SVC) deploy/deploy.sh
 
+# Pacote de release em dist/ (task 070). Não cria tag nem publica: isso é do architect (checklist em
+# .github/release-checklist.md). FS_RELEASE_SKIP_CHECKS=1 pula árvore limpa/main/verify-full (teste local).
+release:
+	@test -n "$(filter v%,$(VERSION))" || { echo "uso: make release VERSION=vX.Y.Z"; exit 2; }
+	GOTOOLCHAIN=$(GO_TOOLCHAIN) scripts/release.sh $(VERSION)
+
+# Dois builds (um em outro diretório) têm de dar o mesmo SHA-256 (task 070; rodado no CI)
+repro-check:
+	GOTOOLCHAIN=$(GO_TOOLCHAIN) scripts/repro-check.sh
+
 clean:
-	rm -rf $(BIN)
+	rm -rf $(BIN) dist

@@ -34,3 +34,32 @@ jobs:
         env:
           FS_SKIP_LINUX_PRIV: "1"
         run: make verify-full
+
+  # Build reproduzível e pacote de release (task 070). Os hashes com VERSION/COMMIT fixos saem no log
+  # para comparar com um build feito no Mac (mesma toolchain do go.mod).
+  release-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Binários versionados
+        run: scripts/check-binaries.sh
+
+      - name: Build reproduzível
+        run: make repro-check
+
+      - name: Build reproduzível (versão fixa, para comparar entre máquinas)
+        env:
+          VERSION: v0.0.0-test
+          COMMIT: "0000000"
+        run: make repro-check
+
+      - name: make release (teste)
+        run: scripts/release-test.sh

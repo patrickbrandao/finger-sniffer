@@ -261,7 +261,7 @@ gofumpt_check() {
 # Nível rápido
 # ---------------------------------------------------------------------------
 verify_quick() {
-	local explicit=() files go_files dirs pkgs affected rdeps test_pkgs p start
+	local explicit=() files go_files dirs pkgs affected rdeps test_pkgs p start existing
 	if [ "${1:-}" = "--" ]; then
 		shift
 		explicit=("$@")
@@ -340,6 +340,21 @@ verify_quick() {
 		run_step "examples asyncapi" asyncapi_examples_check
 	else
 		skip_step "examples asyncapi" "contratos e goldens sem mudança"
+	fi
+
+	# 4b. nenhum binário compilado entre os arquivos alterados (task 070)
+	existing=$(echo "$files" | while read -r f; do [ -n "$f" ] && [ -f "$f" ] && echo "$f"; done)
+	if [ -n "$existing" ]; then
+		# shellcheck disable=SC2086
+		run_step "binários versionados (alterados)" scripts/check-binaries.sh $existing
+	else
+		skip_step "binários versionados (alterados)" "nenhum arquivo alterado"
+	fi
+	# 4c. scripts de release alterados: teste do pacote de release
+	if echo "$files" | grep -qE '^(scripts/(release|release-test|lib-release|repro-check)\.sh|Makefile)$'; then
+		run_step "release-test" scripts/release-test.sh
+	else
+		skip_step "release-test" "scripts de release sem mudança"
 	fi
 
 	# 5. testes ligados ao que mudou (ou os explícitos)
@@ -490,6 +505,7 @@ verify_full() {
 		run_step "pebble (CI)" pebble_check
 	fi
 	run_step "format" gofumpt_check .
+	run_step "binários versionados" scripts/check-binaries.sh
 	run_step "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
 	run_step "contratos" contracts_check
