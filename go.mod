@@ -16,6 +16,7 @@ require (
 	github.com/nats-io/nats.go v1.55.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pressly/goose/v3 v3.29.0
+	github.com/quic-go/quic-go v0.65.0
 	golang.org/x/net v0.62.0
 	modernc.org/sqlite v1.62.0
 )
@@ -36,6 +37,7 @@ require (
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sethvargo/go-retry v0.5.0 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect

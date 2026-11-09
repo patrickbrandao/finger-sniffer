@@ -59,3 +59,9 @@ As versões usadas estão em `pcaps/VERSIONS.txt`.
 Os pcaps de teste da FoxIO (BSD-3), os mesmos do fingerproxy, já estão no repositório desde a task 011, em
 `pkg/fingerprint/internal/pcaptest/testdata/syn/`. Lá também estão a licença, a origem e o gabarito do
 `ja4` e do `p0f -r`. Não foram copiados de novo.
+
+## Outros golden
+
+- `tls/`: ClientHellos e h2 decifrado de curl, Go, Chrome e Firefox (task 036).
+- `quic/`: primeiro voo QUIC (Initials, CRYPTO, parâmetros de transporte, JA4 `q`, SETTINGS e QPACK do h3) de
+  curl, quic-go, Chrome e Firefox (task 050).

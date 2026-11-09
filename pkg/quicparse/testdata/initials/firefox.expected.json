@@ -1,0 +1,278 @@
+{
+ "case": "firefox",
+ "client": "Mozilla Firefox 159.0",
+ "client_hello": {
+  "alpn": [
+   "h3"
+  ],
+  "extensions": [
+   51,
+   10,
+   28,
+   27,
+   34,
+   65281,
+   23,
+   13,
+   43,
+   0,
+   16,
+   45,
+   5,
+   57,
+   65037
+  ],
+  "handshake_length": 1898,
+  "ja3": "7572bae5e642212ed36a93ce73a630e3",
+  "ja3_full": "771,4865-4867-4866,51-10-28-27-34-65281-23-13-43-0-16-45-5-57-65037,4588-29-23-24-25,",
+  "ja4_r_tshark": "q13d0315h3_1301,1302,1303_0005,000a,000d,0017,001b,001c,0022,002b,002d,0033,0039,fe0d,ff01_0403,0503,0603,0203,0804,0805,0806,0401,0501,0601,0201",
+  "ja4_tshark": "q13d0315h3_55b375c5d22e_dc5437974b47",
+  "sni": "vps602.tmsoft.com.br"
+ },
+ "client_hello_datagrams": 2,
+ "client_initial_datagrams": [
+  {
+   "frame": 1,
+   "packets": [
+    {
+     "dcid": "221f6abf1db6bd50",
+     "frames": [
+      {
+       "length": 410,
+       "name": "CRYPTO",
+       "offset": 1492,
+       "type": 6
+      },
+      {
+       "length": 541,
+       "name": "CRYPTO",
+       "offset": 0,
+       "type": 6
+      }
+     ],
+     "length": 977,
+     "packet_length": 998,
+     "packet_number": 6,
+     "scid": "2d38af",
+     "token_length": 0,
+     "type": "initial",
+     "version": "0x00000001"
+    },
+    {
+     "type": "coalesced_padding"
+    }
+   ],
+   "time_relative": "0.000000000",
+   "udp_payload_length": 1252
+  },
+  {
+   "frame": 2,
+   "packets": [
+    {
+     "dcid": "221f6abf1db6bd50",
+     "frames": [
+      {
+       "length": 951,
+       "name": "CRYPTO",
+       "offset": 541,
+       "type": 6
+      }
+     ],
+     "length": 973,
+     "packet_length": 994,
+     "packet_number": 7,
+     "scid": "2d38af",
+     "token_length": 0,
+     "type": "initial",
+     "version": "0x00000001"
+    },
+    {
+     "type": "coalesced_padding"
+    }
+   ],
+   "time_relative": "0.000191000",
+   "udp_payload_length": 1252
+  }
+ ],
+ "client_port": 49318,
+ "crypto_frames": [
+  [
+   1492,
+   410
+  ],
+  [
+   0,
+   541
+  ],
+  [
+   541,
+   951
+  ]
+ ],
+ "crypto_length": 1902,
+ "crypto_out_of_order": true,
+ "crypto_overlap": false,
+ "datagram_sizes": [
+  1252,
+  1252
+ ],
+ "dcid": "221f6abf1db6bd50",
+ "http3": {
+  "client_headers": [],
+  "client_settings": [],
+  "server_settings": [
+   [
+    [
+     6,
+     1048576
+    ],
+    [
+     8,
+     1
+    ]
+   ]
+  ]
+ },
+ "ja4_r_tool": "q13d0315h3_1301,1302,1303_0005,000a,000d,0017,001b,001c,0022,002b,002d,0033,0039,fe0d,ff01_0403,0503,0603,0203,0804,0805,0806,0401,0501,0601,0201",
+ "ja4_tool": "q13d0315h3_55b375c5d22e_dc5437974b47",
+ "ja4s_tool": "q130200_1301_a56c5b993250",
+ "scid": "2d38af",
+ "server_initial_datagrams": [
+  {
+   "frame": 3,
+   "packets": [
+    {
+     "dcid": "2d38af",
+     "frames": [
+      {
+       "ack_range_count": 0,
+       "largest_acknowledged": 6,
+       "name": "ACK",
+       "type": 2
+      }
+     ],
+     "length": 23,
+     "packet_length": 40,
+     "packet_number": 0,
+     "scid": "65208635",
+     "token_length": 0,
+     "type": "initial",
+     "version": "0x00000001"
+    }
+   ],
+   "time_relative": "0.000579000",
+   "udp_payload_length": 40
+  },
+  {
+   "frame": 4,
+   "packets": [
+    {
+     "dcid": "2d38af",
+     "frames": [
+      {
+       "ack_range_count": 0,
+       "largest_acknowledged": 7,
+       "name": "ACK",
+       "type": 2
+      },
+      {
+       "length": 58,
+       "name": "PADDING",
+       "type": 0
+      },
+      {
+       "length": 1178,
+       "name": "CRYPTO",
+       "offset": 0,
+       "type": 6
+      }
+     ],
+     "length": 1263,
+     "packet_length": 1280,
+     "packet_number": 1,
+     "scid": "65208635",
+     "token_length": 0,
+     "type": "initial",
+     "version": "0x00000001"
+    }
+   ],
+   "time_relative": "0.001911000",
+   "udp_payload_length": 1280
+  }
+ ],
+ "token_length": 0,
+ "transport_parameters": [
+  [
+   1,
+   "max_idle_timeout",
+   "80007530"
+  ],
+  [
+   4,
+   "initial_max_data",
+   "81800000"
+  ],
+  [
+   5,
+   "initial_max_stream_data_bidi_local",
+   "80c00000"
+  ],
+  [
+   6,
+   "initial_max_stream_data_bidi_remote",
+   "80100000"
+  ],
+  [
+   7,
+   "initial_max_stream_data_uni",
+   "80100000"
+  ],
+  [
+   8,
+   "initial_max_streams_bidi",
+   "4064"
+  ],
+  [
+   9,
+   "initial_max_streams_uni",
+   "4064"
+  ],
+  [
+   11,
+   "max_ack_delay",
+   "14"
+  ],
+  [
+   14,
+   "active_connection_id_limit",
+   "08"
+  ],
+  [
+   15,
+   "initial_source_connection_id",
+   "2d38af"
+  ],
+  [
+   17,
+   "version_information",
+   "000000015a2aba0a6b3343cf00000001"
+  ],
+  [
+   29,
+   "Unknown 0x001d",
+   ""
+  ],
+  [
+   4278378010,
+   "GREASE",
+   "43e8"
+  ],
+  [
+   32,
+   "max_datagram_frame_size",
+   "8000ffff"
+  ]
+ ],
+ "udp_stream": 0,
+ "version": "0x00000001"
+}

@@ -1,0 +1,1 @@
+- test: golden de Initials QUIC de curl (ngtcp2), quic-go, Chrome e Firefox contra um servidor h3 temporário na vps602, com tshark 4.4, ja4 0.18.6 e resumo de referência; cópia do primeiro voo em `pkg/quicparse/testdata/initials` (task 050).
