@@ -9,6 +9,7 @@ Detalhe das decisões em `specs/decisions/`.
 - Contratos 0.4.0 (ADR 0029, aditivos): instantes absolutos de cada requisição e resposta em `http[]`, `http2.streams[]` e `http3.requests[]`; `ip.packets {syn, ack, first_data}`; `settle`/`min_conns` no long-poll `wait` e `wait_met` no probe; specs: TFO concedido pelos listeners do web e do raw e alertas TLS lidos dos registros `0x15` (task 113).
 
 ### Alterado
+- Modo degradado com margem sobre a garantia do RNF-01 (ADR 0030, provisória): padrões `FS_MAX_CONNS=250` (store e web) e `FS_MAX_NEW_CONNS_PER_S=60`; a garantia segue 200 simultâneas e 50 novas/s, e a carga oficial passa a exigir `degraded` = 0 com o ruído da internet presente (task 126).
 - Contratos 0.4.1 (documental): quando cada instante por requisição é nulo (h2: cliente cancelou com RST_STREAM ou fim fora da espera de 1 s; h3: reset sem HEADERS conta como fim); `wait=0s` é `wait` válido e traz `wait_met`; spec 005: listeners TCP do web sem keepalive do servidor (task 121).
 - Projeto independente de consumidores específicos (ADR 0028): specs, docs e AGENTS genéricos, matriz e2e só pelo caminho direto, receitas por proxy genérico (`PROXY:PORTA`), sem pendência externa; `X-xproxy-*` sai dos sinais de proxy padrão (task 112).
 

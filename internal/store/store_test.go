@@ -305,9 +305,15 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_API_HTTP_PORT", "19001")
 	t.Setenv("FS_STORE_MAX_BYTES", "100")
 	t.Setenv("FS_HEALTH_DOWN_AFTER", "3s")
+	t.Setenv("FS_MAX_CONNS", "")
+	t.Setenv("FS_MAX_NEW_CONNS_PER_S", "")
 	c, err := LoadConfig()
 	if err != nil || c.DBPath != "/tmp/x.sqlite" || c.HTTPAddr != ":19001" || c.MaxBytes != 100 || c.DownAfter != 3*time.Second {
 		t.Fatalf("%+v %v", c, err)
+	}
+	// padrões do modo degradado com margem sobre a garantia de 200 e 50/s (ADR 0030)
+	if c.Ingest.MaxOpen != 250 || c.Ingest.MaxNewPerS != 60 {
+		t.Fatalf("limites padrão %d/%d, quer 250/60", c.Ingest.MaxOpen, c.Ingest.MaxNewPerS)
 	}
 	t.Setenv("FS_STORE_MAX_BYTES", "x")
 	if _, err := LoadConfig(); err == nil {
