@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -124,11 +125,101 @@ func TestStreamChunksAndTruncation(t *testing.T) {
 
 func TestAppendTimedCap(t *testing.T) {
 	var l []TimedLength
-	for range maxTimed + 10 {
-		l = appendTimed(l, 1.5, 3)
+	cut := false
+	for range maxTimed {
+		l = appendTimed(l, &cut, 1.5, 3)
 	}
-	if len(l) != maxTimed {
-		t.Fatalf("len = %d", len(l))
+	// Exatamente maxTimed itens cabem sem corte.
+	if len(l) != maxTimed || cut {
+		t.Fatalf("len = %d cut = %v", len(l), cut)
+	}
+	for range 10 {
+		l = appendTimed(l, &cut, 1.5, 3)
+	}
+	if len(l) != maxTimed || !cut {
+		t.Fatalf("len = %d cut = %v", len(l), cut)
+	}
+}
+
+// discardConn é um net.Conn que aceita e descarta toda escrita.
+type discardConn struct{ net.Conn }
+
+func (discardConn) Write(b []byte) (int, error)      { return len(b), nil }
+func (discardConn) SetWriteDeadline(time.Time) error { return nil }
+func (discardConn) Close() error                     { return nil }
+
+// TestSessionTimedTruncated confere reads_in_truncated e writes_out_truncated no fs.v1.raw.session (spec 006
+// RF-06): cada flag liga só no sentido que passou de maxTimed, e os bytes seguem completos em fs.v1.raw.read.
+func TestSessionTimedTruncated(t *testing.T) {
+	cases := []struct {
+		name            string
+		reads, writes   int
+		wantIn, wantOut bool
+	}{
+		{"none", maxTimed, maxTimed, false, false},
+		{"reads", maxTimed + 1, 3, true, false},
+		{"writes", 2, maxTimed + 5, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := &fakePub{}
+			em := &emitter{pub: pub, log: quietLog(), flow: &event.Flow{L4: "tcp"}}
+			cfg := &Config{Idle: time.Second, StreamMax: DefaultStreamMax}
+			s := newSession(discardConn{}, cfg, PortSpec{Mode: "source"}, time.Now(), em)
+			for range tc.reads {
+				s.recordRead([]byte("r"))
+			}
+			// Escritas pequenas, como um source que manda um byte por vez.
+			for range tc.writes {
+				if err := s.write([]byte("w")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.finish()
+			var info Info
+			var inBytes, outBytes int
+			for _, m := range pub.all() {
+				env, err := event.Decode(m.Data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch m.Subject {
+				case event.SubjectRawSession:
+					if err := json.Unmarshal(env.Payload, &info); err != nil {
+						t.Fatal(err)
+					}
+					var raw map[string]json.RawMessage
+					if err := json.Unmarshal(env.Payload, &raw); err != nil {
+						t.Fatal(err)
+					}
+					// As flags são sempre serializadas, mesmo false.
+					for _, k := range []string{"reads_in_truncated", "writes_out_truncated"} {
+						if _, ok := raw[k]; !ok {
+							t.Errorf("missing %s", k)
+						}
+					}
+				case event.SubjectRawRead:
+					var sb event.StreamBytes
+					if err := json.Unmarshal(env.Payload, &sb); err != nil {
+						t.Fatal(err)
+					}
+					if sb.Dir == event.DirectionIn {
+						inBytes += len(sb.Data)
+					} else {
+						outBytes += len(sb.Data)
+					}
+				}
+			}
+			if info.ReadsInTruncated != tc.wantIn || info.WritesOutTruncated != tc.wantOut {
+				t.Errorf("truncated in=%v out=%v, want %v %v", info.ReadsInTruncated, info.WritesOutTruncated, tc.wantIn, tc.wantOut)
+			}
+			if len(info.ReadsIn) != min(tc.reads, maxTimed) || len(info.WritesOut) != min(tc.writes, maxTimed) {
+				t.Errorf("reads_in=%d writes_out=%d", len(info.ReadsIn), len(info.WritesOut))
+			}
+			if inBytes != tc.reads || outBytes != tc.writes {
+				t.Errorf("stream bytes in=%d out=%d, want %d %d", inBytes, outBytes, tc.reads, tc.writes)
+			}
+		})
 	}
 }
 

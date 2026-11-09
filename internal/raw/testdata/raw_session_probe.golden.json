@@ -32,6 +32,8 @@
         1000
       ]
     ],
+    "reads_in_truncated": false,
+    "writes_out_truncated": false,
     "half_close": null
   }
 }
