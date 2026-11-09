@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
-	"strconv"
 	"sync"
 	"time"
 
@@ -56,24 +55,30 @@ func New(cfg Config, pub Publisher, log *slog.Logger, metrics *service.Metrics) 
 func (s *Server) Listen(ctx context.Context) error {
 	// Sem keepalive do lado do servidor: ele mudaria os pacotes analisados da conexão (spec 013).
 	lc := net.ListenConfig{KeepAlive: -1}
+	if len(s.cfg.ListenIPs) == 0 {
+		return errors.New("raw: no listen address (FS_LISTEN_IPV4/FS_LISTEN_IPV6)")
+	}
 	for _, spec := range s.cfg.Ports {
-		addr := net.JoinHostPort(s.cfg.ListenHost, strconv.Itoa(spec.Port))
-		ln, err := lc.Listen(ctx, "tcp", addr)
-		if err != nil {
-			s.closeListeners()
-			return fmt.Errorf("raw: listen %s: %w", addr, err)
-		}
 		if spec.TLS && s.cfg.TLS == nil {
 			s.log.Warn("raw: no tls config, serving plain", "port", spec.Port, "mode", spec.Name())
 		}
-		s.mu.Lock()
-		s.listeners = append(s.listeners, listener{Listener: ln, spec: spec})
-		s.mu.Unlock()
+		for _, ip := range s.cfg.ListenIPs {
+			addr := netip.AddrPortFrom(ip, uint16(spec.Port)).String() //nolint:gosec // portas validadas em ParsePorts (0..65535)
+			ln, err := lc.Listen(ctx, "tcp", addr)
+			if err != nil {
+				s.closeListeners()
+				return fmt.Errorf("raw: listen %s: %w", addr, err)
+			}
+			s.mu.Lock()
+			s.listeners = append(s.listeners, listener{Listener: ln, spec: spec})
+			s.mu.Unlock()
+		}
 	}
 	return nil
 }
 
-// Addrs devolve os endereços abertos, na ordem de Config.Ports (útil com porta 0 nos testes).
+// Addrs devolve os endereços abertos, na ordem de Config.Ports e, dentro de cada porta, de Config.ListenIPs
+// (útil com porta 0 nos testes).
 func (s *Server) Addrs() []net.Addr {
 	s.mu.Lock()
 	defer s.mu.Unlock()
