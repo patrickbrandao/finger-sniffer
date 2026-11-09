@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -75,6 +76,10 @@ func TestChunkedLimits(t *testing.T) {
 	if len(req.Body.Chunks) != 3 || !req.Body.ChunksTruncated || req.Body.Size != 10 ||
 		len(req.Body.Raw) != 8 || !req.Body.RawTruncated {
 		t.Fatalf("%+v", req.Body)
+	}
+	// A marca vai para o JSON do evento (contrato 0.2.1, HTTP1Request.body.chunks_truncated).
+	if js, _ := json.Marshal(req.Body); !strings.Contains(string(js), `"chunks_truncated":true`) {
+		t.Fatalf("json %s", js)
 	}
 	// RawMax < 0 não guarda bytes crus.
 	r = NewReader(bufio.NewReader(strings.NewReader("abc")))

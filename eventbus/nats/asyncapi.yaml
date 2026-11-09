@@ -302,10 +302,9 @@ components:
     ACMERequestExamples:
       examples:
         - name: set_dns01
-          summary: (à mão) pedido do provedor libdns do web.
+          summary: Pedido do provedor libdns do web (sem envelope).
           payload:
-            name: _acme-challenge.dns-monitor.tmsoft.com.br.
-            value: Qm9n9W2qkfQx1h4rM5fJb2u8yYxT0yQ8c0xYk7oHk1E
+            $ref: "../../internal/web/testdata/events/dns.acme.set.json"
     ACMEReplyExamples:
       examples:
         - name: ok

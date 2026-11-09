@@ -1,10 +1,10 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 52924,
+    "dst_port": 64599,
     "l4": "tcp",
     "src_ip": "127.0.0.1",
-    "src_port": 52926
+    "src_port": 64601
   },
   "payload": {
     "controls": {
@@ -63,6 +63,7 @@
         "value": "Go-http-client/2.0"
       }
     ],
+    "fields_truncated": false,
     "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
     "priority": null,
     "pseudo_order": [
@@ -72,11 +73,12 @@
       ":scheme"
     ],
     "status": 200,
-    "stream_id": 1
+    "stream_id": 1,
+    "values_truncated": false
   },
   "probe_id": "abcdefgh",
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T04:37:04.159490000Z"
+  "ts": "2026-11-09T05:50:01.792843000Z"
 }

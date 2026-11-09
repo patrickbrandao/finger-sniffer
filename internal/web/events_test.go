@@ -13,6 +13,7 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
+	"github.com/patrickbrandao/finger-sniffer/pkg/h2passive"
 )
 
 var update = flag.Bool("update", false, "regrava os exemplos em testdata/events")
@@ -40,6 +41,49 @@ func TestStreamDir(t *testing.T) {
 	}
 	if s.total != 70<<10+10+100<<10+7 {
 		t.Fatalf("total %d", s.total)
+	}
+}
+
+// TestFitH2Stream: valores longos são cortados (values_truncated) e, se ainda não couber, a lista de campos
+// cai pela metade (fields_truncated); um stream pequeno sai com as duas marcas false.
+func TestFitH2Stream(t *testing.T) {
+	srv := NewServer(testConfig(t.TempDir()), Deps{})
+	flow := &event.Flow{L4: "tcp"}
+	decode := func(data []byte) map[string]any {
+		t.Helper()
+		if data == nil || len(data) > event.MaxEventBytes {
+			t.Fatalf("size %d", len(data))
+		}
+		env, err := event.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p map[string]any
+		if err := json.Unmarshal(env.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	small := &h2passive.HTTP2Stream{StreamID: 1, Fields: []h2passive.HPACKField{{Name: ":method", Value: "GET"}}}
+	if p := decode(srv.fitH2Stream(flow, "", small)); p["values_truncated"] != false || p["fields_truncated"] != false {
+		t.Fatalf("small %v", p)
+	}
+	// Um valor de 2 MiB: basta cortar o valor.
+	long := &h2passive.HTTP2Stream{StreamID: 3, Fields: []h2passive.HPACKField{
+		{Name: ":method", Value: "GET"}, {Name: "x-big", Value: strings.Repeat("v", 2<<20)},
+	}}
+	p := decode(srv.fitH2Stream(flow, "", long))
+	if p["values_truncated"] != true || p["fields_truncated"] != false || len(p["fields"].([]any)) != 2 {
+		t.Fatalf("long values_truncated %v fields_truncated %v", p["values_truncated"], p["fields_truncated"])
+	}
+	// Muitos campos pequenos: a lista precisa encolher.
+	many := &h2passive.HTTP2Stream{StreamID: 5}
+	for i := range 40000 {
+		many.Fields = append(many.Fields, h2passive.HPACKField{Name: "x-f", Value: strings.Repeat("a", 20) + string(rune('a'+i%26))})
+	}
+	p = decode(srv.fitH2Stream(flow, "", many))
+	if p["fields_truncated"] != true || len(p["fields"].([]any)) >= 40000 {
+		t.Fatalf("many fields_truncated %v n %d", p["fields_truncated"], len(p["fields"].([]any)))
 	}
 }
 
@@ -212,11 +256,17 @@ func TestEventsContractAndGolden(t *testing.T) {
 // checkGolden compara a forma do evento com o exemplo em testdata/events/ (ou o regrava com -update).
 func checkGolden(t *testing.T, subj string, e decoded) {
 	t.Helper()
-	dir := filepath.Join("testdata", "events")
-	file := filepath.Join(dir, strings.TrimPrefix(subj, "fs.v1.web.")+".json")
 	var full map[string]any
 	_ = json.Unmarshal(mustJSON(t, e.Env), &full)
 	full["payload"] = e.Payload
+	compareGolden(t, strings.TrimPrefix(subj, "fs.v1.web.")+".json", full)
+}
+
+// compareGolden compara a forma de um JSON com testdata/events/<name> (ou o regrava com -update).
+func compareGolden(t *testing.T, name string, full any) {
+	t.Helper()
+	dir := filepath.Join("testdata", "events")
+	file := filepath.Join(dir, name)
 	if *update {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -231,13 +281,14 @@ func checkGolden(t *testing.T, subj string, e decoded) {
 	if err != nil {
 		t.Fatalf("%v (rode go test -run %s -update)", err, t.Name())
 	}
-	var golden map[string]any
+	var golden, now any
 	if err := json.Unmarshal(data, &golden); err != nil {
 		t.Fatal(err)
 	}
-	g, f := mustJSON(t, shape(golden)), mustJSON(t, shape(full))
+	_ = json.Unmarshal(mustJSON(t, full), &now)
+	g, f := mustJSON(t, shape(golden)), mustJSON(t, shape(now))
 	if !bytes.Equal(g, f) {
-		t.Errorf("%s: shape changed (rode -update)\n golden %s\n now    %s", subj, g, f)
+		t.Errorf("%s: shape changed (rode -update)\n golden %s\n now    %s", name, g, f)
 	}
 }
 

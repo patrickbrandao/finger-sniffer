@@ -25,6 +25,8 @@ func (c *conn) serveRaw(ic *idleConn, res detect.Result) {
 		if n > 0 {
 			if len(sess.ReadsIn) < maxRawReads {
 				sess.ReadsIn = append(sess.ReadsIn, [2]any{msSince(c.acceptAt, s.now()), n})
+			} else {
+				sess.ReadsInTruncated = true
 			}
 			if len(first) < probe.MaxLineLen {
 				first = append(first, buf[:min(n, probe.MaxLineLen-len(first))]...)

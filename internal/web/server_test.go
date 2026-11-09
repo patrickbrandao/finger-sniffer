@@ -475,11 +475,41 @@ func TestRawUnknown(t *testing.T) {
 	for _, r := range rs.Payload["reads_in"].([]any) {
 		total += num(t, r.([]any)[1])
 	}
-	if rs.Payload["mode"] != "sink" || rs.Payload["tls"] != false || total != len(msg)+4 {
+	if rs.Payload["mode"] != "sink" || rs.Payload["tls"] != false || total != len(msg)+4 ||
+		rs.Payload["reads_in_truncated"] != false || rs.Payload["writes_out_truncated"] != false {
 		t.Fatalf("raw session %v", rs.Payload)
 	}
 	if in := h.events.stream(t, port, event.DirectionIn); string(in) != msg+"tail" {
 		t.Fatalf("stream in %q", in)
+	}
+}
+
+// TestRawReadsTruncated: sink com mais de 8192 leituras guarda só as primeiras em reads_in e marca
+// reads_in_truncated; os bytes seguem inteiros no fluxo in. O net.Pipe entrega cada Write numa leitura.
+func TestRawReadsTruncated(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	srvSide, cli := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.srv.handle(context.Background(), srvSide, time.Now())
+	}()
+	const n = maxRawReads + 8
+	for range n {
+		if _, err := cli.Write([]byte{'z'}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = cli.Close()
+	<-done
+	rs := h.events.wait(t, event.SubjectWebRawSession, 0, 1)[0]
+	reads := rs.Payload["reads_in"].([]any)
+	if rs.Payload["reads_in_truncated"] != true || len(reads) != maxRawReads ||
+		rs.Payload["writes_out_truncated"] != false {
+		t.Fatalf("reads_in %d truncated %v", len(reads), rs.Payload["reads_in_truncated"])
+	}
+	if in := h.events.stream(t, 0, event.DirectionIn); len(in) != n {
+		t.Fatalf("stream in %d bytes", len(in))
 	}
 }
 
