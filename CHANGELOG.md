@@ -5,9 +5,7 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
-<!-- Release v0.1.0 (task 072): no PR de release, trocar a linha acima por "## [0.1.0] - AAAA-MM-DD" (data do
-     merge) e abrir acima dela um "## [Não lançado]" vazio. Antes, juntar aqui os fragmentos que ainda estiverem
-     em changes/ (068, pelo menos) e apagá-los. -->
+## [0.1.0] - 2026-11-09
 
 ### Adicionado
 - Esqueleto: go.mod, 5 stubs de serviço com `-version`, Makefile (build estático, lint, tools), golangci-lint v2, lefthook, LICENSE Apache-2.0, NOTICE (task 001).
@@ -92,6 +90,9 @@ Detalhe das decisões em `specs/decisions/`.
 - Relatório da auditoria F5 (spec × implementação) publicado em `docs/dev/auditoria-f5.md`; divergências viraram as tarefas 077–088 (task 071).
 - test(store): contrato das respostas de erro da API — tabela única (`internal/store/testdata/api-error-cases.json`) que cobre todo código 4xx/5xx de toda operação do openapi 0.3.3, mais rota inexistente (404) e OPTIONS (204); falha se o openapi ganhar rota/código sem caso. Unitário com 500 (banco fechado) e 503 (tempo real lotado); e2e nas 9001/9000 da vps602. Desvios do store (`wait` fora do padrão, `/ws` sem Upgrade → 426 text/plain) ficam em Skip pela task 092 (task 089).
 - test(e2e): casos 6 e 11 sem os t.Skip das tasks 074/075; `idle_before_close_ms` e `rtt_app_ms` conferidos em h1, h2 e raw; o h2 ocioso fecha só o TCP, sem close_notify tardio (task 100).
+- Test: carga de 10 min em `test/load/` (`run.sh`, `loadgen`/`loadmon` com build tag `load`, `loadstat` com testes): 50 novas/s, ~200 simultâneas, mix h1/h1 TLS/h2/h3/raw com probe por conexão, feed /ws e /stream, amostragem da API, CPU/RAM por unit pelo cgroup; `test/load/RESULTS.md` com as janelas de 2026-11-09 (`6facb2c`): RNF-03/05/07 e perdas passam; RNF-02 literal, `degraded` no perfil e registro QUIC p95 566 ms falham → tasks 103, 104, 105 (task 068).
+- Test: carga oficial repetida com `efcb465` (janela `official-50d`, brutos em `test/load/results/`): feed p99 389 ms, API p95 31 ms, registro TCP p95 191 ms e QUIC p95 252 ms, 0 perdas; só `degraded` falha (6 de 30 000, rajada depois de pausa da rede) → task 108; relógio da vps602 acompanhado a cada 15 s durante a carga (task 068).
+- Test: carga oficial com `899ade1` (janela `official-50e`, depois da task 108): todas as metas da ADR 0022 passam, com QUIC p95 ≤ 500 ms (ADR 0026): feed p99 389 / máx 576 ms, API p95 29 ms, registro TCP p95 193 ms e QUIC p95 250 ms, 0 `degraded` e 0 perdas em 30 000 conexões; item 3 de sucesso da spec 000 (task 068).
 
 ### Alterado
 - Renomeados no `/metrics` (as métricas do heartbeat do store que viraram nativas): `fs_store_ingest_lag_ms{service="store"}` → `fs_store_ingest_lag_seconds`, `fs_store_stray_total` → `fs_store_stray_packets_total`, `fs_store_degraded_connections_total` → `fs_store_connections_degraded_total`, `fs_store_expunged_total` → `fs_store_purged_total{reason}`; `fs_store_connections_open`, `fs_store_connections_total`, `fs_store_dns_queries_total` e `fs_store_db_bytes` perdem o rótulo `service`; `fs_service_up`, `fs_store_connections`, `fs_host_syncookies_sent` e as demais `fs_<métrica>{service}` ficam (task 054).
@@ -112,6 +113,8 @@ Detalhe das decisões em `specs/decisions/`.
 - Docs: `api.md` no contrato 0.3.3 com os erros 400/404/500 e `OPTIONS` 204; `probes.md` com SETTINGS h2 repetidos (GOAWAY, sem `streams[]`), Akamai do h2c Upgrade com `PS` vazio, close do WebSocket × `close.by` do TCP, `conn=close` × `close=after`, `ts_clock_group` por SO, UDP com `started`/`ended`, atraso de ~2 s do QUIC, `half_close.server_sent_after_client_fin` só com ACK e raw nos IPs públicos; `http3.md` com a ADR 0024; `metrics.md` com os contadores do capture desde a partida (`truncated`, `offload_suspect`, `filtered_userspace`) e `store_late_packets_total`; resolução de 086/087 no topo de `docs/dev/auditoria-f5.md` (task 091).
 - docs: API escuta só em 127.0.0.1 e FS_LISTEN_IPV4/IPV6 (api.md, README), motivos de degradação do health; `fs_store_record_ready_seconds{reason}` e `FS_TCP_CLOSE_GRACE` explicados com números da vps602 (metrics.md); fecho do QUIC em ~100 ms em http3.md e probes.md (task 102).
 - Contrato openapi 0.3.5 (documental): `LiveEvent.ts` do `packet.stray` decidido pelo fim do fluxo por ociosidade é o instante da decisão (ADR 0026); asyncapi segue em 0.3.4 (nenhum payload dele mudou) (task 072).
+- Docs: guias pela ADR 0026: `http3.md`, `probes.md` e `metrics.md` sem a meta provisória de 3 s da ADR 0024 nem o atraso de ~2 s do QUIC (registro QUIC fecha `FS_TCP_CLOSE_GRACE` depois do `http3.connection` com `close`, meta p95 ≤ 500 ms igual ao TCP, medido 252 ms); `record_ready{reason}` com a meta em `close`/`quic_close`; `ts` do `packet.stray` decidido por ociosidade; nota da substituição na auditoria F5; `docs/docs_test.go` com as novas âncoras e as antigas banidas (task 109).
+
 ### Corrigido
 - Store: `close.idle_before_close_ms` mede do último dado antes do primeiro FIN/RST até ele, sem os registros curtos que quem fecha manda logo antes (close_notify, GOAWAY: até 128 B, até 1 RTT antes do FIN) e sem os dados depois do FIN; deixa de sair nulo em h2/TLS e no raw com meio-fechamento (task 075).
 - Infra: o passo e2e do `verify-full` passa `-timeout` ao `go test` (`FS_E2E_TIMEOUT`, padrão 45m); `FS_E2E_LONG=1` não morre mais nos 10 min padrão (task 076).
@@ -121,6 +124,7 @@ Detalhe das decisões em `specs/decisions/`.
 - infra: o banco-modelo do verify-quick (`scripts/testdb`) nasce com as pragmas de criação do store (`auto_vacuum=INCREMENTAL` antes das migrations), que entram no hash e refazem o modelo uma vez; o teste de vacuum do store volta a usar o modelo (task 107).
 - store: o limite de 200 simultâneas do modo degradado só vale quando o excesso dura mais de 200 ms no tempo de captura; a rajada de SYNs e FINs depois de uma pausa da rede não degrada mais (task 108).
 - store: `packet.stray` decidido na saída da tabela (UDP sem resposta, 30 s) sai no feed com `ts` = decisão do store (ADR 0025) (task 108).
+- Test: `TestACMEPebble*` deixa de falhar com "bind: address already in use": a porta do DNS de teste vinha do UDP e o TCP na mesma porta podia estar ocupado; agora repete até achar porta livre nos dois, e a partida do Pebble é repetida com portas novas em conflito (task 111).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).

@@ -1,1 +1,0 @@
-- Test: `TestACMEPebble*` deixa de falhar com "bind: address already in use": a porta do DNS de teste vinha do UDP e o TCP na mesma porta podia estar ocupado; agora repete até achar porta livre nos dois, e a partida do Pebble é repetida com portas novas em conflito (task 111).
