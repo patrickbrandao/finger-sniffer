@@ -16,7 +16,8 @@ Testa se proxies repassam `ws://` e `wss://` intactos (caso 9 da matriz).
 - RF-06: fechamento: quem iniciou (`close.by`) e o código e a razão do close de quem iniciou; o close de
   resposta do outro lado fica registrado só como frame (`frames[]`: `dir`, opcode 8, tamanho), sem código nem
   razão. Quando o cliente inicia, a resposta é do próprio espelho e não diz nada sobre o caminho; quando o espelho
-  inicia (1001 por ociosidade), basta saber se a resposta chegou.
+  inicia (1001 por ociosidade), basta saber se a resposta chegou. Depois da troca de closes o espelho fecha o TCP
+  primeiro (RFC 6455 §7.1.1; exceção da spec 005 RF-08, ADR 0023).
 
 ## Interfaces e contratos
 - Evento `fs.v1.web.websocket.frame`; campo `websocket` do registro.

@@ -1,1 +1,0 @@
-- Web: `http3.connection` ganha `h3_control_stream_seen` (contrato 0.3.2), que separa "o cliente não abriu o stream de controle h3" de "SETTINGS vazio" (task 073).

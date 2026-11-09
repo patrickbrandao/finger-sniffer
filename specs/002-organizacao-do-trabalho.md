@@ -11,7 +11,7 @@ Git, fluxo de tarefas, Definition of Done e quando parar para perguntar.
 
 | Papel | Responsabilidade | Pode alterar | Sub-agente |
 | --- | --- | --- | --- |
-| architect | guardião das specs, ADRs e contratos; aprova migrations; resolve conflitos de contrato; cria tarefas da próxima fase | `specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md` | .claude/agents/architect.md |
+| architect | guardião das specs, ADRs e contratos; aprova migrations; resolve conflitos de contrato; cria tarefas da próxima fase | `specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/agents/**`, `tasks/**` | .claude/agents/architect.md |
 | implementer-capture | serviço capture | `cmd/finger-sniffer-capture/**` (exceto contratos), `internal/capture/**` | .claude/agents/implementer-capture.md |
 | implementer-web | serviço web; dono de `pkg/` de detecção, probe, parsers, fingerprints e certificados (`pkg/certs`, usado também por raw e store) | `cmd/finger-sniffer-web/**`, `internal/web/**`, `pkg/detect/**`, `pkg/probe/**`, `pkg/tlsparse/**`, `pkg/h1/**`, `pkg/h2passive/**`, `pkg/quicparse/**`, `pkg/fingerprint/**`, `pkg/iana/**`, `pkg/certs/**` | .claude/agents/implementer-web.md |
 | implementer-raw | serviço raw | `cmd/finger-sniffer-raw/**`, `internal/raw/**` | .claude/agents/implementer-raw.md |
@@ -19,7 +19,7 @@ Git, fluxo de tarefas, Definition of Done e quando parar para perguntar.
 | implementer-store | serviço store, API, análise IP/TCP; dono de `pkg/` de base de serviço e envelope; escreve migrations | `cmd/finger-sniffer-store/**` (exceto openapi.yaml), `internal/store/**`, `pkg/service/**`, `pkg/event/**`, `database/sqlite/migrations/**` (com aprovação do architect) | .claude/agents/implementer-store.md |
 | tester | e2e, matriz da spec 017, golden pcaps, fuzzing longo, carga | `test/**`, `**/testdata/**`, `**/*_test.go` de qualquer pacote (somente testes) | .claude/agents/tester.md |
 | reviewer | revisa PRs contra spec, ADRs e DoD; não altera código | nada (só comenta) | .claude/agents/reviewer.md |
-| infra | systemd, NIC/sysctl, NATS, deploy, Makefile, verify, CI, lint | `deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE` | .claude/agents/infra.md |
+| infra | systemd, NIC/sysctl, NATS, deploy, Makefile, verify, CI, lint, versão do build | `deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `redocly.yaml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE`, `internal/version/**` | .claude/agents/infra.md |
 | docs | documentação derivada e site estático | `docs/**`, `htdocs/**`, `README.md` | .claude/agents/docs.md |
 
 Regras de propriedade:
@@ -28,8 +28,11 @@ Regras de propriedade:
 - **Migrations**: implementer-store escreve; o architect aprova no PR antes do merge.
 - `go.mod`/`go.sum`: infra; outro papel que precise de dependência da lista da ADR 0009 pede na tarefa; fora da
   lista, escala ao humano.
-- `changes/task-NNN.md`: cada papel escreve o fragmento da sua tarefa (ver "Git e PR"); o architect os junta.
-- `.gitattributes`: infra.
+- `changes/task-NNN.md`: cada papel escreve o fragmento da sua tarefa (ver "Git e PR"); o architect os junta no
+  `CHANGELOG.md` e remove os arquivos.
+- **Delegação**: um papel só altera arquivo de outro (contrato, spec, `pkg/` alheio) quando a tarefa, escrita pelo
+  architect, lista o arquivo em `arquivos` e traz o bloco ou a decisão exata; o PR cita a tarefa (ADR 0023). Sem
+  isso, vale a regra geral acima.
 - Arquivos fora da tabela: pedir ao architect.
 
 ## Git e PR
@@ -37,8 +40,11 @@ Regras de propriedade:
 - Cada agente trabalha em seu **próprio git worktree**, branch curto `task/nnn-slug` a partir da `main`.
 - Conventional Commits citando a tarefa: `feat(web): parser HTTP/1 (task 012)`, `fix(store): ... (task 031)`.
   Escopos: `capture`, `web`, `raw`, `dns`, `store`, `pkg`, `infra`, `docs`, `specs`, `test`.
-- PR com `verify-quick` verde informado na descrição, `verify-full` verde no CI e revisão do reviewer;
-  **squash merge**.
+- PR com `verify-quick` verde informado na descrição, `verify-full` verde no CI e revisão do reviewer
+  registrada no próprio PR (`gh pr review --comment` ou comentário com o veredito); **squash merge**.
+- **Modo autônomo** (o humano autoriza trabalho sem supervisão com merge a cada etapa): o PR é mergeado com o CI
+  verde, sem esperar o reviewer; a revisão passa a ser a auditoria do conjunto pelo reviewer antes da release e
+  a revisão do PR de release (ADR 0023).
 - Conflito: quem chegou depois faz rebase na `main`. Conflito em contrato ou spec: escala ao architect.
 - **CHANGELOG por fragmentos**: o GitHub ignora `merge=union` e marca como conflitante todo PR que mexe no
   `CHANGELOG.md` depois de outro merge. Por isso a entrega **não edita o `CHANGELOG.md`**: escreve o resumo em

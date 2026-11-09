@@ -38,7 +38,7 @@ Pertencem ao registro da conexão (store).
 - [ ] JA4 bate com os snapshots dos pcaps oficiais da FoxIO (portados do `ja4pcap` do fingerproxy).
 - [ ] JA3/JA4 de curl, Go, Chrome e Firefox batem com `tshark`/FoxIO `ja4` sobre o pcap da mesma conexão.
 - [ ] ClientHello partido em 2 registros e em 2 segmentos é reconhecido e marcado.
-- [ ] Fuzz do parser por 60 s no verify-full sem pânico.
+- [ ] Fuzz do parser sem pânico: 10 s por alvo no verify-full e 60 s antes de cada release (spec 017, ADR 0023).
 
 ## Fora de escopo
 - JA4S, JA4X (lado servidor/certificados).

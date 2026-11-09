@@ -1,1 +1,0 @@
-- E2E da matriz direta completa (casos 1–13, ADR 0022): caso 6 (ociosidade h1/h2/raw por 30/90/180 s e `idle=30`: quem fechou, como, FINs e tempo ocioso) e caso 11 (JA4T, p0f, TTL/saltos, RTT, Hz e grupo do relógio TSval em 3 execuções de curl e Go); lista explícita dos campos das specs 008–013 conferidos em cada caso; `Date` primeiro campo no h1; retenção paralela (task 066).

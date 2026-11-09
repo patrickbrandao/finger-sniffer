@@ -27,7 +27,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (2 GiB): o primeiro atingido expurga o mais
   antigo, em lotes, com `incremental_vacuum`.
 - RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
-  e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês.
+  e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês. Escuta em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`
+  e em `127.0.0.1` (diagnóstico local), nunca em `*` (ADR 0001, ADR 0023).
 - RF-08: tempo real: SSE `GET /api/v1/stream` e WebSocket `GET /api/v1/ws`, filtros `probe`, `src_ip`,
   `dst_port`, `kind`; sem filtro = feed global. Hub em memória após o commit, sem replay, fila por cliente
   `FS_LIVE_BUFFER` (1024) com descarte e `stream.dropped`, até `FS_LIVE_MAX_CLIENTS` (64) clientes (ADR 0020).
@@ -38,8 +39,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de 200 conexões simultâneas ou 50 novas/s, mantém o resumo, para de
   guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
-- RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95); evento ao vivo < 1 s
-  (p99), medidos como na ADR 0022. Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
+- RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95; QUIC: ≤ 3 s depois
+  do `http3.connection` com `close`, exceção provisória da ADR 0024); evento ao vivo < 1 s (p99), medidos como na
+  ADR 0022. Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
   150 req/s, p95 ~0,6 s e máximo ~1,1 s.
 
 ## Comportamento
@@ -70,7 +72,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - `proto` da conexão, derivado dos eventos: `tls/` como prefixo quando houve `client_hello`; depois `http1.0` ou
   `http1.1` (versão da primeira requisição), `h2` (ALPN) ou `h2c` (prior knowledge/Upgrade), `ws` acrescentado como
   sufixo quando houve Upgrade (ex. `tls/http1.1/ws`), `raw` (raw), `raw/unknown` (web sem protocolo reconhecido),
-  `dns` (fluxo da porta 53 com `dns.query`), `quic/h3` (`http3.connection` com ALPN `h3` negociado) ou `quic`
+  `dns` (fluxo **TCP** da porta 53 com `dns.query`; fluxos UDP da 53 ficam `udp` e sem probe, e a consulta
+  fica em `/api/v1/dns` — ADR 0023), `quic/h3` (`http3.connection` com ALPN `h3` negociado) ou `quic`
   (Initial analisado sem h3: versão desconhecida, handshake falho, outro ALPN). Sem evento de aplicação: `tcp` ou
   `udp`.
 - Fim de conexão QUIC (ADR 0019): `http3.connection` com `close` → `end` 2 s depois, `close.by` do web,

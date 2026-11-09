@@ -10,7 +10,9 @@ Responde "qual fingerprint TCP chega, é estável, e o que denuncia o proxy (RTT
 ## Requisitos
 ### Linha do tempo e fechamento
 - RF-01: tempos (ns UTC): SYN recebido, SYN-ACK enviado, ACK do handshake, primeiro byte do cliente, cada
-  requisição e resposta (vindas dos eventos de aplicação), FIN/RST de cada lado, fim.
+  requisição e resposta (vindas dos eventos de aplicação), FIN/RST de cada lado, fim. Em UDP o primeiro
+  datagrama é o `started` do resumo e o fim é o `ended`; o objeto `times` é da linha do tempo TCP e, em UDP, só
+  aparece com camada QUIC (`tls_done`) (ADR 0023).
 - RF-02: quem fechou primeiro (`client`/`server`), como (`fin`/`rst`/`timeout`), meio-fechamento, tempo ocioso
   entre a última resposta e o fechamento.
 - RF-03: totais por sentido: bytes de aplicação, segmentos, segmentos com dados, retransmissões, fora de ordem.
@@ -32,7 +34,10 @@ Responde "qual fingerprint TCP chega, é estável, e o que denuncia o proxy (RTT
 - RF-09: **segmentação**: tamanho e tempo de cada um dos primeiros `FS_TCP_SEGMENTS_TRACKED` (≥ 32) segmentos com
   dados de cada sentido.
 - RF-10: **relógio de timestamps**: frequência estimada do TSval (Hz) e TSval inicial; com várias conexões do
-  mesmo IP de origem (ou de IPs diferentes na mesma janela), indicar se vêm do mesmo relógio (mesmo host).
+  mesmo IP de origem (ou de IPs diferentes na mesma janela), indicar se vêm do mesmo relógio (mesmo host):
+  `ts_clock_group` junta as conexões cujo TSval cai na mesma reta TSval × tempo (mesma frequência e mesmo
+  deslocamento extrapolado). Clientes que deslocam o TSval por conexão (macOS, `randomize_timestamps=1`) ou por
+  par de endereços (Linux ≥ 4.10, `tcp_timestamps=1`) ganham grupos distintos; é o esperado, não erro (ADR 0023).
 - RF-11: **RTT**: do handshake (SYN-ACK → ACK) e da aplicação (resposta do espelho → próximo byte do cliente que
   dependa dela: Finished do TLS, próxima requisição).
 - RF-12: indicação de SYN cookie usado pelo servidor (o SYN-ACK do espelho veio de cookie) — vem do contador do
@@ -48,7 +53,9 @@ Calculados e guardados pelo store junto do registro.
 - [ ] JA4T de Linux, macOS e Windows bate com FoxIO `ja4` (`ja4t`) sobre o mesmo pcap.
 - [ ] p0f do registro igual ao `p0f -r` sobre o mesmo pcap.
 - [ ] RTT do handshake e RTT da aplicação conferem com tshark (diferença < 0,1 ms).
-- [ ] Duas conexões do mesmo host por IPs diferentes são marcadas como mesmo relógio.
+- [ ] Mesmo relógio sem deslocamento por IPs de origem diferentes → mesmo `ts_clock_group` (pcap sintético);
+      duas conexões Linux pelo mesmo par de IPs → mesmo grupo; macOS com `randomize_timestamps=1` → grupos
+      distintos (ADR 0023).
 
 ## Fora de escopo
 - Fingerprint TCP do lado servidor (JA4TS).
