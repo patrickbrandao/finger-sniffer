@@ -20,7 +20,8 @@
 #                        transporte na ordem, ClientHello, JA4 do ja4 e do tshark, SETTINGS e HEADERS do h3
 #   <caso>.initial.pcap  primeiro voo: só os datagramas com pacote Initial da primeira conexão (cliente e servidor)
 #   <caso>.initial.ja4.jsonl  ja4 sobre o primeiro voo (deve dar o mesmo JA4 da captura inteira)
-# A cópia mínima para o pkg/quicparse vai para pkg/quicparse/testdata/initials/ (<caso>.initial.pcap e
+# A cópia mínima para o pkg/quicparse vai para initials/ e, quando o pacote já tem código, também para
+# pkg/quicparse/testdata/initials/ (<caso>.initial.pcap e
 # <caso>.expected.json, o ref.json só da primeira conexão,
 # com os SETTINGS e os HEADERS do h3 decifrados, para os testes de QPACK).
 #
@@ -42,7 +43,8 @@ URL="https://$HOST:$PORT/"
 JA4="${JA4_BIN:-/root/ja4-rust/target/release/ja4}"
 R=/tmp/fs-golden-quic
 OUT=pcaps
-QTD=../../../pkg/quicparse/testdata/initials
+QTD=initials
+PKG_QTD=../../../pkg/quicparse/testdata/initials
 DOC4=198.51.100.10
 DOC6=2001:db8::10
 CURL="${CURL_H3:-/opt/homebrew/opt/curl/bin/curl}"
@@ -222,4 +224,10 @@ remote "tshark --version | head -1; tcpdump --version 2>&1 | head -1; \
 	sw_vers -productVersion | sed 's/^/macOS /'
 } >>"$OUT/VERSIONS.txt"
 cp "$OUT/VERSIONS.txt" "$QTD/VERSIONS.txt"
+# o pkg/quicparse só recebe a cópia quando já existe: uma pasta só com testdata derruba a cobertura do verify-full
+if ls ../../../pkg/quicparse/*.go >/dev/null 2>&1; then
+	mkdir -p "$PKG_QTD"
+	cp "$QTD"/* "$PKG_QTD/"
+	log "cópia mínima também em pkg/quicparse/testdata/initials"
+fi
 log "pronto: $(find "$OUT" -name '*.initial.pcap' | wc -l | tr -d ' ') casos em test/golden/quic/$OUT"

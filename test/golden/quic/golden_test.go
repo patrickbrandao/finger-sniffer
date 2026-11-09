@@ -8,7 +8,8 @@ package quicgolden_test
 //   - por conexão: JA4 "q" do ja4 da FoxIO igual ao do tshark, também sobre o primeiro voo sozinho; os frames
 //     CRYPTO cobrem o ClientHello inteiro sem buracos; datagramas do cliente com pelo menos 1200 bytes; parâmetros
 //     de transporte presentes e GREASE só nos ids 31*N+27;
-//   - a cópia mínima em pkg/quicparse/testdata/initials bate com o ref.json e o pcap do primeiro voo tem os
+//   - a cópia mínima em initials/ (e em pkg/quicparse/testdata/initials, se existir, idêntica) bate com o
+//     ref.json e o pcap do primeiro voo tem os
 //     mesmos datagramas (tamanho, versão, DCID e SCID do cabeçalho longo) que o tshark dissecou;
 //   - nenhum endereço IP fora do servidor de testes e dos endereços de documentação.
 
@@ -28,7 +29,8 @@ import (
 
 const (
 	pcapsDir    = "pcaps"
-	initialsDir = "../../../pkg/quicparse/testdata/initials"
+	initialsDir = "initials"
+	pkgInitials = "../../../pkg/quicparse/testdata/initials"
 	serverPort  = 7703
 	wantSNI     = "vps602.tmsoft.com.br"
 )
@@ -313,6 +315,28 @@ func checkLongHeader(t *testing.T, i int, b []byte, c conn, size int) {
 	scid := hex.EncodeToString(b[7+dl : 7+dl+sl])
 	if dcid != c.DCID || scid != c.SCID {
 		t.Errorf("datagrama %d: DCID %s SCID %s; tshark %s %s", i, dcid, scid, c.DCID, c.SCID)
+	}
+}
+
+// TestPkgCopy confere que a cópia em pkg/quicparse/testdata/initials, quando existe, é a mesma de initials/.
+func TestPkgCopy(t *testing.T) {
+	files, _ := filepath.Glob(filepath.Join(pkgInitials, "*"))
+	if len(files) == 0 {
+		t.Skip("pkg/quicparse/testdata/initials ainda não existe (task 049)")
+	}
+	for _, f := range files {
+		got, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(filepath.Join(initialsDir, filepath.Base(f)))
+		if err != nil {
+			t.Errorf("%s sem par em initials/: %v", f, err)
+			continue
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s difere de initials/", f)
+		}
 	}
 }
 

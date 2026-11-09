@@ -1,6 +1,7 @@
 # Primeiro voo QUIC de clientes reais (task 050)
 
-Cópia mínima dos golden de `test/golden/quic/` para os testes do `pkg/quicparse` (task 049). Origem, versões,
+Cópia mínima dos golden de `test/golden/quic/` para os testes do `pkg/quicparse` (task 049); quando o pacote
+existe, a mesma cópia fica em `pkg/quicparse/testdata/initials/`. Origem, versões,
 achados e como regenerar: `test/golden/quic/README.md` (`collect.sh` grava estes arquivos também).
 
 - `<caso>.initial.pcap`: pcap libpcap (Ethernet) só com os datagramas que têm pacote Initial na primeira conexão

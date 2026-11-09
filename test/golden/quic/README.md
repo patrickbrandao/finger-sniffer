@@ -51,8 +51,11 @@ Arquivos por caso em `pcaps/`:
   DCID, SCID, token, Length, número e frames na ordem) e o h3 (`client_settings`, `server_settings` na ordem e
   `client_headers` com o bloco QPACK cru em `qpack_block` e os campos decodificados pelo tshark).
 
-Cópia mínima para o parser em `pkg/quicparse/testdata/initials/`: `<caso>.initial.pcap` e `<caso>.expected.json`
-(a primeira conexão do `ref.json`, com `case` e `client`).
+Cópia mínima para o parser em `initials/`: `<caso>.initial.pcap` e `<caso>.expected.json` (a primeira conexão
+do `ref.json`, com `case` e `client`). Quando o `pkg/quicparse` (task 049) já tem código, o `collect.sh` grava a
+mesma cópia em `pkg/quicparse/testdata/initials/` e o `golden_test.go` confere que as duas são idênticas. Ela
+não vai para lá antes disso porque uma pasta `pkg/quicparse` só com `testdata` falha a cobertura mínima do
+`verify-full` ("sem dado para pkg/quicparse").
 
 ## Conferências e achados
 
@@ -97,7 +100,7 @@ O script roda no Mac e usa a vps602 sem aprovação, por ser o servidor de teste
   chave em `--ignore-certificate-errors-spki-list` no Chrome e uma exceção em `cert_override.txt` num perfil
   descartável do Firefox. Nada no sistema muda e nenhuma sandbox é desligada;
 - na vps602: `anon.py`, tshark (captura inteira e recorte do primeiro voo), ja4 e `ref.py`; copia tudo para
-  `pcaps/` e a cópia mínima para `pkg/quicparse/testdata/initials/`.
+  `pcaps/` e a cópia mínima para `initials/` (e `pkg/quicparse/testdata/initials/`, se o pacote existir).
 
 No fim, mesmo em erro, o script para o servidor e o tcpdump, apaga `/tmp/fs-golden-quic` e confere a limpeza. O
 log mostra "vps602 limpa: sem servidor, sem tcpdump, sem listener UDP/TCP na 7703 e sem /tmp/fs-golden-quic".
