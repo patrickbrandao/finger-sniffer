@@ -283,7 +283,8 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	if c.closing() {
 		how = "" // closeInfo decide (fin/rst)
 	}
-	rec, _ := json.Marshal(c.record(end, how))
+	r := c.record(end, how)
+	rec, _ := json.Marshal(r)
 	if !c.degraded {
 		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO pcaps (conn_id, data, truncated) VALUES (?, ?, ?)", c.id, pcap, boolInt(c.truncated)); err != nil {
 			return err
@@ -292,8 +293,8 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", c.id); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, updated_ns = ? WHERE conn_id = ?",
-		end, boolInt(c.truncated), string(rec), end, c.id)
+	_, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ? WHERE conn_id = ?",
+		end, boolInt(c.truncated), string(rec), r.Proto, end, c.id)
 	return err
 }
 

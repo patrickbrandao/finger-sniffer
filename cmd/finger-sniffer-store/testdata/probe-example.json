@@ -18,6 +18,33 @@
         },
         "ended": "2026-11-07T12:00:01.060000000Z",
         "family": 4,
+        "http": [
+          {
+            "field_count": 1,
+            "fields": [
+              [
+                "Host",
+                ": ",
+                "t1a2b3c4.dns-monitor.tmsoft.com.br",
+                "crlf"
+              ]
+            ],
+            "head_size": 71,
+            "in_offset": 0,
+            "index": 0,
+            "out_offset": 0,
+            "raw_head_b64": "R0VUIC9wL3QxYTJiM2M0LyBIVFRQLzEuMQ0KSG9zdDogdDFhMmIzYzQuZG5zLW1vbml0b3IudG1zb2Z0LmNvbS5icg0KDQo=",
+            "request_line": {
+              "form": "origin",
+              "method": "GET",
+              "target": "/p/t1a2b3c4/",
+              "terminator": "crlf",
+              "version": "HTTP/1.1"
+            },
+            "response_sent_size": 120,
+            "status": 200
+          }
+        ],
         "ip": {
           "df": false,
           "dscp": 0,
@@ -36,8 +63,8 @@
         "l4": "tcp",
         "pcap_truncated": false,
         "probe_id": "t1a2b3c4",
-        "proto": "tcp",
-        "requests": 0,
+        "proto": "tls/http1.1",
+        "requests": 1,
         "src": {
           "ip": "192.0.2.10",
           "port": 41234
@@ -104,7 +131,46 @@
           "server_rst": null,
           "syn": "2026-11-07T12:00:00.000000000Z",
           "syn_ack": "2026-11-07T12:00:00.010000000Z",
-          "tls_done": null
+          "tls_done": "2026-11-07T12:00:00.033000000Z"
+        },
+        "tls": {
+          "alerts": [
+            {
+              "description": 0,
+              "dir": "in",
+              "level": 1,
+              "name": "close_notify"
+            }
+          ],
+          "alpn": [
+            "http/1.1"
+          ],
+          "cipher_suites": [
+            {
+              "code": 4865,
+              "name": "TLS_AES_128_GCM_SHA256"
+            }
+          ],
+          "client_hello_b64": "FgMBAF8BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+          "client_hello_records": 1,
+          "client_hello_segments": 1,
+          "client_hello_truncated": false,
+          "handshake_ms": 12.5,
+          "handshake_version": 771,
+          "ja3": "771,4865,0-16,29,0",
+          "ja3_md5": "d41d8cd98f00b204e9800998ecf8427e",
+          "ja4": "t13d0102h1_0b5e1e0e6d6c_7f0d0b5c1d2e",
+          "ja4_r": "t13d0102h1_1301_0000,0010",
+          "negotiated": {
+            "alpn": "http/1.1",
+            "cipher": "TLS_AES_128_GCM_SHA256",
+            "group": "x25519",
+            "resumed": false,
+            "version": "TLS 1.3"
+          },
+          "record_version": 769,
+          "session_id_len": 32,
+          "sni": "t1a2b3c4.dns-monitor.tmsoft.com.br"
         },
         "totals": {
           "in": {

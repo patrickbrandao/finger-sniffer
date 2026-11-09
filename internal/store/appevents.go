@@ -73,6 +73,7 @@ type appState struct {
 	probeID      *string
 	rawTruncated [2]bool // in, out
 	events       int
+	layers
 }
 
 func newAppState() *appState { return &appState{} }
@@ -91,6 +92,7 @@ func (a *appState) add(ev appEvent) (probeSet bool) {
 			a.rawTruncated[dirIndex(sb.Dir)] = true
 		}
 	}
+	a.addLayer(ev)
 	return probeSet
 }
 
@@ -106,6 +108,7 @@ func (a *appState) apply(r *connectionJSON) {
 	if a.rawTruncated[0] || a.rawTruncated[1] {
 		r.RawTruncated = &rawTruncatedJSON{In: a.rawTruncated[0], Out: a.rawTruncated[1]}
 	}
+	a.applyLayers(r)
 }
 
 // dirIndex converte in/out em 0/1 (mesma convenção de raw_streams.dir).
