@@ -124,6 +124,7 @@ type Store struct {
 	svc     *service.Service
 	db      *sql.DB // escrita (ingest, retenção, DELETE)
 	rdb     *sql.DB // leitura (API)
+	cdb     *sql.DB // checkpoint do WAL (task 105)
 	tracker *Tracker
 	ingest  *Ingestor
 	queries *Queries
@@ -144,7 +145,13 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		_ = db.Close()
 		return nil, err
 	}
-	s := &Store{cfg: cfg, svc: svc, db: db, rdb: rdb, tracker: NewTracker(event.Services, cfg.DownAfter), openapi: openapi}
+	cdb, err := OpenCheckpointDB(cfg.DBPath)
+	if err != nil {
+		_ = db.Close()
+		_ = rdb.Close()
+		return nil, err
+	}
+	s := &Store{cfg: cfg, svc: svc, db: db, rdb: rdb, cdb: cdb, tracker: NewTracker(event.Services, cfg.DownAfter), openapi: openapi}
 	if cfg.Ingest.P0F == nil && cfg.P0FPath != "" {
 		// Sem o p0f.fp o store sobe assim mesmo: a assinatura p0f sai crua, sem palpite de SO.
 		if fp, err := p0f.LoadDB(cfg.P0FPath); err != nil {
@@ -159,6 +166,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		if s.certs, err = certs.Open(cfg.Certs, svc.Log); err != nil {
 			_ = db.Close()
 			_ = rdb.Close()
+			_ = cdb.Close()
 			return nil, err
 		}
 	}
@@ -187,7 +195,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 func (s *Store) HealthAt(ctx context.Context, now time.Time) Health {
 	services, allUp, match := s.tracker.Services(now, version.Version)
 	host, _ := ReadHost(s.cfg.Host)
-	size, conns, oldest := dbStats(ctx, s.db, s.cfg.DBPath)
+	size, conns, oldest := dbStats(ctx, s.rdb, s.cfg.DBPath)
 	st := &DBHealth{DBBytes: size, MaxBytes: s.cfg.MaxBytes, Retention: s.cfg.Retention, Connections: conns}
 	if oldest.Valid {
 		o := event.FormatTime(time.Unix(0, oldest.Int64))
@@ -204,7 +212,7 @@ func (s *Store) HealthAt(ctx context.Context, now time.Time) Health {
 
 // Run cria o stream, assina os heartbeats e serve a API até ctx terminar.
 func (s *Store) Run(ctx context.Context) error {
-	defer func() { _ = s.db.Close(); _ = s.rdb.Close() }()
+	defer func() { _ = s.db.Close(); _ = s.rdb.Close(); _ = s.cdb.Close() }()
 	if s.certs != nil {
 		defer func() { _ = s.certs.Close() }()
 	}
@@ -306,11 +314,12 @@ func (s *Store) ensureStream(ctx context.Context) jetstream.Consumer {
 	return nil
 }
 
-// retentionLoop expurga a cada 10 s (spec 004 RF-06).
+// retentionLoop expurga a cada segundo, em lotes curtos e com orçamento por rodada (spec 004 RF-06, task 105).
 func (s *Store) retentionLoop(ctx context.Context) {
 	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
 	r.OnPurge = s.prom.purge
-	t := time.NewTicker(10 * time.Second)
+	r.Budget = DefaultRetentionBudget
+	t := time.NewTicker(RetentionInterval)
 	defer t.Stop()
 	for {
 		select {
@@ -318,12 +327,14 @@ func (s *Store) retentionLoop(ctx context.Context) {
 			return
 		case <-t.C:
 			n, err := r.RunOnce(ctx, time.Now())
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				s.svc.Log.Warn("retention", "err", err)
 			}
+			if _, _, err := Checkpoint(ctx, s.cdb); err != nil && ctx.Err() == nil {
+				s.svc.Log.Warn("wal checkpoint", "err", err)
+			}
 			s.svc.Metrics.Add("store_expunged_total", float64(n))
-			size, _, _ := dbStats(ctx, s.db, s.cfg.DBPath)
-			s.svc.Metrics.Set("store_db_bytes", float64(size))
+			s.svc.Metrics.Set("store_db_bytes", float64(dbFileSize(s.cfg.DBPath)))
 		}
 	}
 }
