@@ -72,6 +72,7 @@ func (st *h3Stream) serve() {
 		st.str.CancelWrite(h3RequestIncomplete)
 		return
 	}
+	h.waitSettings()
 	st.route()
 }
 

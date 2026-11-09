@@ -31,12 +31,23 @@ type h3Conn struct {
 	probeID  string
 	requests int
 	ctlSeen  bool
-	wg       sync.WaitGroup
+	// ctlDeadline: fim da espera pelo SETTINGS, marcado pela primeira requisição que esperou
+	ctlDeadline time.Time
+	ctlReady    chan struct{} // fechado quando o SETTINGS do cliente foi lido
+	wg          sync.WaitGroup
 }
+
+// h3SettingsWait é quanto uma requisição espera, antes de responder, o SETTINGS do cliente ainda não lido.
+// O quic-go descarta os bytes ainda não lidos dos streams e os streams ainda não aceitos quando a conexão
+// fecha; um cliente que fecha logo depois da resposta (curl) perderia o SETTINGS que chegou junto da
+// requisição se o leitor do stream de controle ainda não tivesse rodado (task 063). Clientes conformes
+// mandam o SETTINGS no início e a espera termina assim que ele é lido; sem stream de controle, a espera
+// só acontece uma vez por conexão: as requisições seguintes respeitam o mesmo prazo (ctlDeadline).
+var h3SettingsWait = 50 * time.Millisecond
 
 // handleQUIC atende uma conexão do accept ao fim e publica os até três http3.connection.
 func (s *Server) handleQUIC(ctx context.Context, qc *quic.Conn) {
-	h := &h3Conn{srv: s, ctx: ctx, qc: qc, start: s.now()}
+	h := &h3Conn{srv: s, ctx: ctx, qc: qc, start: s.now(), ctlReady: make(chan struct{})}
 	flow := udpFlow(qc.LocalAddr(), qc.RemoteAddr())
 	h.flow = &flow
 	if t := s.h3.tracker; t != nil {
@@ -89,7 +100,11 @@ func (s *Server) handleQUIC(ctx context.Context, qc *quic.Conn) {
 	if err := h.openControl(); err != nil {
 		_ = qc.CloseWithError(h3InternalError, "")
 	}
-	go h.acceptUni()
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		h.acceptUni()
+	}()
 	h.acceptBidi()
 	<-qc.Context().Done()
 	h.wg.Wait()
@@ -199,7 +214,34 @@ func (h *h3Conn) onSettings(settings [][2]uint64) {
 	h.ctlSeen = true
 	h.info.H3Settings = slices.Clone(settings)
 	h.mu.Unlock()
+	close(h.ctlReady)
 	h.publishConn()
+}
+
+// waitSettings espera o SETTINGS do cliente até h3SettingsWait depois da primeira requisição que o esperou.
+func (h *h3Conn) waitSettings() {
+	h.mu.Lock()
+	if h.ctlSeen {
+		h.mu.Unlock()
+		return
+	}
+	now := time.Now()
+	if h.ctlDeadline.IsZero() {
+		h.ctlDeadline = now.Add(h3SettingsWait)
+	}
+	d := h.ctlDeadline.Sub(now)
+	h.mu.Unlock()
+	if d <= 0 {
+		return
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-h.ctlReady:
+	case <-t.C:
+	case <-h.qc.Context().Done():
+	case <-h.ctx.Done():
+	}
 }
 
 // acceptBidi atende os streams de requisição até a conexão acabar.
