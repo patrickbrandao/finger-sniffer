@@ -6,7 +6,7 @@
 #   FORCE=1 make deploy    # reinicia todos mesmo sem mudança
 #
 # Fluxo: build local → rsync para uma área de staging própria → instalação remota sob trava
-# (flock /run/finger-sniffer/deploy.lock) → smoke test.
+# (flock /run/finger-sniffer/deploy.lock) → smoke test (units, rede e deploy/smoke.sh; com SVC, só o serviço + health).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

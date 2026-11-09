@@ -127,7 +127,7 @@ else
 fi
 systemctl start finger-sniffer.target
 
-# 10. Smoke test
+# 10. Smoke test: units ativas, offloads e sysctl; depois os serviços respondendo
 sleep 2
 fail=0
 for u in finger-sniffer-net $UNITS; do
@@ -147,6 +147,8 @@ if [ "$(sysctl -n net.core.somaxconn)" != 4096 ]; then
 else
 	echo "  sysctl: aplicado"
 fi
+# serviços respondendo (deploy/smoke.sh): com SVC=<svc>, só os passos daquele serviço + health
+SVC="$SVC" bash "$DEST/deploy/smoke.sh" || fail=1
 if [ "$fail" = 1 ]; then
 	log "SMOKE TEST FALHOU"
 	journalctl -u 'finger-sniffer-*' -n 30 --no-pager
