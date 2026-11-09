@@ -334,3 +334,116 @@ func FuzzHTTP1Session(f *testing.F) {
 		}
 	})
 }
+
+// reqInstants são os quatro instantes de uma requisição (spec 009 RF-06, ADR 0029); zero quando nulos.
+type reqInstants struct {
+	reqStart, reqEnd, respStart, respEnd time.Time
+}
+
+// instantsOf lê os quatro instantes do payload (string RFC 3339 com ns ou null).
+func instantsOf(t *testing.T, p map[string]any) reqInstants {
+	t.Helper()
+	parse := func(k string) time.Time {
+		v, ok := p[k]
+		if !ok {
+			t.Fatalf("campo %s ausente: %v", k, p)
+		}
+		if v == nil {
+			return time.Time{}
+		}
+		at, err := time.Parse(time.RFC3339Nano, v.(string))
+		if err != nil || !strings.HasSuffix(v.(string), "Z") {
+			t.Fatalf("%s = %v (%v)", k, v, err)
+		}
+		return at
+	}
+	return reqInstants{
+		parse("request_started_at"), parse("request_ended_at"),
+		parse("response_started_at"), parse("response_ended_at"),
+	}
+}
+
+// checkOrder confere request_started_at ≤ request_ended_at ≤ response_ended_at e
+// request_started_at ≤ response_started_at ≤ response_ended_at, todos presentes.
+func checkOrder(t *testing.T, what string, in reqInstants) {
+	t.Helper()
+	if in.reqStart.IsZero() || in.reqEnd.IsZero() || in.respStart.IsZero() || in.respEnd.IsZero() {
+		t.Fatalf("%s: instante nulo %+v", what, in)
+	}
+	if in.reqEnd.Before(in.reqStart) || in.respEnd.Before(in.reqEnd) || in.respStart.Before(in.reqStart) ||
+		in.respEnd.Before(in.respStart) {
+		t.Fatalf("%s: ordem %+v", what, in)
+	}
+}
+
+// TestH1Instants: keep-alive, pipeline e 100-continue saem com os quatro instantes em ordem; em pipeline
+// a 2ª requisição começa antes de a 1ª resposta terminar.
+func TestH1Instants(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	r := get("/p/"+testProbe+"/", "x")
+	cl.send(r)
+	cl.response("GET")
+	time.Sleep(20 * time.Millisecond)
+	cl.send(r + r)
+	cl.response("GET")
+	cl.response("GET")
+	cl.send("POST /p/" + testProbe + "/ HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n")
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _ = cl.br.ReadString('\n')
+	_, _ = cl.br.ReadString('\n')
+	time.Sleep(50 * time.Millisecond)
+	cl.send("hello")
+	cl.response("POST")
+	evs := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 4)
+	var all []reqInstants
+	for i, e := range evs {
+		in := instantsOf(t, e.Payload)
+		checkOrder(t, "req "+string(rune('0'+i)), in)
+		all = append(all, in)
+	}
+	if !all[1].reqStart.After(all[0].respEnd) {
+		t.Fatalf("keep-alive: req 1 começa antes do fim da 0: %+v %+v", all[0], all[1])
+	}
+	if all[2].reqStart.After(all[1].respEnd) {
+		t.Fatalf("pipeline: %+v %+v", all[1], all[2])
+	}
+	// 100-continue: a resposta começa (o 100) antes do fim do corpo, que veio ≥ 50 ms depois.
+	if ec := all[3]; !ec.respStart.Before(ec.reqEnd) || ec.reqEnd.Sub(ec.respStart) < 40*time.Millisecond {
+		t.Fatalf("100-continue: %+v", ec)
+	}
+}
+
+// TestH1InstantsDelay: delay_head=200 aparece como ≥ 200 ms entre request_ended_at e response_started_at, e
+// delay_body=100 como ≥ 100 ms dentro da resposta.
+func TestH1InstantsDelay(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	cl.send(get("/p/"+testProbe+"/r?delay_head=200&delay_body=100&size=10", "x"))
+	cl.response("GET")
+	in := instantsOf(t, h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 1)[0].Payload)
+	checkOrder(t, "delay", in)
+	if d := in.respStart.Sub(in.reqEnd); d < 200*time.Millisecond {
+		t.Fatalf("delay_head: %v", d)
+	}
+	if d := in.respEnd.Sub(in.respStart); d < 100*time.Millisecond {
+		t.Fatalf("delay_body: %v", d)
+	}
+}
+
+// TestH1InstantsIncomplete: requisição cortada no meio do corpo sai com request_ended_at e os da resposta
+// nulos.
+func TestH1InstantsIncomplete(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	cl.send("POST /p/" + testProbe + "/ HTTP/1.1\r\nHost: x\r\nContent-Length: 50\r\n\r\nabc")
+	time.Sleep(30 * time.Millisecond)
+	_ = c.(*net.TCPConn).CloseWrite()
+	in := instantsOf(t, h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 1)[0].Payload)
+	if in.reqStart.IsZero() || !in.reqEnd.IsZero() || !in.respStart.IsZero() || !in.respEnd.IsZero() {
+		t.Fatalf("incompleta: %+v", in)
+	}
+}

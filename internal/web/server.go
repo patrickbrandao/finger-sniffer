@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -112,8 +113,8 @@ func (s *Server) Run(ctx context.Context) error {
 // listenLoop abre addr (tentando de novo a cada RetryListen se falhar) e atende.
 func (s *Server) listenLoop(ctx context.Context, addr string) {
 	defer s.wg.Done()
+	lc := s.listenConfig()
 	for {
-		var lc net.ListenConfig
 		ln, err := lc.Listen(ctx, "tcp", addr)
 		if err == nil {
 			s.setFailed(addr, "")
@@ -129,6 +130,20 @@ func (s *Server) listenLoop(ctx context.Context, addr string) {
 		case <-time.After(s.cfg.RetryListen):
 		}
 	}
+}
+
+// tfoQueue é a fila de pedidos TFO pendentes dos listeners TCP (ADR 0029).
+const tfoQueue = 256
+
+// listenConfig devolve a configuração dos listeners TCP: TCP_FASTOPEN ligado no socket antes do listen
+// (spec 005 RF-01). Falha no setsockopt só registra aviso e o listener segue sem TFO.
+func (s *Server) listenConfig() net.ListenConfig {
+	return net.ListenConfig{Control: func(_, address string, c syscall.RawConn) error {
+		if err := enableTFO(c, tfoQueue); err != nil {
+			s.log.Warn("web tcp fastopen", "addr", address, "err", err)
+		}
+		return nil
+	}}
 }
 
 func (s *Server) setFailed(addr, msg string) {

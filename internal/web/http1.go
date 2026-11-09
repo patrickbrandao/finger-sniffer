@@ -62,7 +62,12 @@ func (c *conn) serveHTTP1(t *tap, ic *idleConn, handshakeEnd time.Time) {
 func (s *h1Session) serveOne(idx int) bool {
 	srv := s.c.srv
 	buffered := s.br.Buffered() > 0
-	if !buffered {
+	// Em pipeline o começo da requisição já está no buffer: o instante é o da leitura que o trouxe, a
+	// última antes deste cabeçalho (spec 009 RF-06).
+	var firstByteAt time.Time
+	if buffered {
+		firstByteAt = s.t.lastRead()
+	} else {
 		s.t.markRead()
 	}
 	req, err := s.rd.ReadHead()
@@ -70,11 +75,14 @@ func (s *h1Session) serveOne(idx int) bool {
 		// EOF limpo entre requisições, ociosidade vencida ou erro de leitura sem nenhum byte.
 		return false
 	}
-	firstByteAt := s.t.firstRead()
-	if buffered || firstByteAt.IsZero() {
+	if !buffered {
+		firstByteAt = s.t.firstRead()
+	}
+	if firstByteAt.IsZero() {
 		firstByteAt = s.t.lastRead()
 	}
 	req.Index = idx
+	req.RequestStartedAt = instant(firstByteAt)
 	s.fillTimes(req, idx, buffered, firstByteAt)
 	srv.metrics.Add(MetricRequestsTotal, 1)
 
@@ -106,6 +114,7 @@ func (s *h1Session) serveOne(idx int) bool {
 	// Expect: 100-continue: por padrão manda o 100 antes de ler o corpo e mede a espera do cliente (RF-04);
 	// continue=skip não manda, continue=late manda depois do corpo, junto da resposta final.
 	s.w.Reset()
+	s.t.markWrite()
 	outOffset := s.t.outTotal()
 	expect := req.ExpectsContinue() && hasBody(req)
 	if expect {
@@ -133,6 +142,8 @@ func (s *h1Session) serveOne(idx int) bool {
 	} else if berr := s.rd.ReadBody(req, h1.BodyOptions{RawMax: s.rawBodyMax()}); berr != nil {
 		return s.bodyError(req, probeID, outOffset, berr)
 	}
+	// Requisição inteira lida: o último byte veio na última leitura (cabeçalho, corpo ou trailers).
+	req.RequestEndedAt = instant(s.t.lastRead())
 
 	if path, rawQuery, ok := target(req.RequestLine); ok {
 		if isWS, _ := wsRoute(path, rawQuery, srv.controlLimits()); isWS {
@@ -262,6 +273,7 @@ func (s *h1Session) headError(req *h1.Request, err error) bool {
 		return false
 	}
 	s.w.Reset()
+	s.t.markWrite()
 	outOffset := s.t.outTotal()
 	werr := s.write(textResponse(status, http.StatusText(status)+"\n"))
 	s.finish(req, probeID, outOffset, status)
@@ -302,6 +314,9 @@ func (s *h1Session) finish(req *h1.Request, probeID string, outOffset int64, sta
 			status = http.StatusContinue
 		}
 		req.Status = status
+		if first, last := s.t.writeTimes(); !first.IsZero() {
+			req.ResponseStartedAt, req.ResponseEndedAt = instant(first), instant(last)
+		}
 	}
 	s.publish(req, probeID)
 }

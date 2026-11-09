@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // Preface é o prefácio da conexão enviado pelo cliente (RFC 9113 seção 3.4).
@@ -139,9 +140,21 @@ type HTTP2Stream struct {
 	JA4H        *string         `json:"ja4h"`
 	Status      int             `json:"status,omitempty"`
 	Controls    any             `json:"controls,omitempty"`
+	// Instantes da requisição e da resposta (RFC 3339 UTC com ns, relógio do web; nulos quando não houve),
+	// preenchidos por quem monta o registro a partir de HeadersAt/EndAt/ResetAt dos dois sentidos (spec 010
+	// RF-08, ADR 0029).
+	RequestStartedAt  *string `json:"request_started_at"`
+	RequestEndedAt    *string `json:"request_ended_at"`
+	ResponseStartedAt *string `json:"response_started_at"`
+	ResponseEndedAt   *string `json:"response_ended_at"`
 
 	// HeadFields é quantos itens de Fields vieram do primeiro bloco (o resto são trailers).
 	HeadFields int `json:"-"`
+	// HeadersAt, EndAt e ResetAt são os instantes (de FeedAt) em que terminaram, neste sentido, o primeiro
+	// frame HEADERS do stream, o frame com END_STREAM e o RST_STREAM; zero quando não houve (ou com Feed).
+	HeadersAt time.Time `json:"-"`
+	EndAt     time.Time `json:"-"`
+	ResetAt   time.Time `json:"-"`
 }
 
 // HTTP2Info é o resultado da análise de uma conexão (schema `HTTP2Info`). Akamai é preenchido por
@@ -197,9 +210,10 @@ type Parser struct {
 	hdr     [frameHeaderLen]byte
 	hdrN    int
 	hdrT    float64
-	need    int    // bytes do payload ainda por vir
-	keep    bool   // se o payload atual é guardado
-	payload []byte // payload guardado do frame atual
+	at      time.Time // instante do pedaço em consumo (FeedAt)
+	need    int       // bytes do payload ainda por vir
+	keep    bool      // se o payload atual é guardado
+	payload []byte    // payload guardado do frame atual
 	cur     frameHeader
 
 	// bloco de cabeçalho em montagem (HEADERS sem END_HEADERS + CONTINUATION)
@@ -285,6 +299,12 @@ func (p *Parser) Info() *HTTP2Info {
 // Feed consome mais um pedaço de bytes que chegou no instante tMs (milissegundos desde a referência do
 // chamador).
 func (p *Parser) Feed(tMs float64, b []byte) {
+	p.FeedAt(time.Time{}, tMs, b)
+}
+
+// FeedAt é o Feed com o instante absoluto do pedaço, que vai para HeadersAt, EndAt e ResetAt dos streams.
+func (p *Parser) FeedAt(at time.Time, tMs float64, b []byte) {
+	p.at = at
 	if p.inPref {
 		b = p.feedPreface(b)
 		if p.inPref || p.err != nil {
@@ -425,6 +445,17 @@ func (p *Parser) endFrame() {
 	case FrameData:
 		if i, ok := p.streams[h.streamID]; ok && h.flags&FlagEndStream != 0 {
 			p.info.Streams[i].EndStream = true
+			stamp(&p.info.Streams[i].EndAt, p.at)
+		}
+	case FrameRSTStream:
+		// No sentido out o stream é criado se preciso (reset antes de qualquer HEADERS do servidor); no in só
+		// streams já vistos, para não inventar requisições.
+		if i, ok := p.streams[h.streamID]; ok {
+			stamp(&p.info.Streams[i].ResetAt, p.at)
+		} else if p.opts.Dir == DirOut && h.streamID != 0 {
+			if st := p.stream(h.streamID); st != nil {
+				stamp(&st.ResetAt, p.at)
+			}
 		}
 	case FrameHeaders:
 		p.onHeaders(h, pl)
@@ -475,8 +506,10 @@ func (p *Parser) onHeaders(h frameHeader, pl []byte) {
 		if prio != nil && st.Priority == nil {
 			st.Priority = prio
 		}
+		stamp(&st.HeadersAt, p.at)
 		if h.flags&FlagEndStream != 0 {
 			st.EndStream = true
+			stamp(&st.EndAt, p.at)
 		}
 	}
 	if !p.keep || p.hpackDead {
@@ -544,6 +577,13 @@ func (p *Parser) stream(id uint32) *HTTP2Stream {
 	p.streams[id] = len(p.info.Streams)
 	p.info.Streams = append(p.info.Streams, HTTP2Stream{StreamID: id})
 	return &p.info.Streams[len(p.info.Streams)-1]
+}
+
+// stamp guarda at em dst só na primeira vez.
+func stamp(dst *time.Time, at time.Time) {
+	if dst.IsZero() {
+		*dst = at
+	}
 }
 
 // parsePriority lê os 5 bytes de prioridade (E + dependência de 31 bits + peso).

@@ -103,6 +103,7 @@ func TestH3Integration(t *testing.T) {
 		resp.Trailer.Get(TrailerName) != "1" {
 		t.Fatalf("controles %d %q %v trailer %v", resp.StatusCode, body, resp.Header, resp.Trailer)
 	}
+	h3Get(t, cl, base+"/r?delay_head=200&size=5")
 	resp, body = h3Get(t, cl, base+"/r?close=after&ver=1.0")
 	if resp.StatusCode != 400 || !strings.Contains(body, "close=after: not applicable to HTTP/3") ||
 		!strings.Contains(body, "ver=1.0: not applicable to HTTP/3") {
@@ -114,7 +115,16 @@ func TestH3Integration(t *testing.T) {
 	}
 	_ = tr.Close()
 
-	reqs := h.events.wait(t, event.SubjectWebHTTP3Request, 0, 4)
+	reqs := h.events.wait(t, event.SubjectWebHTTP3Request, 0, 5)
+	// Instantes (spec 011 RF-03): em ordem em todas; delay_head=200 entre o FIN do cliente e o HEADERS.
+	for _, r := range reqs {
+		in := instantsOf(t, r.Payload)
+		checkOrder(t, "h3", in)
+		if ctl, _ := r.Payload["controls"].(map[string]any); ctl != nil &&
+			ctl["params"].(map[string]any)["delay_head"] == "200" && in.respStart.Sub(in.reqEnd) < 200*time.Millisecond {
+			t.Fatalf("h3 delay_head: %+v", in)
+		}
+	}
 	conns := h.events.wait(t, event.SubjectWebHTTP3Connection, 0, 3)
 	last := conns[len(conns)-1].Payload
 	deadline := time.Now().Add(5 * time.Second)

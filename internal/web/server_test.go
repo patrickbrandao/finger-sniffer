@@ -688,3 +688,48 @@ func requireOneRequest(t *testing.T, h *harness, c net.Conn) {
 		t.Fatalf("want 1 http1.request, got %d: %v", len(evs), evs[len(evs)-1].Payload)
 	}
 }
+
+// helloOnly deixa o crypto/tls do cliente mandar só o ClientHello: a leitura falha logo (sem alerta do
+// cliente), e o teste escreve o resto à mão.
+type helloOnly struct{ net.Conn }
+
+func (helloOnly) Read([]byte) (int, error) { return 0, errors.New("stop after client hello") }
+
+// TestTLSPlaintextAlert: cliente cru manda o ClientHello e depois o alerta em texto claro unknown_ca
+// (15 03 03 00 02 02 30): tls.alerts traz {in, 2, 48} pelos bytes, sem duplicar o que o crypto/tls informa.
+// A descrição 254 (sem nome no crypto/tls) só aparece pelos bytes.
+func TestTLSPlaintextAlert(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	for _, desc := range []byte{48, 254} {
+		raw := dial(t, h.addr443)
+		_ = tls.Client(helloOnly{raw}, &tls.Config{ServerName: testSNI, MaxVersion: tls.VersionTLS12}).Handshake()
+		if _, err := raw.Write([]byte{0x15, 0x03, 0x03, 0x00, 0x02, 0x02, desc}); err != nil {
+			t.Fatal(err)
+		}
+		hs := h.events.wait(t, event.SubjectWebTLSHandshake, srcPort(raw), 1)[0]
+		_ = raw.Close()
+		alerts, _ := hs.Payload["alerts"].([]any)
+		if hs.Payload["negotiated"] != nil || len(alerts) != 1 {
+			t.Fatalf("handshake %v", hs.Payload)
+		}
+		a := alerts[0].(map[string]any)
+		if a["dir"] != "in" || num(t, a["level"]) != 2 || num(t, a["description"]) != int(desc) {
+			t.Fatalf("alert %v", a)
+		}
+	}
+}
+
+// TestMergeAlerts: o alerta do crypto/tls entra depois dos vistos nos bytes, só se não houver um igual.
+func TestMergeAlerts(t *testing.T) {
+	seen := []event.TLSAlert{{Dir: "in", Level: 2, Description: 48}}
+	if got := mergeAlerts(seen, errors.New("remote error: tls: unknown certificate authority")); len(got) != 1 {
+		t.Fatalf("duplicado: %v", got)
+	}
+	got := mergeAlerts(seen, errors.New("local error: tls: bad record MAC"))
+	if len(got) != 2 || got[1] != (event.TLSAlert{Dir: "out", Level: 2, Description: 20}) {
+		t.Fatalf("merge: %v", got)
+	}
+	if got := mergeAlerts(nil, errors.New("EOF")); len(got) != 0 {
+		t.Fatalf("sem alerta: %v", got)
+	}
+}
