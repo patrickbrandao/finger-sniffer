@@ -2,7 +2,7 @@
 
 package e2e
 
-// Funções comuns dos testes da F3 (task 039): probe ID novo, long-poll do probe, tipos do registro, socket TCP
+// Funções comuns dos testes da F3 e da F4 (tasks 039 e 060): probe ID novo, long-poll do probe, tipos do registro, socket TCP
 // cru, conferências na vps602 (tshark e ja4 da FoxIO) e a validação de contrato de todas as respostas reais no
 // fim da suíte (TestMain).
 
@@ -207,6 +207,7 @@ type record struct {
 	TLS       *tlsInfo    `json:"tls"`
 	HTTP      []h1Request `json:"http"`
 	HTTP2     *h2Info     `json:"http2"`
+	HTTP3     *h3Info     `json:"http3"`
 	WebSocket *wsInfo     `json:"websocket"`
 	Raw       *rawInfo    `json:"raw"`
 }
@@ -642,7 +643,7 @@ func validateLive() error {
 		var extra strings.Builder
 		for k, b := range live[name] {
 			f := fmt.Sprintf("live-%s-%03d.json", strings.TrimSuffix(name, ".json"), k)
-			ex, _ := json.Marshal(map[string]any{"summary": "resposta real do e2e da F3", "value": json.RawMessage(b)})
+			ex, _ := json.Marshal(map[string]any{"summary": "resposta real do e2e", "value": json.RawMessage(b)})
 			if err := os.WriteFile(filepath.Join(dir, "testdata", f), ex, 0o600); err != nil {
 				return err
 			}
@@ -662,8 +663,8 @@ func validateLive() error {
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("contrato: respostas reais da F3 não validam contra o openapi.yaml: %v\n%s", err, out)
+		return fmt.Errorf("contrato: respostas reais do e2e não validam contra o openapi.yaml: %v\n%s", err, out)
 	}
-	fmt.Printf("contrato: %d respostas reais da F3 validadas contra o openapi.yaml (%s)\n", total, strings.Join(names, ", "))
+	fmt.Printf("contrato: %d respostas reais do e2e validadas contra o openapi.yaml (%s)\n", total, strings.Join(names, ", "))
 	return nil
 }
