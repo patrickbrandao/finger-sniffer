@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/patrickbrandao/finger-sniffer/pkg/certs"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
@@ -38,17 +39,19 @@ type ServiceHealth struct {
 
 // HostHealth é o estado da máquina.
 type HostHealth struct {
-	Kernel             string            `json:"kernel,omitempty"`
-	Iface              string            `json:"iface,omitempty"`
-	MTU                int               `json:"mtu,omitempty"`
-	Offloads           map[string]string `json:"offloads,omitempty"`
-	AggregatingOffload bool              `json:"aggregating_offload"`
-	Sysctls            map[string]string `json:"sysctls,omitempty"`
-	SyncookiesSent     int64             `json:"syncookies_sent"`
-	ConntrackLoaded    bool              `json:"conntrack_loaded"`
-	NFTRulesetLines    int               `json:"nft_ruleset_lines"`
-	NTPSynchronized    bool              `json:"ntp_synchronized"`
-	Store              *DBHealth         `json:"store,omitempty"`
+	Kernel             string               `json:"kernel,omitempty"`
+	Iface              string               `json:"iface,omitempty"`
+	MTU                int                  `json:"mtu,omitempty"`
+	Offloads           map[string]string    `json:"offloads,omitempty"`
+	AggregatingOffload bool                 `json:"aggregating_offload"`
+	Sysctls            map[string]string    `json:"sysctls,omitempty"`
+	SyncookiesSent     int64                `json:"syncookies_sent"`
+	ConntrackLoaded    bool                 `json:"conntrack_loaded"`
+	NFTRulesetLines    int                  `json:"nft_ruleset_lines"`
+	NTPSynchronized    bool                 `json:"ntp_synchronized"`
+	TLSServer          *certs.TLSServerInfo `json:"tls_server,omitempty"`
+	Certificates       []certJSON           `json:"certificates,omitempty"`
+	Store              *DBHealth            `json:"store,omitempty"`
 }
 
 // DBHealth é o estado do banco.

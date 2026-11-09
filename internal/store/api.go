@@ -24,12 +24,19 @@ type API struct {
 	W *sql.DB
 }
 
-// Handler devolve o http.Handler com CORS aberto (ADR 0007).
-func (a *API) Handler() http.Handler {
+// Handler devolve o http.Handler da 9001 (HTTP) com CORS aberto (ADR 0007), incluindo /metrics.
+func (a *API) Handler() http.Handler { return a.handler(true) }
+
+// HTTPSHandler devolve o http.Handler da 9000 (HTTPS): as mesmas rotas, sem /metrics (spec 004 RF-10).
+func (a *API) HTTPSHandler() http.Handler { return a.handler(false) }
+
+func (a *API) handler(withMetrics bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", a.health)
 	mux.HandleFunc("GET /api/v1/openapi.yaml", a.openapi)
-	mux.HandleFunc("GET /metrics", a.metrics)
+	if withMetrics {
+		mux.HandleFunc("GET /metrics", a.metrics)
+	}
 	if a.Q != nil {
 		mux.HandleFunc("GET /api/v1/connections", a.listConnections)
 		mux.HandleFunc("GET /api/v1/connections/{conn_id}", a.getConnection)

@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
+	"github.com/patrickbrandao/finger-sniffer/pkg/certs"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -22,6 +23,8 @@ import (
 type Config struct {
 	DBPath       string
 	HTTPAddr     string
+	HTTPSAddr    string // FS_API_HTTPS_PORT; vazio desliga a 9000
+	Certs        certs.Config
 	Retention    string
 	RetentionDur time.Duration
 	MaxBytes     int64
@@ -36,6 +39,8 @@ func LoadConfig() (Config, error) {
 	c := Config{
 		DBPath:    service.Env("FS_STORE_DB", "/finger-sniffer/var/store/finger-sniffer.sqlite"),
 		HTTPAddr:  ":" + service.Env("FS_API_HTTP_PORT", "9001"),
+		HTTPSAddr: ":" + service.Env("FS_API_HTTPS_PORT", "9000"),
+		Certs:     certs.LoadConfig(),
 		Retention: service.Env("FS_RETENTION", "10m"),
 		Host:      DefaultHostPaths,
 		P0FPath:   service.Env("FS_P0F_DB", "/finger-sniffer/etc/p0f.fp"),
@@ -103,6 +108,7 @@ type Store struct {
 	ingest  *Ingestor
 	queries *Queries
 	openapi []byte
+	certs   *certs.Store // nil quando a 9000 está desligada
 }
 
 // New abre o banco e prepara o store.
@@ -126,11 +132,24 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 			svc.Log.Info("p0f.fp loaded", "path", cfg.P0FPath, "tcp_request_sigs", len(fp.TCPRecords(true)))
 		}
 	}
+	if cfg.HTTPSAddr != "" {
+		// Sem arquivos em FS_CERT_DIR o pkg/certs usa um autoassinado em memória (spec 015 RF-05).
+		if s.certs, err = certs.Open(cfg.Certs, svc.Log); err != nil {
+			_ = db.Close()
+			_ = rdb.Close()
+			return nil, err
+		}
+	}
 	s.ingest = NewIngestor(db, cfg.Ingest, svc.Log, svc.Metrics)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
+	// O estado dos certificados da 9000 também conta (spec 015 RF-05: autoassinado ou expirando = degraded).
 	svc.SetStatus(func() (string, []string) {
-		if _, reasons := ReadHost(cfg.Host); len(reasons) > 0 {
+		_, reasons := ReadHost(cfg.Host)
+		if s.certs != nil {
+			reasons = append(reasons, s.certs.Reasons(time.Now())...)
+		}
+		if len(reasons) > 0 {
 			return event.StatusDegraded, reasons
 		}
 		return event.StatusOK, nil
@@ -149,12 +168,20 @@ func (s *Store) HealthAt(ctx context.Context, now time.Time) Health {
 		st.Oldest = &o
 	}
 	host.Store = st
+	tlsInfo := certs.Describe()
+	host.TLSServer = &tlsInfo
+	if s.certs != nil {
+		host.Certificates = certificatesJSON(s.certs.State())
+	}
 	return Health{OK: allUp, Version: version.Version, VersionsMatch: match, Services: services, Host: host}
 }
 
 // Run cria o stream, assina os heartbeats e serve a API até ctx terminar.
 func (s *Store) Run(ctx context.Context) error {
 	defer func() { _ = s.db.Close(); _ = s.rdb.Close() }()
+	if s.certs != nil {
+		defer func() { _ = s.certs.Close() }()
+	}
 
 	sub, err := s.svc.NC.Subscribe(event.SubjectHeartbeat, func(m *nats.Msg) {
 		if err := s.tracker.Observe(m.Data, time.Now()); err != nil {
@@ -194,16 +221,31 @@ func (s *Store) Run(ctx context.Context) error {
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	s.svc.Log.Info("api listening", "addr", s.cfg.HTTPAddr)
+	var tlsSrv *http.Server
+	tlsErr := make(<-chan error)
+	if s.certs != nil {
+		tlsSrv, tlsErr = s.serveHTTPS(ctx, api)
+	}
 
-	select {
-	case <-ctx.Done():
+	shutdown := func() error {
 		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		if tlsSrv != nil {
+			_ = tlsSrv.Shutdown(shut)
+		}
 		return srv.Shutdown(shut)
+	}
+	select {
+	case <-ctx.Done():
+		return shutdown()
 	case err := <-errc:
+		_ = shutdown()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
+		return err
+	case err := <-tlsErr:
+		_ = shutdown()
 		return err
 	}
 }
