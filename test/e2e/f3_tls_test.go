@@ -167,9 +167,6 @@ func checkTLSConn(t *testing.T, cl tlsClient, c record, keys []byte) {
 	if c.Proto != wantProto && (len(c.HTTP) > 0 || h2Streams(c) > 0) {
 		t.Errorf("%s: proto = %q, esperado %q", c.ConnID, c.Proto, wantProto)
 	}
-	if tl.Negotiated == nil || !strings.HasPrefix(tl.Negotiated.Version, "TLS") || tl.HandshakeMs == nil {
-		t.Errorf("%s: negotiated=%+v handshake_ms=%v", c.ConnID, tl.Negotiated, ptr(tl.HandshakeMs))
-	}
 	if tl.SNI == nil || !strings.HasSuffix(*tl.SNI, "."+zone) {
 		t.Errorf("%s: SNI = %v", c.ConnID, ptr(tl.SNI))
 	}
@@ -184,7 +181,6 @@ func checkTLSConn(t *testing.T, cl tlsClient, c record, keys []byte) {
 	case !cl.h2 && len(c.HTTP) > 0:
 		keysF = append(keysF, "7/h1")
 	}
-	requireConnFields(t, []record{c}, keysF...)
 	ref := analyzePcap(t, c.ConnID, 443, keys)
 	if len(ref.ClientHellos) != 1 {
 		t.Fatalf("%s: tshark achou %d ClientHellos no pcap da conexão", c.ConnID, len(ref.ClientHellos))
@@ -194,6 +190,25 @@ func checkTLSConn(t *testing.T, cl tlsClient, c record, keys []byte) {
 	// ClientHello byte a byte: o registro guarda o(s) registro(s) TLS inteiros; o fluxo do cliente no pcap
 	// começa por eles
 	ch := b64(t, tl.ClientHelloB64)
+	// Handshake abandonado pelo cliente (conexão especulativa do Chrome): o cliente só mandou o ClientHello
+	// (o fluxo do cliente no pcap é ele inteiro) e fechou sem o Finished nem dados de aplicação. Aí o
+	// servidor não concluiu o handshake e negotiated/handshake_ms nulos são o certo.
+	abandoned := len(c.HTTP) == 0 && h2Streams(c) == 0 && c.Close.By == "client" &&
+		len(ch) > 0 && bytes.Equal(ref.ClientBytes, ch)
+	switch {
+	case abandoned:
+		if tl.Negotiated != nil || tl.HandshakeMs != nil {
+			t.Errorf("%s: handshake abandonado pelo cliente, mas negotiated=%+v handshake_ms=%v", c.ConnID,
+				tl.Negotiated, ptr(tl.HandshakeMs))
+		}
+		t.Logf("%s: cliente abandonou o handshake (só ClientHello, fechou com %s)", c.ConnID, c.Close.How)
+		requireConnFields(t, []record{c})
+	default:
+		if tl.Negotiated == nil || !strings.HasPrefix(tl.Negotiated.Version, "TLS") || tl.HandshakeMs == nil {
+			t.Errorf("%s: negotiated=%+v handshake_ms=%v", c.ConnID, tl.Negotiated, ptr(tl.HandshakeMs))
+		}
+		requireConnFields(t, []record{c}, keysF...)
+	}
 	if len(ch) < 5 || !bytes.HasPrefix(ref.ClientBytes, ch) {
 		n := min(len(ch), len(ref.ClientBytes), 64)
 		t.Errorf("%s: client_hello_b64 (%d bytes) não é o início do fluxo do cliente no pcap (%d bytes); início %x × %x",
