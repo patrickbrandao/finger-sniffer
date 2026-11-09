@@ -176,3 +176,25 @@ func TestEventKeepsConnectionWithoutHandshake(t *testing.T) {
 		t.Fatal("connection with app events must not become stray")
 	}
 }
+
+// TestLateEventOfExpungedConnection: evento tardio de conexão já expurgada não cria registro só de eventos
+// (task 080).
+func TestLateEventOfExpungedConnection(t *testing.T) {
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.Retention = 10 * time.Minute })
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP))
+	if n, err := NewRetention(db, 10*time.Minute, 1<<30).RunOnce(context.Background(), time.Unix(0, base).Add(11*time.Minute)); err != nil || n != 1 {
+		t.Fatalf("expunge %d %v", n, err)
+	}
+	const at = 11 * 60 * 1000
+	processAt(t, in, at, appMsg(t, event.SubjectRawSession, "tcp", client, mirror, 30, "t1a2b3c4", map[string]any{"mode": "echo"}))
+	processAt(t, in, at+3000)
+	if n := count(t, db, "SELECT count(*) FROM connections"); n != 0 || len(in.pending) != 0 {
+		t.Fatalf("late event must be dropped: %d connections, %d pending", n, len(in.pending))
+	}
+	// Evento recente sem conexão continua criando o registro só de eventos.
+	processAt(t, in, at+4000, appMsg(t, event.SubjectRawSession, "tcp", client, mirror, at+3900, "", map[string]any{"mode": "echo"}))
+	processAt(t, in, at+7000)
+	if n := count(t, db, "SELECT count(*) FROM connections"); n != 1 {
+		t.Fatalf("recent event must create an event-only connection: %d", n)
+	}
+}
