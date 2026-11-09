@@ -41,7 +41,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
 - RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95; QUIC: ≤ 3 s depois
   do `http3.connection` com `close`, exceção provisória da ADR 0024); evento ao vivo < 1 s (p99), medidos como na
-  ADR 0022. Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
+  ADR 0022 (`ts` do evento ao vivo pela ADR 0025). Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
   150 req/s, p95 ~0,6 s e máximo ~1,1 s.
 
 ## Comportamento
@@ -91,7 +91,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
   openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
   ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno. Toda rota do
-  openapi declara os códigos que devolve (contrato 0.3.3).
+  openapi declara os códigos que devolve (contrato 0.3.3; 0.3.4 descreve o `LiveEvent.ts`).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
@@ -106,6 +106,13 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 | `packet.stray` | cada pacote avulso gravado | `StrayPacket` |
 | `stream.dropped` | só para o cliente que perdeu eventos, quando a fila volta a ter espaço | `LiveDropped` |
 
+- `ts` do `LiveEvent` (ADR 0025) = instante em que o espelho teve o fato e pôde emiti-lo: `connection.opened` →
+  primeiro pacote ou evento; `connection.updated` → entrada do evento de aplicação de origem no `FS_EVENTS`
+  (metadado `Timestamp` do JetStream; sem ele, o recebimento pelo consumidor), não o `ts` do envelope (o
+  `raw.session` leva o accept e só sai no fim); atualização de registro já gravado → instante do store;
+  `connection.closed` → fim (FIN/RST/`quic_close`) ou, por ociosidade e órfã do reinício, o instante em que o
+  store decidiu fechar; `http.request`/`dns.query`/`packet.stray` → `ts` do envelope ou do pacote;
+  `stream.dropped` → envio. Os tempos do fato ficam em `data.started`/`data.ended`.
 - `conn_id` e `probe_id` do envelope do `LiveEvent` preenchidos quando houver. Filtros: `probe` (= `probe_id`),
   `src_ip` (cliente; para `dns.query`, o resolvedor), `dst_port` (porta do espelho; `dns.query` = 53), `kind`
   (lista por vírgula). Filtro inválido → 400 antes do upgrade/stream.
@@ -113,7 +120,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   evento. WS: uma mensagem de texto por evento, ping a cada 30 s, mensagens do cliente ignoradas, fecha com 1001
   no desligamento.
 - Mais de `FS_LIVE_MAX_CLIENTS` clientes → 503. A latência ingest → cliente entra na métrica
-  `fs_store_live_delay_seconds` (`ts` do evento de origem até o envio).
+  `fs_store_live_delay_seconds` (`ts` do `LiveEvent` até o envio).
 
 ### Métricas (RF-10)
 Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no heartbeat e `fs_service_up`:

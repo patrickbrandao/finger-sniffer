@@ -1,6 +1,6 @@
 # 0022 — Prova do MVP no espelho: matriz direta e medição das metas RNF
 
-Status: aceita (QUIC medido à parte, meta de 3 s: ver 0024)
+Status: aceita (QUIC medido à parte, meta de 3 s: ver 0024; semântica do `ts` do feed: ver 0025)
 Data: 2026-11-09
 
 ## Contexto
@@ -23,7 +23,7 @@ Akamai conferidas com FoxIO e tshark, e as metas de RNF atingidas no teste de ca
   registrada como pendência externa no PR de release, sem bloquear a `v0.1.0`.
 - **Medição das metas RNF** (`test/load/`, spec 017 RF-13), no perfil do RNF-01 (200 conexões simultâneas, 50
   novas/s, 10 min, mix h1/h2/h3/raw), descartando o primeiro minuto (aquecimento):
-  - RNF-02 (feed): atraso = chegada no cliente da 9000 − `ts` do evento; meta **p99 < 1 s**; p50/p95/máximo
+  - RNF-02 (feed): atraso = chegada no cliente da 9000 − `ts` do evento (`LiveEvent.ts`, semântica da ADR 0025); meta **p99 < 1 s**; p50/p95/máximo
     reportados; `stream.dropped` = 0 para um cliente que lê em dia.
   - RNF-03 (API): `GET /connections/{id}` e `GET /probes/{id}` com **p95 < 100 ms**.
   - RNF-04 (registro completo): fim da conexão no cliente → registro fechado na API, **p95 ≤ 500 ms**; máximo

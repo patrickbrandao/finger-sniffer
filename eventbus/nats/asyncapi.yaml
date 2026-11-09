@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.3.3
+  version: 0.3.4
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
@@ -23,7 +23,8 @@ info:
     Compatibilidade (ADR 0001): `fs.v1.*` só recebe mudanças aditivas; campos desconhecidos são ignorados.
 
     Versão: acompanha a do openapi sempre que um payload referenciado de lá muda (0.3.2 trouxe
-    `h3_control_stream_seen` no `HTTP3Info` de `fs.v1.web.http3.connection`; as duas voltam juntas em 0.3.3).
+    `h3_control_stream_seen` no `HTTP3Info` de `fs.v1.web.http3.connection`; as duas voltam juntas em 0.3.3; 0.3.4 é documental nas duas: `ts` dos resumos de sessão aqui e
+    `LiveEvent.ts` lá, ADR 0025).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -218,7 +219,7 @@ components:
         schema_version: { type: integer, const: 1 }
         service: { type: string, enum: [capture, web, raw, dns, store] }
         service_version: { type: string }
-        ts: { type: string, description: "RFC 3339 UTC com nanossegundos: quando o fato ocorreu." }
+        ts: { type: string, description: "RFC 3339 UTC com nanossegundos: quando o fato ocorreu. Nos resumos publicados no fim da sessão (`fs.v1.raw.session`, `fs.v1.web.raw.session`) é o accept, usado pelo store para achar a conexão; o instante da publicação é o metadado `Timestamp` do JetStream (ADR 0025)." }
         flow: { $ref: "#/components/schemas/Flow" }
         probe_id: { type: [string, "null"], description: Probe já extraído pelo produtor, quando houver. }
     StreamBytesPayload:
