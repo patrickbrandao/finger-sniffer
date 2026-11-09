@@ -39,8 +39,12 @@ do ClientHello e o tamanho dos segmentos.
 
 O espelho **nunca fecha uma conexão por conta própria antes de `FS_IDLE_DEFAULT` (120 s)** sem atividade: todo
 fechamento observado vem do cliente ou de quem está no caminho (exceto quando a sondagem pede, com `close=`,
-`rst=`, `idle=`, `frame=close`, `Connection: close`, o modo `source`, ou quando o cliente encerra o TLS com
-`close_notify`, que o espelho responde fechando).
+`rst=`, `idle=`, `frame=close`, `Connection: close` na requisição, o modo `source`, quando o cliente encerra o TLS
+com `close_notify`, que o espelho responde fechando, ou depois da troca de closes do WebSocket, caso 9). O controle
+`conn=close` não está nessa lista: ele só escreve o campo na resposta.
+
+As portas cruas (raw) escutam só nos IPs públicos do espelho (`FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`, ADR 0001), como
+o web e o dns: sonde pelo nome ou por esses IPs.
 
 ## Respostas do espelho
 
@@ -115,7 +119,7 @@ funciona.
 | `chunk=N`, `trailers=1` | tamanho de cada pedaço; trailers | sim (com `frame=chunked`) | tamanho de cada DATA; trailers | 400 |
 | `frame=cl\|chunked\|close` | Content-Length, chunked ou até o fechamento | sim | só registrado | 400 |
 | `ver=1.0\|1.1` | versão da linha de status | sim | só registrado | 400 |
-| `conn=keep\|close\|none` | `Connection: keep-alive`, `close` ou nenhum | sim | só registrado | 400 |
+| `conn=keep\|close\|none` | `Connection: keep-alive`, `close` ou nenhum; **só o campo**, o espelho não fecha (para isso, `close=after`) | sim | só registrado | 400 |
 | `ka=timeout,max` | `Keep-Alive: timeout=..., max=...` | sim | só registrado | 400 |
 | `hsize=N` | cabeçalho de resposta grande (máx. 1 MiB) | sim | só registrado | 400 |
 | `continue=send\|skip\|late` | tratamento de `Expect: 100-continue` | sim | só registrado | 400 |
@@ -206,6 +210,11 @@ entre caminhos. A lista de cada caso diz quais importam ali; a tabela abaixo é 
 | fim | `close.by` e `close.how` nos casos determinísticos (o caso diz) | `close.idle_before_close_ms` e `times.*` |
 
 Sempre variam também: `conn_id`, `ts`, `started`/`ended`, `degraded` sob carga.
+
+`times` é a linha do tempo **TCP**. Num registro UDP o primeiro datagrama é o `started` e o fim é o `ended`, e
+`times` vem `null`; no QUIC, `times` traz só `tls_done` (spec 013 RF-01, ADR 0023). Uma consulta DNS por UDP não
+vira conexão do probe: o fluxo UDP da porta 53 fica `proto: udp`, sem `probe_id`, e a consulta aparece em `dns[]`
+do probe e em `/api/v1/dns` (caso 10).
 
 ### Diferenças esperadas por proxy
 
@@ -351,6 +360,17 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {close: .close|{b
 - **Procurar**: `controls.params` de cada requisição, `status`, `response_sent_b64`/`response_sent_size` (bytes
   exatos que saíram, 1xx incluídos) e `close` (com `rst=1` e `close=mid-body`, o espelho manda RST no meio do
   corpo: `close.how: rst`, `times.server_rst`).
+- **`conn=close` × `close=after`**: `conn=close` só escreve `Connection: close`; o espelho mantém a conexão até
+  `idle` ou até o cliente fechar, para mostrar se o cliente (ou o proxy) obedece ao campo. É um desvio deliberado
+  da RFC 9112 §9.6 (ADR 0023). Na saída acima o curl obedeceu e fechou (`close.by: client`). Para o espelho fechar
+  depois da resposta, use `close=after` (`close.by: server`, `idle_before_close_ms` < 1 ms):
+
+  ```console
+  $ curl -s "$B?conn=close" -o /dev/null; curl -s "$B?close=after" -o /dev/null
+  $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {req: [.http[].controls.params], close: .close|{by,how,idle_before_close_ms}}'
+  {"req":[{"conn":"close"}],"close":{"by":"client","how":"fin","idle_before_close_ms":21.32288}}
+  {"req":[{"close":"after"}],"close":{"by":"server","how":"fin","idle_before_close_ms":0.129082}}
+  ```
 - **Estáveis**: `controls`, `status`, `response_sent_size` (para o mesmo probe ID, tamanho fixo e com `Date` do
   mesmo tamanho), `close.by`/`close.how` dos casos que o espelho provoca (`frame=close`, `rst=1`).
 - **Diferenças esperadas**: aqui o que importa é a **resposta que o cliente recebe** comparada com
@@ -395,6 +415,33 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, ja3: .tls
 (curl 8.23 com OpenSSL 4, OpenSSL do macOS e Go 1.27; os valores dependem da versão de cada cliente.) Por
 proxy: `curl -x http://xproxy03:4128 …`, `openssl s_client -proxy xproxy03:4128 …`, `HTTPS_PROXY=… go run …`.
 
+Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperado:
+
+- **h2c por `Upgrade: h2c`** (`curl --http2 http://…`): o stream 1 é a própria requisição HTTP/1 do upgrade, sem
+  frame HEADERS, então sem outro stream a parte `PS` (ordem dos pseudo-campos) do Akamai sai **vazia** (spec 010
+  RF-03). Por prior knowledge (`--http2-prior-knowledge`) o `PS` vem do primeiro HEADERS, como em `tls/h2`.
+
+  ```console
+  $ curl -s --http2 "http://$H/p/$id/" >/dev/null
+  $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, mode: .http2.mode, akamai: .http2.akamai}'
+  {"proto":"h2c","mode":"upgrade","akamai":"3:100;4:10485760;2:0|1048510465|0|"}
+  ```
+
+- **SETTINGS com id repetido**: o registro guarda os SETTINGS na ordem em que chegaram, **com as repetições**
+  (em `http2.settings` e no Akamai), mas o servidor h2 (`x/net/http2`) responde GOAWAY PROTOCOL_ERROR e não
+  processa os HEADERS: o GOAWAY aparece em `http2.frames` (o código de erro está nos bytes de `/raw?dir=out`) e
+  não há `streams[]` (spec 010, ADR 0023). Sem HEADERS o probe ID não chega; procure a conexão por `src_ip` e
+  `dst_port`.
+
+  ```console
+  $ printf 'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n\x00\x00\x12\x04\x00\x00\x00\x00\x00\x00\x04\x00\x01\x00\x00\x00\x03\x00\x00\x00\x64\x00\x04\x00\x02\x00\x00' |
+      nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
+  $ curl -s "$api/connections?src_ip=203.0.113.10&dst_port=80&limit=1" | jq -r '.[0].conn_id' |
+      xargs -I{} curl -s "$api/connections/{}" | jq -c '{proto, settings: .http2.settings, akamai: .http2.akamai,
+      frames: [.http2.frames[] | [.dir, .type]], streams: (.http2.streams | length), close: .close|{by,how}}'
+  {"proto":"h2c","settings":[[4,65536],[3,100],[4,131072]],"akamai":"4:65536;3:100;4:131072|00|0|","frames":[["in","SETTINGS"],["out","SETTINGS"],["out","GOAWAY"]],"streams":0,"close":{"by":"server","how":"fin"}}
+  ```
+
 - **Procurar**: `tls.client_hello_b64` (ClientHello cru) e o analisado (`cipher_suites`, `extensions`,
   `supported_groups`, `key_share`…), `ja3`/`ja3n`/`ja4`/`ja4_r`/`ja4_o`/`ja4_stable`, `negotiated`;
   `http2.settings`, `window_update`, `priorities`, `akamai` e `streams[].pseudo_order` nas conexões h2.
@@ -429,13 +476,16 @@ ou `curl -p -x http://xproxy03:4128 telnet://vps602.tmsoft.com.br:7`; para 4443,
 telnet://…`.
 
 - **Procurar**: `raw.mode`, `raw.banner`, `raw.probe_line`, `raw.reads_in`/`writes_out` (`[t_ms, bytes]`),
-  `raw.half_close` (depois do FIN do cliente, o espelho manda `half-close test\r\n`: o registro diz se isso saiu
-  e o cliente vê se chegou) e `close.half_close`. A primeira linha `PROBE` não é ecoada.
+  `raw.half_close` (depois do FIN do cliente, o espelho manda `half-close test\r\n`) e `close.half_close`. A
+  primeira linha `PROBE` não é ecoada. `half_close.server_sent_after_client_fin` é `true` **só quando o cliente
+  confirmou o recebimento** (ACK dos bytes) da mensagem; se a conexão leva RST depois do envio ou o ACK não chega
+  em 2 s, fica `false`, e `half_close.bytes` diz quantos bytes o espelho escreveu (task 083). Um `false` com
+  `bytes: 17` quer dizer "o espelho mandou, mas o caminho não entregou".
 - **Estáveis**: `mode`, `banner`, `probe_line`, total de bytes em cada sentido,
   `half_close.server_sent_after_client_fin`, `close.half_close`.
 - **Diferenças esperadas**: TCP e DNS do proxy. Um túnel que não repassa o meio-fechamento (fecha os dois
-  sentidos quando o cliente manda FIN) aparece como `half_close: null` ou `close.how: rst`, e o cliente não recebe
-  `half-close test`: é um achado. A segmentação (`reads_in`) pode mudar; o total de bytes, não.
+  sentidos quando o cliente manda FIN) aparece como `half_close: null`, `server_sent_after_client_fin: false` ou
+  `close.how: rst`, e o cliente não recebe `half-close test`: é um achado. A segmentação (`reads_in`) pode mudar; o total de bytes, não.
 
 ### Caso 9: WebSocket `ws://` e `wss://`
 
@@ -457,6 +507,15 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, over: .we
 
 - **Procurar**: `websocket.over`, `path`, `extensions`, `subprotocol`, os frames (opcode, FIN, RSV, máscara,
   tamanho, sentido) e `websocket.close` (código, razão, quem fechou); a resposta 101 em `response_sent_b64`.
+- **Fechamento**: `websocket.close` é o close de **quem iniciou** (`by`, `code`, `reason`); o close de resposta do
+  outro lado fica só em `frames[]` (`dir`, opcode 8, tamanho), sem código nem razão (spec 012 RF-06). Depois da
+  troca de closes o espelho fecha o TCP primeiro (RFC 6455 §7.1.1, exceção da spec 005 RF-08), então o TCP mostra
+  `close.by: server` com `websocket.close.by: client`, e isso é o esperado:
+
+  ```console
+  $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, ws: .websocket.close, tcp: .close|{by,how}}'
+  {"proto":"http1.1/ws","ws":{"by":"client","code":1000,"reason":"bye"},"tcp":{"by":"server","how":"fin"}}
+  ```
 - **Estáveis**: a linha de WebSocket da [tabela](#campos-estáveis-e-o-que-sempre-varia), mais os campos do
   `Upgrade` da requisição (caso 1).
 - **Diferenças esperadas**: `ws://` por proxy HTTP depende de o proxy repassar o `Upgrade` (squid e muitos
@@ -525,14 +584,18 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {ttl: .ip.ttl, ho
   dado do espelho e o próximo dado do cliente que o confirma: Finished do TLS, próxima requisição na mesma
   conexão; nulo quando o cliente não manda nada depois da resposta, como numa só requisição HTTP/1 em claro),
   `tcp.ts_clock_hz`, `tcp.ts_initial`, `tcp.ts_clock_group`. O relógio só é estimado em conexões que duram alguns
-  segundos com tráfego (`ts_clock_hz` nulo nas curtas); conexões com o mesmo `ts_clock_group` vêm do mesmo
-  relógio (host), mesmo saindo por IPs diferentes.
+  segundos com tráfego (`ts_clock_hz` nulo nas curtas). `ts_clock_group` junta as conexões cujo TSval é explicado
+  por um único relógio (mesma frequência e mesmo deslocamento extrapolado). Sistemas modernos deslocam o TSval:
+  o macOS (`net.inet.tcp.randomize_timestamps=1`) **por conexão** e o Linux (≥ 4.10, `tcp_timestamps=1`) **por par
+  de endereços**. Por isso três conexões seguidas do mesmo Mac dão três grupos, e um Linux só repete o grupo pelo
+  mesmo par de IPs; grupos distintos nesses casos são o esperado, não erro (spec 013 RF-10, ADR 0023). Só um host
+  que não desloca o TSval aparece no mesmo grupo saindo por IPs diferentes.
 - **Estáveis**: a linha de IP e de TCP da [tabela](#campos-estáveis-e-o-que-sempre-varia). O RTT é estável só
   em ordem de grandeza (±20%). `ts_initial` e TSval mudam por conexão em Linux e macOS (deslocamento aleatório),
   por isso o agrupamento por relógio usa a frequência e a evolução, não o valor inicial.
 - **Diferenças esperadas**: por proxy, todos esses campos são do proxy: o critério é consistência entre execuções
   e entre os IPs de saída do mesmo proxy (mesmo JA4T/p0f/TTL; mesmo `ts_clock_group` em saídas diferentes revela
-  o mesmo host). O RTT do handshake passa a ser o do proxy até o espelho; um `rtt_app_ms`
+  o mesmo host, mas grupos diferentes não provam hosts diferentes se o proxy roda Linux ou macOS). O RTT do handshake passa a ser o do proxy até o espelho; um `rtt_app_ms`
   bem maior que `rtt_handshake_ms` mostra espera no caminho de aplicação (o proxy esperando o cliente).
 
 ### Caso 12: HTTP/3 (só caminho direto)
@@ -554,6 +617,10 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, close: .c
 
 O curl precisa ser compilado com HTTP/3 (ngtcp2 ou quiche; `curl --version` lista `HTTP3`). Detalhes do
 registro em [http3.md](http3.md).
+
+O registro QUIC fecha **cerca de 2 s depois** do CONNECTION_CLOSE (folga para os últimos datagramas do capture;
+meta provisória de 3 s na `v0.1.0`, ADR 0024), então o `?wait` de um probe h3 responde uns 2 s depois de o cliente
+terminar, contra poucas centenas de ms no TCP. Use `wait` de 10 s ou mais.
 
 - **Procurar**: `http3` (Initial, `transport_params` na ordem, `client_hello` com JA4 `q`, `h3_control_stream_seen` e `h3_settings`,
   `close`), `close.how: quic_close`, as requisições com `pseudo_order` e `controls` (os controles que não se

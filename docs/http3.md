@@ -146,6 +146,19 @@ informou `idle_timeout`). Uma conexão encerrada pelo cliente aparece fechada em
 ociosidade antes de `FS_IDLE_DEFAULT` (120 s); navegadores costumam manter a conexão QUIC aberta por bastante tempo,
 então o `wait` do probe pode voltar no prazo com `all_closed: false`.
 
+Esse atraso de ~2 s é uma exceção **provisória** à meta de registro ≤ 500 ms, que vale para o TCP: na `v0.1.0`, a
+meta do QUIC é p95 ≤ 3 s contados do `http3.connection` com `close` (ADR
+[0024](../specs/decisions/0024-registro-quic-meta-provisoria.md)), e a carga mede as duas separadas. Na prática:
+
+- o long-poll `GET /api/v1/probes/{id}?wait=…` de um probe h3 responde ~2 s depois do fim da conexão (no TCP,
+  poucas centenas de ms); use `wait` de 10 s ou mais;
+- `connection.closed` no tempo real chega ~2 s depois do CONNECTION_CLOSE, mas cada requisição já sai antes como
+  `http.request` (abaixo);
+- `fs_store_record_ready_seconds{reason="quic_close"}` em [metrics.md](metrics.md) mostra o atraso medido.
+
+A ADR prevê levar o QUIC ao mesmo fechamento rápido do TCP (pacotes tardios anexados ao registro já gravado) e à
+meta de 500 ms; quando isso acontecer, este trecho muda.
+
 As requisições não esperam o fim da conexão: cada uma vira um evento `http.request` (e entra no registro) quando a
 resposta termina, como no h2.
 

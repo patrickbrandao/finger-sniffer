@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.2, servido também em
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.3, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação
@@ -146,6 +146,8 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?dst_port=443&src
 
 `proto` descreve a pilha detectada: `tcp`/`udp` (sem camada de aplicação), `http1.1`, `h2c`, `tls/http1.1`,
 `tls/h2`, `tls/http1.1/ws`, `quic/h3`, `quic`, `raw`, `tls/raw`, `raw/unknown`, `dns` (regra completa na spec 004).
+`dns` vale só para fluxos **TCP** da porta 53; um fluxo UDP da 53 fica `udp` e sem `probe_id`, e a consulta em si
+está em `/api/v1/dns` (com `probe_id`), como na seção [DNS e pacotes avulsos](#dns-e-pacotes-avulsos) (ADR 0023).
 `degraded: true` indica que o espelho estava acima de 200 conexões simultâneas ou 50 novas/s e não guardou pcap
 nem bytes crus dessa conexão.
 
@@ -153,7 +155,9 @@ nem bytes crus dessa conexão.
 
 `GET /api/v1/connections/{conn_id}` traz o resumo mais as camadas que existirem: `times` e `close` (spec 013),
 `totals`, `ip`, `tcp` (SYN, JA4T, p0f, RTT, janela), `tls` (ClientHello cru e analisado, JA3/JA4, negociação),
-`http` (HTTP/1), `http2`, `http3`, `websocket` e `raw`. Trecho real de uma conexão `tls/http1.1` feita com curl:
+`http` (HTTP/1), `http2`, `http3`, `websocket` e `raw`. `times` é a linha do tempo TCP: num fluxo UDP o primeiro
+datagrama é o `started` e o fim é o `ended`, e `times` vem `null`, exceto no QUIC, em que traz só `tls_done`
+(spec 013 RF-01, ADR 0023). Trecho real de uma conexão `tls/http1.1` feita com curl:
 
 ```console
 $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG | jq '{
@@ -300,14 +304,17 @@ efetivos, certificados (emissor e validade), NTP e o uso do banco (`db_bytes`, `
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`:
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.3.3):
 
 | Código | Quando |
 | --- | --- |
-| 400 | parâmetro inválido (probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` diferente de `in`/`out`, `wait` mal formado, filtro de tempo real inválido) |
-| 404 | desconhecido ou expirado (retenção) |
+| 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, filtro de tempo real inválido |
+| 404 | ID no formato certo mas desconhecido ou expirado (retenção), e qualquer rota inexistente |
 | 503 | só em `/stream` e `/ws`: acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo |
-| 500 | erro interno |
+| 500 | erro interno nas rotas de consulta |
+
+`OPTIONS` em qualquer caminho responde **204** sem corpo (pré-voo CORS, com `Access-Control-Allow-Origin: *` e
+`Access-Control-Allow-Methods: GET, DELETE, OPTIONS`).
 
 ```console
 $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?limit=abc'
@@ -318,6 +325,10 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/probes/XY
 {
   "error": "invalid probe id \"XY\""
 }
+$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/NOTULID
+{
+  "error": "invalid conn_id \"NOTULID\""
+}
 $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw'
 {
   "error": "dir must be in or out"
@@ -326,4 +337,11 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ
 {
   "error": "not found or expired"
 }
+$ curl -s -w '%{http_code}\n' https://vps602.tmsoft.com.br:9000/api/v1/nada
+{
+  "error": "not found"
+}
+404
+$ curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS https://vps602.tmsoft.com.br:9000/api/v1/connections
+204
 ```
