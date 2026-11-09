@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
@@ -259,6 +260,21 @@ func Run(svc *service.Service, cfg Config) error {
 		return err
 	}
 	defer func() { _ = store.Close() }()
+	acmeCfg, err := LoadACMEConfig(acmeListenHost(cfg))
+	if err != nil {
+		return err
+	}
+	var acme *ACMEManager
+	var acmeFunc ACMEFunc
+	if acmeCfg.Enable {
+		if acme, err = NewACMEManager(acmeCfg, svc.NC, svc.Log, svc.Metrics); err != nil {
+			return err
+		}
+		defer acme.Close()
+		acmeFunc = acme.HTTPChallenge
+	} else {
+		svc.Log.Info("acme disabled (FS_ACME_ENABLE=0): using FS_CERT_DIR or self-signed")
+	}
 	srv := NewServer(cfg, Deps{
 		Log:     svc.Log,
 		Metrics: svc.Metrics,
@@ -269,8 +285,22 @@ func Run(svc *service.Service, cfg Config) error {
 		},
 		TLS:         store.TLSConfig(),
 		CertReasons: store.Reasons,
+		ACME:        acmeFunc,
 	})
 	svc.SetStatus(srv.Status)
 	svc.Log.Info("web config", "listen", cfg.listenAddrs(), "htdocs", cfg.Htdocs, "idle", cfg.IdleDefault.String())
-	return svc.Run(srv.Run)
+	return svc.Run(func(ctx context.Context) error {
+		if acme != nil {
+			go acme.Run(ctx)
+		}
+		return srv.Run(ctx)
+	})
+}
+
+// acmeListenHost é o IP onde o web atende a porta 80 do HTTP-01 (IPv4 de preferência).
+func acmeListenHost(cfg Config) netip.Addr {
+	if cfg.ListenIPv4.IsValid() {
+		return cfg.ListenIPv4
+	}
+	return cfg.ListenIPv6
 }
