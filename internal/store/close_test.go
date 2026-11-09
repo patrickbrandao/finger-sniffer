@@ -1,6 +1,7 @@
 package store
 
 import (
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -118,6 +119,37 @@ func TestLatePacketsAfterClose(t *testing.T) {
 		t.Fatalf("registro não refeito: times %+v totals %+v close %+v", r.Times, r.Totals, r.Close)
 	}
 	if v := in.metrics.Get("store_late_packets_total"); v != 2 {
+		t.Fatalf("store_late_packets_total = %v", v)
+	}
+}
+
+// Regressão (deploy da 077): SYN recusado com RST vira pacotes avulsos e sai do banco; um RST/ACK tardio na
+// mesma 5-tupla não pode derrubar o lote (FOREIGN KEY), nem uma conexão apagada pela retenção.
+func TestLatePacketsWithoutStoredConnection(t *testing.T) {
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.CloseGrace = prodGrace(t) })
+	refused := []seg{
+		{ms: 0, fromCli: true, flags: tcpSYN, seq: 1000},
+		{ms: 1, flags: tcpRST | tcpACK, ack: 1001},
+	}
+	run(t, in, 1, segBatch(client, mirror, refused))
+	run(t, in, 100, segBatch(client, mirror, []seg{{ms: 50, flags: tcpRST | tcpACK, ack: 1001}}))
+	if n := count(t, db, "SELECT count(*) FROM connections"); n != 0 {
+		t.Fatalf("%d conexões", n)
+	}
+	if n := count(t, db, "SELECT count(*) FROM stray_packets"); n != 3 {
+		t.Fatalf("%d avulsos", n)
+	}
+
+	other := netip.AddrPortFrom(mirror.Addr(), 7701)
+	run(t, in, 1060, segBatch(client, other, closeSegs))
+	if _, err := db.Exec("DELETE FROM connections"); err != nil {
+		t.Fatal(err)
+	}
+	run(t, in, 1200, segBatch(client, other, []seg{{ms: 1100, fromCli: true, flags: tcpRST, seq: 1102}}))
+	if n := count(t, db, "SELECT count(*) FROM connections") + count(t, db, "SELECT count(*) FROM packets"); n != 0 {
+		t.Fatalf("%d linhas", n)
+	}
+	if v := in.metrics.Get("store_late_packets_total"); v != 1 {
 		t.Fatalf("store_late_packets_total = %v", v)
 	}
 }

@@ -21,7 +21,7 @@ const (
 )
 
 // DefaultCloseGrace é a folga depois do FIN dos dois lados quando o ACK final não aparece (FS_TCP_CLOSE_GRACE).
-const DefaultCloseGrace = 200 * time.Millisecond
+const DefaultCloseGrace = 100 * time.Millisecond
 
 // flowKey identifica um fluxo independente do sentido (pontas em ordem canônica).
 type flowKey struct {
@@ -356,7 +356,8 @@ func (t *flowTable) due(now int64) []*conn {
 			delete(t.conns, k)
 			delete(t.byID, c.id)
 			t.finish(c)
-			if c.l4 == protoTCP && c.closing() {
+			// só a que vira conexão gravada (a que vira pacotes avulsos sai do banco: o tardio é avulso também)
+			if c.l4 == protoTCP && c.closing() && (!c.isStray() || c.app.events > 0) {
 				c.lingerUntil = c.lastSeen + lateLinger.Nanoseconds()
 				t.closed[k] = c
 			}
