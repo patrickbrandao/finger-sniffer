@@ -3,7 +3,7 @@ package dns
 import (
 	"context"
 	"net/netip"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,19 +55,27 @@ func TestRRLDisabledAndFull(t *testing.T) {
 	}
 }
 
-// TestServerRRL: 100 consultas UDP em rajada do mesmo IP → ~20 completas e o resto TC=1 sem dados;
+// TestServerRRL: 100 consultas UDP em rajada do mesmo IP → exatamente 20 completas e o resto TC=1 sem dados;
 // em TCP, acima do limite a conexão é descartada.
+//
+// O relógio do RRL fica parado (sem reposição de fichas), então a contagem não depende da velocidade da máquina.
+// O Observer roda depois de a resposta sair, por isso a contagem dele é esperada com prazo, e nenhum t.Fatal
+// acontece com trava que o Observer precise: antes um Fatalf com a trava presa travava o Close da limpeza
+// (serveUDP esperando a trava, Close esperando serveUDP) até o timeout de 10 min do go test.
 func TestServerRRL(t *testing.T) {
 	z, _ := newTestZone()
-	var mu sync.Mutex
-	limited := 0
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	var limitedUDP, limitedTCP atomic.Int64
 	_, udp, tcp := startServer(t, z, func(s *Server) {
-		s.RRL = NewRRL(20, nil)
+		s.RRL = NewRRL(20, clk.now)
 		s.Observer = func(q *Query) {
-			if q.RateLimited {
-				mu.Lock()
-				limited++
-				mu.Unlock()
+			if !q.RateLimited {
+				return
+			}
+			if q.Proto == "tcp" {
+				limitedTCP.Add(1)
+			} else {
+				limitedUDP.Add(1)
 			}
 		}
 	})
@@ -87,19 +95,31 @@ func TestServerRRL(t *testing.T) {
 			t.Fatalf("resposta inesperada %v", r)
 		}
 	}
-	// A rajada leva ~20 respostas completas; a reposição durante o laço acrescenta poucas.
-	if full < 20 || full > 30 || full+tc != 100 {
+	if full != 20 || tc != 80 {
 		t.Fatalf("completas %d, TC %d", full, tc)
 	}
-	mu.Lock()
-	if limited != tc {
-		t.Fatalf("observer marcou %d, TC %d", limited, tc)
+	if got := waitCount(&limitedUDP, int64(tc), 2*time.Second); got != int64(tc) {
+		t.Fatalf("observer marcou %d, TC %d", got, tc)
 	}
-	mu.Unlock()
 
 	// TCP do mesmo IP já sem fichas: sem resposta.
 	ct := &mdns.Client{Net: "tcp", Timeout: 500 * time.Millisecond}
 	if _, _, err := ct.ExchangeContext(context.Background(), query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), tcp); err == nil {
 		t.Fatal("TCP acima do limite devia ser descartado")
+	}
+	if got := waitCount(&limitedTCP, 1, 2*time.Second); got != 1 {
+		t.Fatalf("observer TCP marcou %d", got)
+	}
+}
+
+// waitCount espera, até o prazo, o contador chegar a want e devolve o último valor lido.
+func waitCount(n *atomic.Int64, want int64, timeout time.Duration) int64 {
+	deadline := time.Now().Add(timeout)
+	for {
+		got := n.Load()
+		if got >= want || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

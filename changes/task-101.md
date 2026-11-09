@@ -1,0 +1,1 @@
+- test(dns): `TestServerRRL` não trava mais: relógio parado no RRL (contagem exata 20/80), contadores atômicos e espera com prazo pelo Observer; antes um `t.Fatalf` com a trava presa travava o `Close` da limpeza até o timeout de 10 min (task 101).
