@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.3.5
+  version: 0.4.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -11,7 +11,9 @@ info:
     Tempos em RFC 3339 UTC com nanossegundos. Durações relativas em milissegundos (float) contadas a
     partir de `times.syn` (TCP) ou do primeiro datagrama (UDP), salvo quando indicado.
 
-    Compatibilidade (ADR 0001): `/api/v1` só recebe mudanças aditivas.
+    Compatibilidade (ADR 0001): `/api/v1` só recebe mudanças aditivas. 0.4.0 (ADR 0029, aditivo): instantes
+    de cada requisição e resposta (`request_started_at`, `request_ended_at`, `response_started_at`,
+    `response_ended_at`), `ip.packets`, `settle`/`min_conns` no `wait` e `wait_met` no probe.
 
     Erros (corpo `Error`): `400` quando um parâmetro de consulta **ou de caminho** foge do formato declarado
     (ex. `conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente); `404` quando o ID tem o
@@ -73,8 +75,25 @@ paths:
             estão fechadas, ou quando o prazo acaba. Só consultas DNS (ou nada) ainda não bastam: a espera
             continua até a primeira conexão chegar e fechar. No fim do prazo devolve o estado atual (200, com
             `all_closed` refletindo as conexões existentes) ou 404 se o probe ainda não tem nada. Sem `wait`,
-            responde na hora.
+            responde na hora. Com `min_conns` e `settle` (ADR 0029) o critério fica mais estrito; a resposta
+            traz `wait_met`.
           schema: { type: string, pattern: "^[0-9]+(ms|s)$", examples: ["10s"] }
+        - name: settle
+          in: query
+          description: |
+            Só com `wait` (sem ele: 400). Duração Go de `0s` a `10s` (padrão `0s`, igual ao comportamento sem o
+            parâmetro): além do critério do `wait`, nenhuma conexão do probe pode ter sido criada,
+            correlacionada ao probe ou fechada nos últimos `settle` (relógio do store, a partir do instante em
+            que ele registrou a mudança). Cobre a conexão que chega logo depois e a que ainda não foi
+            correlacionada (até 500 ms, RNF-04). Uso recomendado para o conjunto completo: `wait=30s&settle=1s`.
+            Acima de `10s` ou fora do formato: 400.
+          schema: { type: string, pattern: "^[0-9]+(ms|s)$", default: "0s", examples: ["1s", "1500ms"] }
+        - name: min_conns
+          in: query
+          description: |
+            Só com `wait` (sem ele: 400). O critério do `wait` exige ao menos esta quantidade de conexões no
+            probe (padrão 1, o comportamento sem o parâmetro).
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 1 }
       responses:
         "200":
           description: Probe completo.
@@ -445,6 +464,11 @@ components:
       properties:
         probe_id: { $ref: "#/components/schemas/ProbeID" }
         all_closed: { type: boolean, description: true quando todas as conexões do probe terminaram. }
+        wait_met:
+          type: boolean
+          description: |
+            Só nas respostas com `wait` (ADR 0029): `true` quando a resposta saiu porque o critério (`min_conns`
+            conexões, todas fechadas, `settle` de silêncio) foi atendido; `false` quando saiu pelo fim do prazo.
         connections: { type: array, items: { $ref: "#/components/schemas/Connection" } }
         dns: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } }
 
@@ -538,7 +562,10 @@ components:
 
     IPInfo:
       type: object
-      description: Spec 013 RF-04/RF-05 (SYN e primeiro segmento com dados; resumo do resto).
+      description: |
+        Spec 013 RF-04/RF-05. Os campos planos são o resumo da conexão: TTL, DF, IP ID, opções e flow label do
+        SYN; TOS/DSCP/ECN/traffic class do primeiro segmento com dados; padrão de IP ID e fragmentação de todos.
+        `packets` traz os dados de cada pacote do handshake e do primeiro com dados (0.4.0, ADR 0029).
       properties:
         ttl: { type: integer, description: TTL (IPv4) ou hop limit (IPv6) observado. }
         ttl_initial: { type: integer, enum: [32, 64, 128, 255] }
@@ -553,6 +580,32 @@ components:
         fragmented: { type: boolean }
         flow_label: { type: [integer, "null"] }
         traffic_class: { type: [integer, "null"] }
+        packets:
+          type: object
+          description: |
+            Cabeçalho IP de cada pacote do cliente (nulo se o pacote não existiu). `syn`: primeiro SYN
+            (retransmissão não substitui); `ack`: primeiro segmento com ACK e sem SYN depois do SYN-ACK, com ou sem
+            dados; `first_data`: primeiro segmento com dados (pode ser o próprio SYN, com TFO, ou o próprio
+            `ack`). Em UDP `syn` e `ack` são nulos e `first_data` é o primeiro datagrama. Os instantes estão em
+            `times.syn`, `times.established` e `times.first_data`. Ausente em registros anteriores ao 0.4.0.
+          properties:
+            syn: { $ref: "#/components/schemas/IPPacket" }
+            ack: { $ref: "#/components/schemas/IPPacket" }
+            first_data: { $ref: "#/components/schemas/IPPacket" }
+    IPPacket:
+      type: [object, "null"]
+      description: Cabeçalho IP de um pacote (ADR 0029).
+      properties:
+        ttl: { type: integer, description: TTL (IPv4) ou hop limit (IPv6). }
+        df: { type: [boolean, "null"], description: Bit DF (IPv4); nulo no IPv6. }
+        ip_id: { type: [integer, "null"], description: Identification (IPv4); nulo no IPv6. }
+        tos: { type: integer, description: Byte TOS (IPv4) ou traffic class (IPv6). }
+        dscp: { type: integer }
+        ecn: { type: string, enum: [not-ect, ect0, ect1, ce] }
+        flow_label: { type: [integer, "null"], description: Flow label (IPv6); nulo no IPv4. }
+        total_length: { type: integer, description: "Total Length (IPv4) ou 40 + Payload Length (IPv6)." }
+        options_hex: { $ref: "#/components/schemas/Hex", description: Opções IPv4 em hex; vazio sem opções e no IPv6. }
+        fragmented: { type: boolean, description: "IPv4: MF ou offset ≠ 0; IPv6: cabeçalho Fragment." }
 
     TCPOption:
       type: array
@@ -670,6 +723,11 @@ components:
         handshake_ms: { type: [number, "null"] }
         alerts:
           type: array
+          description: |
+            Alertas do handshake dos dois sentidos (spec 008 RF-04, ADR 0029): primeiro os registros `0x15` em
+            texto claro vistos nos bytes de cada sentido, com nível e descrição exatos, na ordem; depois o alerta
+            que o `crypto/tls` informar (cifrado, invisível nos bytes: `in` recebido, `out` enviado), só se não
+            houver um igual (mesma direção e descrição) vindo dos bytes.
           items:
             type: object
             properties:
@@ -766,6 +824,18 @@ components:
         response_sent_b64: { $ref: "#/components/schemas/Base64" }
         response_sent_truncated: { type: boolean, description: "Inline cortado em FS_EVENT_INLINE_MAX (ADR 0018)." }
         response_sent_size: { type: integer, description: Bytes enviados na resposta inteira (1xx incluídos). }
+        request_started_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "O web leu o primeiro byte da linha de requisição (em pipeline: a leitura que o trouxe). Relógio do web, instante da aplicação (em TLS/QUIC: decifrado, antes de cifrar); ausente antes do 0.4.0 (ADR 0029)."
+        request_ended_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "O web leu o último byte da requisição (fim do corpo/trailers, ou do cabeçalho sem corpo); nulo se não terminou."
+        response_started_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "O web escreveu o primeiro byte da resposta (1xx incluídos); nulo se nada foi enviado."
+        response_ended_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "O web escreveu o último byte da resposta; nulo se nada foi enviado."
 
     # ------------------------------------------------------------------ HTTP/2
     HPACKField:
@@ -806,6 +876,18 @@ components:
         ja4h: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
         status: { type: integer }
         controls: { $ref: "#/components/schemas/Controls" }
+        request_started_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "HEADERS do cliente lido; nulo no stream 1 de h2c por Upgrade (a requisição está em `http[]`). Relógio do web, instante da aplicação (em TLS/QUIC: decifrado, antes de cifrar); ausente antes do 0.4.0 (ADR 0029)."
+        request_ended_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "END_STREAM do cliente lido; nulo se não veio (ou no stream 1 de h2c por Upgrade)."
+        response_started_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "Primeiro HEADERS do servidor no stream escrito (1xx incluídos); nulo se nada foi enviado."
+        response_ended_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "END_STREAM ou RST_STREAM do servidor escrito; nulo se nada foi enviado."
     HTTP2Info:
       type: object
       description: Spec 010.
@@ -916,6 +998,18 @@ components:
         body_len: { type: integer, description: Bytes de DATA recebidos no stream. }
         status: { type: integer }
         controls: { $ref: "#/components/schemas/Controls" }
+        request_started_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "HEADERS do cliente lido no stream. Relógio do web, instante da aplicação (em TLS/QUIC: decifrado, antes de cifrar); ausente antes do 0.4.0 (ADR 0029)."
+        request_ended_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "FIN do stream do cliente lido; nulo se não veio."
+        response_started_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "Primeiro HEADERS do servidor escrito; nulo se nada foi enviado."
+        response_ended_at:
+          $ref: "#/components/schemas/NullableTimestamp"
+          description: "FIN ou reset do stream pelo servidor; nulo se nada foi enviado."
     QPACKField:
       type: object
       properties:

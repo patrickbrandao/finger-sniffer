@@ -5,6 +5,9 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+### Adicionado
+- Contratos 0.4.0 (ADR 0029, aditivos): instantes absolutos de cada requisição e resposta em `http[]`, `http2.streams[]` e `http3.requests[]`; `ip.packets {syn, ack, first_data}`; `settle`/`min_conns` no long-poll `wait` e `wait_met` no probe; specs: TFO concedido pelos listeners do web e do raw e alertas TLS lidos dos registros `0x15` (task 113).
+
 ### Alterado
 - Projeto independente de consumidores específicos (ADR 0028): specs, docs e AGENTS genéricos, matriz e2e só pelo caminho direto, receitas por proxy genérico (`PROXY:PORTA`), sem pendência externa; `X-xproxy-*` sai dos sinais de proxy padrão (task 112).
 

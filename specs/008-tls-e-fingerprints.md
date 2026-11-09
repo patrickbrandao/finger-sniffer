@@ -22,7 +22,11 @@ TLS (web e raw) e para o ClientHello dentro do QUIC Initial (spec 011). Técnica
   **JA4_r**, **JA4_o**, **JA4 stable** (sem extensões dependentes de estado, como no fingerproxy). Prefixo `t` para
   TCP, `q` para QUIC.
 - RF-04: resultado do handshake: versão, cifra, grupo e ALPN negociados, retomada, tempo de handshake (`handshake_ms`, milissegundos em float, como as demais durações do contrato),
-  alertas recebidos (nível e descrição).
+  alertas (nível e descrição) dos dois sentidos durante o handshake (ADR 0029): primeiro todo registro de alerta
+  (tipo `0x15`) em texto claro visto nos bytes de cada sentido, com nível e descrição exatos dos bytes, na ordem
+  (`in` do cliente, `out` do espelho); depois o alerta que o `crypto/tls` informar (`remote error` → `in`,
+  `local error` → `out`: alertas cifrados, que só ele vê), só se não houver um igual (mesma direção e
+  descrição) vindo dos bytes. O parser de registros é de `pkg/tlsparse`, usado pelo web e pelo raw.
 - RF-05: depois do handshake, o conteúdo segue para HTTP/1 ou h2 como se fosse em claro.
 - RF-06: o servidor TLS do espelho usa configuração fixa e documentada (versões 1.0–1.3 habilitadas para observar
   clientes antigos; lista de cifras do Go padrão + legadas), exposta em `/api/v1/health`.
@@ -38,6 +42,8 @@ Pertencem ao registro da conexão (store).
 - [ ] JA4 bate com os snapshots dos pcaps oficiais da FoxIO (portados do `ja4pcap` do fingerproxy).
 - [ ] JA3/JA4 de curl, Go, Chrome e Firefox batem com `tshark`/FoxIO `ja4` sobre o pcap da mesma conexão.
 - [ ] ClientHello partido em 2 registros e em 2 segmentos é reconhecido e marcado.
+- [ ] Cliente que aborta o handshake com alerta em texto claro (ex. `openssl s_client` sem CA confiável,
+      `unknown_ca` 48) aparece em `tls.alerts` com `dir: in`, `description: 48`, igual ao tshark.
 - [ ] Fuzz do parser sem pânico: 10 s por alvo no verify-full e 60 s antes de cada release (spec 017, ADR 0023).
 
 ## Fora de escopo
@@ -46,3 +52,4 @@ Pertencem ao registro da conexão (store).
 ## Decisões relacionadas
 - specs/decisions/0010-licenca-apache-e-ja4plus.md
 - specs/decisions/0009-stack-go-estatico.md
+- specs/decisions/0029-campos-da-auditoria-de-requisitos.md

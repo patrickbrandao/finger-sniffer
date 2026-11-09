@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.3.4
+  version: 0.4.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
@@ -24,7 +24,9 @@ info:
 
     Versão: acompanha a do openapi sempre que um payload referenciado de lá muda (0.3.2 trouxe
     `h3_control_stream_seen` no `HTTP3Info` de `fs.v1.web.http3.connection`; as duas voltam juntas em 0.3.3; 0.3.4 é documental nas duas: `ts` dos resumos de sessão aqui e
-    `LiveEvent.ts` lá, ADR 0025).
+    `LiveEvent.ts` lá, ADR 0025; 0.4.0, aditivo nas duas: `request_started_at`, `request_ended_at`,
+    `response_started_at` e `response_ended_at` nos payloads de `http1.request`, `http2.stream` e
+    `http3.request`, e a origem dos `alerts` do `tls.handshake` descrita, ADR 0029).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -289,6 +291,10 @@ components:
         handshake_ms: { type: [number, "null"] }
         alerts:
           type: array
+          description: |
+            Alertas do handshake dos dois sentidos (spec 008 RF-04, ADR 0029): primeiro os registros `0x15` em texto
+            claro vistos nos bytes, com nível e descrição exatos, na ordem; depois o alerta que o `crypto/tls`
+            informar (cifrado), só se não houver um igual (mesma direção e descrição) vindo dos bytes.
           items:
             type: object
             properties:
