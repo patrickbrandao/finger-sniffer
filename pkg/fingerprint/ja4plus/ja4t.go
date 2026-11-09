@@ -1,6 +1,6 @@
 // Package ja4plus implementa métodos da família JA4+ da FoxIO usados pelo finger-sniffer.
 //
-// Por enquanto só o JA4T (fingerprint TCP do cliente, a partir do SYN). O JA4H entra com o HTTP/1 e o h2.
+// JA4T (fingerprint TCP do cliente, a partir do SYN) e JA4H (fingerprint HTTP do cliente, HTTP/1.x e h2).
 //
 // Licença: os métodos JA4+ (JA4T, JA4H, JA4S, JA4X…) estão sob a FoxIO License 1.1, que restringe o uso
 // comercial; o texto está em LICENSE-FoxIO-1.1 neste diretório (ADR 0010). O resto do finger-sniffer é
