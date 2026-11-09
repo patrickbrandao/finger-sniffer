@@ -23,7 +23,27 @@ ClientHello de dentro.
   (`h3_listener_down`).
 - Por proxy HTTP não há h3: proxies não carregam QUIC.
 
-<!-- CURL_EXAMPLE -->
+Saída real (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use o do Homebrew):
+
+```console
+$ curl -si --http3-only https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/
+HTTP/3 200
+content-type: text/plain; charset=utf-8
+cache-control: no-store
+content-length: 81
+
+conn_id: 01M6ZM07Y12Q61G2GYYXJV6C49
+request: 0
+stream_id: 0
+probe_id: k3x9q2mz7a
+$ curl -sI https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/ | grep -i alt-svc
+alt-svc: h3=":443"; ma=60
+$ dig +short @vps602.tmsoft.com.br k3x9q2mz7a.dns-monitor.tmsoft.com.br TYPE65
+\# 41 0001000001000602683302683200040004ACE918550006001026003C 0D00000000F03C93FFFE268FD9
+```
+
+O registro HTTPS em hex é `priority 1`, alvo `.`, `alpn="h3,h2"`, `ipv4hint=172.233.24.85` e `ipv6hint`
+(o `dig` 9.10 não decodifica o tipo 65; versões novas mostram os campos).
 
 ## O que o registro traz
 
@@ -63,7 +83,56 @@ Cada `HTTP3Request` traz `stream_id`, `pseudo_order` (ordem dos pseudo-cabeçalh
 O servidor anuncia `QPACK_MAX_TABLE_CAPACITY = 0`, então clientes corretos não usam a tabela dinâmica; uma
 referência dinâmica aparece com `static: false` e sem valor resolvido.
 
-<!-- RECORD_EXAMPLE -->
+Trecho real do registro da conexão acima (listas encurtadas):
+
+```console
+$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2GYYXJV6C49 | jq '{proto, l4, close,
+    http3: (.http3 | {version, dcid_hex, token_len, initial_datagram_size, padded_to_1200, coalesced_packets,
+    client_hello_datagrams, initial_frames: .initial_frames[0:5], transport_params: .transport_params[0:3],
+    ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_settings, close,
+    request: (.requests[0] | {stream_id, pseudo_order, field: .fields[2], ja4h, status})})}'
+{
+  "proto": "quic/h3",
+  "l4": "udp",
+  "close": { "by": "client", "how": "quic_close", "idle_before_close_ms": null, "half_close": false },
+  "http3": {
+    "version": "00000001",
+    "dcid_hex": "c971f00d583474c033b5128bc61a219e086889eb",
+    "token_len": 0,
+    "initial_datagram_size": 1200,
+    "padded_to_1200": true,
+    "coalesced_packets": 1,
+    "client_hello_datagrams": 2,
+    "initial_frames": ["CRYPTO", "PING", "CRYPTO", "CRYPTO", "PADDING"],
+    "transport_params": [
+      [15, "initial_source_connection_id", "e0044b096db5565dcafc8091e9dec57717ebeec2"],
+      [5, "initial_max_stream_data_bidi_local", "80008000"],
+      [6, "initial_max_stream_data_bidi_remote", "80008000"]
+    ],
+    "ja4": "q13d0311h3_55b375c5d22e_df5ee7f3ca36",
+    "negotiated": { "alpn": "h3", "cipher": "TLS_AES_128_GCM_SHA256", "group": "X25519MLKEM768",
+                    "resumed": false, "version": "TLS 1.3" },
+    "h3_settings": [[6, 4611686018427388000], [1, 0], [7, 0]],
+    "close": { "by": "client", "error_code": 0, "how": "connection_close", "reason": "" },
+    "request": {
+      "stream_id": 0,
+      "pseudo_order": [":method", ":scheme", ":authority", ":path"],
+      "field": { "name": ":authority", "value": "k3x9q2mz7a.dns-monitor.tmsoft.com.br", "repr": "literal-name-ref",
+                 "static": true, "index": 0, "never_indexed": false, "huffman_name": null, "huffman_value": true },
+      "ja4h": "ge30nn020000_5594a17e7e7e_000000000000_000000000000",
+      "status": 200
+    }
+  }
+}
+```
+
+O ClientHello com ML-KEM (`X25519MLKEM768`) não coube num datagrama: `client_hello_datagrams: 2`. Os valores dos
+parâmetros de transporte vêm em hex como estão no fio (varint QUIC: `80008000` = 32768).
+
+**Atenção a inteiros grandes**: valores de SETTINGS e de parâmetros podem chegar a 2^62-1. Em JavaScript
+(`JSON.parse`) e no `jq`, números acima de 2^53 perdem precisão. No exemplo acima o curl mandou
+`SETTINGS_MAX_FIELD_SECTION_SIZE = 4611686018427387903`, e a API hoje devolve o valor arredondado
+(`4611686018427388000`); a correção está na fila (task 062).
 
 ## Fim da conexão
 
