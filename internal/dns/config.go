@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +43,9 @@ type Config struct {
 	RRLPerIP int
 	// ACMETTL é a validade de cada valor TXT do DNS-01.
 	ACMETTL time.Duration
+	// H3 diz se o web atende UDP 443 (FS_WEB_UDP_PORTS contém 443): o HTTPS RR anuncia alpn="h3,h2"; senão
+	// alpn="h2" (spec 007 RF-02, ADR 0019). Lido só na partida.
+	H3 bool
 }
 
 // LoadConfig lê a configuração das variáveis FS_* (modelo em .env.example).
@@ -64,10 +68,35 @@ func LoadConfig() (Config, error) {
 	if c.IPv6, err = parseIP("FS_LISTEN_IPV6", false); err != nil {
 		return c, err
 	}
+	if c.H3, err = webUDP443(); err != nil {
+		return c, err
+	}
 	if !c.IPv4.IsValid() && !c.IPv6.IsValid() {
 		return c, fmt.Errorf("dns: FS_LISTEN_IPV4 and FS_LISTEN_IPV6 are both empty")
 	}
 	return c, nil
+}
+
+// webUDP443 diz se FS_WEB_UDP_PORTS (env compartilhado com o web) contém a porta 443. Ausente vale o padrão do
+// web (443); presente e vazio quer dizer que o web não escuta UDP.
+func webUDP443() (bool, error) {
+	v, ok := os.LookupEnv("FS_WEB_UDP_PORTS")
+	if !ok {
+		return true, nil
+	}
+	found := false
+	for f := range strings.SplitSeq(v, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		n, err := strconv.Atoi(f)
+		if err != nil || n < 1 || n > 65535 {
+			return false, fmt.Errorf("dns: FS_WEB_UDP_PORTS invalid: %q", v)
+		}
+		found = found || n == 443
+	}
+	return found, nil
 }
 
 // parseIP lê um IP opcional da família pedida.
