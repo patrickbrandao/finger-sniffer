@@ -20,7 +20,7 @@ Git, fluxo de tarefas, Definition of Done e quando parar para perguntar.
 | tester | e2e, matriz da spec 017, golden pcaps, fuzzing longo, carga | `test/**`, `**/testdata/**`, `**/*_test.go` de qualquer pacote (somente testes) | .claude/agents/tester.md |
 | reviewer | revisa PRs contra spec, ADRs e DoD; não altera código | nada (só comenta) | .claude/agents/reviewer.md |
 | infra | systemd, NIC/sysctl, NATS, deploy, Makefile, verify, CI, lint | `deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE` | .claude/agents/infra.md |
-| docs | documentação derivada e site estático | `docs/**`, `htdocs/**` | .claude/agents/docs.md |
+| docs | documentação derivada e site estático | `docs/**`, `htdocs/**`, `README.md` | .claude/agents/docs.md |
 
 Regras de propriedade:
 - **specs/, specs/decisions/, openapi.yaml e asyncapi.yaml: só o architect altera.** Quem precisar de mudança abre

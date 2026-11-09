@@ -1,1 +1,0 @@
-- dns: o `alpn` do HTTPS RR segue `FS_WEB_UDP_PORTS` lido na partida: contém 443 → `h3,h2`, senão `h2`; ausente vale 443; `noh3` continua suprimindo o RR (task 056).

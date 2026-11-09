@@ -33,12 +33,14 @@ o Initial.
   parâmetros de transporte na ordem (GREASE incluído), coalescência e padding. O ClientHello remontado vai para
   `pkg/tlsparse` e `pkg/fingerprint` (JA3/JA4 com `q`). Versão desconhecida: registra só o cabeçalho
   (`client_hello` nulo) e o quic-go responde Version Negotiation.
-- Frames h3: o web lê os bytes do stream de controle do cliente (tipo, SETTINGS na ordem) e de cada stream de
+- Frames h3: o web lê os bytes do stream de controle do cliente (tipo, SETTINGS na ordem; `h3_control_stream_seen`
+  distingue "o cliente não abriu o stream de controle", comum no curl/nghttp3, de "SETTINGS vazio";
+  entra no contrato junto com o produtor, task 073) e de cada stream de
   requisição (HEADERS com a representação QPACK de cada linha, DATA contado em `body_len`), sem normalizar.
 - Eventos: `fs.v1.web.http3.connection` até 3 vezes (handshake terminado/falho, SETTINGS do cliente, fim com
   `close`); `fs.v1.web.http3.request` quando cada resposta termina. Tetos da ADR 0018 (`fields_truncated`,
   `values_truncated`, `initial_frames_truncated`).
-- Controles (RF-04): `status`, `size`, `delay_head`, `delay_body`, `h=` e `alt_svc` iguais aos do h2; os demais
+- Controles (RF-04): `status`, `size`, `delay_head`, `delay_body`, `h=`, `alt_svc` e `date` iguais aos do h2 (`Date` em toda resposta final, spec 005 RF-07a); os demais
   (`ver`, `frame`, `conn`, `ka`, `close`, `rst`, `idle`, `hsize`, `continue`, `upgrade`) não se aplicam e
   respondem 400 com explicação, registrado.
 
@@ -65,3 +67,4 @@ o Initial.
 - specs/decisions/0001-decisoes-iniciais.md
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0019-http3-eventos-e-fim-quic.md
+- specs/decisions/0021-date-nas-respostas.md

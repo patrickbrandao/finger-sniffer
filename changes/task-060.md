@@ -1,1 +1,0 @@
-- test(e2e): critério de saída da F4 (task 060): casos 12 (h3 de curl e quic-go conferido com tshark/ja4 sobre o pcap da API, controles, Alt-Svc, fim QUIC ≤ 3 s) e 13 (/ws e /stream com filtros, `stream.dropped`, 503 no 65º cliente, long-poll, `/metrics`), e a página do htdocs em Chrome e Firefox headless via CDP/BiDi: h3, feed < 1 s e nenhuma requisição a terceiros.

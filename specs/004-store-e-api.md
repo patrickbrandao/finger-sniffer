@@ -38,7 +38,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de 200 conexões simultâneas ou 50 novas/s, mantém o resumo, para de
   guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
-- RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim; evento ao vivo < 1 s.
+- RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95); evento ao vivo < 1 s
+  (p99), medidos como na ADR 0022. Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
+  150 req/s, p95 ~0,6 s e máximo ~1,1 s.
 
 ## Comportamento
 - Fim de conexão: FIN dos dois lados, RST, ou ociosidade > `idle` + 30 s sem pacotes.
@@ -184,3 +186,4 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - specs/decisions/0018-tamanho-dos-eventos.md
 - specs/decisions/0019-http3-eventos-e-fim-quic.md
 - specs/decisions/0020-tempo-real-sem-replay.md
+- specs/decisions/0022-prova-do-mvp-no-espelho.md

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.3.0
+  version: 0.3.1
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -127,6 +127,7 @@ paths:
               schema: { $ref: "#/components/schemas/Connection" }
               examples:
                 closed_http: { $ref: "./testdata/connection-example.json" }
+                quic_h3: { $ref: "./testdata/connection-quic-example.json" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/connections/{conn_id}/pcap:
