@@ -1,0 +1,66 @@
+# Release (task 070): na tag v*, refaz o pacote e confere que o build é reproduzível e bate com o
+# SHA256SUMS. Não publica release no GitHub nem muda configuração do repositório: só verifica.
+# Checklist: .github/release-checklist.md.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # o checkout pode trazer a tag como leve; buscar de novo garante a anotação
+      - name: Tag anotada
+        run: |
+          git fetch -f origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag || { echo "::error::$GITHUB_REF_NAME não é tag anotada"; exit 1; }
+          test "$(git describe --tags --exact-match)" = "$GITHUB_REF_NAME"
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Pacote de release
+        env:
+          # verify-full já rodou na main (ci.yml) e localmente (checklist); aqui só o pacote
+          FS_RELEASE_SKIP_CHECKS: "1"
+        run: make release VERSION="$GITHUB_REF_NAME"
+
+      - name: Rebuild confere com o SHA256SUMS do tar
+        run: |
+          name="finger-sniffer-$GITHUB_REF_NAME-linux-amd64"
+          mkdir -p tmp/x && tar -xzf "dist/$name.tar.gz" -C tmp/x
+          (cd "tmp/x/$name" && sha256sum -c SHA256SUMS)
+          VERSION="$GITHUB_REF_NAME" scripts/repro-check.sh "tmp/x/$name/SHA256SUMS"
+          for s in capture web raw dns store; do
+            got=$("tmp/x/$name/bin/finger-sniffer-$s" -version)
+            echo "$got"
+            case "$got" in "finger-sniffer-$s $GITHUB_REF_NAME ("*) ;; *) echo "::error::-version de $s: $got"; exit 1 ;; esac
+          done
+
+      # o architect cola as linhas bin/ do SHA256SUMS do `make release` local na mensagem da tag
+      - name: SHA256SUMS da anotação da tag
+        run: |
+          name="finger-sniffer-$GITHUB_REF_NAME-linux-amd64"
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | grep -E '^[0-9a-f]{64}  bin/finger-sniffer-' | LC_ALL=C sort >tmp/tag.sums || true
+          if [ ! -s tmp/tag.sums ]; then
+            echo "::warning::a anotação da tag não traz o SHA256SUMS dos binários; conferência entre máquinas pulada"
+            exit 0
+          fi
+          grep ' bin/' "tmp/x/$name/SHA256SUMS" | LC_ALL=C sort | diff -u tmp/tag.sums - || { echo "::error::SHA256SUMS da tag difere do rebuild"; exit 1; }
+          echo "SHA256SUMS da tag confere com o rebuild"
+
+      - name: Resumo
+        run: |
+          name="finger-sniffer-$GITHUB_REF_NAME-linux-amd64"
+          { echo "## $GITHUB_REF_NAME"; echo '```'; cat "dist/$name.tar.gz.sha256"; cat "dist/$name.SHA256SUMS"; echo '```'; } >>"$GITHUB_STEP_SUMMARY"

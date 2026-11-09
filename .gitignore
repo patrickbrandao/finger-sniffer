@@ -6,6 +6,8 @@
 # Artefatos de build
 /bin/
 /dist/
+# binários soltos na raiz (go build ./cmd/... sem -o; task 070)
+/finger-sniffer-*
 *.test
 *.out
 coverage.*
