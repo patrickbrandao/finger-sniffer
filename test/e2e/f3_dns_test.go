@@ -117,6 +117,8 @@ func TestCase10DNSDirect(t *testing.T) {
 	}
 
 	p := waitProbe(t, id, func(p *probeResp) bool { return len(p.DNS) >= len(cases) && len(p.conns(53)) >= 1 })
+	requireDNSFields(t, id, "10")
+	requireConnFields(t, p.conns(53), "10/conn")
 	ecsSeen, tcpSeen, mixedSeen := false, false, false
 	for _, q := range p.DNS {
 		if q.Resolver.IP != mac {
@@ -178,6 +180,7 @@ func TestCase10DNSPublicResolvers(t *testing.T) {
 					}
 					return seen["A"] && seen["AAAA"] && seen["HTTPS"]
 				})
+				requireDNSFields(t, id, "10")
 				for _, q := range p.DNS {
 					if q.Resolver.IP == mac || net.ParseIP(q.Resolver.IP) == nil {
 						t.Errorf("%s %s: resolvedor registrado %s (esta máquina é %s)", q.Qname, q.Qtype, q.Resolver.IP, mac)

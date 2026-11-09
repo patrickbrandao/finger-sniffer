@@ -396,6 +396,7 @@ func TestCase13LiveFilters(t *testing.T) {
 		}
 	}
 	t.Logf("/ws?probe=%s: %v", id, kinds)
+	requireEventFields(t, all)
 	checkPorts := func(name string, evs []liveEvent, port int) {
 		t.Helper()
 		seen := 0

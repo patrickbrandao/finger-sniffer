@@ -177,6 +177,14 @@ func checkTLSConn(t *testing.T, cl tlsClient, c record, keys []byte) {
 	if full := connRecord(t, c.ConnID); full.TLS == nil || full.TLS.ClientHelloB64 != tl.ClientHelloB64 || full.Proto != c.Proto {
 		t.Errorf("%s: /connections/{id} difere do registro do probe", c.ConnID)
 	}
+	keysF := []string{"7"}
+	switch {
+	case cl.h2 && h2Streams(c) > 0:
+		keysF = append(keysF, "7/h2")
+	case !cl.h2 && len(c.HTTP) > 0:
+		keysF = append(keysF, "7/h1")
+	}
+	requireConnFields(t, []record{c}, keysF...)
 	ref := analyzePcap(t, c.ConnID, 443, keys)
 	if len(ref.ClientHellos) != 1 {
 		t.Fatalf("%s: tshark achou %d ClientHellos no pcap da conexão", c.ConnID, len(ref.ClientHellos))

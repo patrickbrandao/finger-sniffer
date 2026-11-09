@@ -89,6 +89,7 @@ func TestCase8RawPorts(t *testing.T) {
 		out := rawStream(t, rc.ConnID, "out")
 		switch {
 		case r.Mode == "source":
+			requireConnFields(t, []record{rc}, "8", "8/banner")
 			if len(r.WritesOut) == 0 || !bytes.HasPrefix(out, []byte(banners[21])) || len(out) != len(banners[21])+1000 {
 				t.Errorf("%s source: out=%d bytes writes_out=%d", rc.ConnID, len(out), len(r.WritesOut))
 			}
@@ -97,6 +98,7 @@ func TestCase8RawPorts(t *testing.T) {
 				t.Errorf("%s echo: mode=%s in=%q out=%q", rc.ConnID, r.Mode, in, out)
 			}
 			checkHalfClose(t, rc)
+			requireConnFields(t, []record{rc}, "8", "8/half")
 		default:
 			if r.Mode != "banner" || ptr2(r.Banner) != banners[rc.Dst.Port] || string(in) != "PROBE "+id+"\r\n"+payload ||
 				string(out) != banners[rc.Dst.Port]+halfCloseMsg || len(r.ReadsIn) == 0 {
@@ -104,6 +106,7 @@ func TestCase8RawPorts(t *testing.T) {
 					in, out, len(r.ReadsIn))
 			}
 			checkHalfClose(t, rc)
+			requireConnFields(t, []record{rc}, "8", "8/banner", "8/half")
 		}
 	}
 }
@@ -184,6 +187,7 @@ func TestCase8RawTLS(t *testing.T) {
 		if rc.TLS.JA4 == "" || rc.TLS.ClientHelloB64 == "" {
 			t.Errorf("%s: TLS sem JA4/ClientHello", rc.ConnID)
 		}
+		requireConnFields(t, []record{rc}, "8/tls")
 		switch rc.Dst.Port {
 		case 993:
 			if rc.Raw.Mode != "banner" || ptr2(rc.Raw.Banner) != banners[993] {

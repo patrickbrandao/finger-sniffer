@@ -230,6 +230,7 @@ func TestCase12HTTP3(t *testing.T) {
 				t.Fatalf("%s não gravou o keylog", cl.name)
 			}
 			c := waitQUICClosed(t, id, closed)
+			requireConnFields(t, []record{c}, "12")
 			checkH3Conn(t, cl.name, c, analyzeQUIC(t, c.ConnID, keys))
 		})
 	}
