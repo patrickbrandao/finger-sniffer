@@ -3,6 +3,8 @@
 #   syn: no diretório com os pcaps de SYN; entrada JA4 e FP; saída ja4t.json e p0f.log.
 #   tls: no diretório com src/ (pcaps completos da FoxIO) e bin/ (ClientHellos crus); entrada JA4;
 #        saída em out/: pcaps reduzidos, ja4.golden.json e ja3.golden.json.
+#   quic: no diretório com src/ (pcaps completos com QUIC); entrada JA4; saída em out/: pcaps só com os
+#        Initials do cliente, ja4.golden.json e tshark.json (campos do QUIC e do ClientHello, tshark -T json).
 set -euo pipefail
 MODE="${1:-syn}"
 : "${JA4:?}"
@@ -33,6 +35,43 @@ if [ "$MODE" = syn ]; then
 		grep -E ' mod=(syn|syn[+]ack)[|]' one.log | sed "s|^|$f |" >> p0f.log || true
 	done
 	rm -f one.log
+	exit 0
+fi
+
+if [ "$MODE" = quic ]; then
+	mkdir -p out
+	# só os datagramas do cliente com um Initial (long header tipo 0) para a porta 443
+	for f in src/*; do
+		b=$(basename "$f")
+		n=$(tshark -r "$f" -Y 'quic.long.packet_type == 0 && udp.dstport == 443' 2>/dev/null | wc -l)
+		[ "$n" -gt 0 ] || continue
+		tshark -r "$f" -Y 'quic.long.packet_type == 0 && udp.dstport == 443' -w "out/${b%.*}.pcapng" 2>/dev/null
+	done
+	cd out
+	first=1
+	printf '{' > ja4.golden.json
+	for f in *.pcapng; do
+		sorted=$(ja4_json -r "$f")
+		orig=$(ja4_json -r -O "$f")
+		[ "$first" = 1 ] || printf ',' >> ja4.golden.json
+		first=0
+		printf '"%s":{"sorted":[%s],"original":[%s]}' "$f" "$sorted" "$orig" >> ja4.golden.json
+	done
+	printf '}\n' >> ja4.golden.json
+	first=1
+	printf '{' > tshark.json
+	for f in *.pcapng; do
+		out=$(tshark -r "$f" -T json -e frame.number -e udp.srcport -e udp.length -e quic.version -e quic.dcid \
+			-e quic.scid -e quic.token_length -e quic.length -e quic.packet_number -e quic.frame_type \
+			-e quic.crypto.offset -e quic.crypto.length -e tls.quic.parameter.type -e tls.quic.parameter.value \
+			-e tls.handshake.ja3_full -e tls.handshake.ja3 2>/dev/null)
+		[ "$first" = 1 ] || printf ',' >> tshark.json
+		first=0
+		printf '"%s":%s' "$f" "$out" >> tshark.json
+	done
+	printf '}\n' >> tshark.json
+	tshark -v | head -1 > VERSIONS.txt
+	"$JA4" --version >> VERSIONS.txt 2>/dev/null || true
 	exit 0
 fi
 

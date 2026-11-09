@@ -39,6 +39,7 @@ type Packet struct {
 
 //go:embed testdata/syn/*.pcap testdata/syn/*.pcapng testdata/ja4t.golden.json testdata/p0f.golden.log
 //go:embed testdata/tls/*.pcap testdata/tls/*.pcapng testdata/tls/*.json
+//go:embed testdata/quic/*.pcapng testdata/quic/*.json
 var files embed.FS
 
 // Files lista os pcaps de testdata/syn em ordem alfabética (caminhos dentro do embed).
@@ -71,32 +72,42 @@ type packetSource interface {
 
 // Read devolve os segmentos TCP de um pcap ou pcapng, na ordem do arquivo.
 func Read(path string) ([]Packet, error) {
-	f, err := files.Open(path)
+	src, closeFn, err := open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close() //nolint:errcheck // só leitura
+	defer closeFn()
+	return readAll(path, src)
+}
+
+// open abre um pcap ou pcapng embutido.
+func open(path string) (packetSource, func(), error) {
+	f, err := files.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	closeFn := func() { f.Close() } //nolint:errcheck,gosec // só leitura
 	// o formato vem do número mágico, não da extensão (alguns .pcap da FoxIO são pcapng)
 	br := bufio.NewReader(f)
 	magic, err := br.Peek(4)
 	if err != nil {
-		return nil, err
+		closeFn()
+		return nil, nil, err
 	}
-	var src packetSource
 	if string(magic) == "\x0a\x0d\x0d\x0a" {
 		r, err := pcapgo.NewNgReader(br, pcapgo.DefaultNgReaderOptions)
 		if err != nil {
-			return nil, err
+			closeFn()
+			return nil, nil, err
 		}
-		src = r
-	} else {
-		r, err := pcapgo.NewReader(br)
-		if err != nil {
-			return nil, err
-		}
-		src = r
+		return r, closeFn, nil
 	}
-	return readAll(path, src)
+	r, err := pcapgo.NewReader(br)
+	if err != nil {
+		closeFn()
+		return nil, nil, err
+	}
+	return r, closeFn, nil
 }
 
 func readAll(path string, src packetSource) ([]Packet, error) {
