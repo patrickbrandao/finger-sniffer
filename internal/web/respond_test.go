@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -29,17 +30,27 @@ func ctlHarness(t *testing.T) *harness {
 
 // head200 é o cabeçalho padrão de uma resposta controlada com size=n.
 func head200(n string, extra ...string) string {
-	return "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
+	return "HTTP/1.1 200 OK\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
 		strings.Join(extra, "") + "Content-Length: " + n + "\r\n\r\n"
 }
 
-// expect lê exatamente len(want) bytes e compara.
+// dateLine marca, no esperado, o Date automático (ADR 0021): IMF-fixdate tem sempre 29 bytes, então o
+// tamanho lido não muda; expect troca o Date real pela marca antes de comparar.
+const dateLine = "Date: Www, DD Mmm YYYY HH:MM:SS GMT\r\n"
+
+// dateRE casa um campo Date em IMF-fixdate UTC.
+var dateRE = regexp.MustCompile(`Date: (Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT\r\n`)
+
+// maskDate troca os Date em IMF-fixdate pela marca dateLine.
+func maskDate(b []byte) string { return dateRE.ReplaceAllString(string(b), dateLine) }
+
+// expect lê exatamente len(want) bytes e compara (com os Date mascarados por dateLine).
 func (cl *client) expect(want string) {
 	cl.t.Helper()
 	_ = cl.c.SetReadDeadline(time.Now().Add(5 * time.Second))
 	got := make([]byte, len(want))
 	n, err := io.ReadFull(cl.br, got)
-	if err != nil || string(got) != want {
+	if err != nil || maskDate(got) != want {
 		cl.t.Fatalf("got %q (%v)\nwant %q", got[:n], err, want)
 	}
 }
@@ -98,7 +109,7 @@ func TestControlStatus(t *testing.T) {
 	})
 	t.Run("no-content", func(t *testing.T) {
 		cl := ctlDo(t, h, "/r?status=204&size=10")
-		cl.expect("HTTP/1.1 204 No Content\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n\r\n")
+		cl.expect("HTTP/1.1 204 No Content\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n\r\n")
 		cl.expectOpen(100 * time.Millisecond)
 	})
 }
@@ -135,19 +146,19 @@ func TestControlFrame(t *testing.T) {
 	h := ctlHarness(t)
 	t.Run("chunked-trailers", func(t *testing.T) {
 		cl := ctlDo(t, h, "/r?size=10&frame=chunked&chunk=4&trailers=1")
-		cl.expect("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
+		cl.expect("HTTP/1.1 200 OK\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
 			"Trailer: X-Fs-Trailer\r\nTransfer-Encoding: chunked\r\n\r\n" +
 			"4\r\n0123\r\n4\r\n4567\r\n2\r\n89\r\n0\r\nX-Fs-Trailer: 1\r\n\r\n")
 		cl.expectOpen(100 * time.Millisecond)
 	})
 	t.Run("chunk-implies-chunked", func(t *testing.T) {
 		cl := ctlDo(t, h, "/r?size=3&chunk=2")
-		cl.expect("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
+		cl.expect("HTTP/1.1 200 OK\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
 			"Transfer-Encoding: chunked\r\n\r\n2\r\n01\r\n1\r\n2\r\n0\r\n\r\n")
 	})
 	t.Run("close", func(t *testing.T) {
 		cl := ctlDo(t, h, "/r?size=5&frame=close")
-		cl.expect("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n\r\n01234")
+		cl.expect("HTTP/1.1 200 OK\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n\r\n01234")
 		cl.expectEOF()
 	})
 	t.Run("cl", func(t *testing.T) {
@@ -203,7 +214,7 @@ func TestControlClose(t *testing.T) {
 	})
 	t.Run("mid-body-chunked", func(t *testing.T) {
 		cl := ctlDo(t, h, "/r?size=10&chunk=4&close=mid-body")
-		cl.expect("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
+		cl.expect("HTTP/1.1 200 OK\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
 			"Transfer-Encoding: chunked\r\n\r\n4\r\n01")
 		cl.expectEOF()
 	})
@@ -324,7 +335,7 @@ func TestControlFields(t *testing.T) {
 	h := ctlHarness(t)
 	cl := ctlDo(t, h, "/r?size=0&h=x-LOWER:a&h=X-Dup:1&h=X-Dup:2&h=X-Sp:%20%20two%20&h=Content-Length:0")
 	// Campos na ordem e na caixa exatas, depois dos padrões; Content-Length explícito não é repetido.
-	cl.expect("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
+	cl.expect("HTTP/1.1 200 OK\r\n" + dateLine + "Content-Type: application/octet-stream\r\nCache-Control: no-store\r\n" +
 		"x-LOWER: a\r\nX-Dup: 1\r\nX-Dup: 2\r\nX-Sp:   two \r\nContent-Length: 0\r\n\r\n")
 }
 
@@ -414,7 +425,7 @@ func TestControlInvalid(t *testing.T) {
 	cl := ctlDo(t, h, "/p/"+testProbe+"/r?status=abc&size=1&frame=gzip")
 	body := "invalid response controls:\nstatus=abc: must be a 3-digit code 100..999\n" +
 		"frame=gzip: must be one of cl, chunked, close\n"
-	cl.expect("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
+	cl.expect("HTTP/1.1 400 Bad Request\r\n" + dateLine + "Content-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
 		"Content-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n" + body)
 	p := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(cl.c), 1)[0]
 	ctl := p.Payload["controls"].(map[string]any)

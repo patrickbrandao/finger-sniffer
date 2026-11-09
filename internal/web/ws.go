@@ -395,6 +395,7 @@ func (st *h2Stream) websocket() {
 				out.Set(k, v)
 			}
 		}
+		h2PrepareHeader(out, http.StatusOK, false, st.h.c.srv.now())
 		st.status = http.StatusOK
 		st.w.WriteHeader(http.StatusOK)
 		if flusher != nil {

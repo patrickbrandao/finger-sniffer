@@ -129,7 +129,7 @@ func (s *h1Session) control(req *h1.Request, probeID, rawQuery string) response 
 	}
 	head.Fields = append(fields, ctl.Fields...)
 
-	r := response{head: head, body: body, delayHead: ctl.DelayHead, delayBody: ctl.DelayBody}
+	r := response{head: head, body: body, delayHead: ctl.DelayHead, delayBody: ctl.DelayBody, noDate: ctl.NoDate}
 	for _, st := range ctl.Interim {
 		r.interim = append(r.interim, h1.Interim{Status: st})
 	}
@@ -191,6 +191,8 @@ func (s *h1Session) write(r response) error {
 	if !s.sleep(r.delayHead) {
 		return errStopped
 	}
+	// Date com a hora em que o cabeçalho sai, depois de delay_head (ADR 0021).
+	r.head.Fields = withDate(r.head.Status, r.head.Fields, r.noDate, s.c.srv.now())
 	if err := s.w.WriteHead(r.head); err != nil {
 		return err
 	}

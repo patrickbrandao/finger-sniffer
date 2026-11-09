@@ -334,6 +334,8 @@ type response struct {
 	cut                  int
 	closeConn, rst       bool
 	abrupt               bool
+	// noDate omite o Date automático (date=0).
+	noDate bool
 }
 
 // textResponse monta uma resposta text/plain pequena.
