@@ -1,2 +1,0 @@
-- store: o limite de 200 simultâneas do modo degradado só vale quando o excesso dura mais de 200 ms no tempo de captura; a rajada de SYNs e FINs depois de uma pausa da rede não degrada mais (task 108).
-- store: `packet.stray` decidido na saída da tabela (UDP sem resposta, 30 s) sai no feed com `ts` = decisão do store (ADR 0025) (task 108).

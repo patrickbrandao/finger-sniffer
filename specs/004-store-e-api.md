@@ -45,8 +45,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     `degraded` se chegarem com o limite passado; `fs_store_connections_open` continua contando a tabela inteira;
   - novas/s = balde de `FS_MAX_NEW_CONNS_PER_S` fichas (capacidade de 1 s) recarregado pelo instante de captura;
     pacotes fora de ordem não recarregam; tentativa que vira avulso (SYN recusado ou sem resposta) devolve a ficha;
-  - a decisão pode tolerar a reordenação de uma rajada por até 100 ms (fechamentos do mesmo lote ou da janela
-    aplicados antes, ou excesso que precisa persistir) — task 108.
+  - o limite de simultâneas só degrada quando o excesso (vivas ≥ `FS_MAX_CONNS`) dura mais de 200 ms no tempo de
+    captura (ADR 0027): a rajada de SYNs à frente dos FINs depois de uma pausa da rede não degrada; o excesso
+    dentro da janela fica limitado pelo balde de novas/s; `FS_MAX_CONNS=0` degrada tudo, sem janela.
 - RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95, TCP e QUIC; no QUIC
   o fim é o `http3.connection` com `close`, ADR 0026); evento ao vivo < 1 s (p99), medidos como na
   ADR 0022 (`ts` do evento ao vivo pela ADR 0025). Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a

@@ -7,7 +7,7 @@ Detalhe das decisões em `specs/decisions/`.
 
 <!-- Release v0.1.0 (task 072): no PR de release, trocar a linha acima por "## [0.1.0] - AAAA-MM-DD" (data do
      merge) e abrir acima dela um "## [Não lançado]" vazio. Antes, juntar aqui os fragmentos que ainda estiverem
-     em changes/ (068 e 108, pelo menos) e apagá-los. -->
+     em changes/ (068, pelo menos) e apagá-los. -->
 
 ### Adicionado
 - Esqueleto: go.mod, 5 stubs de serviço com `-version`, Makefile (build estático, lint, tools), golangci-lint v2, lefthook, LICENSE Apache-2.0, NOTICE (task 001).
@@ -112,7 +112,6 @@ Detalhe das decisões em `specs/decisions/`.
 - Docs: `api.md` no contrato 0.3.3 com os erros 400/404/500 e `OPTIONS` 204; `probes.md` com SETTINGS h2 repetidos (GOAWAY, sem `streams[]`), Akamai do h2c Upgrade com `PS` vazio, close do WebSocket × `close.by` do TCP, `conn=close` × `close=after`, `ts_clock_group` por SO, UDP com `started`/`ended`, atraso de ~2 s do QUIC, `half_close.server_sent_after_client_fin` só com ACK e raw nos IPs públicos; `http3.md` com a ADR 0024; `metrics.md` com os contadores do capture desde a partida (`truncated`, `offload_suspect`, `filtered_userspace`) e `store_late_packets_total`; resolução de 086/087 no topo de `docs/dev/auditoria-f5.md` (task 091).
 - docs: API escuta só em 127.0.0.1 e FS_LISTEN_IPV4/IPV6 (api.md, README), motivos de degradação do health; `fs_store_record_ready_seconds{reason}` e `FS_TCP_CLOSE_GRACE` explicados com números da vps602 (metrics.md); fecho do QUIC em ~100 ms em http3.md e probes.md (task 102).
 - Contrato openapi 0.3.5 (documental): `LiveEvent.ts` do `packet.stray` decidido pelo fim do fluxo por ociosidade é o instante da decisão (ADR 0026); asyncapi segue em 0.3.4 (nenhum payload dele mudou) (task 072).
-
 ### Corrigido
 - Store: `close.idle_before_close_ms` mede do último dado antes do primeiro FIN/RST até ele, sem os registros curtos que quem fecha manda logo antes (close_notify, GOAWAY: até 128 B, até 1 RTT antes do FIN) e sem os dados depois do FIN; deixa de sair nulo em h2/TLS e no raw com meio-fechamento (task 075).
 - Infra: o passo e2e do `verify-full` passa `-timeout` ao `go test` (`FS_E2E_TIMEOUT`, padrão 45m); `FS_E2E_LONG=1` não morre mais nos 10 min padrão (task 076).
@@ -120,6 +119,8 @@ Detalhe das decisões em `specs/decisions/`.
 - Store: `?wait` de `/probes/{id}` só aceita `^[0-9]+(ms|s)$` (fora disso, `400`) e `/api/v1/ws` com pedido de upgrade inválido (sem Upgrade, versão ≠ 13, sem `Sec-WebSocket-Key`) responde `400` com corpo `Error` em vez de `426`/`text/plain` (task 092).
 - test(dns): `TestServerRRL` não trava mais: relógio parado no RRL (contagem exata 20/80), contadores atômicos e espera com prazo pelo Observer; antes um `t.Fatalf` com a trava presa travava o `Close` da limpeza até o timeout de 10 min (task 101).
 - infra: o banco-modelo do verify-quick (`scripts/testdb`) nasce com as pragmas de criação do store (`auto_vacuum=INCREMENTAL` antes das migrations), que entram no hash e refazem o modelo uma vez; o teste de vacuum do store volta a usar o modelo (task 107).
+- store: o limite de 200 simultâneas do modo degradado só vale quando o excesso dura mais de 200 ms no tempo de captura; a rajada de SYNs e FINs depois de uma pausa da rede não degrada mais (task 108).
+- store: `packet.stray` decidido na saída da tabela (UDP sem resposta, 30 s) sai no feed com `ts` = decisão do store (ADR 0025) (task 108).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
@@ -143,3 +144,4 @@ Detalhe das decisões em `specs/decisions/`.
 - Meta de registro do QUIC provisória em p95 ≤ 3 s depois do CONNECTION_CLOSE até a task 090; a carga reporta TCP e QUIC à parte (ADR 0024) (task 087).
 - Specs: ADR 0025, `LiveEvent.ts` = instante em que o espelho pôde emitir o fato (`connection.updated` pela entrada do evento de origem no `FS_EVENTS`, `connection.closed` por ociosidade/órfã pela decisão do store); envelope NATS e `raw.session` (`ts` = accept) sem mudança; RNF-02 medido igual (spec 000, 004, ADR 0022); contratos 0.3.4 documentais; implementação na task 106, que bloqueia a release (task 104).
 - Fechamento rápido do registro e ajustes da carga (ADR 0026, substitui a 0024): registro p95 ≤ 500 ms também no QUIC (sem a exceção de 3 s); TCP fecha no RST, no ACK final ou após `FS_TCP_CLOSE_GRACE` (100 ms, 0–500 ms) e o QUIC após a mesma folga depois do close do web; tardios até 2 s anexados ao registro; `fs_store_record_ready_seconds{reason=close|quic_close|idle}`; modo degradado conta TCP/QUIC vivas de qualquer cliente, sem UDP não-QUIC, novas/s por balde com devolução dos avulsos e tolerância de rajada ≤ 100 ms; janela de carga com tráfego alheio acima do perfil é repetida; `packet.stray` decidido por ociosidade com `ts` da decisão (task 072).
+- Modo degradado: o limite de 200 simultâneas só degrada com excesso por mais de 200 ms no tempo de captura (ADR 0027, altera o item 4 da 0026); spec 004 RF-11 e ADR 0025 (`ts` do `packet.stray` decidido por ociosidade) atualizadas (task 110).
