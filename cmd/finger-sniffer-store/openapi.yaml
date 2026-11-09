@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.4.0
+  version: 0.4.1
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -13,7 +13,11 @@ info:
 
     Compatibilidade (ADR 0001): `/api/v1` só recebe mudanças aditivas. 0.4.0 (ADR 0029, aditivo): instantes
     de cada requisição e resposta (`request_started_at`, `request_ended_at`, `response_started_at`,
-    `response_ended_at`), `ip.packets`, `settle`/`min_conns` no `wait` e `wait_met` no probe.
+    `response_ended_at`), `ip.packets`, `settle`/`min_conns` no `wait` e `wait_met` no probe. 0.4.1 (documental):
+    quando cada instante é nulo e `wait=0s` como `wait` válido.
+
+    Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
+    O fim da requisição pode existir sem o início da resposta e vice-versa.
 
     Erros (corpo `Error`): `400` quando um parâmetro de consulta **ou de caminho** foge do formato declarado
     (ex. `conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente); `404` quando o ID tem o
@@ -75,8 +79,9 @@ paths:
             estão fechadas, ou quando o prazo acaba. Só consultas DNS (ou nada) ainda não bastam: a espera
             continua até a primeira conexão chegar e fechar. No fim do prazo devolve o estado atual (200, com
             `all_closed` refletindo as conexões existentes) ou 404 se o probe ainda não tem nada. Sem `wait`,
-            responde na hora. Com `min_conns` e `settle` (ADR 0029) o critério fica mais estrito; a resposta
-            traz `wait_met`.
+            responde na hora. `wait=0s` é um `wait` válido: avalia o critério uma vez, responde na hora e traz
+            `wait_met`. Com `min_conns` e `settle` (ADR 0029) o critério fica mais estrito; a resposta traz
+            `wait_met`.
           schema: { type: string, pattern: "^[0-9]+(ms|s)$", examples: ["10s"] }
         - name: settle
           in: query
@@ -467,7 +472,7 @@ components:
         wait_met:
           type: boolean
           description: |
-            Só nas respostas com `wait` (ADR 0029): `true` quando a resposta saiu porque o critério (`min_conns`
+            Só nas respostas com o parâmetro `wait`, inclusive `wait=0s` (ADR 0029): `true` quando a resposta saiu porque o critério (`min_conns`
             conexões, todas fechadas, `settle` de silêncio) foi atendido; `false` quando saiu pelo fim do prazo.
         connections: { type: array, items: { $ref: "#/components/schemas/Connection" } }
         dns: { type: array, items: { $ref: "#/components/schemas/DNSQuery" } }
@@ -835,7 +840,7 @@ components:
           description: "O web escreveu o primeiro byte da resposta (1xx incluídos); nulo se nada foi enviado."
         response_ended_at:
           $ref: "#/components/schemas/NullableTimestamp"
-          description: "O web escreveu o último byte da resposta; nulo se nada foi enviado."
+          description: "O web escreveu o último byte da resposta; nulo se nada foi enviado ou se a resposta começou mas não terminou (conexão caiu no meio). Independente dos outros instantes."
 
     # ------------------------------------------------------------------ HTTP/2
     HPACKField:
@@ -884,10 +889,10 @@ components:
           description: "END_STREAM do cliente lido; nulo se não veio (ou no stream 1 de h2c por Upgrade)."
         response_started_at:
           $ref: "#/components/schemas/NullableTimestamp"
-          description: "Primeiro HEADERS do servidor no stream escrito (1xx incluídos); nulo se nada foi enviado."
+          description: "Primeiro HEADERS do servidor no stream escrito (1xx incluídos); nulo se nenhum HEADERS saiu (ex. RST_STREAM antes da resposta). Independente dos outros instantes."
         response_ended_at:
           $ref: "#/components/schemas/NullableTimestamp"
-          description: "END_STREAM ou RST_STREAM do servidor escrito; nulo se nada foi enviado."
+          description: "END_STREAM ou RST_STREAM do servidor escrito. Nulo quando o servidor não encerrou o stream: nada foi enviado, ou a resposta começou mas não terminou (o cliente cancelou com RST_STREAM — a espera termina ao ver esse RST_STREAM —, a conexão caiu, ou o fim não apareceu no fio em até 1 s depois do handler). Pode vir nulo com `response_started_at` preenchido."
     HTTP2Info:
       type: object
       description: Spec 010.
@@ -1006,10 +1011,10 @@ components:
           description: "FIN do stream do cliente lido; nulo se não veio."
         response_started_at:
           $ref: "#/components/schemas/NullableTimestamp"
-          description: "Primeiro HEADERS do servidor escrito; nulo se nada foi enviado."
+          description: "Primeiro HEADERS do servidor escrito; nulo se nenhum HEADERS saiu (ex. reset do stream por erro antes da resposta). Independente dos outros instantes."
         response_ended_at:
           $ref: "#/components/schemas/NullableTimestamp"
-          description: "FIN ou reset do stream pelo servidor; nulo se nada foi enviado."
+          description: "FIN ou RESET_STREAM do stream pelo servidor. Um reset por erro antes do início da resposta conta como fim: vem preenchido com `response_started_at` nulo. Nulo se o servidor não encerrou o stream (nada enviado, ou a resposta começou e a conexão caiu)."
     QPACKField:
       type: object
       properties:

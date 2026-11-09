@@ -17,7 +17,9 @@ o Initial.
 - RF-03: por requisição h3: pseudo-cabeçalhos e campos na ordem, QPACK (representação), SETTINGS do h3, e os
   instantes absolutos `request_started_at` (HEADERS lido), `request_ended_at` (FIN do stream do cliente),
   `response_started_at` (primeiro HEADERS escrito) e `response_ended_at` (FIN ou reset do stream pelo servidor),
-  com a semântica da spec 009 RF-06 (ADR 0029).
+  com a semântica da spec 009 RF-06 (ADR 0029). Cada instante é independente; nulo = não observado. Um reset do
+  stream por erro antes do início da resposta conta como fim: `response_ended_at` preenchido com
+  `response_started_at` nulo.
 - RF-04: controles de resposta compatíveis (status, size, delay_*, h=).
 - RF-05: anúncio: `Alt-Svc` nas respostas h1/h2 (spec 005) e HTTPS RR no DNS (spec 007).
 - RF-06: `MaxIdleTimeout` = `FS_IDLE_DEFAULT`; o servidor nunca encerra a conexão antes disso (spec 005 RF-08);

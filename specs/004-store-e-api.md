@@ -107,14 +107,17 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     conexões; `settle` (duração Go `0s`–`10s`, padrão `0s`) exige também que nenhuma conexão do probe tenha sido
     criada, correlacionada ao probe ou fechada nos últimos `settle` (relógio do store, do instante em que ele
     registrou a mudança). `settle`/`min_conns` sem `wait`, fora do formato ou da faixa → 400.
-  - Com `wait`, a resposta traz `wait_met`: `true` quando saiu pelo critério, `false` pelo fim do prazo. Para
+  - Com `wait`, a resposta traz `wait_met`: `true` quando saiu pelo critério, `false` pelo fim do prazo. Vale a
+    presença do parâmetro: `wait=0s` é um `wait` válido, avalia o critério uma vez, responde na hora e traz
+    `wait_met`. Para
     o conjunto completo de uma sondagem, o uso recomendado é `wait=30s&settle=1s` (acima dos 500 ms do RNF-04).
 - Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
   openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
   ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno. Toda rota do
   openapi declara os códigos que devolve (contrato 0.3.3; 0.3.4 descreve o `LiveEvent.ts`; 0.3.5, o `ts` do `packet.stray`, ADR 0026;
-  0.4.0, aditivo: instantes por requisição, `ip.packets`, `settle`/`min_conns`/`wait_met`, ADR 0029).
+  0.4.0, aditivo: instantes por requisição, `ip.packets`, `settle`/`min_conns`/`wait_met`, ADR 0029; 0.4.1,
+  documental: nulos dos instantes e `wait=0s`).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
