@@ -1,0 +1,1 @@
+- store: `GET /api/v1/probes/{id}?wait` só responde antes do prazo quando há ao menos uma conexão e nenhuma aberta; probe só com DNS continua esperando e, no fim do prazo, volta 200 com o estado atual ou 404 sem nada (task 052).

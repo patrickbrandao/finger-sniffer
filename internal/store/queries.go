@@ -353,8 +353,9 @@ type probeJSON struct {
 	DNS         []json.RawMessage `json:"dns"`
 }
 
-// Probe devolve as conexões e consultas DNS do probe. Com wait > 0, espera até todas as conexões fecharem ou o
-// prazo acabar (máx. 60 s).
+// Probe devolve as conexões e consultas DNS do probe. Com wait > 0, espera até haver ao menos uma conexão e
+// nenhuma aberta, ou até o prazo acabar (máx. 60 s); só consultas DNS (ou nada) não encerram a espera. No fim do
+// prazo devolve o estado atual, ou ErrNotFound se o probe não tem nada.
 func (q *Queries) Probe(ctx context.Context, id string, wait time.Duration) (probeJSON, error) {
 	if !probe.Valid(id) {
 		return probeJSON{}, bad("invalid probe id %q", id)
@@ -368,7 +369,7 @@ func (q *Queries) Probe(ctx context.Context, id string, wait time.Duration) (pro
 		if err != nil {
 			return p, err
 		}
-		if !open || !q.now().Before(deadline) {
+		if (len(p.Connections) > 0 && !open) || !q.now().Before(deadline) {
 			if len(p.Connections) == 0 && len(p.DNS) == 0 {
 				return p, ErrNotFound
 			}
