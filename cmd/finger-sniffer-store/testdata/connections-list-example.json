@@ -31,8 +31,8 @@
       "family": 4,
       "l4": "tcp",
       "probe_id": "t1a2b3c4",
-      "proto": "tcp",
-      "requests": 0,
+      "proto": "tls/http1.1",
+      "requests": 1,
       "src": {
         "ip": "192.0.2.10",
         "port": 41234

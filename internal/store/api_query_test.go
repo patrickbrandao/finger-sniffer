@@ -16,6 +16,8 @@ import (
 
 	"github.com/gopacket/gopacket/pcapgo"
 	"github.com/oklog/ulid/v2"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
 const probeID = "t1a2b3c4"
@@ -42,7 +44,11 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	in, db := newTestIngestor(t, nil)
 	in.flows.newID = fixedIDs()
 	other := netip.MustParseAddrPort("192.0.2.20:50000")
-	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP))
+	// Conexão encerrada: TLS + HTTP/1.1 com probe (eventos sintéticos no formato dos produtores).
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP),
+		appMsg(t, event.SubjectWebTLSClientHello, "tcp", client, mirror, 25, probeID, tlsHelloPayload(clientHelloRaw(95))),
+		appMsg(t, event.SubjectWebTLSHandshake, "tcp", client, mirror, 33, "", handshakePayload()),
+		appMsg(t, event.SubjectWebHTTP1Request, "tcp", client, mirror, 40, probeID, http1Payload(0, "HTTP/1.1")))
 	run(t, in, 5000, batch(other, mirror, protoTCP, fullTCP[:4]), batch(client, mirror, protoTCP, []pkt{{6000, true, tcpRST, 0}}))
 
 	var closed, opened string
@@ -278,7 +284,7 @@ func TestAPIExamples(t *testing.T) {
 	f := newAPIFixture(t)
 	examples := []struct{ file, path, summary string }{
 		{"connections-list-example.json", "/api/v1/connections", "Uma conexão aberta e uma encerrada"},
-		{"connection-example.json", "/api/v1/connections/" + f.closed, "Conexão HTTP encerrada pelo cliente"},
+		{"connection-example.json", "/api/v1/connections/" + f.closed, "Conexão tls/http1.1 encerrada pelo cliente"},
 		{"packets-example.json", "/api/v1/packets", "RST sem conexão"},
 		{"dns-list-example.json", "/api/v1/dns?probe=" + probeID, "Consulta A com ECS"},
 		{"probe-example.json", "/api/v1/probes/" + probeID, "Probe com uma conexão e uma consulta DNS"},

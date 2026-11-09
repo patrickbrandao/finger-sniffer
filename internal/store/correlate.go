@@ -55,16 +55,19 @@ func (t *flowTable) openFor(k flowKey, ts int64) (target, bool) {
 	return target{id: c.id, open: true, degraded: c.degraded}, true
 }
 
-// addApp aplica um evento ao estado em memória de uma conexão aberta; devolve se o probe foi definido agora e o
-// probe atual. ok=false se a conexão saiu da tabela.
-func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, ok bool) {
+// addApp aplica um evento ao estado em memória de uma conexão aberta; devolve se o probe foi definido agora, o
+// proto antes e depois do evento. ok=false se a conexão saiu da tabela.
+func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after string, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	c := t.byID[id]
 	if c == nil {
-		return false, false
+		return false, "", "", false
 	}
-	return c.app.add(ev), true
+	l4 := l4Name(c.l4)
+	before = c.app.proto(l4)
+	probeSet = c.app.add(ev)
+	return probeSet, before, c.app.proto(l4), true
 }
 
 // setApp troca o estado de aplicação de uma conexão aberta (reconstruído de app_events).
@@ -250,10 +253,11 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 		}
 	}
 	if tg.open {
-		probeSet, ok := in.flows.addApp(tg.id, ev)
+		probeSet, before, after, ok := in.flows.addApp(tg.id, ev)
 		if ok {
-			if probeSet {
-				_, err := tx.ExecContext(ctx, "UPDATE connections SET probe_id = ? WHERE conn_id = ? AND probe_id IS NULL", *ev.env.ProbeID, tg.id)
+			// As colunas usadas por /connections e /probes acompanham o estado em memória.
+			if probeSet || before != after {
+				_, err := tx.ExecContext(ctx, "UPDATE connections SET probe_id = coalesce(probe_id, ?), proto = ? WHERE conn_id = ?", ev.env.ProbeID, after, tg.id)
 				return err
 			}
 			return nil
@@ -315,8 +319,8 @@ func (in *Ingestor) rebuildStored(ctx context.Context, tx *sql.Tx, id string, en
 		}
 	}
 	rec, _ := json.Marshal(r)
-	_, err = tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
-		string(rec), r.ProbeID, nullIfZero(endNs), in.now().UnixNano(), id)
+	_, err = tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
+		string(rec), r.ProbeID, r.Proto, nullIfZero(endNs), in.now().UnixNano(), id)
 	return err
 }
 

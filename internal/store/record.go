@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -67,6 +68,14 @@ type connectionJSON struct {
 	Totals        totalsJSON        `json:"totals"`
 	IP            *ipJSON           `json:"ip,omitempty"`
 	TCP           *tcpJSON          `json:"tcp,omitempty"`
+	// Camadas de aplicação (spec 004, tabela de montagem); tls/http/http2/http3/raw seguem os esquemas do contrato
+	// como chegaram nos eventos.
+	TLS       json.RawMessage   `json:"tls,omitempty"`
+	HTTP      []json.RawMessage `json:"http,omitempty"`
+	HTTP2     json.RawMessage   `json:"http2,omitempty"`
+	HTTP3     json.RawMessage   `json:"http3,omitempty"`
+	WebSocket *wsJSON           `json:"websocket,omitempty"`
+	Raw       json.RawMessage   `json:"raw,omitempty"`
 }
 
 // rawTruncatedJSON marca os sentidos cujo fluxo passou de FS_RAW_STREAM_MAX_BYTES (ADR 0018).
