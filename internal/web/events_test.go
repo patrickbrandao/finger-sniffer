@@ -132,7 +132,10 @@ func keysOf(v any, set map[string]bool) {
 	case map[string]any:
 		for k, vv := range x {
 			set[k] = true
-			keysOf(vv, set)
+			// controls.params é um mapa livre (nomes dos parâmetros da query)
+			if k != "params" {
+				keysOf(vv, set)
+			}
 		}
 	case []any:
 		for _, vv := range x {
@@ -161,6 +164,8 @@ func contractBlocks(t *testing.T) map[string]string {
 		event.SubjectWebHTTP2Connection: join(openapi, "HTTP2Info", "H2Frame"),
 		event.SubjectWebHTTP2Stream:     join(openapi, "HTTP2Stream", "HPACKField", "Controls"),
 		event.SubjectWebWebSocketFrame:  join(async, "WebSocketFramePayload"),
+		event.SubjectWebHTTP3Connection: join(openapi, "HTTP3Info", "TLSInfo", "TLSExtension", "CodeName"),
+		event.SubjectWebHTTP3Request:    join(openapi, "HTTP3Request", "QPACKField", "Controls"),
 		"envelope":                      join(async, "Envelope", "Flow"),
 	}
 }

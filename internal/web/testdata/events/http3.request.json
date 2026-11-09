@@ -1,0 +1,100 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 51972,
+    "l4": "udp",
+    "quic_dcid_hex": "e8be4059c7787e59",
+    "src_ip": "127.0.0.1",
+    "src_port": 57845
+  },
+  "payload": {
+    "body_len": 0,
+    "controls": {
+      "params": {
+        "delay_head": "5",
+        "h": "X-A:b",
+        "size": "10",
+        "status": "201",
+        "trailers": "1"
+      }
+    },
+    "fields": [
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 0,
+        "name": ":authority",
+        "never_indexed": false,
+        "repr": "literal-name-ref",
+        "static": true,
+        "value": "127.0.0.1:51972"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": null,
+        "index": 17,
+        "name": ":method",
+        "never_indexed": null,
+        "repr": "indexed",
+        "static": true,
+        "value": "GET"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 1,
+        "name": ":path",
+        "never_indexed": false,
+        "repr": "literal-name-ref",
+        "static": true,
+        "value": "/p/abcdefgh/r?status=201\u0026size=10\u0026h=X-A:b\u0026trailers=1\u0026delay_head=5"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": null,
+        "index": 23,
+        "name": ":scheme",
+        "never_indexed": null,
+        "repr": "indexed",
+        "static": true,
+        "value": "https"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 31,
+        "name": "accept-encoding",
+        "never_indexed": false,
+        "repr": "literal-name-ref",
+        "static": true,
+        "value": "gzip"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 95,
+        "name": "user-agent",
+        "never_indexed": false,
+        "repr": "literal-name-ref",
+        "static": true,
+        "value": "quic-go HTTP/3"
+      }
+    ],
+    "fields_truncated": false,
+    "ja4h": "ge30nn020000_b89ce445e0b3_000000000000_000000000000",
+    "pseudo_order": [
+      ":authority",
+      ":method",
+      ":path",
+      ":scheme"
+    ],
+    "status": 201,
+    "stream_id": 4,
+    "values_truncated": false
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T07:17:40.872871000Z"
+}

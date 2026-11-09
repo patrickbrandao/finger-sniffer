@@ -143,6 +143,9 @@ func (s *h1Session) serveOne(idx int) bool {
 		return s.switchToH2(req, probeID, outOffset, up)
 	}
 	resp := s.route(req, probeID)
+	if _, rawQuery, ok := target(req.RequestLine); ok {
+		s.c.addAltSvc(resp.head, rawQuery)
+	}
 	if expect && cont == ContinueLate {
 		resp.interim = append([]h1.Interim{{Status: http.StatusContinue}}, resp.interim...)
 	}

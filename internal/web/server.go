@@ -60,6 +60,11 @@ type Server struct {
 	conns     map[net.Conn]struct{}
 	stopped   bool
 	wg        sync.WaitGroup
+
+	// h3 são os listeners UDP e as conexões QUIC (h3.go).
+	h3 h3State
+	// h3AnyPort faz qualquer porta UDP contar como "listener 443" para o Alt-Svc (testes com porta efêmera).
+	h3AnyPort bool
 }
 
 // NewServer cria o servidor.
@@ -98,6 +103,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.wg.Add(1)
 		go s.listenLoop(ctx, addr)
 	}
+	s.runH3(ctx)
 	<-ctx.Done()
 	s.Close()
 	return nil
@@ -228,6 +234,7 @@ func (s *Server) Close() {
 		_ = c.Close()
 	}
 	s.mu.Unlock()
+	s.closeQUIC()
 	s.wg.Wait()
 }
 
@@ -241,6 +248,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	s.mu.Unlock()
 	slices.Sort(reasons)
+	if s.h3Wanted() && !s.h3Active() {
+		reasons = append(reasons, ReasonH3Down)
+	}
 	if s.deps.CertReasons != nil {
 		reasons = append(reasons, s.deps.CertReasons(s.now())...)
 	}
@@ -288,7 +298,8 @@ func Run(svc *service.Service, cfg Config) error {
 		ACME:        acmeFunc,
 	})
 	svc.SetStatus(srv.Status)
-	svc.Log.Info("web config", "listen", cfg.listenAddrs(), "htdocs", cfg.Htdocs, "idle", cfg.IdleDefault.String())
+	svc.Log.Info("web config", "listen", cfg.listenAddrs(), "udp", cfg.udpAddrs(), "htdocs", cfg.Htdocs,
+		"idle", cfg.IdleDefault.String())
 	return svc.Run(func(ctx context.Context) error {
 		if acme != nil {
 			go acme.Run(ctx)
