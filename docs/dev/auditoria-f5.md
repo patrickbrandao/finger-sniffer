@@ -2,7 +2,37 @@
 
 > Data: 09/11/2026. Commit auditado: `origin/main` bfa81d7 (bfa81d70dcf1dd86c0c2fdbb20b7dc6251406eb2).
 > As divergências encontradas viraram as tarefas 077–088 (tabela "Tarefas criadas" abaixo); este relatório é o
-> retrato da auditoria e não é atualizado conforme elas são entregues.
+> retrato da auditoria e não é atualizado conforme elas são entregues. A exceção é a seção
+> [Resolução das tarefas 086 e 087](#resolução-das-tarefas-086-e-087), acrescentada depois (task 091), que diz
+> como o architect resolveu os itens de contrato e de spec.
+
+## Resolução das tarefas 086 e 087
+
+O architect resolveu os itens nos contratos **0.3.3** (task 086: openapi e asyncapi, PR #82) e nas ADRs
+[0023](../../specs/decisions/0023-ajustes-da-auditoria-f5.md) (ajustes agrupados) e
+[0024](../../specs/decisions/0024-registro-quic-meta-provisoria.md) (meta provisória do QUIC) com as specs
+ajustadas (task 087, PR #87). O que sobrou de código, teste e documentação foi para as tasks 089–091.
+
+| Item da auditoria | Resolução |
+| --- | --- |
+| 086 item 1: 400 fora do contrato | openapi 0.3.3: 400 e 500 declarados em toda rota de consulta; regra 400 (consulta ou caminho fora do formato) / 404 (desconhecido, expirado ou rota inexistente) / 500 e `OPTIONS` 204 na descrição e na spec 004 "Erros da API". Teste de contrato dos erros: task 089 |
+| 086 item 2: versão do asyncapi | asyncapi 0.3.1 → 0.3.3; passa a acompanhar o openapi sempre que um payload referenciado de lá muda |
+| 086 item 3: Akamai do h2c por `Upgrade` | spec 010 RF-03 e openapi: `PS` vazio é o esperado (o stream 1 é a requisição HTTP/1 do upgrade) |
+| 086 item 4: unidade do handshake | spec 008 RF-04: `handshake_ms`, milissegundos em float, como as demais durações |
+| 086 item 5: close do WebSocket de cada lado | spec 012 RF-06, openapi e asyncapi: `websocket.close` é o de quem iniciou; o close de resposta fica só em `frames[]` |
+| 087 item 1: relógio TSval entre IPs | ADR 0023 §1, spec 013 RF-10: grupos distintos para macOS (por conexão) e Linux (por par de IPs) são o esperado; CA refeito |
+| 087 item 2: QUIC × RNF-04 | ADR 0024 (provisória): QUIC p95 ≤ 3 s do `http3.connection` com `close` na `v0.1.0`, TCP segue em 500 ms, a carga mede os dois separados; a task 090 leva o QUIC ao fechamento rápido da 077 |
+| 087 item 3: fuzz de 60 s | ADR 0023 §9: 10 s por alvo no `verify-full` e 60 s por alvo antes de cada release (`FS_FUZZ_TIME=60s`) |
+| 087 item 4: WebSocket × spec 005 RF-08 | ADR 0023 §2: exceção explícita; o espelho fecha o TCP primeiro (RFC 6455 §7.1.1), `close.by` do TCP pode ser `server` com `websocket.close.by: client` |
+| 087 item 5: SETTINGS h2 repetidos | ADR 0023 §3, spec 010: registro com a ordem e as repetições, GOAWAY PROTOCOL_ERROR em `frames`, nenhum `streams[]`; sem troca de biblioteca |
+| `conn=close` × RFC 9112 §9.6 | ADR 0023 §4, spec 005 RF-07: só escreve o campo; para o servidor fechar, `close=after` |
+| Métricas do capture (079/087) | ADR 0023 §5, spec 003: valem `fs_capture_packets_in_total`/`_out_total` (heartbeat sem rótulos); a 079 publicou os contadores zerados desde a partida e acrescentou `fs_capture_truncated_total` |
+| 087 item 8: endereços (ADR 0001) | ADR 0023 §6: todo listener de fora em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`; a API também em `127.0.0.1`; raw resolvido na task 083, API na task 082 |
+| 087 item 9: dependências fora da ADR 0009 | ADR 0023 §7: `libdns` e `prometheus/client_model` contam como parte da dependência permitida que as expõe |
+| 087 item 10: processo e donos de pastas | ADR 0023 §8, spec 002: merge com CI verde no modo autônomo e revisão pela auditoria e pelo PR de release; delegação de contrato só com o bloco na tarefa; donos de `internal/version/`, `redocly.yaml`, `CLAUDE.md`, `.claude/agents/**` e `changes/` |
+| 087 item 11: verificação | ADR 0023 §9, spec 017 RF-04: `release-test` no quick quando `Makefile`/`scripts/release*` mudam; cobertura total sem `cmd/` |
+| 087 item 13: UDP sem `times`, DNS UDP sem probe | ADR 0023 §10, specs 004 e 013 RF-01: UDP usa `started`/`ended`, `times` só com QUIC (`tls_done`); fluxo UDP da 53 fica `udp` sem probe, consulta em `/api/v1/dns` |
+| Documentação | task 091: [api.md](../api.md) (0.3.3 e erros), [probes.md](../probes.md), [http3.md](../http3.md), [metrics.md](../metrics.md) |
 
 Papel: reviewer. Base: `origin/main` bfa81d7 (depois chegaram 486ba13/076, 5aaa1d3/074 e 98cb740/066, que
 fecham o `-timeout` do e2e, o `rtt_app_ms` e os casos 6 e 11). vps602 em 09/11/2026, ~09:30–10:00 UTC, com

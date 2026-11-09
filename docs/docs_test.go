@@ -203,3 +203,37 @@ func TestHTTP3Fields(t *testing.T) {
 		}
 	}
 }
+
+// TestAuditF5Docs: os guias refletem os contratos 0.3.3 e as decisões da auditoria F5 (ADRs 0023 e 0024): erros
+// da API, métricas do capture publicadas desde a partida e as diferenças esperadas que a auditoria explicou.
+func TestAuditF5Docs(t *testing.T) {
+	want := map[string][]string{
+		"api.md": {
+			"versão 0.3.3", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
+		},
+		"metrics.md": {
+			"`fs_capture_packets_in_total`", "`fs_capture_packets_out_total`", "`fs_capture_truncated_total`",
+			"`fs_capture_offload_suspect_total`", "`fs_capture_filtered_userspace_total`",
+			"`fs_dropped_events_total`", "`fs_store_late_packets_total`", "desde a partida",
+		},
+		"probes.md": {
+			"GOAWAY PROTOCOL_ERROR", "`streams[]`", "`Upgrade: h2c`", "`PS`", "`websocket.close.by: client`",
+			"`close.by: server`", "`conn=close`", "`close=after`", "`ts_clock_group`", "**por par",
+			"`times` vem `null`", "ADR 0024", "confirmou o recebimento", "IPs públicos",
+		},
+		"http3.md":            {"ADR", "0024-registro-quic-meta-provisoria.md", "p95 ≤ 3 s", "`wait`"},
+		"dev/auditoria-f5.md": {"## Resolução das tarefas 086 e 087", "ADR", "0.3.3", "task 089", "task 090"},
+	}
+	for file, items := range want {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range items {
+			if !strings.Contains(string(data), w) {
+				t.Errorf("%s sem %q", file, w)
+			}
+		}
+	}
+}
