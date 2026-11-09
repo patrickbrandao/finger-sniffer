@@ -153,6 +153,23 @@ func TestLayersTLSAndHTTP1(t *testing.T) {
 	}
 }
 
+// TestLayersTLSFailedHandshake: handshake sem negotiated (cliente mandou só o ClientHello e fechou com FIN) não
+// preenche times.tls_done (task 125).
+func TestLayersTLSFailedHandshake(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP),
+		appMsg(t, event.SubjectWebTLSClientHello, "tcp", client, mirror, 25, "", tlsHelloPayload(clientHelloRaw(95))),
+		appMsg(t, event.SubjectWebTLSHandshake, "tcp", client, mirror, 38, "", event.TLSHandshake{Alerts: []event.TLSAlert{}}))
+	_, r := onlyConn(t, db)
+	if r.Times == nil || r.Times.TLSDone != nil {
+		t.Fatalf("tls_done %v", r.Times)
+	}
+	var tls map[string]any
+	if json.Unmarshal(r.TLS, &tls) != nil || tls["negotiated"] != nil {
+		t.Fatalf("tls %s", r.TLS)
+	}
+}
+
 func tsAt(ms int) string { return *tsPtr(base + int64(ms)*1e6) }
 
 // TestLayersLiveRecord: as camadas aparecem no registro ao vivo e nas colunas antes do fim.

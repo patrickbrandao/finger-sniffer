@@ -64,7 +64,8 @@ type conn struct {
 	finAcked                                   [2]bool   // o outro lado já confirmou o FIN
 	lingerUntil                                int64     // depois de finalizada: até quando aceita pacotes tardios
 	serverSeen                                 bool
-	quicDCID                                   string // DCID do primeiro Initial QUIC do cliente (hex)
+	quicDCID                                   string   // DCID do primeiro Initial QUIC do cliente (hex)
+	quicSCIDs                                  []string // SCIDs do espelho nos cabeçalhos longos (hex), até maxQUICCIDs
 	ana                                        *analysis
 	app                                        *appState // eventos de aplicação associados (spec 004)
 }
@@ -178,6 +179,45 @@ func (c *conn) endTs() int64 {
 		return c.app.h3CloseTs
 	}
 	return c.lastSeen
+}
+
+// maxQUICCIDs limita os SCIDs do espelho guardados por conexão (Retry e Handshake costumam repetir o mesmo).
+const maxQUICCIDs = 4
+
+// knownQUICCID informa se o CID (hex) já pertence à conexão: o DCID original do cliente ou um SCID do espelho.
+func (c *conn) knownQUICCID(cid string) bool {
+	if cid == c.quicDCID {
+		return true
+	}
+	for _, s := range c.quicSCIDs {
+		if s == cid {
+			return true
+		}
+	}
+	return false
+}
+
+// newQUICInitial decide se um Initial do cliente (DCID dcid, capturado em ts) abre outra conexão na 5-tupla
+// (ADR 0019, task 125): só quando foi capturado depois do fim visto pelo web e o DCID não é nenhum CID da
+// conexão. O 2º Initial do cliente usa como DCID o SCID escolhido pelo espelho; se o evento de fim do web for
+// aplicado antes do lote de pacotes que o contém, ele não pode dividir a conexão.
+func (c *conn) newQUICInitial(dcid string, ts int64) bool {
+	if c.app != nil && c.app.h3Close != nil && ts <= c.app.h3CloseTs {
+		return false
+	}
+	return !c.knownQUICCID(dcid)
+}
+
+// noteQUICCIDs guarda o SCID dos cabeçalhos longos enviados pelo espelho.
+func (c *conn) noteQUICCIDs(fi frameInfo) {
+	if c.fromClient(fi) || len(c.quicSCIDs) >= maxQUICCIDs {
+		return
+	}
+	scid, ok := quicLongSCID(fi.l4)
+	if !ok || scid == "" || c.knownQUICCID(scid) {
+		return
+	}
+	c.quicSCIDs = append(c.quicSCIDs, scid)
 }
 
 // closing informa se a conexão já viu o fechamento (FIN dos dois lados ou RST).
@@ -300,7 +340,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	dcid, isInitial := "", false
 	if fi.proto == protoUDP {
 		dcid, isInitial = quicInitialDCID(fi.l4)
-		newQUIC = c != nil && isInitial && c.closing() && c.fromClient(fi) && dcid != c.quicDCID
+		newQUIC = c != nil && isInitial && c.closing() && c.fromClient(fi) && c.newQUICInitial(dcid, ts)
 	}
 	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
 		delete(t.conns, k)
@@ -311,9 +351,12 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	if c == nil {
 		if old := t.closed[k]; old != nil {
 			// SYN, ou Initial do cliente com DCID novo, é conexão nova; o resto é tardio da gravada
-			fresh := isSYN || (isInitial && old.fromClient(fi) && dcid != old.quicDCID)
+			fresh := isSYN || (isInitial && old.fromClient(fi) && old.newQUICInitial(dcid, ts))
 			if !fresh && ts <= old.lingerUntil {
 				old.observe(fi, ts, t.grace)
+				if fi.proto == protoUDP {
+					old.noteQUICCIDs(fi)
+				}
 				old.analyze(fi, ts, old.fromClient(fi), t)
 				return result{conn: old, late: true}
 			}
@@ -338,6 +381,9 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	}
 	if isInitial && c.quicDCID == "" && c.fromClient(fi) {
 		c.quicDCID = dcid
+	}
+	if fi.proto == protoUDP {
+		c.noteQUICCIDs(fi)
 	}
 	c.observe(fi, ts, t.grace)
 	c.analyze(fi, ts, c.fromClient(fi), t)
@@ -494,6 +540,28 @@ func quicInitialDCID(udp []byte) (string, bool) {
 		return "", false
 	}
 	return hex.EncodeToString(p[6 : 6+n]), true
+}
+
+// quicLongSCID devolve o SCID (hex) de um pacote QUIC de cabeçalho longo (Initial, 0-RTT, Handshake ou Retry,
+// qualquer versão exceto a negociação); udp é o cabeçalho UDP com os dados.
+func quicLongSCID(udp []byte) (string, bool) {
+	if len(udp) < 8+7 {
+		return "", false
+	}
+	p := udp[8:]
+	if p[0]&0x80 == 0 || binary.BigEndian.Uint32(p[1:5]) == 0 {
+		return "", false
+	}
+	n := int(p[5])
+	if n > 20 || len(p) < 6+n+1 {
+		return "", false
+	}
+	off := 6 + n
+	m := int(p[off])
+	if m > 20 || len(p) < off+1+m {
+		return "", false
+	}
+	return hex.EncodeToString(p[off+1 : off+1+m]), true
 }
 
 // open devolve quantas conexões estão abertas.

@@ -83,7 +83,10 @@ func (l *layers) addLayer(ev appEvent) {
 		var h event.TLSHandshake
 		if json.Unmarshal(ev.env.Payload, &h) == nil {
 			l.handshake = &h
-			l.tlsDone = ev.ts
+			// tls_done é o fim do handshake (como no QUIC): handshake falho (ClientHello e FIN, alerta) fica null
+			if h.Negotiated != nil {
+				l.tlsDone = ev.ts
+			}
 		}
 	case event.SubjectWebHTTP1Request:
 		var h struct {
