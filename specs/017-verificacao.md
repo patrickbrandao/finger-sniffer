@@ -25,8 +25,10 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 
 ### Nível completo (sob pedido, antes de PR e de release; CI sempre)
 - RF-08: `golangci-lint run ./...`, `gofumpt -l`, `go vet ./...`, validação dos contratos (`openapi.yaml` com
-  Redocly CLI e `asyncapi.yaml` com AsyncAPI CLI, via `npx`, versões fixadas; erros falham, avisos não — no quick,
-  só quando um dos dois mudou), `go test -race -cover ./...` (banco isolado:
+  Redocly CLI e `asyncapi.yaml` com AsyncAPI CLI, via `npx`, versões fixadas; erros falham, avisos não; os
+  `examples` de cada mensagem do asyncapi validados contra o payload por um script próprio (JSON Schema 2020-12),
+  porque o AsyncAPI CLI só confere exemplos de documentos 2.x — no quick, só quando um dos dois contratos ou um
+  exemplo referenciado mudou), `go test -race -cover ./...` (banco isolado:
   arquivo SQLite temporário novo migrado do zero), metas de cobertura (≥ 80% em `pkg/{detect,probe,tlsparse,h1,
   h2passive,quicparse,fingerprint}`, ≥ 60% total), fuzz curto (10 s por alvo), `govulncheck ./...`,
   build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados na vps602 por ssh.
@@ -37,7 +39,9 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 ### Níveis de teste
 - RF-12: unidade com golden files: pcaps da FoxIO (portados do `ja4pcap`) e capturas próprias de curl, Go, Chrome e
   Firefox em `pkg/**/testdata/`; integração com NATS embutido (nats-server como biblioteca só nos testes);
-  contrato: respostas da API validadas contra o openapi.yaml e eventos contra o asyncapi.yaml; e2e: matriz.
+  contrato: respostas da API validadas contra o openapi.yaml e eventos contra o asyncapi.yaml (cada produtor grava
+  exemplos golden dos seus eventos em `internal/<svc>/testdata/`, regravados com `-update`, e o asyncapi os
+  referencia em `examples`); e2e: matriz.
 
 ### Matriz e2e (a partir de uma máquina cliente e do xproxy03)
 Caminho {direto, squid 1080, go-xproxy 4128, go-xproxy HTTPS-proxy 4443} × sufixo {fixo, `-random`,
