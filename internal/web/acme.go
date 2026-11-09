@@ -70,8 +70,8 @@ type ACMEConfig struct {
 	// tenta abrir esse endereço; como o web já o ocupa, ele conclui que outro servidor responde o desafio.
 	HTTPListenHost string
 	HTTPPort       int
-	// DNSResolvers são os resolvedores usados pelo certmagic no DNS-01 (achar a zona e conferir a propagação);
-	// vazio = os do sistema e os autoritativos da zona.
+	// DNSResolvers são os resolvedores usados pelo certmagic no DNS-01 para achar a zona (SOA); vazio = os do
+	// sistema.
 	DNSResolvers []string
 	// DNSTimeout é a espera pela resposta do dns a cada set/clear.
 	DNSTimeout time.Duration
@@ -200,6 +200,10 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 	dnsTmpl.DNS01Solver = &certmagic.DNS01Solver{DNSManager: certmagic.DNSManager{
 		DNSProvider: &natsDNSProvider{nc: nc, timeout: cfg.DNSTimeout},
 		Resolvers:   cfg.DNSResolvers,
+		// Sem conferência de propagação: o nosso dns é o único autoritativo da zona e só responde ok ao set
+		// depois de o TXT estar no ar. A conferência do certmagic resolveria o NS pelo resolvedor do sistema
+		// (e pelo /etc/hosts), o que pode apontar para outro IP e só atrasaria a validação.
+		PropagationTimeout: -1,
 	}}
 	dnsIssuer := certmagic.NewACMEIssuer(cmCfg, dnsTmpl)
 
