@@ -236,7 +236,11 @@ func (z *Zone) records(q mdns.Question, name string, apex bool, info probe.HostI
 	}
 	if (all || q.Qtype == mdns.TypeHTTPS) && !info.Has(probe.ControlNoH3) && (v4 || v6) {
 		rr := &mdns.HTTPS{SVCB: mdns.SVCB{Hdr: hdr(mdns.TypeHTTPS), Priority: 1, Target: "."}}
-		rr.Value = append(rr.Value, &mdns.SVCBAlpn{Alpn: []string{"h3", "h2"}})
+		alpn := []string{"h2"}
+		if z.cfg.H3 {
+			alpn = []string{"h3", "h2"}
+		}
+		rr.Value = append(rr.Value, &mdns.SVCBAlpn{Alpn: alpn})
 		if v4 {
 			rr.Value = append(rr.Value, &mdns.SVCBIPv4Hint{Hint: []net.IP{z.cfg.IPv4.AsSlice()}})
 		}

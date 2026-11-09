@@ -2,6 +2,7 @@ package dns
 
 import (
 	"net/netip"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ func testConfig() Config {
 	return Config{
 		Zone: "dns-monitor.tmsoft.com.br.", NS: DefaultNS, TTL: 5 * time.Second,
 		IPv4: netip.MustParseAddr("127.0.0.1"), Port: 0, RRLPerIP: 20, ACMETTL: ACMEValueTTL,
+		H3: true,
 	}
 }
 
@@ -234,9 +236,17 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_DNS_RRL_PER_IP", "30")
 	t.Setenv("FS_LISTEN_IPV4", "192.0.2.1")
 	t.Setenv("FS_LISTEN_IPV6", "2001:db8::1")
+	// Ausente (não só vazio): t.Setenv registra a restauração e o Unsetenv tira a chave do ambiente.
+	t.Setenv("FS_WEB_UDP_PORTS", "")
+	if err := os.Unsetenv("FS_WEB_UDP_PORTS"); err != nil {
+		t.Fatal(err)
+	}
 	c, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !c.H3 {
+		t.Fatal("FS_WEB_UDP_PORTS ausente devia valer 443 (h3)")
 	}
 	if c.Zone != "dns-monitor.tmsoft.com.br." || c.TTL != 7*time.Second || c.RRLPerIP != 30 || c.Port != 53 ||
 		c.IPv4.String() != "192.0.2.1" || c.IPv6.String() != "2001:db8::1" || c.NS != DefaultNS || c.ACMETTL != 10*time.Minute {
@@ -249,6 +259,7 @@ func TestLoadConfig(t *testing.T) {
 		"FS_DNS_TTL":        "five",
 		"FS_DNS_RRL_PER_IP": "x",
 		"FS_DNS_ZONE":       "bad..zone",
+		"FS_WEB_UDP_PORTS":  "443,abc",
 	}
 	for k, v := range bad {
 		t.Run(k, func(t *testing.T) {
@@ -346,5 +357,36 @@ func TestZoneNoIPv6(t *testing.T) {
 	// v6 sem IPv6 configurado: nada de endereço, nem HTTPS.
 	if r := z.Answer(query("abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS)); len(r.Answer) != 0 {
 		t.Fatal(r)
+	}
+}
+
+// TestLoadConfigWebUDPPorts: o alpn do HTTPS RR segue FS_WEB_UDP_PORTS (spec 007 RF-02, ADR 0019).
+func TestLoadConfigWebUDPPorts(t *testing.T) {
+	t.Setenv("FS_LISTEN_IPV4", "192.0.2.1")
+	t.Setenv("FS_LISTEN_IPV6", "")
+	cases := map[string]bool{"443": true, "443,8443": true, " 8443 , 443 ": true, "": false, "8443": false, "4430": false}
+	for v, want := range cases {
+		t.Run("v="+v, func(t *testing.T) {
+			t.Setenv("FS_WEB_UDP_PORTS", v)
+			c, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.H3 != want {
+				t.Fatalf("H3=%v, want %v", c.H3, want)
+			}
+			wantRR := `HTTPS 1 . alpn="h2" ipv4hint="192.0.2.1"`
+			if want {
+				wantRR = `HTTPS 1 . alpn="h3,h2" ipv4hint="192.0.2.1"`
+			}
+			r := NewZone(c, nil).Answer(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS))
+			if got := rrTypes(r.Answer); !slices.Equal(got, []string{wantRR}) {
+				t.Fatal(got)
+			}
+			// noh3 continua suprimindo o HTTPS RR inteiro.
+			if r := NewZone(c, nil).Answer(query("abcdefgh.noh3.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS)); len(r.Answer) != 0 {
+				t.Fatal(r.Answer)
+			}
+		})
 	}
 }
