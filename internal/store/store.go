@@ -72,6 +72,10 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	rawMax, err := service.EnvInt(event.EnvRawStreamMaxBytes, event.DefaultRawStreamMaxBytes)
+	if err != nil {
+		return c, err
+	}
 	segs, err := service.EnvInt("FS_TCP_SEGMENTS_TRACKED", 32)
 	if err != nil {
 		return c, err
@@ -82,7 +86,7 @@ func LoadConfig() (Config, error) {
 	c.Ingest = IngestConfig{
 		PcapMax: int64(pcapMax), TCPIdle: idle + 30*time.Second, UDPIdle: 30 * time.Second,
 		CloseGrace: time.Second, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
-		SegmentsTracked: segs,
+		SegmentsTracked: segs, RawStreamMax: rawMax,
 	}
 	netstat := c.Host.ProcNetstat
 	c.Ingest.Syncookies = func() int64 { return readNetstat(netstat, "TcpExt", "SyncookiesSent") }

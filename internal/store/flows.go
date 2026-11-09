@@ -45,6 +45,7 @@ type conn struct {
 	closeAt                                    int64
 	serverSeen                                 bool
 	ana                                        *analysis
+	app                                        *appState // eventos de aplicação associados (spec 004)
 }
 
 // fromClient informa se o pacote foi enviado pelo cliente da conexão.
@@ -235,7 +236,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		c = &conn{
 			id: t.takeReserved(k, ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
-			ana: newAnalysis(),
+			ana: newAnalysis(), app: newAppState(),
 		}
 		c.degraded = t.overloaded(ts)
 		t.conns[k] = c

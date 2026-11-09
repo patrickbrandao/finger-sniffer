@@ -49,23 +49,30 @@ type totalsJSON struct {
 
 // connectionJSON é o registro gravado em connections.record_json.
 type connectionJSON struct {
-	ConnID        string       `json:"conn_id"`
-	ProbeID       *string      `json:"probe_id"`
-	Proto         string       `json:"proto"`
-	L4            string       `json:"l4"`
-	Family        int          `json:"family"`
-	Src           endpointJSON `json:"src"`
-	Dst           endpointJSON `json:"dst"`
-	Started       string       `json:"started"`
-	Ended         *string      `json:"ended"`
-	Requests      int          `json:"requests"`
-	Degraded      bool         `json:"degraded"`
-	PcapTruncated bool         `json:"pcap_truncated"`
-	Times         *timesJSON   `json:"times,omitempty"`
-	Close         closeJSON    `json:"close"`
-	Totals        totalsJSON   `json:"totals"`
-	IP            *ipJSON      `json:"ip,omitempty"`
-	TCP           *tcpJSON     `json:"tcp,omitempty"`
+	ConnID        string            `json:"conn_id"`
+	ProbeID       *string           `json:"probe_id"`
+	Proto         string            `json:"proto"`
+	L4            string            `json:"l4"`
+	Family        int               `json:"family"`
+	Src           endpointJSON      `json:"src"`
+	Dst           endpointJSON      `json:"dst"`
+	Started       string            `json:"started"`
+	Ended         *string           `json:"ended"`
+	Requests      int               `json:"requests"`
+	Degraded      bool              `json:"degraded"`
+	PcapTruncated bool              `json:"pcap_truncated"`
+	RawTruncated  *rawTruncatedJSON `json:"raw_truncated,omitempty"`
+	Times         *timesJSON        `json:"times,omitempty"`
+	Close         closeJSON         `json:"close"`
+	Totals        totalsJSON        `json:"totals"`
+	IP            *ipJSON           `json:"ip,omitempty"`
+	TCP           *tcpJSON          `json:"tcp,omitempty"`
+}
+
+// rawTruncatedJSON marca os sentidos cujo fluxo passou de FS_RAW_STREAM_MAX_BYTES (ADR 0018).
+type rawTruncatedJSON struct {
+	In  bool `json:"in"`
+	Out bool `json:"out"`
 }
 
 func tsPtr(ns int64) *string {
@@ -108,6 +115,7 @@ func (c *conn) record(ended int64, how string) connectionJSON {
 	if ended != 0 {
 		r.Close = c.closeInfo(how)
 	}
+	c.app.apply(&r)
 	return r
 }
 
