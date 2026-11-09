@@ -11,7 +11,9 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -20,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -163,6 +166,7 @@ type pebbleEnv struct {
 	webPort int
 	mgr     atomic.Pointer[ACMEManager]
 	cmd     *exec.Cmd
+	exited  chan struct{} // fechado quando o processo do Pebble termina (Wait concluído)
 	out     *syncBuffer
 }
 
@@ -214,7 +218,39 @@ func startPebbleEnv(t *testing.T, validity time.Duration) *pebbleEnv {
 	e.roots = pool
 	writeFile(t, dir, "cert.pem", string(certPEM))
 	writeFile(t, dir, "key.pem", string(keyPEM))
-	apiPort, mgmtPort, tlsPort := freePort(t), freePort(t), freePort(t)
+	// O Pebble não aceita um socket herdado: as portas são escolhidas antes e podem ser tomadas por outro
+	// processo entre o fechamento do freePortT e o bind do Pebble. Nesse caso o Pebble sai com "address already
+	// in use" e a partida é repetida com portas novas.
+	t.Cleanup(func() {
+		e.stopPebble()
+		if t.Failed() {
+			t.Logf("pebble output:\n%s", e.out.String())
+		}
+	})
+	const attempts = 5
+	for i := 1; ; i++ {
+		err := e.startPebble(bin, dir, validity)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, errPebblePortInUse) || i == attempts {
+			t.Fatalf("pebble not ready (attempt %d): %v\n%s", i, err, e.out.String())
+		}
+		t.Logf("pebble port conflict, retrying (attempt %d): %v", i, err)
+	}
+	return e
+}
+
+// errPebblePortInUse indica que o Pebble não conseguiu abrir uma das portas escolhidas.
+var errPebblePortInUse = errors.New("pebble: address already in use")
+
+// startPebble escolhe portas livres, escreve a configuração e sobe o Pebble até o diretório responder 200.
+// Se o processo sair antes disso por conflito de porta, devolve errPebblePortInUse.
+func (e *pebbleEnv) startPebble(bin, dir string, validity time.Duration) error {
+	apiPort, mgmtPort, tlsPort := freePortT(), freePortT(), freePortT()
+	if apiPort == 0 || mgmtPort == 0 || tlsPort == 0 {
+		return errors.New("no free port")
+	}
 	conf := map[string]any{"pebble": map[string]any{
 		"listenAddress":                  fmt.Sprintf("127.0.0.1:%d", apiPort),
 		"managementListenAddress":        fmt.Sprintf("127.0.0.1:%d", mgmtPort),
@@ -230,44 +266,58 @@ func startPebbleEnv(t *testing.T, validity time.Duration) *pebbleEnv {
 		}},
 	}}
 	data, _ := json.Marshal(conf)
-	writeFile(t, dir, "pebble.json", string(data))
-
-	e.cmd = exec.Command(bin, "-config", filepath.Join(dir, "pebble.json"), "-dnsserver", e.dnsAddr) //nolint:gosec // binário do teste (FS_TEST_PEBBLE)
-	e.cmd.Env = append(os.Environ(), "PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0", "PEBBLE_AUTHZREUSE=0")
-	e.cmd.Stdout, e.cmd.Stderr = e.out, e.out
-	if err := e.cmd.Start(); err != nil {
-		t.Fatal(err)
+	if err := os.WriteFile(filepath.Join(dir, "pebble.json"), data, 0o600); err != nil {
+		return err
 	}
-	t.Cleanup(func() {
-		e.stopPebble()
-		if t.Failed() {
-			t.Logf("pebble output:\n%s", e.out.String())
-		}
-	})
+
+	out := &syncBuffer{}
+	cmd := exec.Command(bin, "-config", filepath.Join(dir, "pebble.json"), "-dnsserver", e.dnsAddr) //nolint:gosec // binário do teste (FS_TEST_PEBBLE)
+	cmd.Env = append(os.Environ(), "PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0", "PEBBLE_AUTHZREUSE=0")
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(e.out, out), io.MultiWriter(e.out, out)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	e.cmd, e.exited = cmd, exited
+
 	e.ca = fmt.Sprintf("https://127.0.0.1:%d/dir", apiPort)
-	cl := &http.Client{Timeout: time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	cl := &http.Client{Timeout: time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: e.roots, MinVersion: tls.VersionTLS12}}}
+	defer cl.CloseIdleConnections()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
+		select {
+		case <-exited:
+			e.cmd, e.exited = nil, nil
+			if strings.Contains(out.String(), "address already in use") {
+				return fmt.Errorf("%w (api %d, mgmt %d)", errPebblePortInUse, apiPort, mgmtPort)
+			}
+			return errors.New("pebble exited before ready")
+		default:
+		}
 		resp, err := cl.Get(e.ca)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == 200 {
-				break
+				return nil
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("pebble not ready: %v\n%s", err, e.out.String())
+			e.stopPebble()
+			return fmt.Errorf("timeout: %v", err)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return e
 }
 
 func (e *pebbleEnv) stopPebble() {
 	if e.cmd != nil && e.cmd.Process != nil {
 		_ = e.cmd.Process.Kill()
-		_ = e.cmd.Wait()
-		e.cmd = nil
+		<-e.exited
+		e.cmd, e.exited = nil, nil
 	}
 }
 
@@ -298,10 +348,6 @@ func (e *pebbleEnv) manager(t *testing.T, cfg ACMEConfig, metrics *service.Metri
 // A 127.0.0.1 (nomes do HTTP-01) ou NODATA.
 func startTestDNS(t *testing.T, z *dns.Zone) string {
 	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
 	handler := mdns.HandlerFunc(func(w mdns.ResponseWriter, req *mdns.Msg) {
 		if len(req.Question) == 1 && z.InZone(req.Question[0].Name) {
 			_ = w.WriteMsg(z.Answer(req))
@@ -318,12 +364,8 @@ func startTestDNS(t *testing.T, z *dns.Zone) string {
 		}
 		_ = w.WriteMsg(r)
 	})
+	pc, tl := listenUDPAndTCP(t)
 	addr := pc.LocalAddr().String()
-	// TCP na mesma porta (o Pebble consulta por TCP).
-	tl, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, srv := range []*mdns.Server{{PacketConn: pc, Handler: handler}, {Listener: tl, Handler: handler}} {
 		go func() { _ = srv.ActivateAndServe() }()
 		t.Cleanup(func() { _ = srv.Shutdown() })
@@ -331,14 +373,37 @@ func startTestDNS(t *testing.T, z *dns.Zone) string {
 	return addr
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
+// freePortT devolve uma porta TCP livre agora (0 se não houver); quem a usa precisa tolerar conflito.
+func freePortT() int {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		return 0
 	}
 	defer func() { _ = ln.Close() }()
 	return ln.Addr().(*net.TCPAddr).Port
+}
+
+// listenUDPAndTCP abre UDP e TCP na mesma porta de 127.0.0.1 (o Pebble consulta o DNS por TCP). A porta UDP
+// vem do SO, mas o espaço de portas TCP é outro: a mesma porta pode estar ocupada em TCP (outro teste, outro
+// processo ou uma conexão de saída). Foi essa a causa do "bind: address already in use" no CI; tenta de novo
+// com outra porta.
+func listenUDPAndTCP(t *testing.T) (net.PacketConn, net.Listener) {
+	t.Helper()
+	var lastErr error
+	for range 20 {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tl, err := net.Listen("tcp", pc.LocalAddr().String())
+		if err == nil {
+			return pc, tl
+		}
+		_ = pc.Close()
+		lastErr = err
+	}
+	t.Fatalf("no port free in both UDP and TCP: %v", lastErr)
+	return nil, nil
 }
 
 // pebbleTLS gera o certificado do servidor HTTPS do Pebble (127.0.0.1/localhost) e o pool que confia nele.
@@ -526,5 +591,47 @@ func waitFor(t *testing.T, d time.Duration, cond func() bool, msg func() string)
 			t.Fatalf("timeout: %s", msg())
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestListenUDPAndTCP: o par de sockets do DNS de teste usa a mesma porta em UDP e TCP.
+func TestListenUDPAndTCP(t *testing.T) {
+	for range 50 {
+		pc, tl := listenUDPAndTCP(t)
+		u, tc := pc.LocalAddr().(*net.UDPAddr), tl.Addr().(*net.TCPAddr)
+		if u.Port != tc.Port || u.Port == 0 {
+			t.Fatalf("ports differ: udp %d tcp %d", u.Port, tc.Port)
+		}
+		_ = pc.Close()
+		_ = tl.Close()
+	}
+}
+
+// TestStartPebblePortInUse: um Pebble que sai com "address already in use" é reconhecido como conflito de
+// porta (a partida é repetida); outra saída antes de ficar pronto é erro comum.
+func TestStartPebblePortInUse(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		name, script string
+		inUse        bool
+	}{
+		{"in-use", "#!/bin/sh\necho 'listen tcp 127.0.0.1:1: bind: address already in use' >&2\nexit 1\n", true},
+		{"other", "#!/bin/sh\necho 'boom' >&2\nexit 1\n", false},
+	} {
+		bin := filepath.Join(dir, tc.name+".sh")
+		if err := os.WriteFile(bin, []byte(tc.script), 0o700); err != nil { //nolint:gosec // script de teste
+			t.Fatal(err)
+		}
+		e := &pebbleEnv{out: &syncBuffer{}, roots: x509.NewCertPool(), dnsAddr: "127.0.0.1:53"}
+		err := e.startPebble(bin, dir, time.Minute)
+		if err == nil {
+			t.Fatalf("%s: expected error", tc.name)
+		}
+		if got := errors.Is(err, errPebblePortInUse); got != tc.inUse {
+			t.Fatalf("%s: errPebblePortInUse=%v, want %v (%v)", tc.name, got, tc.inUse, err)
+		}
+		if e.cmd != nil {
+			t.Fatalf("%s: process still referenced", tc.name)
+		}
 	}
 }
