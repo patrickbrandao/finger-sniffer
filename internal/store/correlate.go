@@ -238,6 +238,7 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
 	in.eventOnly[k] = &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()}
+	in.liveConn(LiveConnOpened, summaryFrom(eventOnlyRecord(id, ev, ev.ts)), ev.ts)
 	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID.
 	in.flows.reserveFor(k, id, now)
 	in.metrics.Add("store_event_only_connections_total", 1)
@@ -277,6 +278,11 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 	}
 	if tg.open {
 		probeSet, before, after, ok := in.flows.addApp(tg.id, ev)
+		if ok && in.live != nil {
+			s, _ := in.flows.openSummary(tg.id)
+			in.liveApp(ev, tg.id, strOrEmpty(s.ProbeID))
+			in.liveConn(LiveConnUpdated, s, ev.ts)
+		}
 		if ok {
 			// As colunas usadas por /connections e /probes acompanham o estado em memória.
 			if probeSet || before != after {
@@ -287,6 +293,7 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 		}
 	}
 	// Conexão gravada: o registro é refeito uma vez no fim do lote (flushDirty), não a cada evento.
+	in.liveApp(ev, tg.id, "")
 	d := in.dirty[tg.id]
 	if tg.eventOnly {
 		if ev.ts > d.end {
@@ -336,6 +343,7 @@ func (in *Ingestor) flushDirty(ctx context.Context, tx *sql.Tx) error {
 // mensagens voltam por Nak): o registro sujo é descartado e o estado das conexões só de eventos é relido depois.
 func (in *Ingestor) discardBatchState() {
 	clear(in.dirty)
+	in.liveBatch = nil
 	for _, eo := range in.eventOnly {
 		eo.app = nil
 	}
@@ -382,9 +390,13 @@ func (in *Ingestor) writeStored(ctx context.Context, tx *sql.Tx, id string, a *a
 		}
 	}
 	rec, _ := json.Marshal(r)
-	_, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
-		string(rec), r.ProbeID, r.Proto, nullIfZero(endNs), in.now().UnixNano(), id)
-	return err
+	now := in.now().UnixNano()
+	if _, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
+		string(rec), r.ProbeID, r.Proto, nullIfZero(endNs), now, id); err != nil {
+		return err
+	}
+	in.liveConn(LiveConnUpdated, summaryFrom(r), now)
+	return nil
 }
 
 func nullIfZero(v int64) any {
