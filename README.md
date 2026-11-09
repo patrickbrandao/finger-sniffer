@@ -23,7 +23,7 @@ Instância pública: `vps602.tmsoft.com.br`, zona de sondagem `<id>.dns-monitor.
 | UDP 443 | QUIC / HTTP/3 |
 | TCP 7, 21, 22, 25, 110, 143, 587, 993 | portas cruas: eco, banner, sink, source; TLS na 993 |
 | UDP e TCP 53 | DNS autoritativo de `dns-monitor.tmsoft.com.br` |
-| TCP 9000 (HTTPS), 9001 (HTTP) | API, tempo real (SSE e WebSocket) e `/metrics` (só 9001); **não capturadas** |
+| TCP 9000 (HTTPS), 9001 (HTTP) | API, tempo real (SSE e WebSocket) e `/metrics` (só 9001); **não capturadas**; escutam só em `127.0.0.1` e nos IPs públicos (`FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`) |
 
 ## Sondar em 3 comandos
 

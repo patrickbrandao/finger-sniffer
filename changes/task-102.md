@@ -1,0 +1,1 @@
+- docs: API escuta só em 127.0.0.1 e FS_LISTEN_IPV4/IPV6 (api.md, README), motivos de degradação do health; `fs_store_record_ready_seconds{reason}` e `FS_TCP_CLOSE_GRACE` explicados com números da vps602 (metrics.md); fecho do QUIC em ~100 ms em http3.md e probes.md (task 102).

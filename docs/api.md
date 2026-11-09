@@ -15,6 +15,10 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 | 9001 | HTTP | a mesma API em claro e `/metrics` (Prometheus) |
 
 - As portas 9000 e 9001 **não são capturadas**: consultar a API não gera registros novos.
+- A API escuta **só** em `127.0.0.1` (diagnóstico local na própria VPS) e nos IPs públicos do espelho,
+  `FS_LISTEN_IPV4` e `FS_LISTEN_IPV6` (o que estiver preenchido), **nunca** em todos os endereços (`*`, ADR 0023).
+  Na vps602: `127.0.0.1`, `172.233.24.85` e `[2600:3c0d::f03c:93ff:fe26:8fd9]`, nas duas portas. Um IP inválido
+  numa dessas variáveis impede o store de subir.
 - Sem autenticação (ADR 0007), CORS `*`, JSON com nomes em inglês. Tempos em RFC 3339 UTC com nanossegundos;
   durações relativas em milissegundos (`float`), contadas a partir de `times.syn` (TCP) ou do primeiro datagrama
   (UDP).
@@ -73,6 +77,17 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
 - no fim do prazo: 200 com o estado atual (`all_closed` diz se ainda há conexão aberta) ou 404 se o probe não tem
   nada;
 - sem `wait`: responde na hora.
+
+O registro de uma conexão fica pronto pouco depois do fim dela, e é isso que o `wait` espera (números em
+[metrics.md](metrics.md#tempo-até-o-registro)):
+
+- TCP com FIN dos dois lados e o ACK final, ou com RST: na hora; sem o ACK final, depois da folga
+  `FS_TCP_CLOSE_GRACE` (100 ms);
+- QUIC: na mesma folga, contada do CONNECTION_CLOSE (ou do stateless reset) visto pelo web;
+- pacotes que chegam depois (o ACK final atrasado, um RST depois do FIN, o último datagrama QUIC) são anexados ao
+  registro já gravado e ao pcap por até 2 s, sem virar conexão nova.
+
+Na prática o `wait` de um probe TCP ou h3 volta umas poucas centenas de ms depois de o cliente terminar.
 
 Só DNS, sem conexão no prazo, e probe sem nada:
 
@@ -297,10 +312,13 @@ $ curl -s http://vps602.tmsoft.com.br:9001/api/v1/health | jq '{ok, version, ver
 ```
 
 `versions_match: false` aparece quando um serviço foi reimplantado sozinho (`make deploy SVC=…`) e os demais
-rodam outro commit.
+rodam outro commit; cada serviço com versão diferente da do store fica `degraded`, com o motivo em `reasons`
+(`version <commit> differs from store <commit>`).
 
 `ok` é `false` se algum serviço estiver `down` (sem heartbeat há 15 s). `host` traz kernel, offloads e sysctls
-efetivos, certificados (emissor e validade), NTP e o uso do banco (`db_bytes`, `retention`, `oldest`).
+efetivos, certificados (emissor e validade), NTP e o uso do banco (`db_bytes`, `retention`, `oldest`). O store
+fica `degraded` quando um sysctl efetivo difere do arquivo do projeto (`sysctl <chave> is <valor>, want <valor>`)
+ou quando o `nf_conntrack` foi carregado depois do boot (`conntrack loaded`).
 
 ## Erros
 

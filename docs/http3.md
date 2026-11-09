@@ -147,18 +147,20 @@ conexão encerrada pelo cliente aparece fechada em menos de 500 ms. O servidor n
 ociosidade antes de `FS_IDLE_DEFAULT` (120 s); navegadores costumam manter a conexão QUIC aberta por bastante tempo,
 então o `wait` do probe pode voltar no prazo com `all_closed: false`.
 
-Esse atraso de ~2 s é uma exceção **provisória** à meta de registro ≤ 500 ms, que vale para o TCP: na `v0.1.0`, a
-meta do QUIC é p95 ≤ 3 s contados do `http3.connection` com `close` (ADR
-[0024](../specs/decisions/0024-registro-quic-meta-provisoria.md)), e a carga mede as duas separadas. Na prática:
+Desde a task 090 o QUIC usa o mesmo fechamento rápido do TCP (task 077): o registro é gravado na folga de 100 ms
+e os datagramas que chegam até 2 s depois são anexados a ele e ao pcap, sem virar conexão nova (um Initial do
+cliente com DCID novo na mesma 5-tupla é conexão nova). Antes, o store esperava 2 s fixos. Na prática:
 
-- o long-poll `GET /api/v1/probes/{id}?wait=…` de um probe h3 responde ~2 s depois do fim da conexão (no TCP,
-  poucas centenas de ms); use `wait` de 10 s ou mais;
-- `connection.closed` no tempo real chega ~2 s depois do CONNECTION_CLOSE, mas cada requisição já sai antes como
+- o long-poll `GET /api/v1/probes/{id}?wait=…` de um probe h3 responde poucas centenas de ms depois do fim da
+  conexão, como no TCP;
+- `connection.closed` no tempo real chega logo depois do CONNECTION_CLOSE, e cada requisição já saiu antes como
   `http.request` (abaixo);
-- `fs_store_record_ready_seconds{reason="quic_close"}` em [metrics.md](metrics.md) mostra o atraso medido.
+- `fs_store_record_ready_seconds{reason="quic_close"}` em [metrics.md](metrics.md#tempo-até-o-registro) mostra o
+  atraso medido: na vps602, média de 134 ms, todos abaixo de 316 ms.
 
-A ADR prevê levar o QUIC ao mesmo fechamento rápido do TCP (pacotes tardios anexados ao registro já gravado) e à
-meta de 500 ms; quando isso acontecer, este trecho muda.
+A meta oficial do QUIC na `v0.1.0` ainda é a provisória de p95 ≤ 3 s da ADR
+[0024](../specs/decisions/0024-registro-quic-meta-provisoria.md), até o architect substituí-la pela de 500 ms do
+TCP; a carga mede as duas separadas.
 
 As requisições não esperam o fim da conexão: cada uma vira um evento `http.request` (e entra no registro) quando a
 resposta termina, como no h2.

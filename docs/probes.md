@@ -618,9 +618,10 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, close: .c
 O curl precisa ser compilado com HTTP/3 (ngtcp2 ou quiche; `curl --version` lista `HTTP3`). Detalhes do
 registro em [http3.md](http3.md).
 
-O registro QUIC fecha **cerca de 2 s depois** do CONNECTION_CLOSE (folga para os últimos datagramas do capture;
-meta provisória de 3 s na `v0.1.0`, ADR 0024), então o `?wait` de um probe h3 responde uns 2 s depois de o cliente
-terminar, contra poucas centenas de ms no TCP. Use `wait` de 10 s ou mais.
+O registro QUIC fecha na folga de `FS_TCP_CLOSE_GRACE` (100 ms) depois do CONNECTION_CLOSE, como o TCP (task 090;
+antes eram 2 s), então o `?wait` de um probe h3 responde poucas centenas de ms depois de o cliente terminar.
+Datagramas que chegam depois entram no mesmo registro. A meta oficial da `v0.1.0` para o QUIC segue a provisória
+de 3 s da ADR 0024 até ser substituída. Mantenha `wait` de 10 s: ele só limita a espera.
 
 - **Procurar**: `http3` (Initial, `transport_params` na ordem, `client_hello` com JA4 `q`, `h3_control_stream_seen` e `h3_settings`,
   `close`), `close.how: quic_close`, as requisições com `pseudo_order` e `controls` (os controles que não se
