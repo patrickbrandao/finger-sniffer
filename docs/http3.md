@@ -158,9 +158,11 @@ cliente com DCID novo na mesma 5-tupla é conexão nova). Antes, o store esperav
 - `fs_store_record_ready_seconds{reason="quic_close"}` em [metrics.md](metrics.md#tempo-até-o-registro) mostra o
   atraso medido: na vps602, média de 134 ms, todos abaixo de 316 ms.
 
-A meta oficial do QUIC na `v0.1.0` ainda é a provisória de p95 ≤ 3 s da ADR
-[0024](../specs/decisions/0024-registro-quic-meta-provisoria.md), até o architect substituí-la pela de 500 ms do
-TCP; a carga mede as duas separadas.
+A meta do QUIC é a mesma do TCP (spec 000 RNF-04, ADR
+[0026](../specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md)): registro em p95 ≤ 500 ms, contado do
+`http3.connection` com `close` (o CONNECTION_CLOSE visto pelo web). Na carga oficial da `v0.1.0` (task 068) o
+registro QUIC ficou em p95 252 ms (máx. 408 ms); a carga continua medindo TCP e QUIC em linhas separadas. Mantenha
+o `wait` do probe em 10 s: ele só limita a espera.
 
 As requisições não esperam o fim da conexão: cada uma vira um evento `http.request` (e entra no registro) quando a
 resposta termina, como no h2.

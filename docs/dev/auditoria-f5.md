@@ -13,6 +13,11 @@ O architect resolveu os itens nos contratos **0.3.3** (task 086: openapi e async
 [0024](../../specs/decisions/0024-registro-quic-meta-provisoria.md) (meta provisória do QUIC) com as specs
 ajustadas (task 087, PR #87). O que sobrou de código, teste e documentação foi para as tasks 089–091.
 
+> Depois da auditoria, a ADR 0024 foi **substituída** pela
+> [0026](../../specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md) (task 072, PR #107): com o QUIC
+> medido em p95 252 ms na carga oficial, TCP e QUIC têm a mesma meta de registro, p95 ≤ 500 ms. A linha "087 item 2"
+> abaixo é o retrato da época.
+
 | Item da auditoria | Resolução |
 | --- | --- |
 | 086 item 1: 400 fora do contrato | openapi 0.3.3: 400 e 500 declarados em toda rota de consulta; regra 400 (consulta ou caminho fora do formato) / 404 (desconhecido, expirado ou rota inexistente) / 500 e `OPTIONS` 204 na descrição e na spec 004 "Erros da API". Teste de contrato dos erros: task 089 |

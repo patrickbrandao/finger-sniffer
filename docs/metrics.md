@@ -85,7 +85,7 @@ fs_dropped_events_total{service="capture"} 0
 | `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção) ou `size` (teto do banco) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |
 | `fs_store_connections` | gauge | conexões guardadas no banco (abertas e fechadas, dentro da retenção) |
-| `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (TCP com FIN/RST, meta p95 ≤ 500 ms), `quic_close` (QUIC encerrado, visto pelo web) ou `idle` (fechada por ociosidade); ver [abaixo](#tempo-até-o-registro) |
+| `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (TCP com FIN/RST, meta p95 ≤ 500 ms), `quic_close` (QUIC encerrado, visto pelo web, mesma meta) ou `idle` (fechada por ociosidade, fora da meta); ver [abaixo](#tempo-até-o-registro) |
 | `fs_store_live_clients{transport}` | gauge | clientes de tempo real, `transport` = `sse` ou `ws` |
 | `fs_store_live_events_total{kind}` | contador | eventos ao vivo emitidos, por tipo |
 | `fs_store_live_dropped_total` | contador | eventos descartados para clientes lentos (ADR 0020) |
@@ -135,10 +135,10 @@ depois do FIN, último datagrama QUIC) não viram conexão nova: são anexados a
 contados em `fs_store_late_packets_total`. Antes da task 077 o TCP esperava 1 s fixo; antes da task 090 o QUIC
 esperava 2 s.
 
-A meta de registro ≤ 500 ms (spec 000 RNF-04) vale para `close`; para `quic_close`, a meta oficial da `v0.1.0`
-continua a provisória de p95 ≤ 3 s da ADR [0024](../specs/decisions/0024-registro-quic-meta-provisoria.md) até o
-architect substituí-la, embora o valor medido já fique abaixo de 500 ms. `idle` não tem meta: o atraso é o
-prazo de ociosidade, por definição.
+A meta de registro p95 ≤ 500 ms (spec 000 RNF-04, ADR
+[0026](../specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md)) é lida em `close` e `quic_close`, a mesma
+para TCP e QUIC; na carga oficial da `v0.1.0` o registro QUIC ficou em p95 252 ms. `idle` fica fora da meta: o
+atraso é o prazo de ociosidade (+ 30 s), por definição.
 
 Na vps602 (commit `6facb2c`, `FS_TCP_CLOSE_GRACE=100ms`), em 9/11/2026:
 

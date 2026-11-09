@@ -204,7 +204,7 @@ func TestHTTP3Fields(t *testing.T) {
 	}
 }
 
-// TestAuditF5Docs: os guias refletem os contratos 0.3.3 e as decisões da auditoria F5 (ADRs 0023 e 0024): erros
+// TestAuditF5Docs: os guias refletem os contratos 0.3.3 e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
 // da API, métricas do capture publicadas desde a partida e as diferenças esperadas que a auditoria explicou.
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
@@ -220,10 +220,13 @@ func TestAuditF5Docs(t *testing.T) {
 		"probes.md": {
 			"GOAWAY PROTOCOL_ERROR", "`streams[]`", "`Upgrade: h2c`", "`PS`", "`websocket.close.by: client`",
 			"`close.by: server`", "`conn=close`", "`close=after`", "`ts_clock_group`", "**por par",
-			"`times` vem `null`", "ADR 0024", "confirmou o recebimento", "IPs públicos",
+			"`times` vem `null`", "ADR 0026", "confirmou o recebimento", "IPs públicos",
 		},
-		"http3.md":            {"ADR", "0024-registro-quic-meta-provisoria.md", "p95 ≤ 3 s", "`wait`"},
-		"dev/auditoria-f5.md": {"## Resolução das tarefas 086 e 087", "ADR", "0.3.3", "task 089", "task 090"},
+		"http3.md": {"ADR", "0026-fechamento-rapido-e-ajustes-da-release.md", "p95 ≤ 500 ms", "p95 252 ms", "`wait`"},
+		"dev/auditoria-f5.md": {
+			"## Resolução das tarefas 086 e 087", "ADR", "0.3.3", "task 089", "task 090",
+			"**substituída** pela", "0026-fechamento-rapido-e-ajustes-da-release.md", "task 072",
+		},
 	}
 	for file, items := range want {
 		data, err := os.ReadFile(file)
@@ -239,7 +242,8 @@ func TestAuditF5Docs(t *testing.T) {
 }
 
 // TestListenAndRecordReadyDocs: os guias dizem onde a API escuta (task 082, ADR 0023) e explicam o tempo até o
-// registro com o rótulo reason e FS_TCP_CLOSE_GRACE (tasks 077 e 090), sem a folga antiga de 2 s do QUIC.
+// registro com o rótulo reason e FS_TCP_CLOSE_GRACE (tasks 077 e 090), sem a folga antiga de 2 s do QUIC nem a
+// meta provisória de 3 s da ADR 0024 (substituída pela 0026, task 109).
 func TestListenAndRecordReadyDocs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
@@ -250,14 +254,19 @@ func TestListenAndRecordReadyDocs(t *testing.T) {
 		"metrics.md": {
 			"## Tempo até o registro", "`fs_store_record_ready_seconds{reason}`", "`close`", "`quic_close`",
 			"`idle`", "`FS_TCP_CLOSE_GRACE`", "**100 ms**", "de 0 a 500 ms", "task 077", "task 090",
+			"lida em `close` e `quic_close`", "fora da meta",
 		},
-		"http3.md":  {"task 090", "100 ms", "#tempo-até-o-registro"},
-		"probes.md": {"`FS_TCP_CLOSE_GRACE` (100 ms)", "task 090"},
+		"http3.md": {"task 090", "100 ms", "#tempo-até-o-registro"},
+		"probes.md": {
+			"`FS_TCP_CLOSE_GRACE` (100 ms)", "task 090", "p95 ≤ 500 ms (ADR 0026)",
+			"`packet.stray` decidido por ociosidade", "instante em que o store decidiu", "ADR 0026 §5",
+		},
 	}
 	// frases da folga antiga do QUIC que não podem voltar
 	banned := map[string][]string{
-		"http3.md":  {"~2 s depois", "Esse atraso de ~2 s"},
-		"probes.md": {"cerca de 2 s depois", "uns 2 s depois"},
+		"http3.md":   {"~2 s depois", "Esse atraso de ~2 s", "ADR 0024", "0024-registro-quic", "p95 ≤ 3 s"},
+		"probes.md":  {"cerca de 2 s depois", "uns 2 s depois", "ADR 0024", "de 3 s"},
+		"metrics.md": {"ADR [0024]", "0024-registro-quic", "p95 ≤ 3 s"},
 	}
 	for file, items := range want {
 		data, err := os.ReadFile(file)

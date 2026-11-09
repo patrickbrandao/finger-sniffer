@@ -618,10 +618,11 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, close: .c
 O curl precisa ser compilado com HTTP/3 (ngtcp2 ou quiche; `curl --version` lista `HTTP3`). Detalhes do
 registro em [http3.md](http3.md).
 
-O registro QUIC fecha na folga de `FS_TCP_CLOSE_GRACE` (100 ms) depois do CONNECTION_CLOSE, como o TCP (task 090;
-antes eram 2 s), então o `?wait` de um probe h3 responde poucas centenas de ms depois de o cliente terminar.
-Datagramas que chegam depois entram no mesmo registro. A meta oficial da `v0.1.0` para o QUIC segue a provisória
-de 3 s da ADR 0024 até ser substituída. Mantenha `wait` de 10 s: ele só limita a espera.
+O registro QUIC fecha na folga de `FS_TCP_CLOSE_GRACE` (100 ms) depois do `http3.connection` com `close` (o
+CONNECTION_CLOSE visto pelo web), como o TCP (task 090), então o `?wait` de um probe h3 responde poucas centenas de
+ms depois de o cliente terminar. Datagramas que chegam depois entram no mesmo registro. A meta é a mesma do TCP,
+p95 ≤ 500 ms (ADR 0026); na carga oficial o QUIC ficou em p95 252 ms. Mantenha `wait` de 10 s: ele só limita a
+espera.
 
 - **Procurar**: `http3` (Initial, `transport_params` na ordem, `client_hello` com JA4 `q`, `h3_control_stream_seen` e `h3_settings`,
   `close`), `close.how: quic_close`, as requisições com `pseudo_order` e `controls` (os controles que não se
@@ -651,6 +652,10 @@ $ curl -s -o /dev/null -w '%{http_code}\n' 'https://vps602.tmsoft.com.br:9000/ap
   menos de 1 s, sem requisições a terceiros (só a origem da página e a 9000). Detalhes em
   [realtime.md](realtime.md).
 - **Estáveis**: os tipos de evento por sondagem (para o mesmo tipo de cliente): `connection.updated` e
-  `connection.closed` por conexão, um `http.request` por requisição, um `dns.query` por consulta.
+  `connection.closed` por conexão, um `http.request` por requisição, um `dns.query` por consulta. O `ts` de cada
+  evento é o instante do fato; o `packet.stray` decidido por ociosidade (fluxo UDP ou SYN sem resposta) leva `ts`
+  = instante em que o store decidiu, como o `connection.closed` por ociosidade, e não aparece ~30 s atrasado
+  em relação ao `ts`; os instantes dos pacotes ficam no `data` e em
+  `/api/v1/packets` (ADR 0026 §5, openapi 0.3.5).
 - **Diferenças esperadas**: a 9000 não é capturada; vista por um proxy, a conexão com a API é só mais um
   `CONNECT`. O feed mostra as conexões do proxy (outro `src_ip`), por isso filtre por `probe`, não por `src_ip`.
