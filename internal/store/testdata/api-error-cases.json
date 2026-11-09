@@ -1,0 +1,84 @@
+{
+  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (vps602). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
+  "cases": [
+    {"name": "connection id not ULID", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/bad", "want": 400},
+    {"name": "connection id lowercase", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01jc0000000000000000000000", "want": 400},
+    {"name": "connection id with U", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01JC000000000000000000000U", "want": 400},
+    {"name": "connection unknown", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000", "want": 404},
+    {"name": "connection db error", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000", "want": 500, "fault": "db_closed"},
+
+    {"name": "pcap id not ULID", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/bad/pcap", "want": 400},
+    {"name": "pcap unknown", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 404},
+    {"name": "pcap db error", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 500, "fault": "db_closed"},
+
+    {"name": "raw id not ULID", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/bad/raw?dir=in", "want": 400},
+    {"name": "raw without dir", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw", "want": 400},
+    {"name": "raw invalid dir", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=both", "want": 400},
+    {"name": "raw unknown in", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=in", "want": 404},
+    {"name": "raw unknown out", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=out", "want": 404},
+    {"name": "raw db error", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=in", "want": 500, "fault": "db_closed"},
+
+    {"name": "list limit 0", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?limit=0", "want": 400},
+    {"name": "list limit 1001", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?limit=1001", "want": 400},
+    {"name": "list since not RFC 3339", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?since=x", "want": 400},
+    {"name": "list until not RFC 3339", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?until=yesterday", "want": 400},
+    {"name": "list dst_port 70000", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?dst_port=70000", "want": 400},
+    {"name": "list dst_port negative", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?dst_port=-1", "want": 400},
+    {"name": "list probe invalid", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?probe=AB", "want": 400},
+    {"name": "list db error", "op": "listConnections", "method": "GET", "path": "/api/v1/connections", "want": 500, "fault": "db_closed"},
+
+    {"name": "dns limit 0", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns?limit=0", "want": 400},
+    {"name": "dns since invalid", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns?since=x", "want": 400},
+    {"name": "dns probe invalid", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns?probe=AB", "want": 400},
+    {"name": "dns db error", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns", "want": 500, "fault": "db_closed"},
+
+    {"name": "packets limit text", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets?limit=ten", "want": 400},
+    {"name": "packets until invalid", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets?until=x", "want": 400},
+    {"name": "packets db error", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets", "want": 500, "fault": "db_closed"},
+
+    {"name": "probe id too short and uppercase", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/AB", "want": 400},
+    {"name": "probe id 33 chars", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/abcdefghijklmnopqrstuvwxyz0123456", "want": 400},
+    {"name": "probe wait not a duration", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=x", "want": 400},
+    {"name": "probe wait without unit", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=10", "want": 400},
+    {"name": "probe wait with fraction", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1.5s", "want": 400, "issue": "task 092: wait fora de ^[0-9]+(ms|s)$ é aceito (só o sufixo é conferido)"},
+    {"name": "probe wait in microseconds", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1us", "want": 400, "issue": "task 092: wait fora de ^[0-9]+(ms|s)$ é aceito (só o sufixo é conferido)"},
+    {"name": "probe unknown", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 404},
+    {"name": "probe unknown after wait", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=200ms", "want": 404},
+    {"name": "probe db error", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
+
+    {"name": "delete probe id invalid", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/AB", "want": 400},
+    {"name": "delete probe unknown", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/zz089unknown0000", "want": 404},
+    {"name": "delete probe db error", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
+
+    {"name": "stream kind invalid", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?kind=nope", "want": 400},
+    {"name": "stream second kind invalid", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?kind=dns.query,nope", "want": 400},
+    {"name": "stream dst_port 70000", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?dst_port=70000", "want": 400},
+    {"name": "stream probe invalid", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?probe=AB", "want": 400},
+    {"name": "stream src_ip invalid", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?src_ip=999.1.1.1", "want": 400},
+    {"name": "stream too many clients", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream", "want": 503, "fault": "live_full"},
+
+    {"name": "ws kind invalid", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws?kind=nope", "want": 400},
+    {"name": "ws dst_port invalid", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws?dst_port=x", "want": 400},
+    {"name": "ws without upgrade", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "want": 400, "issue": "task 092: GET /ws sem Upgrade responde 426 text/plain (coder/websocket), código e corpo fora do contrato"},
+    {"name": "ws upgrade without key", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "headers": {"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13"}, "want": 400, "issue": "task 092: handshake WS inválido responde 400 text/plain, corpo fora de Error"},
+    {"name": "ws too many clients", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "want": 503, "fault": "live_full"},
+
+    {"name": "unknown route", "op": "", "method": "GET", "path": "/api/v1/nope", "want": 404},
+    {"name": "unknown version", "op": "", "method": "GET", "path": "/api/v2/health", "want": 404},
+    {"name": "root", "op": "", "method": "GET", "path": "/", "want": 404},
+    {"name": "connections with trailing slash", "op": "", "method": "GET", "path": "/api/v1/connections/", "want": 404},
+    {"name": "below health", "op": "", "method": "GET", "path": "/api/v1/health/x", "want": 404},
+    {"name": "below openapi", "op": "", "method": "GET", "path": "/api/v1/openapi.yaml/x", "want": 404},
+    {"name": "below raw", "op": "", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw/x", "want": 404},
+    {"name": "method not declared on health", "op": "", "method": "POST", "path": "/api/v1/health", "want": 404},
+    {"name": "method not declared on connections", "op": "", "method": "PUT", "path": "/api/v1/connections", "want": 404},
+    {"name": "delete connection not declared", "op": "", "method": "DELETE", "path": "/api/v1/connections/01JC0000000000000000000000", "want": 404},
+    {"name": "options preflight connections", "op": "", "method": "OPTIONS", "path": "/api/v1/connections", "want": 204},
+    {"name": "options preflight probe", "op": "", "method": "OPTIONS", "path": "/api/v1/probes/zz089unknown0000", "headers": {"Origin": "https://example.com", "Access-Control-Request-Method": "DELETE"}, "want": 204},
+    {"name": "options unknown path", "op": "", "method": "OPTIONS", "path": "/api/v1/nope", "want": 204}
+  ],
+  "untestable": {
+    "getHealth 500": "o handler não tem caminho de erro (monta e serializa o Health em memória); 500 só viria de pânico, que o net/http transforma em conexão derrubada",
+    "getOpenAPI 500": "o contrato é embutido no binário e escrito direto; não há erro a provocar"
+  }
+}
