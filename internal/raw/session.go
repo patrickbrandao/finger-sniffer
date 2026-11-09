@@ -278,7 +278,7 @@ func (s *session) write(b []byte) error {
 	n, err := s.conn.Write(b)
 	if n > 0 {
 		now := time.Now()
-		s.info.WritesOut = appendTimed(s.info.WritesOut, s.elapsedMS(now), n)
+		s.info.WritesOut = appendTimed(s.info.WritesOut, &s.info.WritesOutTruncated, s.elapsedMS(now), n)
 		s.out.write(s.em, now, s.probeID, b[:n])
 	}
 	return err
@@ -286,7 +286,7 @@ func (s *session) write(b []byte) error {
 
 func (s *session) recordRead(b []byte) {
 	now := time.Now()
-	s.info.ReadsIn = appendTimed(s.info.ReadsIn, s.elapsedMS(now), len(b))
+	s.info.ReadsIn = appendTimed(s.info.ReadsIn, &s.info.ReadsInTruncated, s.elapsedMS(now), len(b))
 	s.in.write(s.em, now, s.probeID, b)
 }
 
@@ -295,8 +295,10 @@ func (s *session) elapsedMS(t time.Time) float64 {
 	return float64(t.Sub(s.start).Nanoseconds()) / 1e6
 }
 
-func appendTimed(list []TimedLength, ms float64, n int) []TimedLength {
+// appendTimed acrescenta [ms, n] até maxTimed itens; dali em diante descarta e liga *cut.
+func appendTimed(list []TimedLength, cut *bool, ms float64, n int) []TimedLength {
 	if len(list) >= maxTimed {
+		*cut = true
 		return list
 	}
 	return append(list, TimedLength{ms, float64(n)})

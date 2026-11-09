@@ -34,7 +34,11 @@ type Info struct {
 	ProbeLine *string       `json:"probe_line"`
 	ReadsIn   []TimedLength `json:"reads_in"`
 	WritesOut []TimedLength `json:"writes_out"`
-	HalfClose *HalfClose    `json:"half_close"`
+	// ReadsInTruncated e WritesOutTruncated marcam que a lista parou em maxTimed itens (spec 006 RF-06);
+	// os bytes continuam completos em fs.v1.raw.read.
+	ReadsInTruncated   bool       `json:"reads_in_truncated"`
+	WritesOutTruncated bool       `json:"writes_out_truncated"`
+	HalfClose          *HalfClose `json:"half_close"`
 }
 
 // emitter monta os envelopes de uma sessão e publica.
