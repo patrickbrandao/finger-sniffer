@@ -282,6 +282,10 @@ func FuzzHTTP1Session(f *testing.F) {
 		"GET /../%2e%2e/x HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n",
 		"CONNECT h:443 HTTP/1.1\r\n\r\n", "OPTIONS * HTTP/1.1\r\n\r\n",
 		"GET / HTTP/1.1\r\n folded\r\n\r\n", "GET / HTTP/1.1\r\nContent-Length: 1, 2\r\n\r\n",
+		"GET /r?status=103&status=404&size=99&frame=chunked&chunk=7&trailers=1&h=X-A:1&hsize=400 HTTP/1.1\r\n\r\n",
+		"POST /p/" + testProbe + "/r?continue=late&close=mid-body&rst=1&delay_head=5&ka=1,2 HTTP/1.1\r\n" +
+			"Content-Length: 2\r\nExpect: 100-continue\r\n\r\nab",
+		"GET /r?status=abc&ver=2&size=-1&h=bad&upgrade=ws&idle=0 HTTP/1.1\r\n\r\n",
 	} {
 		f.Add([]byte(s))
 	}
@@ -291,7 +295,10 @@ func FuzzHTTP1Session(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var maxSize int
-		srv := NewServer(testConfig(dir), Deps{Publish: func(m *nats.Msg) { maxSize = max(maxSize, len(m.Data)) }})
+		cfg := testConfig(dir)
+		// Atrasos curtos para o fuzz não ficar parado em delay_head/delay_body.
+		cfg.Limits.DelayMax = time.Millisecond
+		srv := NewServer(cfg, Deps{Publish: func(m *nats.Msg) { maxSize = max(maxSize, len(m.Data)) }})
 		mc := &memConn{in: strings.NewReader(string(data))}
 		c := &conn{srv: srv, raw: mc, flow: flowOf(mc), acceptAt: time.Now()}
 		ic := newIdleConn(mc, time.Second, time.Now(), time.Now)

@@ -57,6 +57,9 @@ const (
 // ErrShortBody indica que o corpo acabou antes de BodyLen em FramingContentLength.
 var ErrShortBody = errors.New("h1: body shorter than content-length")
 
+// ErrCut indica que a escrita parou no ponto pedido por CutAfter (controle close=mid-body).
+var ErrCut = errors.New("h1: response cut")
+
 // Sent são os bytes enviados de uma resposta (1xx incluídas): os primeiros até o teto de captura, o
 // tamanho total e se a captura foi cortada (response_sent_b64, response_sent_truncated, response_sent_size).
 type Sent struct {
@@ -70,22 +73,38 @@ type ResponseWriter struct {
 	dst        io.Writer
 	captureMax int
 	sent       Sent
+	// cut é quantos bytes ainda podem sair antes de cortar a resposta; < 0 = sem corte.
+	cut int64
 }
 
 // NewResponseWriter cria um escritor sobre dst que guarda até captureMax bytes por resposta
 // (FS_EVENT_INLINE_MAX); captureMax <= 0 não guarda bytes, só conta.
 func NewResponseWriter(dst io.Writer, captureMax int) *ResponseWriter {
-	return &ResponseWriter{dst: dst, captureMax: captureMax}
+	return &ResponseWriter{dst: dst, captureMax: captureMax, cut: -1}
 }
 
 // Sent devolve os bytes enviados desde o último Reset.
 func (w *ResponseWriter) Sent() Sent { return w.sent }
 
-// Reset começa a captura de uma nova resposta.
-func (w *ResponseWriter) Reset() { w.sent = Sent{} }
+// Reset começa a captura de uma nova resposta (e desfaz um CutAfter pendente).
+func (w *ResponseWriter) Reset() { w.sent, w.cut = Sent{}, -1 }
+
+// CutAfter faz a escrita parar depois de mais n bytes: o que passar disso não sai e a escrita devolve
+// ErrCut. Serve para fechar no meio do corpo, inclusive no meio de um pedaço chunked.
+func (w *ResponseWriter) CutAfter(n int64) { w.cut = max(n, 0) }
 
 // write envia p e registra o que foi efetivamente escrito.
 func (w *ResponseWriter) write(p []byte) error {
+	var cutErr error
+	if w.cut >= 0 {
+		if int64(len(p)) > w.cut {
+			p, cutErr = p[:w.cut], ErrCut
+		}
+		w.cut -= int64(len(p))
+	}
+	if len(p) == 0 {
+		return cutErr
+	}
 	n, err := w.dst.Write(p)
 	if n > 0 {
 		w.sent.Size += int64(n)
@@ -100,7 +119,10 @@ func (w *ResponseWriter) write(p []byte) error {
 			w.sent.Truncated = true
 		}
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return cutErr
 }
 
 func statusLine(version string, status int, reason string) string {

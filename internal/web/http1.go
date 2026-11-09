@@ -27,6 +27,8 @@ type h1Session struct {
 	// handshakeEnd é o fim do handshake TCP (accept) ou TLS: base de t_first_byte_ms (spec 009 RF-06).
 	handshakeEnd time.Time
 	prevRespEnd  time.Time
+	// ctl são os controles da requisição atual (nil fora de /r).
+	ctl *Controls
 }
 
 // serveHTTP1 atende requisições HTTP/1 em sequência (keep-alive e pipelining) até o cliente fechar ou a
@@ -76,14 +78,33 @@ func (s *h1Session) serveOne(idx int) bool {
 		Rules: srv.cfg.ProxyRules, Direct: true, SNI: s.c.sniName(),
 	})
 
-	// Expect: 100-continue padrão: manda o 100 antes de ler o corpo e mede a espera do cliente (RF-04).
+	// Controles de /r (spec 005 RF-07): saem antes do corpo por causa de continue= e idle=.
+	cont := ContinueSend
+	s.ctl = s.controlsOf(req)
+	if s.ctl != nil {
+		req.Controls = &s.ctl.Record
+		if s.ctl.Valid() {
+			if s.ctl.Continue != "" {
+				cont = s.ctl.Continue
+			}
+			if s.ctl.Idle > 0 {
+				s.ic.SetIdle(s.ctl.Idle)
+			}
+		}
+	}
+
+	// Expect: 100-continue: por padrão manda o 100 antes de ler o corpo e mede a espera do cliente (RF-04);
+	// continue=skip não manda, continue=late manda depois do corpo, junto da resposta final.
 	s.w.Reset()
 	outOffset := s.t.outTotal()
-	if req.ExpectsContinue() && hasBody(req) {
+	expect := req.ExpectsContinue() && hasBody(req)
+	if expect {
 		ec := &h1.ExpectContinue{Waited: s.br.Buffered() == 0}
-		if err := s.w.WriteInterim("HTTP/1.1", h1.Interim{Status: http.StatusContinue}); err != nil {
-			s.finish(req, probeID, outOffset, http.StatusContinue)
-			return false
+		if cont == ContinueSend {
+			if err := s.w.WriteInterim("HTTP/1.1", h1.Interim{Status: http.StatusContinue}); err != nil {
+				s.finish(req, probeID, outOffset, http.StatusContinue)
+				return false
+			}
 		}
 		sentAt := srv.now()
 		if ec.Waited {
@@ -104,8 +125,15 @@ func (s *h1Session) serveOne(idx int) bool {
 	}
 
 	resp := s.route(req, probeID)
+	if expect && cont == ContinueLate {
+		resp.interim = append([]h1.Interim{{Status: http.StatusContinue}}, resp.interim...)
+	}
 	werr := s.write(resp)
 	s.finish(req, probeID, outOffset, resp.head.Status)
+	if resp.closeConn {
+		s.closeAfter(resp)
+		return false
+	}
 	return werr == nil
 }
 
@@ -256,18 +284,11 @@ type response struct {
 	head    *h1.Response
 	body    io.Reader
 	closer  io.Closer
-}
-
-// write escreve a resposta (1xx incluídas) e fecha o corpo, se for arquivo.
-func (s *h1Session) write(r response) error {
-	if r.closer != nil {
-		defer func() { _ = r.closer.Close() }()
-	}
-	body := r.body
-	if body == nil {
-		body = strings.NewReader("")
-	}
-	return s.w.WriteResponse(r.interim, r.head, body)
+	// Controles (respond.go): atrasos, corte do corpo e fechamento pelo servidor.
+	delayHead, delayBody time.Duration
+	cut                  int
+	closeConn, rst       bool
+	abrupt               bool
 }
 
 // textResponse monta uma resposta text/plain pequena.
