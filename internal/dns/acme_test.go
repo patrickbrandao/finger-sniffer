@@ -1,8 +1,10 @@
 package dns
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -170,6 +172,100 @@ func TestACMEMatchesAsyncAPI(t *testing.T) {
 			if _, ok := fields[p]; !ok {
 				t.Errorf("%s: %s not in struct JSON", c.msg, p)
 			}
+		}
+	}
+}
+
+// TestACMEReplyGolden gera as respostas do request/reply do DNS-01 pelo HandleACME real e as compara com os
+// exemplos em testdata/events (referenciados pelo asyncapi). Regrava com -update.
+func TestACMEReplyGolden(t *testing.T) {
+	z, _ := newTestZone()
+	cases := []struct {
+		file    string
+		subject string
+		req     ACMERequest
+		ok      bool
+	}{
+		{"dns.acme.reply.ok.json", SubjectACMESet, ACMERequest{Name: "_acme-challenge.dns-monitor.tmsoft.com.br.", Value: "tokenA"}, true},
+		{"dns.acme.reply.error.json", SubjectACMESet, ACMERequest{Name: "_acme-challenge.example.com.", Value: "tokenA"}, false},
+	}
+	for _, c := range cases {
+		data, _ := json.Marshal(c.req)
+		out := z.HandleACME(c.subject, data)
+		var r ACMEReply
+		if err := json.Unmarshal(out, &r); err != nil {
+			t.Fatalf("%s: %v", c.file, err)
+		}
+		if r.OK != c.ok || (r.Error == nil) != c.ok {
+			t.Fatalf("%s: resposta %s", c.file, out)
+		}
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, out, "", "  "); err != nil {
+			t.Fatal(err)
+		}
+		buf.WriteByte('\n')
+		file := filepath.Join("testdata", "events", c.file)
+		if *update {
+			if err := os.WriteFile(file, buf.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("%v (rode com -update)", err)
+		}
+		if !bytes.Equal(buf.Bytes(), want) {
+			t.Errorf("%s diverge do golden; rode go test ./internal/dns -run TestACMEReplyGolden -update\n%s", c.file, buf.Bytes())
+		}
+		checkACMEReplySchema(t, c.file, want)
+	}
+}
+
+// checkACMEReplySchema valida o golden contra o schema ACMEReply do asyncapi (ok boolean obrigatório,
+// error string ou null, nada além disso). A AsyncAPI CLI não valida exemplos vindos de traits.
+func checkACMEReplySchema(t *testing.T, file string, data []byte) {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
+	if _, ok := m["ok"].(bool); !ok {
+		t.Errorf("%s: ok ausente ou não boolean", file)
+	}
+	for k, v := range m {
+		switch k {
+		case "ok":
+		case "error":
+			if _, isStr := v.(string); v != nil && !isStr {
+				t.Errorf("%s: error não é string nem null", file)
+			}
+		default:
+			t.Errorf("%s: chave %q fora do schema ACMEReply", file, k)
+		}
+	}
+}
+
+// TestACMEReplyGoldenInAsyncAPI confere que o asyncapi referencia os dois golden nos exemplos de ACMEReply.
+func TestACMEReplyGoldenInAsyncAPI(t *testing.T) {
+	raw, err := os.ReadFile("../../eventbus/nats/asyncapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	i := strings.Index(doc, "\n    ACMEReplyExamples:\n")
+	if i < 0 {
+		t.Fatal("ACMEReplyExamples not in asyncapi")
+	}
+	block := doc[i+1:]
+	if j := regexp.MustCompile(`\n    [A-Za-z]+:\n`).FindStringIndex(block[1:]); j != nil {
+		block = block[:j[0]+1]
+	}
+	if strings.Contains(block, "(à mão)") {
+		t.Error("ACMEReplyExamples ainda tem exemplo à mão")
+	}
+	for _, f := range []string{"dns.acme.reply.ok.json", "dns.acme.reply.error.json"} {
+		if !strings.Contains(block, "\n            $ref: \"../../internal/dns/testdata/events/"+f+"\"\n") {
+			t.Errorf("asyncapi não referencia %s", f)
 		}
 	}
 }

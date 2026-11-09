@@ -1,0 +1,1 @@
+- dns: golden das respostas do DNS-01 (`dns.acme.reply.ok.json`, `dns.acme.reply.error.json`) gerados pelo `HandleACME` real, com `-update`; o asyncapi referencia esses arquivos nos exemplos de `ACMEReply` no lugar dos escritos à mão (task 046).

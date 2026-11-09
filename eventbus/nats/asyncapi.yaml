@@ -309,15 +309,12 @@ components:
     ACMEReplyExamples:
       examples:
         - name: ok
-          summary: (à mão)
           payload:
-            ok: true
-            error: null
+            $ref: "../../internal/dns/testdata/events/dns.acme.reply.ok.json"
         - name: out_of_zone
-          summary: (à mão) nome fora da zona.
+          summary: nome fora da zona.
           payload:
-            ok: false
-            error: "name is not _acme-challenge.<name> inside the zone"
+            $ref: "../../internal/dns/testdata/events/dns.acme.reply.error.json"
 
   messages:
     PacketBatch:
