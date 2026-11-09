@@ -23,8 +23,15 @@ Fluxos TCP com ClientHello, para JA3/JA3N e JA4 (task 018):
   OpenSSL 3, LibreSSL e OpenSSL em TLS 1.0, Go, Chrome, Firefox e o Chrome em 2 registros), convertidos em
   pcap TCP pelo `text2pcap`.
 
+## Pcaps de QUIC (`quic/`)
+Datagramas do cliente com Initial (long header tipo 0, porta 443) dos pcaps de QUIC da FoxIO (mesmo commit;
+`chrome-cloudflare-quic-with-secrets`, `quic-tls-handshake` e `quic-with-several-tls-frames`), para o JA4 `q`
+e para conferir o `pkg/quicparse` (task 049): `quic/ja4.golden.json` (`ja4 -j -r` e `-r -O`) e
+`quic/tshark.golden.json` (tshark 4.4 `-T json`: cabeçalho do Initial, tipos de frame, CRYPTO, parâmetros de
+transporte na ordem e JA3). O teste fica em `pkg/fingerprint/ja4/quic_golden_test.go`.
+
 ## Gabaritos
-Gerados pelas ferramentas oficiais na vps602 com `regen.sh [all|syn|tls]` (a parte remota está em
+Gerados pelas ferramentas oficiais na vps602 com `regen.sh [all|syn|tls|quic]` (a parte remota está em
 `regen-remote.sh`):
 
 - `ja4t.golden.json`: saída `ja4 -j` da ferramenta oficial da FoxIO (Rust, `rust/ja4`, compilada em

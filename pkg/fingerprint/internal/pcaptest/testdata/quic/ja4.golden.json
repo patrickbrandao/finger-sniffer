@@ -1,0 +1,86 @@
+{
+    "chrome-cloudflare-quic-with-secrets.pcapng": {
+        "sorted": [
+            {
+                "stream": 0,
+                "transport": "udp",
+                "src": "2001:db8:1::1",
+                "dst": "2606:4700:10::6816:826",
+                "src_port": 50280,
+                "dst_port": 443,
+                "tls_server_name": "cloudflare-quic.com",
+                "ja4": "q13d0310h3_55b375c5d22e_cd85d2d88918",
+                "ja4_r": "q13d0310h3_1301,1302,1303_000a,000d,001b,002b,002d,0033,0039,4469_0403,0804,0401,0503,0805,0501,0806,0601,0201"
+            }
+        ],
+        "original": [
+            {
+                "stream": 0,
+                "transport": "udp",
+                "src": "2001:db8:1::1",
+                "dst": "2606:4700:10::6816:826",
+                "src_port": 50280,
+                "dst_port": 443,
+                "tls_server_name": "cloudflare-quic.com",
+                "ja4_o": "q13d0310h3_55b375c5d22e_045e0fa1773b",
+                "ja4_ro": "q13d0310h3_1301,1302,1303_0010,0000,002d,001b,000a,0033,002b,0039,4469,000d_0403,0804,0401,0503,0805,0501,0806,0601,0201"
+            }
+        ]
+    },
+    "quic-tls-handshake.pcapng": {
+        "sorted": [
+            {
+                "stream": 0,
+                "transport": "udp",
+                "src": "192.168.1.168",
+                "dst": "142.251.163.147",
+                "src_port": 59102,
+                "dst_port": 443,
+                "tls_server_name": "www.google.com",
+                "ja4": "q13d0310h3_55b375c5d22e_cd85d2d88918",
+                "ja4_r": "q13d0310h3_1301,1302,1303_000a,000d,001b,002b,002d,0033,0039,4469_0403,0804,0401,0503,0805,0501,0806,0601,0201"
+            }
+        ],
+        "original": [
+            {
+                "stream": 0,
+                "transport": "udp",
+                "src": "192.168.1.168",
+                "dst": "142.251.163.147",
+                "src_port": 59102,
+                "dst_port": 443,
+                "tls_server_name": "www.google.com",
+                "ja4_o": "q13d0310h3_55b375c5d22e_0f12ecf1df1d",
+                "ja4_ro": "q13d0310h3_1301,1302,1303_002d,001b,4469,000d,002b,0000,000a,0039,0010,0033_0403,0804,0401,0503,0805,0501,0806,0601,0201"
+            }
+        ]
+    },
+    "quic-with-several-tls-frames.pcapng": {
+        "sorted": [
+            {
+                "stream": 0,
+                "transport": "udp",
+                "src": "192.168.1.168",
+                "dst": "142.251.16.100",
+                "src_port": 55906,
+                "dst_port": 443,
+                "tls_server_name": "ogs.google.com",
+                "ja4": "q13d0310h3_55b375c5d22e_cd85d2d88918",
+                "ja4_r": "q13d0310h3_1301,1302,1303_000a,000d,001b,002b,002d,0033,0039,4469_0403,0804,0401,0503,0805,0501,0806,0601,0201"
+            }
+        ],
+        "original": [
+            {
+                "stream": 0,
+                "transport": "udp",
+                "src": "192.168.1.168",
+                "dst": "142.251.16.100",
+                "src_port": 55906,
+                "dst_port": 443,
+                "tls_server_name": "ogs.google.com",
+                "ja4_o": "q13d0310h3_55b375c5d22e_1ca61a6a68af",
+                "ja4_ro": "q13d0310h3_1301,1302,1303_4469,0033,001b,0000,002b,0039,000d,0010,002d,000a_0403,0804,0401,0503,0805,0501,0806,0601,0201"
+            }
+        ]
+    }
+}

@@ -167,6 +167,8 @@ type TLSStream struct {
 	JA4R  string `json:"ja4_r"`
 	JA4O  string `json:"ja4_o"`
 	JA4RO string `json:"ja4_ro"`
+	// TLSServerName é o SNI visto pelo ja4.
+	TLSServerName string `json:"tls_server_name"`
 	// do tshark
 	JA3       string `json:"ja3"`
 	JA3MD5    string `json:"ja3_md5"`
