@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
 func TestBatcher(t *testing.T) {
@@ -103,8 +104,137 @@ func TestParseFrameAndClassifier(t *testing.T) {
 	if f := c.flags(1514, 1514); f != 0 {
 		t.Fatalf("flags %d", f)
 	}
-	if f := c.flags(9000, 1514); f != event.FlagOffloadSuspect|event.FlagTruncated {
+	if f := c.flags(9000, 1514); f != event.FlagOffloadSuspect|event.FlagTruncated || !c.oversize(9000) || c.oversize(1518) {
 		t.Fatalf("flags %d", f)
+	}
+}
+
+// Com offload de agregação ligado, todo pacote sai com offload_suspect, mesmo os pequenos (spec 003 RF-06).
+func TestFlagsAggregating(t *testing.T) {
+	h := NewHealth("eth0", filepath.Join(t.TempDir(), "none.json"))
+	features := "generic-receive-offload: on\n"
+	h.features = func(context.Context, string) (string, error) { return features, nil }
+	c := &classifier{mtu: 1500, aggregating: h.Aggregating}
+	if c.flags(60, 60) != 0 {
+		t.Fatal("before the first refresh: no flag")
+	}
+	if on, err := h.Refresh(); err != nil || len(on) != 1 {
+		t.Fatalf("%v %v", on, err)
+	}
+	for _, n := range []int{60, 1514, 64000} {
+		if c.flags(n, n)&event.FlagOffloadSuspect == 0 {
+			t.Fatalf("frame %d without offload_suspect", n)
+		}
+	}
+	features = "generic-receive-offload: off\n"
+	if st, _ := h.Status(); st != event.StatusOK || c.flags(60, 60) != 0 {
+		t.Fatal("offload off again: no flag")
+	}
+	// Sem leitura possível, fica o último estado conhecido.
+	features = "generic-receive-offload: on\n"
+	_, _ = h.Refresh()
+	h.features = func(context.Context, string) (string, error) { return "", errors.New("no ethtool") }
+	if _, err := h.Refresh(); err == nil || !h.Aggregating() {
+		t.Fatal("must keep the last known state")
+	}
+}
+
+// IPv6 com cabeçalhos de extensão: portas achadas depois deles e conferidas pelo excludedPort (spec 003 RF-02).
+func TestParseFrameIPv6Ext(t *testing.T) {
+	c := &classifier{excluded: toSetTest(9001)}
+	for _, tt := range []struct {
+		name     string
+		o        frameOpt
+		ports    bool
+		excluded bool
+	}{
+		{"hbh 9001", frameOpt{v6: true, v6ext: []byte{ipv6HopByHop}, proto: 6, sport: 1, dport: 9001}, true, true},
+		{"vlan dst+frag+ah udp", frameOpt{vlan: true, v6: true, v6ext: []byte{60, 44, 51}, proto: 17, sport: 9001, dport: 1}, true, true},
+		{"seven ext", frameOpt{v6: true, v6ext: []byte{0, 60, 43, 44, 51, 60, 60}, proto: 6, sport: 1, dport: 9001}, true, true},
+		{"non-first fragment", frameOpt{v6: true, v6ext: []byte{44}, v6fragOff: 2, proto: 6, sport: 1, dport: 9001}, false, false},
+		{"icmp6 after hbh", frameOpt{v6: true, v6ext: []byte{0}, proto: 58}, false, false},
+		{"hbh 443", frameOpt{v6: true, v6ext: []byte{0}, proto: 6, sport: 1, dport: 443}, true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fr := parseFrame(buildFrame(tt.o))
+			if !fr.ok || fr.ports != tt.ports || c.excludedPort(fr) != tt.excluded {
+				t.Fatalf("%+v", fr)
+			}
+		})
+	}
+	// Extensão truncada ou cadeia longa demais: sem portas.
+	f := buildFrame(frameOpt{v6: true, v6ext: []byte{0}, proto: 6, sport: 1, dport: 9001})
+	if fr := parseFrame(f[:14+40+6]); !fr.ok || fr.ports {
+		t.Fatalf("truncated ext: %+v", fr)
+	}
+	if fr := parseFrame(f[:14+40+10]); !fr.ok || fr.ports {
+		t.Fatalf("truncated ext body: %+v", fr)
+	}
+	if fr := parseFrame(buildFrame(frameOpt{v6: true, v6ext: []byte{44}, proto: 6})[:14+40+4]); fr.ports {
+		t.Fatalf("truncated fragment: %+v", fr)
+	}
+	long := make([]byte, 17)
+	if fr := parseFrame(buildFrame(frameOpt{v6: true, v6ext: long, proto: 6, sport: 1, dport: 9001})); fr.ports {
+		t.Fatalf("17 hop-by-hop: %+v", fr)
+	}
+}
+
+// Frames de 64 KiB (agregação ligada) nunca geram lote acima do teto em bytes (spec 003 RF-04, max_payload 1 MB).
+func TestBatcherMaxBytes(t *testing.T) {
+	b := NewBatcher(256, time.Hour, "eth0")
+	now := time.Now()
+	frame := make([]byte, 64<<10)
+	var msgs int
+	publish := func() {
+		if msg := b.Take(); msg != nil {
+			msgs++
+			size := len(msg.Data)
+			for k, v := range msg.Header {
+				size += len(k) + len(v[0]) + 4
+			}
+			if len(msg.Data) > BatchMaxBytes || size > 1<<20 {
+				t.Fatalf("batch of %d bytes (%d with headers)", len(msg.Data), size)
+			}
+		}
+	}
+	for range 1000 {
+		p := event.Packet{Frame: frame, WireLen: uint32(len(frame))}
+		if !b.Fits(p) {
+			publish()
+		}
+		if b.Add(p, now) {
+			publish()
+		}
+	}
+	publish()
+	if msgs < 1000/14 {
+		t.Fatalf("only %d batches", msgs)
+	}
+	// Pacotes pequenos continuam fechando por contagem.
+	for i := range 256 {
+		if full := b.Add(event.Packet{Frame: make([]byte, 60)}, now); full != (i == 255) {
+			t.Fatalf("full=%v at %d", full, i)
+		}
+	}
+	// Um pacote gigante sozinho cabe no lote vazio.
+	_ = b.Take()
+	if !b.Fits(event.Packet{Frame: make([]byte, maxSnap)}) {
+		t.Fatal("empty batch must accept any packet")
+	}
+}
+
+func TestInitMetrics(t *testing.T) {
+	m := service.NewMetrics()
+	m.Add("capture_batches_total", 7)
+	initMetrics(m)
+	snap := m.Snapshot()
+	for _, name := range []string{"dropped_events_total", "capture_kernel_drops_total", "capture_packets_in_total", "capture_packets_out_total"} {
+		if v, ok := snap[name]; !ok || v != 0 {
+			t.Fatalf("%s=%v (%v)", name, v, ok)
+		}
+	}
+	if snap["capture_batches_total"] != 7 {
+		t.Fatal("existing value must be kept")
 	}
 }
 
@@ -129,6 +259,16 @@ func TestLoadConfig(t *testing.T) {
 				t.Fatal("expected error")
 			}
 		})
+	}
+	for _, v := range []string{"0", "63", "262145"} {
+		t.Setenv("FS_CAPTURE_SNAPLEN", v)
+		if _, err := LoadConfig(); err == nil {
+			t.Fatalf("snaplen %s accepted", v)
+		}
+	}
+	t.Setenv("FS_CAPTURE_SNAPLEN", "128")
+	if c, err := LoadConfig(); err != nil || c.Snaplen != 128 {
+		t.Fatalf("%+v %v", c, err)
 	}
 }
 
@@ -200,5 +340,6 @@ func TestEthtoolFeatures(t *testing.T) {
 func FuzzParseFrame(f *testing.F) {
 	f.Add(buildFrame(frameOpt{proto: 6, sport: 1, dport: 2}))
 	f.Add(buildFrame(frameOpt{vlan: true, v6: true, proto: 17, sport: 1, dport: 2}))
+	f.Add(buildFrame(frameOpt{v6: true, v6ext: []byte{0, 43, 44, 51, 60}, proto: 6, sport: 1, dport: 2}))
 	f.Fuzz(func(t *testing.T, b []byte) { _ = parseFrame(b) })
 }

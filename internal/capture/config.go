@@ -30,6 +30,9 @@ func LoadConfig() (Config, error) {
 	if c.Snaplen, err = service.EnvInt("FS_CAPTURE_SNAPLEN", 65535); err != nil {
 		return c, err
 	}
+	if c.Snaplen < 64 || c.Snaplen > maxSnap {
+		return c, fmt.Errorf("capture: FS_CAPTURE_SNAPLEN must be between 64 and %d", maxSnap)
+	}
 	if c.BatchMax, err = service.EnvInt("FS_CAPTURE_BATCH_MAX", 256); err != nil {
 		return c, err
 	}
