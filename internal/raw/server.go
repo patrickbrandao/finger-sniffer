@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	pub     Publisher
 	log     *slog.Logger
 	metrics *service.Metrics
+	probes  *probe.Extractor
 
 	mu        sync.Mutex
 	listeners []listener
@@ -44,7 +46,10 @@ func New(cfg Config, pub Publisher, log *slog.Logger, metrics *service.Metrics) 
 	if metrics == nil {
 		metrics = service.NewMetrics()
 	}
-	return &Server{cfg: cfg, pub: pub, log: log, metrics: metrics, conns: map[net.Conn]struct{}{}}
+	return &Server{
+		cfg: cfg, pub: pub, log: log, metrics: metrics, probes: probe.NewExtractor(),
+		conns: map[net.Conn]struct{}{},
+	}
 }
 
 // Listen abre todas as portas. Falha em qualquer uma fecha as já abertas.
@@ -58,9 +63,8 @@ func (s *Server) Listen(ctx context.Context) error {
 			s.closeListeners()
 			return fmt.Errorf("raw: listen %s: %w", addr, err)
 		}
-		if spec.TLS {
-			// TLS chega na task 030; até lá a porta atende o modo de dentro em claro.
-			s.log.Warn("raw: tls mode not implemented yet, serving plain", "port", spec.Port, "mode", spec.Name())
+		if spec.TLS && s.cfg.TLS == nil {
+			s.log.Warn("raw: no tls config, serving plain", "port", spec.Port, "mode", spec.Name())
 		}
 		s.mu.Lock()
 		s.listeners = append(s.listeners, listener{Listener: ln, spec: spec})
@@ -172,9 +176,9 @@ func (s *Server) closeListeners() {
 // serve atende uma conexão aceita.
 func (s *Server) serve(c net.Conn, spec PortSpec, start time.Time) {
 	em := &emitter{pub: s.pub, log: s.log, flow: flowOf(c)}
-	// Até a task 030, os modos tls-* rodam o modo de dentro sem TLS.
-	spec.TLS = false
-	newSession(c, &s.cfg, spec, start, em).run()
+	sess := newSession(c, &s.cfg, spec, start, em)
+	sess.probes = s.probes
+	sess.run()
 }
 
 // flowOf monta a 5-tupla do ponto de vista do cliente.
