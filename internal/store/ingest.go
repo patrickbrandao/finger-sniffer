@@ -59,7 +59,8 @@ type Ingestor struct {
 	liveBatch   []*liveMsg                 // eventos ao vivo do lote em curso, publicados após o commit
 	prom        *storeMetrics              // métricas do /metrics (nil = desligadas)
 	appTs       []int64                    // ts dos eventos de aplicação do lote (lag)
-	readyEnds   []int64                    // fim das conexões finalizadas na transação (record_ready)
+	readyEnds   []readyEnd                 // fim das conexões finalizadas na transação (record_ready)
+	late        map[string]*conn           // conexões gravadas que receberam pacotes tardios neste lote
 }
 
 // SetMetrics liga as métricas Prometheus do ingest.
@@ -73,7 +74,7 @@ func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metr
 	return &Ingestor{
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
 		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
-		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{},
+		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{}, late: map[string]*conn{},
 	}
 }
 
@@ -225,6 +226,9 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	if err := in.flushPending(ctx, tx, false); err != nil {
 		return err
 	}
+	if err := in.writeLate(ctx, tx); err != nil {
+		return err
+	}
 	if err := in.flushDirty(ctx, tx); err != nil {
 		return err
 	}
@@ -253,6 +257,16 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if res.ended != nil {
 		*ended = append(*ended, res.ended)
 	}
+	if res.late {
+		in.metrics.Add("store_late_packets_total", 1)
+		c := res.conn
+		if c.degraded {
+			return nil
+		}
+		in.late[c.id] = c
+		_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), in.pcapFrame(c, fi, p.Frame))
+		return err
+	}
 	if res.stray {
 		in.metrics.Add("store_stray_total", 1)
 		in.prom.strayPackets(1)
@@ -280,7 +294,12 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if c.degraded {
 		return nil // modo degradado: sem pcap nem bytes crus
 	}
-	frame := p.Frame
+	_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), in.pcapFrame(c, fi, p.Frame))
+	return err
+}
+
+// pcapFrame conta o frame no pcap da conexão e o corta nos cabeçalhos depois do limite.
+func (in *Ingestor) pcapFrame(c *conn, fi frameInfo, frame []byte) []byte {
 	c.pcapBytes += int64(len(frame)) + 16
 	if c.pcapBytes > in.cfg.PcapMax {
 		c.truncated = true
@@ -288,8 +307,60 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 			frame = frame[:fi.headers]
 		}
 	}
-	_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), frame)
-	return err
+	return frame
+}
+
+// readyEnd é o fim de uma conexão finalizada e o motivo, para fs_store_record_ready_seconds.
+type readyEnd struct {
+	end    int64
+	reason string // close (FIN/RST), quic_close ou idle
+}
+
+// writeLate anexa ao pcap gravado os pacotes tardios do lote e refaz o registro (o fim pode mudar e um RST
+// depois do FIN aparece no fechamento). O estado de aplicação é relido de app_events em flushDirty, porque o
+// registro em memória não tem os eventos que chegaram depois da finalização.
+func (in *Ingestor) writeLate(ctx context.Context, tx *sql.Tx) error {
+	for id, c := range in.late {
+		rows, err := tx.QueryContext(ctx, "SELECT ts_ns, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", id)
+		if err != nil {
+			return err
+		}
+		var add []byte
+		for rows.Next() {
+			var ts int64
+			var wl int
+			var fr []byte
+			if err := rows.Scan(&ts, &wl, &fr); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			add = appendPcapRecord(add, ts, wl, fr)
+		}
+		_ = rows.Close()
+		if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", id); err != nil {
+			return err
+		}
+		var pcap []byte
+		switch err := tx.QueryRowContext(ctx, "SELECT data FROM pcaps WHERE conn_id = ?", id).Scan(&pcap); {
+		case err == nil:
+			if _, err := tx.ExecContext(ctx, "UPDATE pcaps SET data = ?, truncated = ? WHERE conn_id = ?", append(pcap, add...), boolInt(c.truncated), id); err != nil {
+				return err
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		r := c.record(c.lastSeen, "")
+		rec, _ := json.Marshal(r)
+		if _, err := tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ? WHERE conn_id = ?",
+			c.lastSeen, boolInt(c.truncated), string(rec), id); err != nil {
+			return err
+		}
+		if _, ok := in.dirty[id]; !ok {
+			in.dirty[id] = dirtyConn{}
+		}
+	}
+	clear(in.late)
+	return nil
 }
 
 // Finalize materializa o pcap das conexões terminadas (ou as converte em pacotes avulsos) e grava o registro final.
@@ -316,8 +387,8 @@ func (in *Ingestor) Finalize(ctx context.Context, conns []*conn) error {
 	in.publishLive()
 	if in.prom != nil {
 		now := in.now().UnixNano()
-		for _, end := range in.readyEnds {
-			in.prom.ready(time.Duration(max(now-end, 0)))
+		for _, e := range in.readyEnds {
+			in.prom.ready(time.Duration(max(now-e.end, 0)), e.reason)
 		}
 	}
 	return nil
@@ -372,9 +443,12 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	if c.app != nil && c.app.h3CloseTs > end {
 		end = c.app.h3CloseTs
 	}
-	how := "timeout"
-	if c.closing() {
-		how = "" // closeInfo decide (fin/rst)
+	how, reason := "timeout", "idle"
+	switch {
+	case c.l4 == protoUDP && c.closing():
+		how, reason = "", "quic_close"
+	case c.closing():
+		how, reason = "", "close" // closeInfo decide (fin/rst)
 	}
 	r := c.record(end, how)
 	rec, _ := json.Marshal(r)
@@ -392,7 +466,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	}
 	in.liveConn(LiveConnClosed, summaryFrom(r), end)
 	in.prom.connection(r.L4, r.Proto)
-	in.readyEnds = append(in.readyEnds, end)
+	in.readyEnds = append(in.readyEnds, readyEnd{end, reason})
 	return nil
 }
 

@@ -93,12 +93,19 @@ func LoadConfig() (Config, error) {
 	if c.LiveMax, err = service.EnvInt("FS_LIVE_MAX_CLIENTS", DefaultLiveMaxClients); err != nil {
 		return c, err
 	}
+	grace, err := service.EnvDuration("FS_TCP_CLOSE_GRACE", DefaultCloseGrace)
+	if err != nil {
+		return c, err
+	}
+	if grace < 0 || grace > 500*time.Millisecond {
+		return c, fmt.Errorf("store: FS_TCP_CLOSE_GRACE precisa estar entre 0 e 500ms (spec 004 RNF-01)")
+	}
 	if segs < 32 {
 		return c, fmt.Errorf("store: FS_TCP_SEGMENTS_TRACKED precisa ser >= 32 (spec 013 RF-09)")
 	}
 	c.Ingest = IngestConfig{
 		PcapMax: int64(pcapMax), TCPIdle: idle + 30*time.Second, UDPIdle: 30 * time.Second,
-		CloseGrace: time.Second, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
+		CloseGrace: grace, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
 		SegmentsTracked: segs, RawStreamMax: rawMax,
 	}
 	netstat := c.Host.ProcNetstat

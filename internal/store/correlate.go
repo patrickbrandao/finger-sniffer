@@ -345,6 +345,7 @@ func (in *Ingestor) flushDirty(ctx context.Context, tx *sql.Tx) error {
 // mensagens voltam por Nak): o registro sujo é descartado e o estado das conexões só de eventos é relido depois.
 func (in *Ingestor) discardBatchState() {
 	clear(in.dirty)
+	clear(in.late)
 	in.liveBatch = nil
 	for _, eo := range in.eventOnly {
 		eo.app = nil

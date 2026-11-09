@@ -46,7 +46,7 @@ type storeMetrics struct {
 	stray       prometheus.Counter
 	dnsQueries  prometheus.Counter
 	purged      *prometheus.CounterVec
-	recordReady prometheus.Histogram
+	recordReady *prometheus.HistogramVec
 	liveDelay   prometheus.Histogram
 	apiRequests *prometheus.CounterVec
 	apiDuration *prometheus.HistogramVec
@@ -79,9 +79,9 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 		purged: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "fs_store_purged_total", Help: "Connections purged by retention, by reason (age or size).",
 		}, []string{"reason"}),
-		recordReady: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name: "fs_store_record_ready_seconds", Help: "Delay from the end of a connection to its final record being written.", Buckets: delayBuckets,
-		}),
+		recordReady: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "fs_store_record_ready_seconds", Help: "Delay from the end of a connection to its final record being written, by reason (close, quic_close or idle).", Buckets: delayBuckets,
+		}, []string{"reason"}),
 		liveDelay: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "fs_store_live_delay_seconds", Help: "Delay from the source event to its delivery to a live client.", Buckets: delayBuckets,
 		}),
@@ -96,6 +96,9 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 		m.liveDelay, m.apiRequests, m.apiDuration)
 	for _, r := range []string{"age", "size"} {
 		m.purged.WithLabelValues(r)
+	}
+	for _, r := range []string{"close", "quic_close", "idle"} {
+		m.recordReady.WithLabelValues(r)
 	}
 	reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "fs_store_connections_open", Help: "Connections currently open in the ingest.",
@@ -153,9 +156,11 @@ func (m *storeMetrics) purge(reason string, n int64) {
 	}
 }
 
-func (m *storeMetrics) ready(d time.Duration) {
+// ready registra o atraso fim → registro. reason separa o fechamento (close, quic_close) da ociosidade (idle),
+// que por definição só fecha depois do tempo ocioso e não entra na meta de 500 ms.
+func (m *storeMetrics) ready(d time.Duration, reason string) {
 	if m != nil {
-		m.recordReady.Observe(d.Seconds())
+		m.recordReady.WithLabelValues(reason).Observe(d.Seconds())
 	}
 }
 

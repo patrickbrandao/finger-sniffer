@@ -52,7 +52,7 @@ de WebSocket):
 | `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção) ou `size` (teto do banco) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |
 | `fs_store_connections` | gauge | conexões guardadas no banco (abertas e fechadas, dentro da retenção) |
-| `fs_store_record_ready_seconds` | histograma | do fim da conexão até o registro completo gravado (meta: ≤ 500 ms) |
+| `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (FIN/RST, meta ≤ 500 ms), `quic_close` ou `idle` (fechada por ociosidade) |
 | `fs_store_live_clients{transport}` | gauge | clientes de tempo real, `transport` = `sse` ou `ws` |
 | `fs_store_live_events_total{kind}` | contador | eventos ao vivo emitidos, por tipo |
 | `fs_store_live_dropped_total` | contador | eventos descartados para clientes lentos (ADR 0020) |
@@ -104,5 +104,5 @@ histogram_quantile(0.95, sum by (le) (rate(fs_store_live_delay_seconds_bucket[5m
 histogram_quantile(0.95, sum by (le, route) (rate(fs_store_api_request_duration_seconds_bucket[5m])))
 
 # registro pronto depois do fim da conexão (p99)
-histogram_quantile(0.99, sum by (le) (rate(fs_store_record_ready_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(fs_store_record_ready_seconds_bucket{reason="close"}[5m])))
 ```
