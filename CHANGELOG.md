@@ -26,6 +26,7 @@ Detalhe das decisões em `specs/decisions/`.
 
 - Contratos 0.2.0 para a F3 (aditivos): `fs.v1.web.raw.session`, `fs.v1.store.conn_id`, `truncated` no fluxo, `ja4h`/offsets/tamanho da resposta no HTTP/1, `frames_truncated`, `raw_truncated`; semântica de conjunto do TXT ACME; `pkg/certs` com nomes fixos em `FS_CERT_DIR` e `FS_ACME_ENABLE`; regras de correlação e montagem do registro no store (task 015).
 - `htdocs/` mínimo da F3: `index.html` em inglês (o que é o espelho, portas capturadas, aviso de tráfego público e retenção de 10 min, como sondar por `/p/<id>/` e `PROBE`, resultado em `/api/v1/probes/<id>`, link para o openapi), sem JS, cookies nem terceiros; `robots.txt` com `Disallow: /p/`; teste em `htdocs/htdocs_test.go` (task 034).
+- `pkg/certs`: TLS fixo do espelho (TLS 1.0–1.3, cifras do Go + CBC/RSA/3DES explícitas, `godebug tlssha1=1` no go.mod), `Describe` para `host.tls_server`; certificados A/B de `FS_CERT_DIR` com recarga a quente por fsnotify (tolerante a rename atômico e par trocado em momentos diferentes), escolha por SNI, autoassinado RSA em memória quando falta arquivo, `State`/`Reasons` (`cert_self_signed`, `cert_expiring`) e `WritePair` atômico (task 019).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
