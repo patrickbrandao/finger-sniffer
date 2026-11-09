@@ -8,6 +8,7 @@ godebug tlssha1=1
 require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gopacket/gopacket v1.7.7
+	github.com/miekg/dns v1.1.73
 	github.com/nats-io/nats-server/v2 v2.15.2
 	github.com/nats-io/nats.go v1.55.0
 	github.com/oklog/ulid/v2 v2.1.1
