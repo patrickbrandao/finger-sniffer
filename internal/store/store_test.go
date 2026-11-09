@@ -61,8 +61,19 @@ func TestTracker(t *testing.T) {
 	_ = tr.Observe(heartbeat(t, "extra", "2.0.0", event.StatusOK), t0)
 	_ = tr.Observe(heartbeat(t, "dns", "1.0.0", event.StatusOK), t0)
 	got, allUp, match = tr.Services(t0, "1.0.0")
-	if !allUp || match || got["extra"].Status != event.StatusOK {
+	if !allUp || match {
 		t.Fatalf("allUp=%v match=%v extra=%+v", allUp, match, got["extra"])
+	}
+	// versions_match falso vira motivo visível: o serviço desencontrado fica degraded (ADR 0002).
+	if e := got["extra"]; e.Status != event.StatusDegraded || len(e.Reasons) != 1 || e.Reasons[0] != "version 2.0.0 differs from store 1.0.0" {
+		t.Fatalf("extra must report the version mismatch: %+v", e)
+	}
+	if got["web"].Status != event.StatusOK || len(got["web"].Reasons) != 0 {
+		t.Fatalf("web matches the store version: %+v", got["web"])
+	}
+	// Repetir a consulta não acumula motivos.
+	if got, _, _ = tr.Services(t0, "1.0.0"); len(got["extra"].Reasons) != 1 {
+		t.Fatalf("reasons accumulated: %v", got["extra"].Reasons)
 	}
 
 	if err := tr.Observe([]byte("{"), t0); err == nil {
@@ -124,6 +135,30 @@ func TestReadHost(t *testing.T) {
 	}
 	if h.Sysctls["net.core.somaxconn"] != "4096" || h.Sysctls["net.ipv4.ip_local_port_range"] != "32768 60999" || len(h.Sysctls) != 3 {
 		t.Fatalf("sysctls %v", h.Sysctls)
+	}
+}
+
+// TestReadHostSysctlMismatch: sysctl efetivo diferente do arquivo do projeto é motivo de degradação (spec 016
+// CA-2); conntrack carregado depois do boot aparece pelo /proc/modules.
+func TestReadHostSysctlMismatch(t *testing.T) {
+	p := hostFixture(t, false)
+	if err := os.WriteFile(filepath.Join(p.ProcSys, "net/core/somaxconn"), []byte("128\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h, reasons := ReadHost(p)
+	if len(reasons) != 1 || reasons[0] != "sysctl net.core.somaxconn is 128, want 4096" || h.Sysctls["net.core.somaxconn"] != "128" {
+		t.Fatalf("%v %v", reasons, h.Sysctls)
+	}
+	p.ProcModules = filepath.Join(t.TempDir(), "modules")
+	if err := os.WriteFile(p.ProcModules, []byte("nf_conntrack_netlink 57344 0 - Live 0x0\nnf_conntrack 196608 1 nf_conntrack_netlink, Live 0x0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if h, reasons = ReadHost(p); len(reasons) != 2 || reasons[1] != "conntrack loaded" || !h.ConntrackLoaded {
+		t.Fatalf("%v", reasons)
+	}
+	_ = os.WriteFile(p.ProcModules, []byte("nf_conntrack_netlink 57344 0 - Live 0x0\n"), 0o600)
+	if h, reasons = ReadHost(p); len(reasons) != 1 || h.ConntrackLoaded {
+		t.Fatalf("%v", reasons)
 	}
 }
 

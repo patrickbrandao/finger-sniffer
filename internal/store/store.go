@@ -3,10 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -21,9 +21,11 @@ import (
 
 // Config do store nesta fase.
 type Config struct {
-	DBPath       string
-	HTTPAddr     string
-	HTTPSAddr    string // FS_API_HTTPS_PORT; vazio desliga a 9000
+	DBPath    string
+	HTTPAddr  string
+	HTTPSAddr string // FS_API_HTTPS_PORT; vazio desliga a 9000
+	// ListenIPs são os IPs da API (127.0.0.1 + FS_LISTEN_IPV4/IPV6); vazio = HTTPAddr/HTTPSAddr como vieram.
+	ListenIPs    []netip.Addr
 	Certs        certs.Config
 	Retention    string
 	RetentionDur time.Duration
@@ -56,6 +58,9 @@ func LoadConfig() (Config, error) {
 		return c, err
 	}
 	c.Host.SysctlFile = service.Env("FS_SYSCTL_FILE", c.Host.SysctlFile)
+	if c.ListenIPs, err = listenIPs(); err != nil {
+		return c, err
+	}
 	if c.RetentionDur, err = time.ParseDuration(c.Retention); err != nil {
 		return c, fmt.Errorf("store: FS_RETENTION: %w", err)
 	}
@@ -236,17 +241,26 @@ func (s *Store) Run(ctx context.Context) error {
 
 	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom}
 	srv := &http.Server{
-		Addr: s.cfg.HTTPAddr, Handler: api.Handler(),
-		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+		Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
-	s.svc.Log.Info("api listening", "addr", s.cfg.HTTPAddr)
+	addrs, err := s.cfg.apiAddrs(s.cfg.HTTPAddr)
+	if err != nil {
+		return err
+	}
+	ls, err := listenAll(addrs)
+	if err != nil {
+		return err
+	}
+	errc := serveAll(ls, srv.Serve)
+	s.svc.Log.Info("api listening", "addr", addrsString(ls))
 	var tlsSrv *http.Server
 	tlsErr := make(<-chan error)
 	if s.certs != nil {
-		tlsSrv, tlsErr = s.serveHTTPS(ctx, api)
+		if tlsSrv, tlsErr, err = s.serveHTTPS(ctx, api); err != nil {
+			_ = srv.Close()
+			return err
+		}
 	}
 
 	shutdown := func() error {
@@ -262,9 +276,6 @@ func (s *Store) Run(ctx context.Context) error {
 		return shutdown()
 	case err := <-errc:
 		_ = shutdown()
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
 		return err
 	case err := <-tlsErr:
 		_ = shutdown()
