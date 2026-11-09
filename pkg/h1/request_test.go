@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -203,8 +204,27 @@ func TestReadHeadErrors(t *testing.T) {
 	// Erro de leitura que não é EOF é repassado.
 	boom := errors.New("boom")
 	r := NewReader(bufio.NewReader(iotest.ErrReader(boom)))
-	if _, err := r.ReadHead(); !errors.Is(err, boom) {
-		t.Fatal(err)
+	if req, err := r.ReadHead(); !errors.Is(err, boom) || req != nil {
+		t.Fatal(req, err)
+	}
+}
+
+// TestReadHeadTimeoutNoBytes: prazo de leitura vencido sem nenhum byte (ociosidade entre requisições) não
+// devolve requisição; com bytes parciais, devolve o que chegou junto do erro.
+func TestReadHeadTimeoutNoBytes(t *testing.T) {
+	r := NewReader(bufio.NewReader(iotest.ErrReader(os.ErrDeadlineExceeded)))
+	if req, err := r.ReadHead(); req != nil || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("want nil request and deadline error, got %+v %v", req, err)
+	}
+	// Só linhas vazias (toleradas antes da linha de requisição) e EOF: também não há requisição.
+	if req, err := newReader("\r\n\n").ReadHead(); req != nil || !errors.Is(err, io.EOF) {
+		t.Fatalf("empty lines: %+v %v", req, err)
+	}
+	partial := io.MultiReader(strings.NewReader("GET / HT"), iotest.ErrReader(os.ErrDeadlineExceeded))
+	r = NewReader(bufio.NewReader(partial))
+	req, err := r.ReadHead()
+	if req == nil || !errors.Is(err, os.ErrDeadlineExceeded) || string(req.RawHead) != "GET / HT" {
+		t.Fatalf("partial: %+v %v", req, err)
 	}
 }
 

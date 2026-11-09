@@ -433,6 +433,21 @@ func TestIdleDefault(t *testing.T) {
 		if el := time.Since(start); el < idle-50*time.Millisecond || el > idle+time.Second {
 			t.Fatalf("closed after %v, idle %v", el, idle)
 		}
+		requireOneRequest(t, h, c)
+	})
+	// Linhas vazias antes da linha de requisição são toleradas; se só elas chegam até a ociosidade vencer,
+	// também não há requisição a registrar.
+	t.Run("after-response-empty-line", func(t *testing.T) {
+		c := dial(t, h.addr80)
+		cl := newClient(t, c)
+		cl.send(get("/index.html", "x"))
+		cl.response("GET")
+		cl.send("\r\n")
+		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if _, err := cl.br.ReadByte(); !errors.Is(err, io.EOF) {
+			t.Fatalf("want EOF, got %v", err)
+		}
+		requireOneRequest(t, h, c)
 	})
 	t.Run("silent", func(t *testing.T) {
 		c := dial(t, h.addr443)
@@ -660,5 +675,16 @@ func writeFile(t *testing.T, dir, name, data string) {
 	}
 	if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// requireOneRequest confere que a conexão, já fechada pelo servidor por ociosidade, publicou exatamente um
+// fs.v1.web.http1.request, sem uma requisição vazia no fim (task 047).
+func requireOneRequest(t *testing.T, h *harness, c net.Conn) {
+	t.Helper()
+	h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 1)
+	time.Sleep(100 * time.Millisecond)
+	if evs := h.events.find(t, event.SubjectWebHTTP1Request, srcPort(c)); len(evs) != 1 {
+		t.Fatalf("want 1 http1.request, got %d: %v", len(evs), evs[len(evs)-1].Payload)
 	}
 }
