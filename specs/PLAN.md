@@ -72,12 +72,12 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   - tester: matriz direta completa, casos 1–13 com 6 e 11 novos (task 066) ‖ conferência FoxIO/tshark consolidada
     de curl, Go, Chrome e Firefox (task 067) → carga de 10 min com as metas da ADR 0022 (task 068, sozinha na
     vps602, depois de 065–067 e 073);
-  - docs: `docs/` completas, receitas por caso e campos estáveis para o xProxy, README de raiz (task 069);
+  - docs: `docs/` completas, receitas por caso e campos estáveis para o cliente, README de raiz (task 069);
   - infra: build reproduzível, `make release`, checklist, limpeza do repositório (task 070);
   - reviewer: auditoria spec × implementação de todas as specs e ADRs (task 071, depois de 065 e 069);
   - architect: release `v0.1.0` (task 072, depois de todas e das tarefas que a carga e a auditoria abrirem).
-- **Fora do alcance do espelho**: a matriz com squid/go-xproxy (`xproxy03`) é do script do xProxy; fica como
-  pendência externa no PR de release.
+- **Comparação entre caminhos**: é do cliente (proxies, túneis); não há pendência externa para a release
+  (ADR 0028).
 - **Critério de saída**: os três itens de sucesso da spec 000 registrados no PR de release (item 1 pelo caminho
   direto, item 3 com o relatório `test/load/RESULTS.md`); nenhuma divergência aberta da auditoria; tag `v0.1.0`;
   CHANGELOG com a seção `[0.1.0]`.

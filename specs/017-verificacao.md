@@ -46,9 +46,8 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
   exemplos golden dos seus eventos em `internal/<svc>/testdata/`, regravados com `-update`, e o asyncapi os
   referencia em `examples`); e2e: matriz.
 
-### Matriz e2e (a partir de uma máquina cliente e do xproxy03)
-Caminho {direto, squid 1080, go-xproxy 4128, go-xproxy HTTPS-proxy 4443} × sufixo {fixo, `-random`,
-`-session-X`} × caso:
+### Matriz e2e (caminho direto, a partir de uma máquina cliente)
+Caminho direto × caso (ADR 0028):
 1. HTTP/1.1 simples, cabeçalhos com caixa e ordem incomuns, campos duplicados, valor com espaços.
 2. HTTP/1.0 sem e com `Connection: keep-alive`.
 3. 5 requisições numa conexão, depois com `Connection: close`, depois pipelining.
@@ -66,12 +65,13 @@ Caminho {direto, squid 1080, go-xproxy 4128, go-xproxy HTTPS-proxy 4443} × sufi
 13. Tempo real e site: `/ws` e `/stream` (filtros, `stream.dropped`, 503), página do htdocs em Chrome headless
     mostrando a própria sondagem no feed em < 1 s, sem requisições a terceiros.
 
-Critério: em HTTP/TLS/keep-alive, o que chega pelo proxy é idêntico ao direto (diferenças esperadas listadas:
-`absolute-form` → `origin-form`, ausência de `Proxy-*`; `-random` abre conexão nova por requisição). Em TCP, o
-critério é consistência entre saídas e execuções. **No espelho**, o teste e2e roda os 13 casos pelo caminho
-direto e verifica que cada caso gera os campos esperados; a comparação entre caminhos é do script do xProxy, que
-usa as receitas e a lista de campos estáveis de `docs/probes.md` (ADR 0022). Casos 6 (ociosidade 30/90/180 s) e 11
-(JA4T/p0f/TTL, RTT, relógio TS entre execuções) no caminho direto comparam execuções repetidas do mesmo cliente.
+Critério: o teste e2e roda os 13 casos pelo caminho direto e verifica que cada caso gera os campos esperados e
+que o espelho expõe tudo o que um cliente precisa para comparar caminhos: campos estáveis entre execuções, sinais
+de proxy, bytes crus e o reaproveitamento de conexões visível no registro. A comparação entre caminhos (proxies,
+túneis) é do cliente, que usa as receitas genéricas e a lista de campos estáveis e de diferenças esperadas de
+`docs/probes.md` (ex.: `absolute-form` → `origin-form`, ausência de `Proxy-*`; ADRs 0022 e 0028). Casos 6
+(ociosidade 30/90/180 s) e 11 (JA4T/p0f/TTL, RTT, relógio TS entre execuções) no caminho direto comparam execuções
+repetidas do mesmo cliente.
 
 ### Carga
 - RF-13: `test/load/`: 200 conexões simultâneas e 50 novas/s por 10 min, mix h1/h2/h3/raw; mede CPU/RAM por

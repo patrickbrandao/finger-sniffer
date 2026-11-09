@@ -3,14 +3,15 @@
 Derivado das specs [005](../specs/005-web.md) (web), [006](../specs/006-raw.md) (portas cruas),
 [007](../specs/007-dns.md) (DNS), [008](../specs/008-tls-e-fingerprints.md) a [013](../specs/013-analise-ip-tcp.md)
 (TLS, HTTP/1, h2, h3, WebSocket, IP/TCP) e [017](../specs/017-verificacao.md) (matriz de testes), e das ADRs
-[0021](../specs/decisions/0021-date-nas-respostas.md) (`Date`) e [0022](../specs/decisions/0022-prova-do-mvp-no-espelho.md)
-(receitas para o xProxy). Em caso de divergência, valem as specs e o contrato
+[0021](../specs/decisions/0021-date-nas-respostas.md) (`Date`), [0022](../specs/decisions/0022-prova-do-mvp-no-espelho.md)
+(matriz direta) e [0028](../specs/decisions/0028-projeto-independente-de-consumidores.md) (comparação entre
+caminhos é do cliente). Em caso de divergência, valem as specs e o contrato
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml).
 
 As saídas são reais (vps602, caminho direto), resumidas, com o IP do cliente trocado por `203.0.113.10` e o
-probe ID trocado por `k3x9q2mz7a`. Os comandos pelos proxies (squid 1080, go-xproxy 4128 e 4443) não foram
-executados pelo projeto do espelho, que não tem acesso ao `xproxy03` (ADR 0022): são o ponto de partida do script
-do xProxy.
+probe ID trocado por `k3x9q2mz7a`. Os comandos por proxy usam um proxy genérico
+(`PROXY:PORTA`) e são o ponto de partida para quem compara caminhos; o projeto do espelho só roda o caminho
+direto (ADR 0028).
 
 ## Probe ID
 
@@ -137,8 +138,8 @@ size=abc: must be a decimal integer
 
 ## Receita comum
 
-O script do xProxy (`go-xproxy/tests/nao-interferencia.sh`) repete cada caso por caminhos diferentes e compara o
-que o espelho viu (spec 017, ADR 0022). Para cada caso, caminho e sufixo:
+Quem testa um caminho (proxy, túnel, VPN) repete cada caso pelo caminho direto e pelo caminho em teste e compara o
+que o espelho viu (spec 017, ADR 0028). Para cada caso e caminho:
 
 1. **Gerar** um probe ID novo, aleatório, sempre do mesmo tamanho.
 2. **Resolver e conectar** pelo caminho em teste, usando o nome `<id>.dns-monitor.tmsoft.com.br` e o caminho
@@ -154,9 +155,9 @@ que o espelho viu (spec 017, ADR 0022). Para cada caso, caminho e sufixo:
 api=https://vps602.tmsoft.com.br:9000/api/v1
 id=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)
 curl -s "https://$id.dns-monitor.tmsoft.com.br/p/$id/" >/dev/null                         # direto
-# curl -s -x http://xproxy03:1080  "https://$id.dns-monitor.tmsoft.com.br/p/$id/"         # squid
-# curl -s -x http://xproxy03:4128  "https://$id.dns-monitor.tmsoft.com.br/p/$id/"         # go-xproxy
-# curl -s -x https://xproxy03:4443 "https://$id.dns-monitor.tmsoft.com.br/p/$id/"         # go-xproxy HTTPS-proxy
+# curl -s -x http://PROXY:PORTA  "http://$id.dns-monitor.tmsoft.com.br/p/$id/"           # proxy HTTP
+# curl -s -x http://PROXY:PORTA  "https://$id.dns-monitor.tmsoft.com.br/p/$id/"          # túnel CONNECT
+# curl -s -x https://PROXY:PORTA "https://$id.dns-monitor.tmsoft.com.br/p/$id/"          # HTTPS-proxy
 curl -s "$api/probes/$id?wait=10s" |
   jq '{all_closed, conns: [.connections[] | {proto, src: .src.ip, ja4t: .tcp.ja4t, ja4: .tls.ja4, close}],
        resolvers: [.dns[].resolver.ip]}'
@@ -167,13 +168,15 @@ curl -s "$api/probes/$id?wait=10s" |
 | Caminho | Como o cliente fala | Para `http://` | Para `https://`, `wss://` e portas cruas |
 | --- | --- | --- | --- |
 | direto | com o espelho | — | — |
-| squid 1080 | HTTP com o proxy | o proxy reescreve e encaminha a requisição | túnel `CONNECT` |
-| go-xproxy 4128 | HTTP com o proxy | idem | túnel `CONNECT` |
-| go-xproxy 4443 | TLS com o proxy (HTTPS-proxy), HTTP dentro | idem | túnel `CONNECT` dentro do TLS com o proxy |
+| proxy HTTP | HTTP com o proxy | o proxy reescreve e encaminha a requisição | — |
+| túnel CONNECT | `CONNECT` com o proxy, depois os bytes do cliente | túnel `CONNECT` (`curl -p`) | túnel `CONNECT` |
+| HTTPS-proxy | TLS com o proxy, HTTP dentro | o proxy reescreve e encaminha a requisição | túnel `CONNECT` dentro do TLS com o proxy |
 
-Os sufixos `-random` e `-session-X` são do go-xproxy; o espelho só vê o efeito: com `-random` cada requisição
-chega numa conexão nova (outra porta de origem, talvez outro IP de saída); com `-session-X` as requisições da
-mesma sessão saem pelo mesmo IP e podem reaproveitar a conexão, como no sufixo fixo.
+Cada conexão nova que chega ao espelho é um registro separado em `connections[]` (com `conn_id`, porta de origem
+e, por proxy, o IP de saída do proxy). Para saber se o caminho reaproveitou uma conexão, compare quantas conexões
+o probe tem com quantas requisições foram feitas: requisições na mesma conexão aparecem em `http[]` do mesmo
+registro (com `index` crescente); uma conexão nova por requisição gera um registro por requisição, com
+outra porta de origem e talvez outro IP de saída.
 
 ### Quem aparece em cada camada
 
@@ -225,14 +228,14 @@ Valem para todos os casos; cada caso acrescenta as suas.
   `proxy_signals`); `Proxy-Connection` e `Proxy-Authorization` somem (se chegarem, viram sinal de proxy, o
   segundo como vazamento); campos hop-by-hop (`Connection`, `Keep-Alive`, `TE`, `Upgrade`) podem ser consumidos.
   Um proxy que não interfere não acrescenta campos: `Via`, `X-Forwarded-For`, `Forwarded`, `X-Squid*`,
-  `X-xproxy-*` e afins aparecem em `http[].proxy_signals` e são achados, não ruído (o squid acrescenta `Via` e
-  `X-Forwarded-For` se não estiver configurado com `via off` e `forwarded_for delete`).
+  `X-Proxy-*` e afins aparecem em `http[].proxy_signals` e são achados, não ruído (muitos proxies acrescentam
+  `Via` e `X-Forwarded-For` na configuração padrão).
 - **Túnel `CONNECT`**: tudo acima do TCP chega como no direto (ClientHello byte a byte, h2, HTTP/1, WebSocket).
 - **Sempre, por proxy**: `src`, `ip.*`, `tcp.*` (JA4T, p0f, TTL, opções, RTT, relógio) e `dns[].resolver` são do
   proxy, não do cliente; o critério aí é consistência entre execuções do mesmo proxy e entre os IPs de saída
   (caso 11).
-- **`-random`**: uma conexão nova por requisição; casos com várias requisições por conexão (2, 3, 5) aparecem
-  como várias conexões de uma requisição cada, e `request` volta a 0 no corpo.
+- **Conexão nova por requisição** (proxy sem reaproveitamento): casos com várias requisições por conexão
+  (2, 3, 5) aparecem como várias conexões de uma requisição cada, e `request` volta a 0 no corpo.
 - **Resposta**: por túnel, o que o cliente recebe é igual a `response_sent_b64`/`/raw?dir=out`; por proxy HTTP,
   diferenças na resposta (campos acrescentados, `Date` acrescentado com `date=0`, `Connection` trocado) são do
   proxy.
@@ -284,8 +287,8 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, requests,
 - **Estáveis**: versões, presença e valor de `Connection`, `requests`, `close.by`/`close.how`.
 - **Diferenças esperadas**: um proxy pode falar HTTP/1.1 com o espelho mesmo quando o cliente fala 1.0 (aparece
   em `request_line.version`) e trocar `Connection: keep-alive` pelo seu próprio controle de conexão; o número de
-  requisições por conexão passa a refletir o pool do proxy, não o cliente. Com `-random`, uma conexão por
-  requisição.
+  requisições por conexão passa a refletir o pool do proxy, não o cliente; um proxy sem reaproveitamento abre uma
+  conexão por requisição.
 
 ### Caso 3: várias requisições por conexão, `Connection: close` e pipelining
 
@@ -306,7 +309,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, requests,
   dezenas de ms); na segunda, o espelho fecha porque o cliente pediu `Connection: close`.
 - **Estáveis**: número de conexões e de requisições em cada uma, `pipelined`, `close.by`/`close.how`.
 - **Diferenças esperadas**: por proxy HTTP, as 5 requisições podem chegar em menos ou mais conexões (pool do
-  proxy) e o pipelining costuma ser desfeito (`pipelined: false`); com `-random`, 5 conexões de 1 requisição.
+  proxy) e o pipelining costuma ser desfeito (`pipelined: false`); sem reaproveitamento, 5 conexões de 1 requisição.
   Por túnel, igual ao direto, exceto o fechamento (o proxy pode fechar o lado do espelho de outro jeito).
 
 ### Caso 4: corpo com Content-Length, chunked com extensões e trailers, `Expect: 100-continue`
@@ -413,7 +416,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, ja3: .tls
 ```
 
 (curl 8.23 com OpenSSL 4, OpenSSL do macOS e Go 1.27; os valores dependem da versão de cada cliente.) Por
-proxy: `curl -x http://xproxy03:4128 …`, `openssl s_client -proxy xproxy03:4128 …`, `HTTPS_PROXY=… go run …`.
+proxy: `curl -x http://PROXY:PORTA …`, `openssl s_client -proxy PROXY:PORTA …`, `HTTPS_PROXY=… go run …`.
 
 Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperado:
 
@@ -471,9 +474,9 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, port: .ds
 {"proto":"tls/raw","port":993,"raw":{"mode":"echo","banner":"* OK finger-sniffer IMAP ready\r\n","half_close":null},"close":{"by":"server","how":"fin","half_close":true}}
 ```
 
-Por proxy (o túnel até a porta crua): `nc -X connect -x xproxy03:4128 vps602.tmsoft.com.br 7` (o `nc` do BSD/macOS),
-ou `curl -p -x http://xproxy03:4128 telnet://vps602.tmsoft.com.br:7`; para 4443, `curl -p -x https://xproxy03:4443
-telnet://…`.
+Por proxy (o túnel até a porta crua): `nc -X connect -x PROXY:PORTA vps602.tmsoft.com.br 7` (o `nc` do BSD/macOS),
+ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-proxy,
+`curl -p -x https://PROXY:PORTA telnet://…`.
 
 - **Procurar**: `raw.mode`, `raw.banner`, `raw.probe_line`, `raw.reads_in`/`writes_out` (`[t_ms, bytes]`),
   `raw.half_close` (depois do FIN do cliente, o espelho manda `half-close test\r\n`) e `close.half_close`. A
@@ -518,8 +521,8 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, over: .we
   ```
 - **Estáveis**: a linha de WebSocket da [tabela](#campos-estáveis-e-o-que-sempre-varia), mais os campos do
   `Upgrade` da requisição (caso 1).
-- **Diferenças esperadas**: `ws://` por proxy HTTP depende de o proxy repassar o `Upgrade` (squid e muitos
-  outros não repassam, e aí o cliente recebe erro do proxy e o espelho não vê `/ws`); quando repassa, as
+- **Diferenças esperadas**: `ws://` por proxy HTTP depende de o proxy repassar o `Upgrade` (muitos proxies
+  não repassam, e aí o cliente recebe erro do proxy e o espelho não vê `/ws`); quando repassa, as
   extensões oferecidas podem mudar. `wss://` por túnel é igual ao direto (inclusive o h2 da RFC 8441).
 
 ### Caso 10: DNS

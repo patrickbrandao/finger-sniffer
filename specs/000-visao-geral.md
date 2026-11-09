@@ -7,15 +7,15 @@ Depende de: —
 Clientes, proxies e túneis podem alterar o tráfego sem que o cliente perceba: cabeçalhos reescritos, ClientHello
 TLS refeito, conexões reaproveitadas ou fechadas por terceiros, pilha TCP diferente, resolvedor DNS trocado.
 O finger-sniffer é um **servidor espelho**: recebe conexões em portas capturadas, registra byte a byte e pacote a
-pacote como elas chegaram e expõe tudo, cru e analisado, por uma API fora da captura. O cliente repete a mesma
-sondagem por caminhos diferentes (direto, squid, go-xproxy) e compara o que o espelho viu.
+pacote como elas chegaram e expõe tudo, cru e analisado, por uma API fora da captura. Serve a
+clientes que repetem a sondagem por caminhos diferentes (direto, proxies, túneis) e comparam o que o espelho viu.
 
-Documento de origem dos requisitos: "Servidor espelho de análise de conexões" (requisitos do go-xproxy,
-incorporado nas specs 003–017; o arquivo original não é versionado).
+Documento de origem dos requisitos: "Servidor espelho de análise de conexões" (incorporado nas specs 003–017; o
+arquivo original não é versionado). O projeto é independente de consumidores específicos (ADR 0028).
 
 ## Usuários
-- **Scripts de teste** (principal: `go-xproxy/tests/nao-interferencia.sh`): fazem sondagens marcadas com probe ID
-  e consultam a API.
+- **Scripts de teste** de clientes, proxies e túneis: fazem sondagens marcadas com probe ID, repetidas por caminhos
+  diferentes, e consultam a API para comparar o que o espelho viu.
 - **Qualquer software** que queira analisar detalhes profundos de uma conexão: a API é genérica.
 - **Visitante humano**: abre a página estática em `https://<qualquer-nome>/` e assiste, ao vivo, ao feed global do
   tráfego que chega ao servidor, servido pela porta não capturada.
@@ -24,8 +24,8 @@ incorporado nas specs 003–017; o arquivo original não é versionado).
 ## Objetivos e medida de sucesso
 O MVP está pronto quando:
 1. os 13 casos da matriz de testes (spec 017) rodam de ponta a ponta contra `vps602` pelo caminho direto e cada
-   registro traz os campos das specs 008–013; os caminhos com proxy são do script do xProxy, a quem o espelho
-   entrega receitas e campos estáveis (ADR 0022);
+   registro traz os campos das specs 008–013; a comparação por outros caminhos (proxies, túneis) é do cliente, a
+   quem o espelho entrega receitas genéricas e campos estáveis (ADRs 0022 e 0028);
 2. JA3, JA4, JA4T e Akamai HTTP/2 de curl, Go, Chrome e Firefox batem com FoxIO `ja4` e `tshark` aplicados ao
    mesmo pcap;
 3. as metas de RNF abaixo são atingidas no teste de carga, medidas como na ADR 0022 (feed p99, API e registro p95).

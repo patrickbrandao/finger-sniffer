@@ -6,7 +6,7 @@ HTTP, DNS e tempos) e devolve tudo, cru e analisado, por uma API em portas que n
 
 Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com quais características ele chega ao
 servidor: a mesma sondagem, repetida por caminhos diferentes (direto, por um proxy, por uma VPN), mostra o que cada
-caminho mudou. O consumidor principal é o teste de não-interferência do go-xproxy.
+caminho mudou.
 
 Instância pública: `vps602.tmsoft.com.br`, zona de sondagem `<id>.dns-monitor.tmsoft.com.br`. A página
 `https://vps602.tmsoft.com.br/` mostra o feed global ao vivo.

@@ -17,4 +17,4 @@ LGPL-2.1.
 - MIT; proprietária.
 
 ## Consequências
-- Uso comercial de JA4T/JA4H por terceiros (inclusive o go-xproxy, se comercial) pode exigir licença da FoxIO.
+- Uso comercial de JA4T/JA4H por terceiros pode exigir licença da FoxIO.
