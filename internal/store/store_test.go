@@ -18,7 +18,7 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
-var update = flag.Bool("update", false, "regrava o exemplo do health (testdata)")
+var update = flag.Bool("update", false, "regrava os exemplos de testdata (health e eventos)")
 
 const exampleFile = "../../cmd/finger-sniffer-store/testdata/health-example.json"
 

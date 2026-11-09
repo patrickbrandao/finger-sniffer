@@ -111,17 +111,26 @@ func addrPort(ip string, port int) (netip.AddrPort, error) {
 // handleConnID atende uma mensagem de fs.v1.store.conn_id. Requisição inválida fica sem resposta (o cliente
 // segue com conn_id: unknown depois do timeout).
 func (s *Store) handleConnID(m *nats.Msg) {
-	l4, client, server, ts, err := parseConnIDRequest(m.Data)
+	data, err := replyConnID(s.ingest.flows, m.Data, time.Now().UnixNano())
 	if err != nil {
 		s.svc.Log.Warn("invalid conn_id request", "err", err)
 		s.svc.Metrics.Add("store_conn_id_invalid_total", 1)
 		return
 	}
-	id, reserved := s.ingest.flows.connID(l4, client, server, ts, time.Now().UnixNano())
-	data, _ := json.Marshal(event.ConnIDReply{ConnID: id, Reserved: reserved})
 	if err := m.Respond(data); err != nil {
 		s.svc.Log.Warn("conn_id reply", "err", err)
 		return
 	}
 	s.svc.Metrics.Add("store_conn_id_requests_total", 1)
+}
+
+// replyConnID valida a requisição, reserva ou acha o conn_id na tabela de fluxos e devolve a resposta em JSON.
+// now é o instante da chegada da requisição (ns), que conta o prazo da reserva.
+func replyConnID(flows *flowTable, req []byte, now int64) ([]byte, error) {
+	l4, client, server, ts, err := parseConnIDRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	id, reserved := flows.connID(l4, client, server, ts, now)
+	return json.Marshal(event.ConnIDReply{ConnID: id, Reserved: reserved})
 }
