@@ -1,0 +1,26 @@
+10:35:36 relógio: vps602 − local = 3.586091ms (ida e volta 12.108166ms)
+10:35:36 vps602 na versão efcb465 (versions_match=true)
+10:35:38 carga: 50 novas/s, até 200 simultâneas, vida 3.8s, 10m0s (aquecimento 1m0s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+10:36:08 t= 30s abertas=1501 simultâneas=191 (máx 195) eventos ws=10573
+10:36:38 t= 60s abertas=3001 simultâneas=191 (máx 195) eventos ws=21752
+10:37:08 t= 90s abertas=4501 simultâneas=191 (máx 195) eventos ws=32984
+10:37:38 t=120s abertas=6002 simultâneas=192 (máx 200) eventos ws=44208
+10:38:08 t=150s abertas=7502 simultâneas=192 (máx 200) eventos ws=55437
+10:38:38 t=180s abertas=9003 simultâneas=192 (máx 200) eventos ws=66636
+10:39:08 t=210s abertas=10503 simultâneas=192 (máx 200) eventos ws=77873
+10:39:38 t=240s abertas=12004 simultâneas=192 (máx 200) eventos ws=89098
+10:40:08 t=270s abertas=13505 simultâneas=192 (máx 200) eventos ws=100314
+10:40:38 t=300s abertas=15006 simultâneas=192 (máx 200) eventos ws=111552
+10:41:08 t=330s abertas=16506 simultâneas=192 (máx 200) eventos ws=122752
+10:41:38 t=360s abertas=18007 simultâneas=191 (máx 200) eventos ws=134011
+10:42:08 t=390s abertas=19508 simultâneas=191 (máx 200) eventos ws=145229
+10:42:38 t=420s abertas=21008 simultâneas=191 (máx 200) eventos ws=156439
+10:43:08 t=450s abertas=22509 simultâneas=191 (máx 200) eventos ws=167632
+10:43:38 t=480s abertas=24009 simultâneas=191 (máx 200) eventos ws=179009
+10:44:08 t=510s abertas=25510 simultâneas=191 (máx 200) eventos ws=190266
+10:44:38 t=540s abertas=27010 simultâneas=191 (máx 200) eventos ws=201446
+10:45:08 t=570s abertas=28510 simultâneas=191 (máx 200) eventos ws=212675
+10:45:38 fim da geração: 30000 abertas, 0 puladas (teto), esperando as conexões terminarem
+10:45:52 retenção: esperando até 10:46:57 para conferir o expurgo
+10:46:58 relógio no fim: -678.789µs (deriva -4.26488ms)
+10:46:59 dados em tmp/load/raw/official-50c

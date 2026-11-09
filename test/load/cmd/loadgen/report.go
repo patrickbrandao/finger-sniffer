@@ -413,6 +413,25 @@ func renderMD(sd summaryDoc, g gen) string {
 	}
 	fmt.Fprintf(&b, "\nRelógio: vps602 − local %v no início, %v no fim (ida e volta do ssh %v).\n",
 		time.Duration(g.OffsetStartNs), time.Duration(g.OffsetEndNs), time.Duration(g.ClockRTTNs))
+	if len(g.Clock) > 0 {
+		var lo, hi time.Duration
+		acc := 0
+		for _, c := range g.Clock {
+			if !c.Accepted {
+				continue
+			}
+			o := time.Duration(c.OffsetNs)
+			if acc == 0 || o < lo {
+				lo = o
+			}
+			if acc == 0 || o > hi {
+				hi = o
+			}
+			acc++
+		}
+		fmt.Fprintf(&b, "Deslocamento acompanhado a cada 15 s (%d de %d medições aceitas): %v a %v; o atraso do feed usa o vigente na chegada, o RNF-04 é medido só no relógio local.\n",
+			acc, len(g.Clock), lo, hi)
+	}
 	if sd.AllPass {
 		b.WriteString("\n**Todas as metas passaram.**\n")
 	} else {

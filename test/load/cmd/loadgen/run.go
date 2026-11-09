@@ -173,19 +173,20 @@ type healthDoc struct {
 
 // gen é o gen.json: configuração, instantes e resultados brutos agregados.
 type gen struct {
-	Config        config         `json:"config"`
-	Commit        string         `json:"commit"`
-	StartLocal    int64          `json:"start_local"`
-	WarmLocal     int64          `json:"warm_local"`
-	LoadEndLocal  int64          `json:"load_end_local"`
-	OffsetStartNs int64          `json:"offset_start_ns"`
-	OffsetEndNs   int64          `json:"offset_end_ns"`
-	ClockRTTNs    int64          `json:"clock_rtt_ns"`
-	Launched      int            `json:"launched"`
-	Skipped       int            `json:"skipped"`
-	MaxActive     int            `json:"max_active_seen"`
-	Health        []healthSample `json:"health"`
-	Results       results        `json:"results"`
+	Config        config                 `json:"config"`
+	Commit        string                 `json:"commit"`
+	StartLocal    int64                  `json:"start_local"`
+	WarmLocal     int64                  `json:"warm_local"`
+	LoadEndLocal  int64                  `json:"load_end_local"`
+	OffsetStartNs int64                  `json:"offset_start_ns"`
+	OffsetEndNs   int64                  `json:"offset_end_ns"`
+	ClockRTTNs    int64                  `json:"clock_rtt_ns"`
+	Clock         []loadstat.ClockSample `json:"clock"` // medições do deslocamento durante a carga
+	Launched      int                    `json:"launched"`
+	Skipped       int                    `json:"skipped"`
+	MaxActive     int                    `json:"max_active_seen"`
+	Health        []healthSample         `json:"health"`
+	Results       results                `json:"results"`
 }
 
 type results struct {
@@ -300,7 +301,23 @@ func runCmd(args []string) error {
 	defer stop()
 	feedCtx, feedCancel := context.WithCancel(ctx)
 	defer feedCancel()
-	ws, sse := newFeed("ws", offset), newFeed("sse", offset)
+	clk := loadstat.NewClockTrack(time.Now(), offset, rtt)
+	ws, sse := newFeed("ws", clk), newFeed("sse", clk)
+	// relógio medido de novo a cada 15 s: o timesyncd da vps602 corrige por rampa durante a carga
+	go func() {
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-feedCtx.Done():
+				return
+			case <-t.C:
+				if o, r, err := measureClock(c.ClockCmd); err == nil {
+					clk.Update(time.Now(), o, r)
+				}
+			}
+		}
+	}()
 	var feedWG sync.WaitGroup
 	feedWG.Add(2)
 	go func() { defer feedWG.Done(); runWS(feedCtx, c.API, ws) }()
@@ -451,12 +468,14 @@ func runCmd(args []string) error {
 	feedCancel()
 	feedWG.Wait()
 
-	if off2, _, err := measureClock(c.ClockCmd); err == nil {
+	if off2, rtt2, err := measureClock(c.ClockCmd); err == nil {
 		g.OffsetEndNs = int64(off2)
+		clk.Update(time.Now(), off2, rtt2)
 		logf("relógio no fim: %v (deriva %v)", off2, off2-offset)
 	}
 	g.Health = append(g.Health, getHealth(httpc, c.API))
 
+	g.Clock = clk.Samples()
 	computeResults(g, conns, ws, sse, apiSamples, warm, loadEnd, offset)
 	if err := writeTimeline(filepath.Join(c.Out, "timeline.csv"), start, timeline, g.Health); err != nil {
 		return err
@@ -666,7 +685,7 @@ func computeResults(g *gen, conns []connResult, ws, sse *feed, api []apiSample, 
 		if r.Spec.Kind == "h3" {
 			l4 = "quic"
 		}
-		recClient[l4] = append(recClient[l4], float64(ci.Recv-r.End.Add(offset).UnixNano())/1e6)
+		recClient[l4] = append(recClient[l4], float64(ci.RecvLoc-r.End.UnixNano())/1e6)
 		if ci.Ended > 0 {
 			recEnded[l4] = append(recEnded[l4], float64(ci.Recv-ci.Ended)/1e6)
 		}
@@ -825,7 +844,7 @@ func writeConns(p string, conns []connResult, ws, sse *feed, start time.Time, of
 		if ok {
 			row[7], row[8], row[9] = ci.ConnID, ci.Proto, strconv.FormatBool(ci.Degraded)
 			if !r.End.IsZero() {
-				row[10] = f1(float64(ci.Recv-r.End.Add(offset).UnixNano()) / 1e6)
+				row[10] = f1(float64(ci.RecvLoc-r.End.UnixNano()) / 1e6)
 			}
 			if ci.Ended > 0 {
 				row[11] = f1(float64(ci.Recv-ci.Ended) / 1e6)
