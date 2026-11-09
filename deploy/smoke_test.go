@@ -23,12 +23,29 @@ type fakeMirror struct {
 	mu       sync.Mutex
 	statuses map[string]string
 	reasons  map[string][]string
+	metrics  map[string]map[string]int
+	altSvc   string // Alt-Svc das respostas ("" = nenhum)
 
 	plain, tls *httptest.Server
 	dnsSrv     *dns.Server
 	dnsPort    int
 	echo       net.Listener
 	banner     net.Listener
+}
+
+func (f *fakeMirror) setMetric(svc, name string, v int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.metrics[svc] == nil {
+		f.metrics[svc] = map[string]int{"x_total": 1}
+	}
+	f.metrics[svc][name] = v
+}
+
+func (f *fakeMirror) setAltSvc(v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.altSvc = v
 }
 
 func (f *fakeMirror) setStatus(svc, status string, reasons ...string) {
@@ -50,7 +67,11 @@ func (f *fakeMirror) health(w http.ResponseWriter, _ *http.Request) {
 	}
 	services := map[string]svc{}
 	for name, st := range f.statuses {
-		services[name] = svc{Status: st, Version: "test", Reasons: f.reasons[name], Metrics: map[string]int{"x_total": 1}}
+		m := f.metrics[name]
+		if m == nil {
+			m = map[string]int{"x_total": 1}
+		}
+		services[name] = svc{Status: st, Version: "test", Reasons: f.reasons[name], Metrics: m}
 	}
 	b, _ := json.MarshalIndent(map[string]any{"ok": true, "services": services}, "", "  ")
 	w.Header().Set("Content-Type", "application/json")
@@ -59,13 +80,21 @@ func (f *fakeMirror) health(w http.ResponseWriter, _ *http.Request) {
 
 func newFakeMirror(t *testing.T) *fakeMirror {
 	t.Helper()
-	f := &fakeMirror{statuses: map[string]string{}, reasons: map[string][]string{}}
+	f := &fakeMirror{statuses: map[string]string{}, reasons: map[string][]string{}, metrics: map[string]map[string]int{}}
 	for _, s := range []string{"capture", "web", "raw", "dns", "store"} {
 		f.statuses[s] = "ok"
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", f.health)
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hello")) })
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		alt := f.altSvc
+		f.mu.Unlock()
+		if alt != "" {
+			w.Header().Set("Alt-Svc", alt)
+		}
+		_, _ = w.Write([]byte("hello"))
+	})
 	f.plain = httptest.NewServer(mux)
 	f.tls = httptest.NewUnstartedServer(mux)
 	// o handshake recusado pelo curl no teste de TLS estrito é esperado: sem log
@@ -168,6 +197,8 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 		"SMOKE_BANNER_PORT="+port(t, f.banner.Addr().String()),
 		"SMOKE_HEALTH_WAIT=2",
 		"SMOKE_TIMEOUT=2",
+		// o espelho falso não fala h3; o GET por h3 é coberto só contra a vps602
+		"SMOKE_H3_GET=0",
 	)
 	cmd.Env = append(cmd.Env, extra...)
 	out, err := cmd.CombinedOutput()
@@ -182,8 +213,8 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 
 func TestSmokeListSelectsStepsBySVC(t *testing.T) {
 	cases := map[string]string{
-		"":        "health web dns raw store",
-		"web":     "health web",
+		"":        "health web h3 dns raw store",
+		"web":     "health web h3",
 		"dns":     "health dns",
 		"raw":     "health raw",
 		"store":   "health store",
@@ -262,5 +293,84 @@ func TestSmokeFailsWhenServiceUnhealthy(t *testing.T) {
 	out, rc := runSmoke(t, f, "capture")
 	if rc == 0 || !strings.Contains(out, "raw=down") {
 		t.Fatalf("esperava falha do health, rc=%d\n%s", rc, out)
+	}
+}
+
+// selfSignedMirror: espelho falso com web e store autoassinados (o curl usa -k contra o httptest).
+func selfSignedMirror(t *testing.T) *fakeMirror {
+	t.Helper()
+	f := newFakeMirror(t)
+	f.setStatus("web", "degraded", "cert_self_signed")
+	f.setStatus("store", "degraded", "cert_self_signed")
+	return f
+}
+
+// listenUDPOnTLSPort abre um socket UDP no mesmo número de porta do TLS falso, como o listener QUIC da 443.
+func listenUDPOnTLSPort(t *testing.T, f *fakeMirror) {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:"+port(t, f.tls.Listener.Addr().String()))
+	if err != nil {
+		t.Skipf("porta UDP ocupada: %v", err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+}
+
+func TestSmokeH3SkippedWithoutHeartbeat(t *testing.T) {
+	// antes da task 057: o web não anuncia h3 e o passo só avisa
+	f := selfSignedMirror(t)
+	out, rc := runSmoke(t, f, "web")
+	if rc != 0 || !strings.Contains(out, "h3_listening") || !strings.Contains(out, "pulado") {
+		t.Fatalf("esperava aviso de h3 pulado, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeH3PassesWithAltSvcAndListener(t *testing.T) {
+	f := selfSignedMirror(t)
+	f.setMetric("web", "h3_listening", 1)
+	f.setAltSvc(`h3=":443"; ma=60`)
+	listenUDPOnTLSPort(t, f)
+	out, rc := runSmoke(t, f, "web")
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	for _, want := range []string{"h3 Alt-Svc", `h3=":443"; ma=60`, "h3 listener udp", "SMOKE_H3_GET=0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("saída sem %q\n%s", want, out)
+		}
+	}
+	if _, err := exec.LookPath("ss"); err == nil && !strings.Contains(out, "ss -Hlun") {
+		t.Errorf("com ss no host, o listener UDP deveria ser conferido\n%s", out)
+	}
+}
+
+func TestSmokeH3FailsWithoutAltSvc(t *testing.T) {
+	f := selfSignedMirror(t)
+	f.setMetric("web", "h3_listening", 1)
+	listenUDPOnTLSPort(t, f)
+	out, rc := runSmoke(t, f, "web")
+	if rc == 0 || !strings.Contains(out, "sem Alt-Svc h3") {
+		t.Fatalf("esperava falha sem Alt-Svc, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeH3FailsWithoutUDPListener(t *testing.T) {
+	if _, err := exec.LookPath("ss"); err != nil {
+		t.Skip("ss ausente (só Linux)")
+	}
+	f := selfSignedMirror(t)
+	f.setMetric("web", "h3_listening", 1)
+	f.setAltSvc(`h3=":443"; ma=60`)
+	out, rc := runSmoke(t, f, "web")
+	if rc == 0 || !strings.Contains(out, "nenhum socket UDP") {
+		t.Fatalf("esperava falha sem listener UDP, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeH3FailsWhenListenerDown(t *testing.T) {
+	f := selfSignedMirror(t)
+	f.setStatus("web", "degraded", "cert_self_signed", "h3_listener_down")
+	out, rc := runSmoke(t, f, "web")
+	if rc == 0 || !strings.Contains(out, "h3_listener_down") {
+		t.Fatalf("esperava falha com h3_listener_down, rc=%d\n%s", rc, out)
 	}
 }

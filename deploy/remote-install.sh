@@ -147,6 +147,12 @@ if [ "$(sysctl -n net.core.somaxconn)" != 4096 ]; then
 else
 	echo "  sysctl: aplicado"
 fi
+# sem firewall com estado nem conntrack (spec 016 RF-03): só avisa, o health também aponta
+if [ "$(nft list ruleset 2>/dev/null | grep -c . || true)" -gt 0 ]; then
+	echo "  nft: AVISO ruleset não vazio"
+else
+	echo "  nft: ruleset vazio"
+fi
 # serviços respondendo (deploy/smoke.sh): com SVC=<svc>, só os passos daquele serviço + health
 SVC="$SVC" bash "$DEST/deploy/smoke.sh" || fail=1
 if [ "$fail" = 1 ]; then
