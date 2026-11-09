@@ -1,1 +1,0 @@
-- Infra: `.env.example` completo (`FS_HEALTH_DOWN_AFTER`, `FS_SYSCTL_FILE`, `FS_TCP_CLOSE_GRACE`, `FS_WEB_PROXY_FIELDS`, comentadas) e teste que compara as chaves `FS_*` do código de produção com o `.env.example`, sem falta nem sobra (task 084).

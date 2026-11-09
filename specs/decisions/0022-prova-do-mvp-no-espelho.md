@@ -1,6 +1,6 @@
 # 0022 — Prova do MVP no espelho: matriz direta e medição das metas RNF
 
-Status: aceita (QUIC medido à parte, meta de 3 s: ver 0024; semântica do `ts` do feed: ver 0025)
+Status: aceita (semântica do `ts` do feed: ver 0025; QUIC com a mesma meta de 500 ms e `degraded` com tráfego alheio: ver 0026)
 Data: 2026-11-09
 
 ## Contexto
@@ -27,7 +27,7 @@ Akamai conferidas com FoxIO e tshark, e as metas de RNF atingidas no teste de ca
     reportados; `stream.dropped` = 0 para um cliente que lê em dia.
   - RNF-03 (API): `GET /connections/{id}` e `GET /probes/{id}` com **p95 < 100 ms**.
   - RNF-04 (registro completo): fim da conexão no cliente → registro fechado na API, **p95 ≤ 500 ms**; máximo
-    reportado. QUIC é reportado à parte, com meta de p95 ≤ 3 s até a task 090 (ADR 0024).
+    reportado. QUIC é reportado à parte, com a mesma meta (fim = `http3.connection` com `close`; ADR 0026).
   - RNF-01: nenhuma conexão perdida (todo probe da carga tem registro), `degraded` = 0 abaixo do perfil,
     `dropped_events_total` = 0 e `kernel_drops` = 0; CPU e RAM por serviço dentro dos `MemoryMax` das units.
   - RNF-05 e RNF-07: retenção e frame ≤ MTU+14 conferidos durante a carga.

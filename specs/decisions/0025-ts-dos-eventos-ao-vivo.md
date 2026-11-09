@@ -1,6 +1,6 @@
 # 0025 — `ts` dos eventos ao vivo: instante em que o espelho pôde emitir o fato
 
-Status: aceita
+Status: aceita (`ts` do `packet.stray` decidido depois do pacote: ver 0026)
 Data: 2026-11-09
 
 ## Contexto

@@ -37,15 +37,29 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
   "Métricas") e as recebidas no heartbeat dos demais.
-- RF-11: modo degradado (RNF-01): acima de 200 conexões simultâneas ou 50 novas/s, mantém o resumo, para de
-  guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
-- RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95; QUIC: ≤ 3 s depois
-  do `http3.connection` com `close`, exceção provisória da ADR 0024); evento ao vivo < 1 s (p99), medidos como na
+- RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (200) conexões simultâneas ou `FS_MAX_NEW_CONNS_PER_S`
+  (50) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
+  Contagem (ADR 0026):
+  - simultâneas = conexões TCP e QUIC vivas, de qualquer cliente; as já fechadas (FIN dos dois lados ou RST) que
+    só esperam a folga não contam; fluxos UDP que não são QUIC (DNS e outros) não entram nos limites, mas saem
+    `degraded` se chegarem com o limite passado; `fs_store_connections_open` continua contando a tabela inteira;
+  - novas/s = balde de `FS_MAX_NEW_CONNS_PER_S` fichas (capacidade de 1 s) recarregado pelo instante de captura;
+    pacotes fora de ordem não recarregam; tentativa que vira avulso (SYN recusado ou sem resposta) devolve a ficha;
+  - a decisão pode tolerar a reordenação de uma rajada por até 100 ms (fechamentos do mesmo lote ou da janela
+    aplicados antes, ou excesso que precisa persistir) — task 108.
+- RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95, TCP e QUIC; no QUIC
+  o fim é o `http3.connection` com `close`, ADR 0026); evento ao vivo < 1 s (p99), medidos como na
   ADR 0022 (`ts` do evento ao vivo pela ADR 0025). Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
   150 req/s, p95 ~0,6 s e máximo ~1,1 s.
 
 ## Comportamento
-- Fim de conexão: FIN dos dois lados, RST, ou ociosidade > `idle` + 30 s sem pacotes.
+- Fim de conexão (ADR 0026): RST fecha na hora; FIN dos dois lados fecha no ACK final (os dois FIN confirmados)
+  ou, sem ele, depois de `FS_TCP_CLOSE_GRACE` (padrão 100 ms; aceita 0–500 ms, fora disso o store não sobe);
+  ociosidade > `idle` + 30 s sem pacotes.
+- Pacotes tardios: até 2 s depois do fim (instante de captura), pacotes da mesma 5-tupla (TCP: ACK, RST depois do
+  FIN; QUIC: datagramas da mesma 5-tupla/DCID) entram no pcap e nos totais do registro já gravado e contam em
+  `fs_store_late_packets_total`; não viram conexão nova nem avulso. SYN novo (TCP) ou Initial com DCID novo (QUIC)
+  abre conexão nova. Fluxo que virou avulso não recebe tardios.
 - Eventos de aplicação (`fs.v1.web.*`, `fs.v1.raw.*`, `fs.v1.dns.query`) são associados pela `flow` do envelope à
   conexão com a mesma 5-tupla cujo intervalo contém o `ts` do evento (com folga de 2 s antes do início, porque o
   evento pode chegar antes do lote de pacotes do SYN):
@@ -62,7 +76,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 | `web.http1.request` | `http[]` | acrescenta, ordenado por `index`; `requests` = total h1+h2+h3 |
 | `web.http2.connection` | `http2` (nível de conexão) | a última versão vale; preserva `streams` |
 | `web.http2.stream` | `http2.streams[]` | acrescenta ou substitui por `stream_id` |
-| `web.http3.connection` | `http3` (nível de conexão), `tls` (= `http3.client_hello`), `times.tls_done` | a última versão vale; preserva `requests`; com `close` preenchido, fecha a conexão 2 s depois (ADR 0019) |
+| `web.http3.connection` | `http3` (nível de conexão), `tls` (= `http3.client_hello`), `times.tls_done` | a última versão vale; preserva `requests`; com `close` preenchido, fecha a conexão `FS_TCP_CLOSE_GRACE` depois (ADR 0026) |
 | `web.http3.request` | `http3.requests[]` | acrescenta ou substitui por `stream_id`; conta em `requests` |
 | `web.websocket.frame` | `websocket` | o primeiro frame com `upgrade` preenche `over/path/extensions/subprotocol`; frames acrescentados (teto da ADR 0018, `frames_truncated`); `close` preenche `websocket.close` |
 | `raw.session`, `web.raw.session` | `raw` | substitui |
@@ -76,7 +90,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   fica em `/api/v1/dns` — ADR 0023), `quic/h3` (`http3.connection` com ALPN `h3` negociado) ou `quic`
   (Initial analisado sem h3: versão desconhecida, handshake falho, outro ALPN). Sem evento de aplicação: `tcp` ou
   `udp`.
-- Fim de conexão QUIC (ADR 0019): `http3.connection` com `close` → `end` 2 s depois, `close.by` do web,
+- Fim de conexão QUIC (ADR 0019, 0026): `http3.connection` com `close` → `end` `FS_TCP_CLOSE_GRACE` depois (a
+  mesma folga do TCP; o nome fica por compatibilidade), `close.by` do web,
   `close.how = quic_close` (ou `timeout` quando o web informa `idle_timeout`). O `tls` do registro QUIC é o ClientHello do Initial, mas
   o `proto` não ganha o prefixo `tls/`. Fluxo UDP com evento h3 e sem
   `close` usa ociosidade `FS_IDLE_DEFAULT` + 30 s, não a de UDP.
@@ -91,7 +106,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
   openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
   ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno. Toda rota do
-  openapi declara os códigos que devolve (contrato 0.3.3; 0.3.4 descreve o `LiveEvent.ts`).
+  openapi declara os códigos que devolve (contrato 0.3.3; 0.3.4 descreve o `LiveEvent.ts`; 0.3.5, o `ts` do `packet.stray`, ADR 0026).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
@@ -111,7 +126,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (metadado `Timestamp` do JetStream; sem ele, o recebimento pelo consumidor), não o `ts` do envelope (o
   `raw.session` leva o accept e só sai no fim); atualização de registro já gravado → instante do store;
   `connection.closed` → fim (FIN/RST/`quic_close`) ou, por ociosidade e órfã do reinício, o instante em que o
-  store decidiu fechar; `http.request`/`dns.query`/`packet.stray` → `ts` do envelope ou do pacote;
+  store decidiu fechar; `http.request`/`dns.query` → `ts` do envelope; `packet.stray` → `ts` do pacote quando
+  emitido na chegada (RST avulso, ICMP) ou, para o avulso decidido pelo fim do fluxo por ociosidade (UDP ou SYN
+  sem resposta), o instante da decisão (ADR 0026);
   `stream.dropped` → envio. Os tempos do fato ficam em `data.started`/`data.ended`.
 - `conn_id` e `probe_id` do envelope do `LiveEvent` preenchidos quando houver. Filtros: `probe` (= `probe_id`),
   `src_ip` (cliente; para `dns.query`, o resolvedor), `dst_port` (porta do espelho; `dns.query` = 53), `kind`
@@ -127,8 +144,10 @@ Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no h
 `fs_service_info{service,version}`, `fs_store_events_ingested_total{subject}`, `fs_store_ingest_lag_seconds`
 (histograma: `ts` do envelope → commit), `fs_store_connections_open`, `fs_store_connections_total{l4,proto}`,
 `fs_store_connections_degraded_total`, `fs_store_stray_packets_total`, `fs_store_dns_queries_total`,
-`fs_store_purged_total{reason=age|size}`, `fs_store_db_bytes`, `fs_store_record_ready_seconds` (histograma: fim →
-registro gravado), `fs_store_live_clients{transport=sse|ws}`, `fs_store_live_events_total{kind}`,
+`fs_store_purged_total{reason=age|size}`, `fs_store_db_bytes`, `fs_store_late_packets_total`,
+`fs_store_record_ready_seconds{reason=close|quic_close|idle}` (histograma: fim → registro gravado; `close` = FIN/RST,
+`quic_close` = close do web, `idle` = ociosidade; os três pré-criados; a meta RNF-01 é lida em `close` e
+`quic_close`, ADR 0026), `fs_store_live_clients{transport=sse|ws}`, `fs_store_live_events_total{kind}`,
 `fs_store_live_dropped_total`, `fs_store_live_delay_seconds` (histograma),
 `fs_store_api_requests_total{route,code}` e `fs_store_api_request_duration_seconds{route}` (histograma; `route` =
 padrão do mux, nunca o caminho com IDs).
@@ -185,7 +204,12 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - [ ] `?wait=10s` num probe com só consultas DNS espera a primeira conexão e responde quando ela fecha.
 - [ ] Feed global pelo `/ws` e pelo `/stream`: evento de uma requisição h1/h2/h3 chega em < 1 s; cliente que não lê
       recebe `stream.dropped` e não atrasa o ingest; 65º cliente recebe 503.
-- [ ] Conexão `quic/h3` encerrada pelo cliente fecha no store em ≤ 3 s, com `close.how = quic_close`.
+- [ ] Conexão `quic/h3` encerrada pelo cliente fecha no store em ≤ 500 ms (p95) do `http3.connection` com
+      `close`, com `close.how = quic_close`; datagramas tardios entram no mesmo registro (ADR 0026).
+- [ ] FIN dos dois lados com ACK final fecha o registro no ACK; sem ACK, depois de `FS_TCP_CLOSE_GRACE`; RST fecha
+      na hora; ACK/RST tardio até 2 s entra no registro gravado, sem conexão nova nem avulso.
+- [ ] O perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS e varreduras por cima) não marca
+      `degraded`; excesso sustentado acima de 200 vivas ou de 50 novas/s marca.
 - [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).
 
 ## Fora de escopo
@@ -201,3 +225,5 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - specs/decisions/0019-http3-eventos-e-fim-quic.md
 - specs/decisions/0020-tempo-real-sem-replay.md
 - specs/decisions/0022-prova-do-mvp-no-espelho.md
+- specs/decisions/0025-ts-dos-eventos-ao-vivo.md
+- specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md
