@@ -12,6 +12,8 @@ type Retention struct {
 	maxAge   time.Duration
 	maxBytes int64
 	batch    int
+	// OnPurge, se definido, recebe as conexões expurgadas por motivo (age ou size).
+	OnPurge func(reason string, n int64)
 }
 
 // NewRetention cria o expurgador.
@@ -30,6 +32,7 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 			return total, err
 		}
 		total += n
+		r.purged("age", n)
 		if n < int64(r.batch) {
 			break
 		}
@@ -62,9 +65,16 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 			}
 		}
 		total += n
+		r.purged("size", n)
 	}
 	_, err := r.db.ExecContext(ctx, "PRAGMA incremental_vacuum(4096)")
 	return total, err
+}
+
+func (r *Retention) purged(reason string, n int64) {
+	if r.OnPurge != nil && n > 0 {
+		r.OnPurge(reason, n)
+	}
 }
 
 func (r *Retention) exec(ctx context.Context, q string, args ...any) (int64, error) {

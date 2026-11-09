@@ -57,7 +57,13 @@ type Ingestor struct {
 	appReloads  int                        // releituras completas de app_events (testes de custo)
 	live        *Hub                       // tempo real (nil = desligado)
 	liveBatch   []*liveMsg                 // eventos ao vivo do lote em curso, publicados após o commit
+	prom        *storeMetrics              // métricas do /metrics (nil = desligadas)
+	appTs       []int64                    // ts dos eventos de aplicação do lote (lag)
+	readyEnds   []int64                    // fim das conexões finalizadas na transação (record_ready)
 }
+
+// SetMetrics liga as métricas Prometheus do ingest.
+func (in *Ingestor) SetMetrics(m *storeMetrics) { in.prom = m }
 
 // SetLive liga o tempo real: os lotes confirmados passam a alimentar o hub.
 func (in *Ingestor) SetLive(h *Hub) { in.live = h }
@@ -193,8 +199,10 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 
 	var tss []int64
 	var ended []*conn
+	in.appTs = in.appTs[:0]
 	for _, m := range msgs {
 		subject := m.Subject()
+		in.prom.event(subject)
 		if isAppSubject(subject) {
 			if err := in.appMessage(ctx, tx, subject, m.Data()); err != nil {
 				return err
@@ -230,6 +238,11 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 		in.lags = append(in.lags, float64(now-ts)/1e6)
 	}
 	in.lagMu.Unlock()
+	if in.prom != nil {
+		for _, ts := range append(tss, in.appTs...) {
+			in.prom.lag(time.Duration(now - ts))
+		}
+	}
 	in.metrics.Add("store_packets_total", float64(len(tss)))
 	return in.Finalize(ctx, ended)
 }
@@ -242,6 +255,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	}
 	if res.stray {
 		in.metrics.Add("store_stray_total", 1)
+		in.prom.strayPackets(1)
 		in.liveStray(fi, p.TsNs, strayRecord(fi, p.TsNs, p.Dir, int(p.WireLen)))
 		return st.insertStray(ctx, fi, p)
 	}
@@ -250,6 +264,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		in.metrics.Add("store_connections_total", 1)
 		if c.degraded {
 			in.metrics.Add("store_degraded_connections_total", 1)
+			in.prom.degradedConn()
 		}
 		rec, _ := json.Marshal(c.record(0, ""))
 		if _, err := st.insConn.ExecContext(ctx, c.id, l4Name(c.l4), c.family, c.client.Addr().String(), int(c.client.Port()),
@@ -287,6 +302,7 @@ func (in *Ingestor) Finalize(ctx context.Context, conns []*conn) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	in.readyEnds = in.readyEnds[:0]
 	for _, c := range conns {
 		if err := in.finalizeOne(ctx, tx, c); err != nil {
 			in.liveBatch = nil
@@ -298,6 +314,12 @@ func (in *Ingestor) Finalize(ctx context.Context, conns []*conn) error {
 		return err
 	}
 	in.publishLive()
+	if in.prom != nil {
+		now := in.now().UnixNano()
+		for _, end := range in.readyEnds {
+			in.prom.ready(time.Duration(max(now-end, 0)))
+		}
+	}
 	return nil
 }
 
@@ -336,6 +358,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 			}
 		}
 		in.metrics.Add("store_stray_total", float64(len(pkts)))
+		in.prom.strayPackets(len(pkts))
 		_, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", c.id)
 		return err
 	}
@@ -368,6 +391,8 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		return err
 	}
 	in.liveConn(LiveConnClosed, summaryFrom(r), end)
+	in.prom.connection(r.L4, r.Proto)
+	in.readyEnds = append(in.readyEnds, end)
 	return nil
 }
 

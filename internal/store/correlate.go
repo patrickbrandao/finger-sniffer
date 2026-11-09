@@ -146,6 +146,7 @@ func (in *Ingestor) appMessage(ctx context.Context, tx *sql.Tx, subject string, 
 		in.metrics.Add("store_bad_events_total", 1)
 		return nil
 	}
+	in.appTs = append(in.appTs, ev.ts)
 	in.metrics.Add("store_app_events_total", 1)
 	// DNS por UDP (ou sem 5-tupla) não tem conexão: vai direto para dns_queries.
 	if subject == event.SubjectDNSQuery && (!ev.hasFlow() || ev.l4 != protoTCP) {
@@ -239,6 +240,7 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 	}
 	in.eventOnly[k] = &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()}
 	in.liveConn(LiveConnOpened, summaryFrom(eventOnlyRecord(id, ev, ev.ts)), ev.ts)
+	in.prom.connection(l4Name(ev.l4), l4Name(ev.l4))
 	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID.
 	in.flows.reserveFor(k, id, now)
 	in.metrics.Add("store_event_only_connections_total", 1)

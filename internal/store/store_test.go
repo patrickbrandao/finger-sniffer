@@ -212,7 +212,8 @@ func TestHealthExample(t *testing.T) {
 
 func TestAPI(t *testing.T) {
 	s := exampleStore(t)
-	api := &API{OpenAPI: []byte("openapi: 3.1.0\n"), Health: s.HealthAt, Now: func() time.Time { return t0 }}
+	prom := newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, t0) }, func() int { return 0 }, nil)
+	api := &API{OpenAPI: []byte("openapi: 3.1.0\n"), Health: s.HealthAt, Now: func() time.Time { return t0 }, Prom: prom}
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 

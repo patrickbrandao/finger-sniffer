@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
 // API serve as rotas do store implementadas nesta fase: health, contrato e métricas (spec 004).
@@ -24,6 +21,8 @@ type API struct {
 	W *sql.DB
 	// Live é o hub do tempo real (nil desliga /stream e /ws).
 	Live *Hub
+	// Prom são as métricas do /metrics e da própria API (nil desliga /metrics).
+	Prom *storeMetrics
 }
 
 // Handler devolve o http.Handler da 9001 (HTTP) com CORS aberto (ADR 0007), incluindo /metrics.
@@ -36,8 +35,8 @@ func (a *API) handler(withMetrics bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", a.health)
 	mux.HandleFunc("GET /api/v1/openapi.yaml", a.openapi)
-	if withMetrics {
-		mux.HandleFunc("GET /metrics", a.metrics)
+	if withMetrics && a.Prom != nil {
+		mux.Handle("GET /metrics", a.Prom.handler)
 	}
 	if a.Q != nil {
 		mux.HandleFunc("GET /api/v1/connections", a.listConnections)
@@ -56,7 +55,7 @@ func (a *API) handler(withMetrics bool) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
-	return cors(mux)
+	return cors(a.Prom.instrument(mux))
 }
 
 func cors(next http.Handler) http.Handler {
@@ -80,34 +79,6 @@ func (a *API) health(w http.ResponseWriter, r *http.Request) {
 func (a *API) openapi(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
 	_, _ = w.Write(a.OpenAPI)
-}
-
-// metrics expõe as métricas de cada serviço (recebidas no heartbeat) no formato texto do Prometheus.
-func (a *API) metrics(w http.ResponseWriter, r *http.Request) {
-	h := a.Health(r.Context(), a.Now())
-	var b strings.Builder
-	b.WriteString("# TYPE fs_service_up gauge\n")
-	for _, name := range sortedKeys(h.Services) {
-		up := 0
-		if h.Services[name].Status != event.StatusDown {
-			up = 1
-		}
-		fmt.Fprintf(&b, "fs_service_up{service=%q} %d\n", name, up)
-	}
-	for _, name := range sortedKeys(h.Services) {
-		m := h.Services[name].Metrics
-		for _, k := range sortedKeys(m) {
-			fmt.Fprintf(&b, "fs_%s{service=%q} %g\n", sanitize(k), name, m[k])
-		}
-	}
-	if h.Host != nil {
-		fmt.Fprintf(&b, "fs_host_syncookies_sent %d\n", h.Host.SyncookiesSent)
-		if h.Host.Store != nil {
-			fmt.Fprintf(&b, "fs_store_db_bytes %d\nfs_store_connections %d\n", h.Host.Store.DBBytes, h.Host.Store.Connections)
-		}
-	}
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	_, _ = w.Write([]byte(b.String()))
 }
 
 // sanitize deixa só [a-zA-Z0-9_] no nome da métrica.

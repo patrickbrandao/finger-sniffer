@@ -118,6 +118,7 @@ type Store struct {
 	openapi []byte
 	certs   *certs.Store // nil quando a 9000 está desligada
 	live    *Hub
+	prom    *storeMetrics
 }
 
 // New abre o banco e prepara o store.
@@ -152,6 +153,8 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.ingest = NewIngestor(db, cfg.Ingest, svc.Log, svc.Metrics)
 	s.live = NewHub(cfg.LiveBuffer, cfg.LiveMax)
 	s.ingest.SetLive(s.live)
+	s.prom = newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, time.Now()) }, s.ingest.flows.open, s.live)
+	s.ingest.SetMetrics(s.prom)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
 	// O estado dos certificados da 9000 também conta (spec 015 RF-05: autoassinado ou expirando = degraded).
@@ -224,7 +227,7 @@ func (s *Store) Run(ctx context.Context) error {
 	go s.retentionLoop(ctx)
 	go s.live.Run(ctx.Done())
 
-	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live}
+	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom}
 	srv := &http.Server{
 		Addr: s.cfg.HTTPAddr, Handler: api.Handler(),
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
@@ -288,6 +291,7 @@ func (s *Store) ensureStream(ctx context.Context) jetstream.Consumer {
 // retentionLoop expurga a cada 10 s (spec 004 RF-06).
 func (s *Store) retentionLoop(ctx context.Context) {
 	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
+	r.OnPurge = s.prom.purge
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
 	for {
