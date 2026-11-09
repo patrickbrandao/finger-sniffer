@@ -1,0 +1,51 @@
+2026-11-09T23:12:00Z total=1 foreign=1 foreign_tcp_quic=0 20.51.189.90:102
+2026-11-09T23:12:15Z total=494 foreign=1 foreign_tcp_quic=0 198.235.24.77:1900
+2026-11-09T23:12:30Z total=762 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:12:45Z total=782 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:13:00Z total=790 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:13:16Z total=753 foreign=2 foreign_tcp_quic=0 139.162.14.167:161 157.230.178.44:5060
+2026-11-09T23:13:31Z total=769 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:13:46Z total=777 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:14:01Z total=788 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:14:17Z total=756 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:14:32Z total=766 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:14:47Z total=780 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:15:02Z total=792 foreign=2 foreign_tcp_quic=2 2.57.121.112:22 168.144.243.166:8080
+2026-11-09T23:15:18Z total=751 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:15:33Z total=755 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:15:48Z total=772 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:16:03Z total=788 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:16:18Z total=797 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:16:34Z total=762 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:16:49Z total=774 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:17:04Z total=787 foreign=1 foreign_tcp_quic=0 139.162.88.198:1194
+2026-11-09T23:17:19Z total=793 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:17:35Z total=760 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:17:50Z total=770 foreign=1 foreign_tcp_quic=1 128.199.97.232:22
+2026-11-09T23:18:05Z total=784 foreign=1 foreign_tcp_quic=1 128.199.97.232:22
+2026-11-09T23:18:20Z total=796 foreign=2 foreign_tcp_quic=2 192.155.88.231:8443 192.155.88.231:8443
+2026-11-09T23:18:36Z total=756 foreign=5 foreign_tcp_quic=5 192.155.88.231:8443 167.99.66.236:8443 167.99.66.236:8443 192.155.88.231:8443 192.155.88.231:8443
+2026-11-09T23:18:51Z total=774 foreign=6 foreign_tcp_quic=6 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443
+2026-11-09T23:19:06Z total=789 foreign=7 foreign_tcp_quic=7 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443
+2026-11-09T23:19:22Z total=752 foreign=5 foreign_tcp_quic=5 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443
+2026-11-09T23:19:37Z total=768 foreign=5 foreign_tcp_quic=5 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443 192.155.88.231:8443
+2026-11-09T23:19:52Z total=774 foreign=1 foreign_tcp_quic=1 172.236.228.197:8443
+2026-11-09T23:20:07Z total=789 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:20:23Z total=752 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:20:38Z total=774 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:20:54Z total=755 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:21:09Z total=788 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:21:25Z total=772 foreign=2 foreign_tcp_quic=2 195.182.16.23:8080 195.182.16.23:8080
+2026-11-09T23:21:41Z total=751 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:21:56Z total=782 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:22:12Z total=413 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:22:27Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:22:42Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:22:58Z total=1 foreign=1 foreign_tcp_quic=1 168.144.243.166:443
+2026-11-09T23:23:13Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:23:28Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:23:43Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:23:58Z total=2 foreign=2 foreign_tcp_quic=0 151.243.11.230:53 69.5.169.230:3283
+2026-11-09T23:24:13Z total=1 foreign=1 foreign_tcp_quic=0 200.20.224.100:48096
+2026-11-09T23:24:28Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T23:24:43Z total=0 foreign=0 foreign_tcp_quic=0 

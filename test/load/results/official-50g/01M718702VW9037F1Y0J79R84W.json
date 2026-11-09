@@ -1,0 +1,930 @@
+{
+  "conn_id": "01M718702VW9037F1Y0J79R84W",
+  "probe_id": "ldk4q7iqs5tlenp4",
+  "proto": "tls/h2",
+  "l4": "tcp",
+  "family": 4,
+  "src": {
+    "ip": "191.37.76.135",
+    "port": 61412
+  },
+  "dst": {
+    "ip": "172.233.24.85",
+    "port": 8443
+  },
+  "started": "2026-11-09T22:52:40.395671719Z",
+  "ended": "2026-11-09T22:52:44.211743835Z",
+  "requests": 3,
+  "degraded": true,
+  "pcap_truncated": false,
+  "offload_suspect": false,
+  "times": {
+    "syn": "2026-11-09T22:52:40.395671719Z",
+    "syn_ack": "2026-11-09T22:52:40.395682059Z",
+    "established": "2026-11-09T22:52:40.411629414Z",
+    "tls_done": "2026-11-09T22:52:40.445668452Z",
+    "first_data": "2026-11-09T22:52:40.416801857Z",
+    "client_fin": "2026-11-09T22:52:44.195359396Z",
+    "server_fin": "2026-11-09T22:52:44.195796682Z",
+    "client_rst": "2026-11-09T22:52:44.211743835Z",
+    "server_rst": null,
+    "end": "2026-11-09T22:52:44.211743835Z"
+  },
+  "close": {
+    "by": "client",
+    "how": "fin",
+    "idle_before_close_ms": 1261.207673,
+    "half_close": true
+  },
+  "totals": {
+    "in": {
+      "app_bytes": 1946,
+      "segments": 21,
+      "data_segments": 9,
+      "retransmits": 0,
+      "out_of_order": 0
+    },
+    "out": {
+      "app_bytes": 6474,
+      "segments": 21,
+      "data_segments": 14,
+      "retransmits": 0,
+      "out_of_order": 0
+    }
+  },
+  "ip": {
+    "ttl": 48,
+    "ttl_initial": 64,
+    "hops": 16,
+    "ip_id_syn": 0,
+    "ip_id_pattern": "zero",
+    "df": true,
+    "tos": 2,
+    "dscp": 0,
+    "ecn": "ect0",
+    "options_hex": "",
+    "fragmented": false,
+    "flow_label": null,
+    "traffic_class": null,
+    "packets": {
+      "syn": {
+        "ttl": 48,
+        "df": true,
+        "ip_id": 0,
+        "tos": 0,
+        "dscp": 0,
+        "ecn": "not-ect",
+        "flow_label": null,
+        "total_length": 64,
+        "options_hex": "",
+        "fragmented": false
+      },
+      "ack": {
+        "ttl": 48,
+        "df": true,
+        "ip_id": 0,
+        "tos": 0,
+        "dscp": 0,
+        "ecn": "not-ect",
+        "flow_label": null,
+        "total_length": 52,
+        "options_hex": "",
+        "fragmented": false
+      },
+      "first_data": {
+        "ttl": 48,
+        "df": true,
+        "ip_id": 0,
+        "tos": 2,
+        "dscp": 0,
+        "ecn": "ect0",
+        "flow_label": null,
+        "total_length": 1470,
+        "options_hex": "",
+        "fragmented": false
+      }
+    }
+  },
+  "tcp": {
+    "syn": {
+      "src_port": 61412,
+      "isn": 4174612145,
+      "window": 65535,
+      "flags": "SEC",
+      "urgent_ptr": 0,
+      "header_len": 44,
+      "options": [
+        [
+          "mss",
+          1430
+        ],
+        [
+          "nop"
+        ],
+        [
+          "wscale",
+          6
+        ],
+        [
+          "nop"
+        ],
+        [
+          "nop"
+        ],
+        [
+          "ts",
+          224663567,
+          0
+        ],
+        [
+          "sack_perm"
+        ],
+        [
+          "eol"
+        ]
+      ],
+      "payload_b64": null,
+      "tfo": false
+    },
+    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6",
+    "p0f": "4:48+16:0:1430:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0",
+    "os_guess": "Mac OS X",
+    "window_series": [
+      [
+        0,
+        65535
+      ],
+      [
+        15.958,
+        131904
+      ],
+      [
+        44.227,
+        129088
+      ],
+      [
+        44.314,
+        127168
+      ],
+      [
+        44.315,
+        131072
+      ],
+      [
+        66.202,
+        131008
+      ],
+      [
+        66.318,
+        131072
+      ],
+      [
+        66.318,
+        130880
+      ],
+      [
+        1266.234,
+        131072
+      ],
+      [
+        1282.239,
+        131008
+      ],
+      [
+        2533.862,
+        131072
+      ],
+      [
+        2554.404,
+        130944
+      ],
+      [
+        3799.687,
+        131072
+      ]
+    ],
+    "ack_pattern": "delayed",
+    "psh_used": true,
+    "keepalive_probes": [],
+    "zero_window": false,
+    "rst_with_data": false,
+    "segments_in": [
+      [
+        21.13,
+        1418
+      ],
+      [
+        21.131,
+        141
+      ],
+      [
+        49.579,
+        64
+      ],
+      [
+        49.802,
+        92
+      ],
+      [
+        49.817,
+        101
+      ],
+      [
+        66.318,
+        31
+      ],
+      [
+        1266.234,
+        39
+      ],
+      [
+        2533.862,
+        36
+      ],
+      [
+        3799.687,
+        24
+      ]
+    ],
+    "segments_out": [
+      [
+        27.982,
+        1418
+      ],
+      [
+        27.984,
+        1418
+      ],
+      [
+        28.002,
+        1418
+      ],
+      [
+        28.004,
+        1418
+      ],
+      [
+        28.074,
+        77
+      ],
+      [
+        50.397,
+        73
+      ],
+      [
+        50.474,
+        44
+      ],
+      [
+        50.965,
+        110
+      ],
+      [
+        51.073,
+        118
+      ],
+      [
+        1266.509,
+        60
+      ],
+      [
+        1266.599,
+        118
+      ],
+      [
+        2538.388,
+        60
+      ],
+      [
+        2538.48,
+        118
+      ],
+      [
+        3799.775,
+        24
+      ]
+    ],
+    "ts_clock_hz": 1000.08,
+    "ts_initial": 224663567,
+    "ts_clock_group": "clk-01M718702VW9037F1Y0J79R84W",
+    "rtt_handshake_ms": 15.947,
+    "rtt_app_ms": 21.505,
+    "syn_cookie_server": false,
+    "retransmits_in": 0
+  },
+  "tls": {
+    "alerts": [],
+    "alpn": [
+      "h2"
+    ],
+    "alps": [],
+    "cipher_suites": [
+      {
+        "code": 49195,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+      },
+      {
+        "code": 49199,
+        "name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+      },
+      {
+        "code": 49196,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+      },
+      {
+        "code": 49200,
+        "name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+      },
+      {
+        "code": 52393,
+        "name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+      },
+      {
+        "code": 52392,
+        "name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+      },
+      {
+        "code": 49161,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
+      },
+      {
+        "code": 49171,
+        "name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+      },
+      {
+        "code": 49162,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+      },
+      {
+        "code": 49172,
+        "name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+      },
+      {
+        "code": 4865,
+        "name": "TLS_AES_128_GCM_SHA256"
+      },
+      {
+        "code": 4866,
+        "name": "TLS_AES_256_GCM_SHA384"
+      },
+      {
+        "code": 4867,
+        "name": "TLS_CHACHA20_POLY1305_SHA256"
+      }
+    ],
+    "client_hello_b64": "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",
+    "client_hello_records": 1,
+    "client_hello_segments": 2,
+    "compress_certificate": [],
+    "compression_methods": [
+      0
+    ],
+    "delegated_credentials": [],
+    "early_data": false,
+    "ec_point_formats": [
+      0
+    ],
+    "encrypted_client_hello": false,
+    "extensions": [
+      {
+        "data_hex": "002d00002a6c646b34713769717335746c656e70342e646e732d6d6f6e69746f722e746d736f66742e636f6d2e6272",
+        "name": "server_name",
+        "type": 0
+      },
+      {
+        "data_hex": "0100",
+        "name": "ec_point_formats",
+        "type": 11
+      },
+      {
+        "data_hex": "00",
+        "name": "renegotiation_info",
+        "type": 65281
+      },
+      {
+        "data_hex": "",
+        "name": "extended_main_secret",
+        "type": 23
+      },
+      {
+        "data_hex": "",
+        "name": "signed_certificate_timestamp",
+        "type": 18
+      },
+      {
+        "data_hex": "0100000000",
+        "name": "status_request",
+        "type": 5
+      },
+      {
+        "data_hex": "000e11ec11eb11ed001d001700180019",
+        "name": "supported_groups",
+        "type": 10
+      },
+      {
+        "data_hex": "001e090409050906080404030807080508060401050106010503060302010203",
+        "name": "signature_algorithms",
+        "type": 13
+      },
+      {
+        "data_hex": "001e090409050906080404030807080508060401050106010503060302010203",
+        "name": "signature_algorithms_cert",
+        "type": 50
+      },
+      {
+        "data_hex": "0003026832",
+        "name": "application_layer_protocol_negotiation",
+        "type": 16
+      },
+      {
+        "data_hex": "0403040303",
+        "name": "supported_versions",
+        "type": 43
+      },
+      {
+        "data_hex": "04e811ec04c037748f93bac0526298f2ca0558326f4ac8b7f2f804fb588b9445712f48c2004a64e2ac7a1e0926c46409853a47c8419ae0fc3e90a13d88a6350846ad8f9c8f2d6283e84542b2f37277d4a43ca02dfaacb5fa37217a640cfa034871c196349945b5ec97fcac5169d371cb8c2043bc7b4c23787c92afb4831cc5b39df66a5cf846924de67b4ba0c400c0590dd07c98a2865ad9091f6b10c2732c4567253851cf9d0954d55c5ba2541de28269ce206ea35678016444268813a28cb577a904a765737c1bc839e26b1857944ed984a0c1c16522605f6a6999b7a35c08279007285f36c05dd7beea5491a40c7af522ad6712c8a2b03499a28c50bc1c9a19c32673b46b422e14fc8960cba0f03cc223d86918f89c00b45ac66b862fc77746b35397133f3a31256c9838dd962062d719fb285b9839996e9408b015cb34d0436e367b68b31ca90c146916c68041830bf73e5e04241f461b3883898211aa7d63c16fd42b7a4a1f8cd229fe84c7cb7ca0baa30fcdf7957baa142aec9f41a2700ba5af35a292df75038f16a309db67e442952adca917506a66978786fb322d6724d5399ccb4c472289943704ae6f05aa43a47924eaa962a20b64e994576ccdeea4b416d394568334c6747eea900d99b0a98b3855cf24cfc8059727d86fe9fc231f3b1a96a1335ed897b3ab6228799804471859d55bc15b4eabdc3744910c92632588b8523c5526b81717b450c8e5fc6b08162b7d890779a66d5d8c31bc8a2897e982b4d45c95b106623789cf01237e6866a2810621137076ac4f27e697e5f66b7f09c2b1ec7e56843e1f8659871785a862802ca98ef61c5962a0bd5602cdbb4c573df9b8d7940fac87ce662999983455cdf3102216a6b5fb36a7e3a8249c043789b7bdb6057f9655a55891f6164bd63348f6e6b7db68b57167c2fe62bfe2c22cc0825e99e283dbc87083d761001b7ecaab72b9d82162c59d761c1a8efa08bc0a0a14f54939cb0947a50e6232876292936f5a6410f1c8b7f5616a8a11aae88dec5a865cc6381f7a7afe62ada27798e365b1273634acf8b73d401e324c629d1b9317b6ba29a6bbaf1099dddcb2bc617f09593fcff674f3e0bc66177474485209240cde29cc4ea2bb55da4d55987361024b21d78048500a404232218c124929424927120f6a3514907fb1b31c77d6137946c587c4c47193a4a9fab7504c02ce36c8926741e332a8cdfb233adc8502081331b64a4bc140dfc524d2b27c1c305cbd28883998c52173cf70f813c705a7a0c31744018da03577cc6c56609451504324d0614c06b2b0ecbc9eb9164798bbbe4746cd815744c6b404d173522976432617339d47593976105565008379303557ab7e0091753baa77446af42c85b5134356c62e17e5adeb37a3774a82f890b1f1c7434dbb42bb1c3c29a5b362d8abda7686f1500d41300dc4b298af6c0e7d73cb4122a64290402e5411ce3207b938cb3db58aa549989d064764005fac5c01292c393671a66b12a2fa2141ca831308d39a94a37fc9718974a03e6c772630e689d320284df98e7ef31fd5260380d54ae3439794fbbc9aa97530597ab730642e8ab9966900351754c7ab9dc9d4b62aeaa8efc97e8965cff926cd3f967e625444f68c2e1131c5b0dcc3943bdcbb9b632273eb1febc0e68cd8286af8875407e9aedef6cccf3d7654a9225754ca4e97c2252256b9c77185e40b7803001d0020f8875407e9aedef6cccf3d7654a9225754ca4e97c2252256b9c77185e40b7803",
+        "name": "key_share",
+        "type": 51
+      }
+    ],
+    "handshake_ms": 24.069578,
+    "handshake_version": 771,
+    "ja3": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+    "ja3_md5": "03117a8ed39ef02427ebbc39f121275c",
+    "ja3n": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-5-10-11-13-16-18-23-43-50-51-65281,4588-4587-4589-29-23-24-25,0",
+    "ja3n_md5": "71cf1fa4fbf38beb19085420f04107f7",
+    "ja4": "t13d1312h2_f57a46bbacb6_a089bac06eae",
+    "ja4_o": "t13d1312h2_45672f90a73c_d0dea502ed1f",
+    "ja4_r": "t13d1312h2_1301,1302,1303,c009,c00a,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,002b,0032,0033,ff01_0904,0905,0906,0804,0403,0807,0805,0806,0401,0501,0601,0503,0603,0201,0203",
+    "ja4_stable": "t13d1312h2_f57a46bbacb6_a089bac06eae",
+    "key_share": [
+      {
+        "group": {
+          "code": 4588,
+          "name": "X25519MLKEM768"
+        },
+        "length": 1216
+      },
+      {
+        "group": {
+          "code": 29,
+          "name": "x25519"
+        },
+        "length": 32
+      }
+    ],
+    "negotiated": {
+      "version": "TLS 1.3",
+      "cipher": "TLS_AES_128_GCM_SHA256",
+      "group": "X25519MLKEM768",
+      "alpn": "h2",
+      "resumed": false
+    },
+    "padding_len": null,
+    "pre_shared_key": false,
+    "psk_key_exchange_modes": [],
+    "random_hex": "9a83ed996d3d2512224306366bc0064bafb380ddb44bed674ee473cb4332c639",
+    "record_size_limit": null,
+    "record_version": 769,
+    "session_id_len": 32,
+    "session_ticket": false,
+    "signature_algorithms": [
+      {
+        "code": 2308,
+        "name": "mldsa44"
+      },
+      {
+        "code": 2309,
+        "name": "mldsa65"
+      },
+      {
+        "code": 2310,
+        "name": "mldsa87"
+      },
+      {
+        "code": 2052,
+        "name": "rsa_pss_rsae_sha256"
+      },
+      {
+        "code": 1027,
+        "name": "ecdsa_secp256r1_sha256"
+      },
+      {
+        "code": 2055,
+        "name": "ed25519"
+      },
+      {
+        "code": 2053,
+        "name": "rsa_pss_rsae_sha384"
+      },
+      {
+        "code": 2054,
+        "name": "rsa_pss_rsae_sha512"
+      },
+      {
+        "code": 1025,
+        "name": "rsa_pkcs1_sha256"
+      },
+      {
+        "code": 1281,
+        "name": "rsa_pkcs1_sha384"
+      },
+      {
+        "code": 1537,
+        "name": "rsa_pkcs1_sha512"
+      },
+      {
+        "code": 1283,
+        "name": "ecdsa_secp384r1_sha384"
+      },
+      {
+        "code": 1539,
+        "name": "ecdsa_secp521r1_sha512"
+      },
+      {
+        "code": 513,
+        "name": "rsa_pkcs1_sha1"
+      },
+      {
+        "code": 515,
+        "name": "ecdsa_sha1"
+      }
+    ],
+    "sni": "ldk4q7iqs5tlenp4.dns-monitor.tmsoft.com.br",
+    "status_request": true,
+    "supported_groups": [
+      {
+        "code": 4588,
+        "name": "X25519MLKEM768"
+      },
+      {
+        "code": 4587,
+        "name": "SecP256r1MLKEM768"
+      },
+      {
+        "code": 4589,
+        "name": "SecP384r1MLKEM1024"
+      },
+      {
+        "code": 29,
+        "name": "x25519"
+      },
+      {
+        "code": 23,
+        "name": "secp256r1"
+      },
+      {
+        "code": 24,
+        "name": "secp384r1"
+      },
+      {
+        "code": 25,
+        "name": "secp521r1"
+      }
+    ],
+    "supported_versions": [
+      {
+        "code": 772,
+        "name": "TLS 1.3"
+      },
+      {
+        "code": 771,
+        "name": "TLS 1.2"
+      }
+    ]
+  },
+  "http2": {
+    "akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s",
+    "frames": [
+      {
+        "dir": "in",
+        "flags": 0,
+        "length": 24,
+        "stream_id": 0,
+        "t_ms": 33.956027,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "in",
+        "flags": 0,
+        "length": 4,
+        "stream_id": 0,
+        "t_ms": 33.993508,
+        "type": "WINDOW_UPDATE"
+      },
+      {
+        "dir": "in",
+        "flags": 5,
+        "length": 70,
+        "stream_id": 1,
+        "t_ms": 33.998758,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 0,
+        "length": 42,
+        "stream_id": 0,
+        "t_ms": 34.326052,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "out",
+        "flags": 1,
+        "length": 0,
+        "stream_id": 0,
+        "t_ms": 34.404303,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "out",
+        "flags": 0,
+        "length": 4,
+        "stream_id": 0,
+        "t_ms": 34.404303,
+        "type": "WINDOW_UPDATE"
+      },
+      {
+        "dir": "out",
+        "flags": 4,
+        "length": 79,
+        "stream_id": 1,
+        "t_ms": 34.894901,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 1,
+        "length": 87,
+        "stream_id": 1,
+        "t_ms": 35.002842,
+        "type": "DATA"
+      },
+      {
+        "dir": "in",
+        "flags": 1,
+        "length": 0,
+        "stream_id": 0,
+        "t_ms": 50.755824,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "in",
+        "flags": 5,
+        "length": 8,
+        "stream_id": 3,
+        "t_ms": 1250.302031,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 4,
+        "length": 29,
+        "stream_id": 3,
+        "t_ms": 1250.441092,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 1,
+        "length": 87,
+        "stream_id": 3,
+        "t_ms": 1250.532824,
+        "type": "DATA"
+      },
+      {
+        "dir": "in",
+        "flags": 5,
+        "length": 5,
+        "stream_id": 5,
+        "t_ms": 2522.149483,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 4,
+        "length": 29,
+        "stream_id": 5,
+        "t_ms": 2522.317215,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 1,
+        "length": 87,
+        "stream_id": 5,
+        "t_ms": 2522.409328,
+        "type": "DATA"
+      }
+    ],
+    "frames_truncated": false,
+    "mode": "alpn",
+    "preface_ok": true,
+    "priorities": [],
+    "priority_frames_capped": false,
+    "settings": [
+      [
+        2,
+        0
+      ],
+      [
+        4,
+        4194304
+      ],
+      [
+        5,
+        1048576
+      ],
+      [
+        6,
+        10485760
+      ]
+    ],
+    "streams": [
+      {
+        "stream_id": 1,
+        "pseudo_order": [
+          ":authority",
+          ":method",
+          ":path",
+          ":scheme"
+        ],
+        "fields": [
+          {
+            "name": ":authority",
+            "value": "ldk4q7iqs5tlenp4.dns-monitor.tmsoft.com.br:8443",
+            "repr": "literal-indexed",
+            "index": 1,
+            "huffman_name": null,
+            "huffman_value": true
+          },
+          {
+            "name": ":method",
+            "value": "GET",
+            "repr": "indexed",
+            "index": 2,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":path",
+            "value": "/p/ldk4q7iqs5tlenp4/",
+            "repr": "literal-indexed",
+            "index": 5,
+            "huffman_name": null,
+            "huffman_value": true
+          },
+          {
+            "name": ":scheme",
+            "value": "https",
+            "repr": "indexed",
+            "index": 7,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": "user-agent",
+            "value": "Go-http-client/2.0",
+            "repr": "literal-indexed",
+            "index": 58,
+            "huffman_name": null,
+            "huffman_value": true
+          }
+        ],
+        "priority": null,
+        "end_stream": true,
+        "ja4h": "ge20nn010000_a510e5066512_000000000000_000000000000",
+        "status": 200,
+        "request_started_at": "2026-11-09T22:52:40.445754794Z",
+        "request_ended_at": "2026-11-09T22:52:40.445754794Z",
+        "response_started_at": "2026-11-09T22:52:40.446650047Z",
+        "response_ended_at": "2026-11-09T22:52:40.446757988Z",
+        "fields_truncated": false,
+        "values_truncated": false
+      },
+      {
+        "stream_id": 3,
+        "pseudo_order": [
+          ":authority",
+          ":method",
+          ":path",
+          ":scheme"
+        ],
+        "fields": [
+          {
+            "name": ":authority",
+            "value": "ldk4q7iqs5tlenp4.dns-monitor.tmsoft.com.br:8443",
+            "repr": "indexed",
+            "index": 64,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":method",
+            "value": "GET",
+            "repr": "indexed",
+            "index": 2,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":path",
+            "value": "/p/ldk4q7iqs5tlenp4/",
+            "repr": "indexed",
+            "index": 63,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":scheme",
+            "value": "https",
+            "repr": "indexed",
+            "index": 7,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": "user-agent",
+            "value": "Go-http-client/2.0",
+            "repr": "indexed",
+            "index": 62,
+            "huffman_name": null,
+            "huffman_value": null
+          }
+        ],
+        "priority": null,
+        "end_stream": true,
+        "ja4h": "ge20nn010000_a510e5066512_000000000000_000000000000",
+        "status": 200,
+        "request_started_at": "2026-11-09T22:52:41.662062137Z",
+        "request_ended_at": "2026-11-09T22:52:41.662062137Z",
+        "response_started_at": "2026-11-09T22:52:41.662196228Z",
+        "response_ended_at": "2026-11-09T22:52:41.662287970Z",
+        "fields_truncated": false,
+        "values_truncated": false
+      },
+      {
+        "stream_id": 5,
+        "pseudo_order": [
+          ":authority",
+          ":method",
+          ":path",
+          ":scheme"
+        ],
+        "fields": [
+          {
+            "name": ":authority",
+            "value": "ldk4q7iqs5tlenp4.dns-monitor.tmsoft.com.br:8443",
+            "repr": "indexed",
+            "index": 64,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":method",
+            "value": "GET",
+            "repr": "indexed",
+            "index": 2,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":path",
+            "value": "/p/ldk4q7iqs5tlenp4/",
+            "repr": "indexed",
+            "index": 63,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": ":scheme",
+            "value": "https",
+            "repr": "indexed",
+            "index": 7,
+            "huffman_name": null,
+            "huffman_value": null
+          },
+          {
+            "name": "user-agent",
+            "value": "Go-http-client/2.0",
+            "repr": "indexed",
+            "index": 62,
+            "huffman_name": null,
+            "huffman_value": null
+          }
+        ],
+        "priority": null,
+        "end_stream": true,
+        "ja4h": "ge20nn010000_a510e5066512_000000000000_000000000000",
+        "status": 200,
+        "request_started_at": "2026-11-09T22:52:42.933908589Z",
+        "request_ended_at": "2026-11-09T22:52:42.933908589Z",
+        "response_started_at": "2026-11-09T22:52:42.934072361Z",
+        "response_ended_at": "2026-11-09T22:52:42.934164474Z",
+        "fields_truncated": false,
+        "values_truncated": false
+      }
+    ],
+    "window_update": 1073741824
+  }
+}
