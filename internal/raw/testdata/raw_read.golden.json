@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "service": "raw",
+  "service_version": "0.0.0-test",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "tcp",
+    "src_ip": "203.0.113.7",
+    "src_port": 51000,
+    "dst_ip": "198.51.100.1",
+    "dst_port": 21
+  },
+  "probe_id": "abcdefgh",
+  "payload": {
+    "dir": "in",
+    "offset": 0,
+    "data_b64": "UFJPQkUgYWJjZGVmZ2ggbW9kZT1zb3VyY2Ugbj0xMDAwDQo="
+  }
+}
