@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.0, servido também em
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.2, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação
@@ -216,6 +216,7 @@ Accept: */*
 
 $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=out'
 HTTP/1.1 200 OK
+Date: Mon, 09 Nov 2026 06:54:40 GMT
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 Content-Length: 69

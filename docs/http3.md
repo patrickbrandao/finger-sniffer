@@ -28,6 +28,7 @@ Saída real (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use 
 ```console
 $ curl -si --http3-only https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/
 HTTP/3 200
+date: Mon, 09 Nov 2026 09:03:32 GMT
 content-type: text/plain; charset=utf-8
 cache-control: no-store
 content-length: 81
@@ -64,6 +65,7 @@ ganha o prefixo `tls/`. O campo `http3`:
 | `transport_params` | `[id, nome, valor_hex]` na ordem recebida, GREASE incluído (nome `GREASE`) |
 | `client_hello` | o ClientHello decifrado, no mesmo formato do `tls` do TCP; `ja4` começa com `q` |
 | `h3_settings` | `[id, valor]` do SETTINGS do cliente, na ordem |
+| `h3_control_stream_seen` | o cliente abriu o stream de controle h3 (unidirecional tipo `0x00`) e o SETTINGS foi lido. `false` com `h3_settings: []`: o cliente não abriu (ou não completou) o stream de controle antes do fim da conexão; `true` com `h3_settings: []`: SETTINGS vazio. Ausente em registros anteriores ao contrato 0.3.2 |
 | `close` | fim visto pelo web: `by`, `how` (`connection_close`, `application_close`, `idle_timeout`, `stateless_reset`, `handshake_failed`), `error_code`, `reason`; `null` enquanto aberta |
 | `requests` | uma entrada por requisição (`HTTP3Request`) |
 
@@ -89,7 +91,7 @@ Trecho real do registro da conexão acima (listas encurtadas):
 $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2GYYXJV6C49 | jq '{proto, l4, close,
     http3: (.http3 | {version, dcid_hex, token_len, initial_datagram_size, padded_to_1200, coalesced_packets,
     client_hello_datagrams, initial_frames: .initial_frames[0:5], transport_params: .transport_params[0:3],
-    ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_settings, close,
+    ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_control_stream_seen, h3_settings, close,
     request: (.requests[0] | {stream_id, pseudo_order, field: .fields[2], ja4h, status})})}'
 {
   "proto": "quic/h3",
@@ -112,7 +114,8 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2G
     "ja4": "q13d0311h3_55b375c5d22e_df5ee7f3ca36",
     "negotiated": { "alpn": "h3", "cipher": "TLS_AES_128_GCM_SHA256", "group": "X25519MLKEM768",
                     "resumed": false, "version": "TLS 1.3" },
-    "h3_settings": [[6, 4611686018427388000], [1, 0], [7, 0]],
+    "h3_control_stream_seen": true,
+    "h3_settings": [[6, 4611686018427387903], [1, 0], [7, 0]],
     "close": { "by": "client", "error_code": 0, "how": "connection_close", "reason": "" },
     "request": {
       "stream_id": 0,
@@ -130,9 +133,10 @@ O ClientHello com ML-KEM (`X25519MLKEM768`) não coube num datagrama: `client_he
 parâmetros de transporte vêm em hex como estão no fio (varint QUIC: `80008000` = 32768).
 
 **Atenção a inteiros grandes**: valores de SETTINGS e de parâmetros podem chegar a 2^62-1. Em JavaScript
-(`JSON.parse`) e no `jq`, números acima de 2^53 perdem precisão. No exemplo acima o curl mandou
-`SETTINGS_MAX_FIELD_SECTION_SIZE = 4611686018427387903`, e a API hoje devolve o valor arredondado
-(`4611686018427388000`); a correção está na fila (task 062).
+(`JSON.parse`) e em `jq` antigos (antes do 1.7), números acima de 2^53 perdem precisão. A API devolve o
+inteiro exato (no exemplo acima o curl mandou `SETTINGS_MAX_FIELD_SECTION_SIZE = 4611686018427387903`); quem lê em
+JavaScript precisa de um parser que preserve inteiros grandes (por exemplo `JSON.parse` com `reviver` e
+`context.source`, ou BigInt).
 
 ## Fim da conexão
 
@@ -147,7 +151,7 @@ resposta termina, como no h2.
 
 ## Controles de resposta em h3
 
-Valem `status`, `size`, `delay_head`, `delay_body`, `h=` e `alt_svc`. Os demais (`ver`, `frame`, `conn`, `ka`,
+Valem `status`, `size`, `delay_head`, `delay_body`, `h=`, `alt_svc` e `date`. Os demais (`ver`, `frame`, `conn`, `ka`,
 `close`, `rst`, `idle`, `hsize`, `continue`, `upgrade`) respondem **400** com explicação, registrado. Detalhes em
 [probes.md](probes.md#controles-de-resposta-pidr).
 
