@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
+	"github.com/patrickbrandao/finger-sniffer/pkg/certs"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
@@ -161,6 +162,18 @@ func exampleStore(t *testing.T) *Store {
 	for _, svc := range event.Services {
 		_ = s.tracker.Observe(heartbeat(t, svc, version.Version, event.StatusOK), t0)
 	}
+	// Certificado B de exemplo em FS_CERT_DIR; o A falta e usa o autoassinado (aparece uma vez só).
+	dir := t.TempDir()
+	crt, key, _ := genCertPair(t, "Test CA", []string{"vps602.tmsoft.com.br"}, time.Date(2027, 2, 5, 12, 0, 0, 0, time.UTC))
+	if err := certs.WritePair(dir, certs.SlotHTTP01, crt, key); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := certs.Open(certsConfig(dir), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	s.certs = cs
 	return s
 }
 
@@ -172,6 +185,11 @@ func TestHealthExample(t *testing.T) {
 	h := s.HealthAt(context.Background(), t0)
 	// Campos que dependem do ambiente ficam fixos no exemplo.
 	h.Version, h.Host.Store.DBBytes = "0.1.0", 1048576
+	for i, c := range h.Host.Certificates {
+		if c.SelfSigned { // validade do autoassinado depende do relógio
+			h.Host.Certificates[i].NotAfter = "2026-11-08T12:00:00.000000000Z"
+		}
+	}
 	for k, v := range h.Services {
 		v.Version = "0.1.0"
 		h.Services[k] = v
