@@ -1,0 +1,332 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 51972,
+    "l4": "udp",
+    "quic_dcid_hex": "e8be4059c7787e59",
+    "src_ip": "127.0.0.1",
+    "src_port": 57845
+  },
+  "payload": {
+    "client_hello": {
+      "alerts": [],
+      "alpn": [
+        "h3"
+      ],
+      "alps": [],
+      "cipher_suites": [
+        {
+          "code": 4865,
+          "name": "TLS_AES_128_GCM_SHA256"
+        },
+        {
+          "code": 4866,
+          "name": "TLS_AES_256_GCM_SHA384"
+        },
+        {
+          "code": 4867,
+          "name": "TLS_CHACHA20_POLY1305_SHA256"
+        }
+      ],
+      "client_hello_b64": "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",
+      "client_hello_records": 0,
+      "compress_certificate": [],
+      "compression_methods": [
+        0
+      ],
+      "delegated_credentials": [],
+      "early_data": false,
+      "ec_point_formats": [
+        0
+      ],
+      "encrypted_client_hello": false,
+      "extensions": [
+        {
+          "data_hex": "002500002261626364656667682e646e732d6d6f6e69746f722e746d736f66742e636f6d2e6272",
+          "name": "server_name",
+          "type": 0
+        },
+        {
+          "data_hex": "0100",
+          "name": "ec_point_formats",
+          "type": 11
+        },
+        {
+          "data_hex": "00",
+          "name": "renegotiation_info",
+          "type": 65281
+        },
+        {
+          "data_hex": "",
+          "name": "extended_main_secret",
+          "type": 23
+        },
+        {
+          "data_hex": "",
+          "name": "signed_certificate_timestamp",
+          "type": 18
+        },
+        {
+          "data_hex": "4c370dc201c5a1798137f800ce5eb4bb0504800800000604800800000704800800000404800c00000801000902406401025388030245ac0b011a0e01040f04a30f9994",
+          "name": "quic_transport_parameters",
+          "type": 57
+        },
+        {
+          "data_hex": "0100000000",
+          "name": "status_request",
+          "type": 5
+        },
+        {
+          "data_hex": "000e11ec11eb11ed001d001700180019",
+          "name": "supported_groups",
+          "type": 10
+        },
+        {
+          "data_hex": "00140904090509060804040308070805080605030603",
+          "name": "signature_algorithms",
+          "type": 13
+        },
+        {
+          "data_hex": "001e090409050906080404030807080508060401050106010503060302010203",
+          "name": "signature_algorithms_cert",
+          "type": 50
+        },
+        {
+          "data_hex": "0003026833",
+          "name": "application_layer_protocol_negotiation",
+          "type": 16
+        },
+        {
+          "data_hex": "020304",
+          "name": "supported_versions",
+          "type": 43
+        },
+        {
+          "data_hex": "04e811ec04c05209c84f459ef15c7c858a7da824a486504b036a332e030217d56b91ebb8c342caacf7393c97b8d7b95ebdab00e82b5b8fe8ba0745c7be04214c43be57c42745e6061db01d5b8414f61b07a38210195b76b7621867631ba99c37c62690575a62dee5546022a0282606b922b5d408cae054ba1354b4671536e032765a929015735c83820b2cd92e64f3706bd83bcfa54c2284c3a39098a88a80317ac3f5f4aa8f6285f4f2cdd610195142aedce387d4b50eaa91bb4e7470cc33204bbc3fa945475b7b0ec4989606a53f60b53df7031c90118baea85559e08fca067d4237349fe49f3b747cc41433adabcdc9e9af51f35bbbc48392b11129d0394bfb483a2533ae92ad3b9269ded55f54a61a1fc07374d6a9a469792cc41484b62545c9929cbba882077a1bd9a0bef769c495c739b1448b96967c322a6e67ccebe6067d192698b23e375c7787628c87d23b139cae20938ce64a21acc338cc503aefd79753f76a90fa16541b1a644344a2bbbe245ac664133628881ff1a469b70828734780219a5ab6624cbf760a7a6c9b8043c14511671da2c94535ad1570acf4e846c2bb6a1bf444cfb3ad6b62250b4314c9d5bc220688ab471d39e6c010f858b4e03b495b7c6f1c9083651a28341258047a67d809b951aed6cac1f4453495e5af6dc76f4a00c01469393e9bb2d638cc1866bbdfb9c95bf30ce9174b052c63570945ce44a7421396d8fbc0a8505cdba767267b388259aeb7709289b6b43f01c4b807ac77a13b5d601869253daef631323b366f66097a966fac369aeef7092358436534cac7d754a95379816607d68480bb769c223943293a2b1d15952e788af41ba6199bc0d974240164b0aa288837772aecaab789770349ca7ec03047a74569fb513c0d551954251ae4a71b7b9ca803a4ac19157df3f29dcb71a7770465998c3a5e0ba64b8117d6c8cedf4b49edda369be9998e343ab1e8980a9c0550640bc9655cd9166869571425d0265f5c3506552556b14909a63b7e4a5e5b94728cd262db9a3796bb0db9d06c97339321d3a05cd14386587c57930aca7815c4431e74eb3c5fb56232d8aff297587d760c0440656ad821fed98f1b5bbbb370089e6a603bd4a00da89a4874ac92814099838cbf04242a60313e1a9ab86c296e333020d1220824973ee9576d63c7cf8a844380499e360d1cd9a3c07b8962042dea9415cf949a21c267214a7a899053ddd39b5f7404bca93555714878d853e65513211a86f8d0a9c8d95715f59611d901659b31ba993d309a2e3652416ef67f75d455394573b347309394076ae8c182d23be142727bb5470d9accc9f685efa7211a525f66db0563530efc34115f8578f9e953e5c2cc1a0c036cf9a40a7607a3fb8a1a62712a09892fb5b9039a327feb422b5762a8e1207df00031052e12fc806f1c4969566604b4a1f2893108802394583376008ea802ad469c15128979f2c1557d0a0498b7a99ae02501d366809a43a5f7bb7b09848c2936126b91d9b433649b0c1b94841e50afe894ad534cab07e0cf53c4570dc82053e0baefec2c9610431a5139bbaabf12797b06793eb6f01b01ba4a223cb97a00637b04688423993f654856a18f6691402c97374450ab9c1b99f9631e7fcba99b8cc8ebbb64b71caf2d5d3b4f4ffb96747fdba13f5211b8fd3fb6b92a6752d4c0d1c97cbc7e6588a2a42241b8cebe2668af2f423a105a001d0020b8fd3fb6b92a6752d4c0d1c97cbc7e6588a2a42241b8cebe2668af2f423a105a",
+          "name": "key_share",
+          "type": 51
+        }
+      ],
+      "handshake_ms": 2.414834,
+      "handshake_version": 771,
+      "ja3": "771,4865-4866-4867,0-11-65281-23-18-57-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+      "ja3_md5": "aeb4a42cd7925b343b143434a712dd00",
+      "ja3n": "771,4865-4866-4867,0-5-10-11-13-16-18-23-43-50-51-57-65281,4588-4587-4589-29-23-24-25,0",
+      "ja3n_md5": "bcc6810011cbc2ff6e74d7984a6dad61",
+      "ja4": "q13d0313h3_55b375c5d22e_4156cdf64688",
+      "ja4_o": "q13d0313h3_55b375c5d22e_c26102b63aab",
+      "ja4_r": "q13d0313h3_1301,1302,1303_0005,000a,000b,000d,0012,0017,002b,0032,0033,0039,ff01_0904,0905,0906,0804,0403,0807,0805,0806,0503,0603",
+      "ja4_stable": "q13d0313h3_55b375c5d22e_4156cdf64688",
+      "key_share": [
+        {
+          "group": {
+            "code": 4588,
+            "name": "X25519MLKEM768"
+          },
+          "length": 1216
+        },
+        {
+          "group": {
+            "code": 29,
+            "name": "x25519"
+          },
+          "length": 32
+        }
+      ],
+      "negotiated": {
+        "alpn": "h3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "group": "X25519MLKEM768",
+        "resumed": false,
+        "version": "TLS 1.3"
+      },
+      "padding_len": null,
+      "pre_shared_key": false,
+      "psk_key_exchange_modes": [],
+      "random_hex": "d593da9ae1f8c339e82cacb3536c72890ea284c518817fb7a962e3236d00c66a",
+      "record_size_limit": null,
+      "record_version": 0,
+      "session_id_len": 0,
+      "session_ticket": false,
+      "signature_algorithms": [
+        {
+          "code": 2308,
+          "name": "mldsa44"
+        },
+        {
+          "code": 2309,
+          "name": "mldsa65"
+        },
+        {
+          "code": 2310,
+          "name": "mldsa87"
+        },
+        {
+          "code": 2052,
+          "name": "rsa_pss_rsae_sha256"
+        },
+        {
+          "code": 1027,
+          "name": "ecdsa_secp256r1_sha256"
+        },
+        {
+          "code": 2055,
+          "name": "ed25519"
+        },
+        {
+          "code": 2053,
+          "name": "rsa_pss_rsae_sha384"
+        },
+        {
+          "code": 2054,
+          "name": "rsa_pss_rsae_sha512"
+        },
+        {
+          "code": 1283,
+          "name": "ecdsa_secp384r1_sha384"
+        },
+        {
+          "code": 1539,
+          "name": "ecdsa_secp521r1_sha512"
+        }
+      ],
+      "sni": "abcdefgh.dns-monitor.tmsoft.com.br",
+      "status_request": true,
+      "supported_groups": [
+        {
+          "code": 4588,
+          "name": "X25519MLKEM768"
+        },
+        {
+          "code": 4587,
+          "name": "SecP256r1MLKEM768"
+        },
+        {
+          "code": 4589,
+          "name": "SecP384r1MLKEM1024"
+        },
+        {
+          "code": 29,
+          "name": "x25519"
+        },
+        {
+          "code": 23,
+          "name": "secp256r1"
+        },
+        {
+          "code": 24,
+          "name": "secp384r1"
+        },
+        {
+          "code": 25,
+          "name": "secp521r1"
+        }
+      ],
+      "supported_versions": [
+        {
+          "code": 772,
+          "name": "TLS 1.3"
+        }
+      ]
+    },
+    "client_hello_datagrams": 2,
+    "close": {
+      "by": "client",
+      "error_code": 0,
+      "how": "application_close",
+      "reason": ""
+    },
+    "coalesced_packets": 1,
+    "dcid_hex": "e8be4059c7787e59",
+    "h3_settings": [
+      [
+        6,
+        10485760
+      ]
+    ],
+    "initial_datagram_size": 1280,
+    "initial_frames": [
+      "CRYPTO",
+      "CRYPTO",
+      "PADDING",
+      "CRYPTO",
+      "CRYPTO"
+    ],
+    "initial_frames_truncated": false,
+    "initial_length": 1258,
+    "initial_packet_number": 0,
+    "padded_to_1200": true,
+    "requests": [],
+    "scid_hex": "a30f9994",
+    "token_hex": "",
+    "token_len": 0,
+    "transport_params": [
+      [
+        3127,
+        "GREASE",
+        "c201c5a1798137f800ce5eb4bb"
+      ],
+      [
+        5,
+        "initial_max_stream_data_bidi_local",
+        "80080000"
+      ],
+      [
+        6,
+        "initial_max_stream_data_bidi_remote",
+        "80080000"
+      ],
+      [
+        7,
+        "initial_max_stream_data_uni",
+        "80080000"
+      ],
+      [
+        4,
+        "initial_max_data",
+        "800c0000"
+      ],
+      [
+        8,
+        "initial_max_streams_bidi",
+        "00"
+      ],
+      [
+        9,
+        "initial_max_streams_uni",
+        "4064"
+      ],
+      [
+        1,
+        "max_idle_timeout",
+        "5388"
+      ],
+      [
+        3,
+        "max_udp_payload_size",
+        "45ac"
+      ],
+      [
+        11,
+        "max_ack_delay",
+        "1a"
+      ],
+      [
+        14,
+        "active_connection_id_limit",
+        "04"
+      ],
+      [
+        15,
+        "initial_source_connection_id",
+        "a30f9994"
+      ]
+    ],
+    "version": "00000001"
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T07:17:40.873699000Z"
+}

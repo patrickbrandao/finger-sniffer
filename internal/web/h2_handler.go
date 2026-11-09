@@ -200,6 +200,7 @@ func (st *h2Stream) writeResponse(resp response) {
 	}
 	hdr := st.w.Header()
 	setFields(hdr, resp.head.Fields)
+	st.altSvc(hdr)
 	if resp.head.Framing == h1.FramingContentLength {
 		hdr.Set("Content-Length", strconv.FormatInt(resp.head.BodyLen, 10))
 	}
@@ -258,6 +259,7 @@ func (st *h2Stream) control(rawQuery string) {
 	hdr["Content-Type"] = []string{contentType}
 	hdr["Cache-Control"] = []string{"no-store"}
 	setFields(hdr, ctl.Fields)
+	st.altSvc(hdr)
 	_, closeAsked := ctl.Record.Params["close"]
 	goAway := closeAsked || ctl.Frame == FrameClose
 	if goAway {
@@ -316,6 +318,18 @@ func (st *h2Stream) control(rawQuery string) {
 		hdr.Set(TrailerName, "1")
 	}
 	st.end(ctl)
+}
+
+// altSvc anuncia o h3 na resposta h2 (só h2 sobre TLS; h2c nunca).
+func (st *h2Stream) altSvc(hdr http.Header) {
+	_, rawQuery, _ := splitTarget(st.r.RequestURI)
+	c := st.h.c
+	c.mu.Lock()
+	tlsOn := c.tlsOn
+	c.mu.Unlock()
+	if c.srv.altSvcOn(tlsOn, rawQuery) {
+		hdr["Alt-Svc"] = []string{altSvcH3}
+	}
 }
 
 // end termina o stream: normal, ou com RST_STREAM se rst=1.

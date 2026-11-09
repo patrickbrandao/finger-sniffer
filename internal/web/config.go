@@ -6,6 +6,7 @@ package web
 import (
 	"fmt"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 // Padrões de .env.example.
 const (
 	DefaultTCPPorts    = "80,443,8080,8443"
+	DefaultUDPPorts    = "443"
 	DefaultHtdocs      = "/finger-sniffer/htdocs"
 	DefaultIdle        = 120 * time.Second
 	DefaultIdleMax     = 600 * time.Second
@@ -31,6 +33,8 @@ const (
 type Config struct {
 	// TCPPorts são as portas TCP atendidas (FS_WEB_TCP_PORTS).
 	TCPPorts []int
+	// UDPPorts são as portas UDP do QUIC/HTTP/3 (FS_WEB_UDP_PORTS; ausente = 443, vazio = nenhuma).
+	UDPPorts []int
 	// ListenIPv4 e ListenIPv6 são os IPs públicos (FS_LISTEN_IPV4/FS_LISTEN_IPV6); inválido = desligado.
 	ListenIPv4 netip.Addr
 	ListenIPv6 netip.Addr
@@ -79,7 +83,15 @@ func LoadConfig(base service.Config) (Config, error) {
 		RetryListen:    defaultRetryListen,
 	}
 	var err error
-	if c.TCPPorts, err = parsePorts(service.Env("FS_WEB_TCP_PORTS", DefaultTCPPorts)); err != nil {
+	if c.TCPPorts, err = parsePorts("FS_WEB_TCP_PORTS", service.Env("FS_WEB_TCP_PORTS", DefaultTCPPorts), false); err != nil {
+		return c, err
+	}
+	// FS_WEB_UDP_PORTS presente e vazio desliga o h3 (o dns lê o mesmo env para o HTTPS RR, ADR 0019).
+	udp, ok := os.LookupEnv("FS_WEB_UDP_PORTS")
+	if !ok {
+		udp = DefaultUDPPorts
+	}
+	if c.UDPPorts, err = parsePorts("FS_WEB_UDP_PORTS", udp, true); err != nil {
 		return c, err
 	}
 	if c.ListenIPv4, err = parseIP("FS_LISTEN_IPV4", true); err != nil {
@@ -130,8 +142,8 @@ func LoadConfig(base service.Config) (Config, error) {
 	return c, nil
 }
 
-// parsePorts lê uma lista de portas separadas por vírgula.
-func parsePorts(s string) ([]int, error) {
+// parsePorts lê uma lista de portas separadas por vírgula; allowEmpty aceita a lista vazia.
+func parsePorts(key, s string, allowEmpty bool) ([]int, error) {
 	var out []int
 	for _, p := range strings.Split(s, ",") {
 		p = strings.TrimSpace(p)
@@ -140,12 +152,12 @@ func parsePorts(s string) ([]int, error) {
 		}
 		n, err := strconv.Atoi(p)
 		if err != nil || n <= 0 || n > 65535 {
-			return nil, fmt.Errorf("web: FS_WEB_TCP_PORTS: invalid port %q", p)
+			return nil, fmt.Errorf("web: %s: invalid port %q", key, p)
 		}
 		out = append(out, n)
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("web: FS_WEB_TCP_PORTS is empty")
+	if len(out) == 0 && !allowEmpty {
+		return nil, fmt.Errorf("web: %s is empty", key)
 	}
 	return out, nil
 }
@@ -164,13 +176,18 @@ func parseIP(key string, v4 bool) (netip.Addr, error) {
 }
 
 // listenAddrs devolve os endereços TCP a abrir (IPv4 e IPv6 × portas).
-func (c Config) listenAddrs() []string {
+func (c Config) listenAddrs() []string { return c.addrs(c.TCPPorts) }
+
+// udpAddrs devolve os endereços UDP do QUIC (IPv4 e IPv6 × portas).
+func (c Config) udpAddrs() []string { return c.addrs(c.UDPPorts) }
+
+func (c Config) addrs(ports []int) []string {
 	var out []string
 	for _, ip := range []netip.Addr{c.ListenIPv4, c.ListenIPv6} {
 		if !ip.IsValid() {
 			continue
 		}
-		for _, p := range c.TCPPorts {
+		for _, p := range ports {
 			out = append(out, netip.AddrPortFrom(ip, uint16(p)).String()) //nolint:gosec // portas validadas em parsePorts (1..65535)
 		}
 	}
