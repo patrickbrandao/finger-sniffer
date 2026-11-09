@@ -5,23 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="referrer" content="no-referrer" />
 <title>finger-sniffer: connection mirror</title>
-<style>
-:root { color-scheme: light dark; --fg: #1a1a1a; --bg: #ffffff; --muted: #4a4a4a; --code-bg: #f2f2f2; --accent: #0b57d0; --warn-bg: #fff4d6; --warn-fg: #4d3800; }
-@media (prefers-color-scheme: dark) {
-  :root { --fg: #e8e8e8; --bg: #121212; --muted: #b8b8b8; --code-bg: #242424; --accent: #8ab4f8; --warn-bg: #3a2e00; --warn-fg: #ffe9a8; }
-}
-body { margin: 0 auto; max-width: 52rem; padding: 1.5rem 1rem 3rem; font: 1rem/1.55 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
-h2 { font-size: 1.25rem; margin-top: 2rem; }
-p.lead { color: var(--muted); margin-top: 0; }
-a { color: var(--accent); }
-a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
-pre { background: var(--code-bg); padding: 0.75rem 1rem; overflow-x: auto; border-radius: 4px; }
-table { border-collapse: collapse; width: 100%; }
-th, td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--code-bg); vertical-align: top; }
-.notice { background: var(--warn-bg); color: var(--warn-fg); padding: 0.75rem 1rem; border-radius: 4px; }
-</style>
+<link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<script type="module" src="/app.mjs"></script>
 </head>
 <body>
 <header>
@@ -45,6 +31,61 @@ and which characteristics it has when it reaches the server.</p>
 <p class="notice"><strong>All traffic is public.</strong> Anything you send to the captured ports, including
 headers, cookies and request bodies, can be read by anyone through the API. Do not send secrets. Records are
 kept for about <strong>10 minutes</strong> and then deleted.</p>
+</section>
+
+<section aria-labelledby="live">
+<h2 id="live">Live feed</h2>
+<p>Every connection, HTTP request, DNS query and stray packet that reaches the mirror, from everyone, a moment
+after it is recorded. The feed comes from the API on port 9000, so watching it does not create captured
+traffic. Times are in UTC. Click a connection to see its full record (pause the feed first if it moves too fast).</p>
+<noscript><p class="notice">The live feed needs JavaScript. The API below works without it.</p></noscript>
+
+<div class="toolbar">
+<span>Feed: <span id="feed-state" class="state" data-state="connecting">connecting</span></span>
+<button type="button" id="pause" aria-pressed="false">Pause</button>
+<span id="pending" hidden="hidden"></span>
+<button type="button" id="clear">Clear</button>
+<button type="button" id="run-probe" class="primary">Run probe</button>
+</div>
+
+<form id="filters" role="search" aria-label="Filter the feed">
+<fieldset class="filters">
+<legend>Filters (local, they only hide rows)</legend>
+<label for="f-port">Port <input id="f-port" name="port" class="narrow" inputmode="numeric" autocomplete="off" placeholder="443" /></label>
+<label for="f-proto">Protocol <input id="f-proto" name="proto" class="narrow" autocomplete="off" placeholder="h2" /></label>
+<label for="f-ip">IP <input id="f-ip" name="ip" autocomplete="off" placeholder="203.0.113.7" /></label>
+<label for="f-probe">Probe <input id="f-probe" name="probe" autocomplete="off" placeholder="k3x9q2mz7a" /></label>
+<button type="reset">Reset</button>
+</fieldset>
+</form>
+
+<p id="announce" class="visually-hidden" aria-live="polite"></p>
+<ol id="feed" aria-label="Live events, newest first"></ol>
+<p id="feed-empty" class="empty">Waiting for events.</p>
+
+<section id="probe-panel" class="panel" aria-labelledby="probe-title" hidden="hidden">
+<h3 id="probe-title">Probe</h3>
+<ol id="probe-steps" class="steps"></ol>
+<div id="probe-result"></div>
+</section>
+
+<section id="detail" class="panel" aria-labelledby="detail-title" tabindex="-1" hidden="hidden">
+<h3 id="detail-title">Connection</h3>
+<p id="detail-status"></p>
+<dl id="detail-fields" class="kv"></dl>
+<p class="links">
+<a id="detail-pcap" href="#detail">Download pcap</a>
+<a id="detail-raw-in" href="#detail">Raw bytes in</a>
+<a id="detail-raw-out" href="#detail">Raw bytes out</a>
+<a id="detail-json" href="#detail">JSON record</a>
+<button type="button" id="detail-refresh">Refresh</button>
+<button type="button" id="detail-close">Close</button>
+</p>
+<details>
+<summary>Full record (JSON)</summary>
+<pre id="detail-pre"></pre>
+</details>
+</section>
 </section>
 
 <section aria-labelledby="ports">
@@ -102,7 +143,8 @@ the live event stream.</p>
 </main>
 
 <footer>
-<p>No cookies, no scripts, no third-party resources on this page.</p>
+<p>No cookies, no analytics, no third-party resources: the page loads only its own files and talks only to the
+API on port 9000 and, when you press "Run probe", to <code>&lt;id&gt;.dns-monitor.tmsoft.com.br</code>.</p>
 </footer>
 </body>
 </html>

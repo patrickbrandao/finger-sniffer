@@ -19,14 +19,17 @@ var allowedExt = map[string]bool{
 	".jpg": true, ".webp": true, ".ico": true, ".woff2": true, ".txt": true,
 }
 
-// ownHostSuffix é o domínio dos nossos hosts; links para fora dele são proibidos (spec 000 RNF-08).
-const ownHostSuffix = ".tmsoft.com.br"
+// Hosts permitidos (spec 014 "Comportamento"): a API e a zona dos probes; nenhum outro.
+const (
+	apiHost   = "vps602.tmsoft.com.br"
+	probeZone = ".dns-monitor.tmsoft.com.br"
+)
 
 // resourceAttrs são atributos que fazem o navegador carregar algo sozinho.
 var resourceAttrs = map[string]bool{"src": true, "srcset": true, "poster": true, "data": true, "action": true, "formaction": true}
 
-// forbiddenElements carregam código ou conteúdo de fora; a página da F3 não usa nenhum.
-var forbiddenElements = map[string]bool{"script": true, "iframe": true, "object": true, "embed": true, "frame": true}
+// forbiddenElements carregam código ou conteúdo de fora; o único <script> aceito é o módulo local /app.mjs.
+var forbiddenElements = map[string]bool{"iframe": true, "object": true, "embed": true, "frame": true}
 
 type element struct {
 	name  string
@@ -85,9 +88,18 @@ func TestIndexStructure(t *testing.T) {
 		t.Error("index.html deve começar com <!DOCTYPE html>")
 	}
 	elems, text := parseHTML(t, data)
-	var hasLang, hasCharset, hasTitle, hasMain bool
+	var hasLang, hasCharset, hasTitle, hasMain, hasCSS, hasIcon, hasModule bool
+	ids := map[string]element{}
 	for _, e := range elems {
+		if id := e.attrs["id"]; id != "" {
+			ids[id] = e
+		}
 		switch e.name {
+		case "link":
+			hasCSS = hasCSS || (e.attrs["rel"] == "stylesheet" && e.attrs["href"] == "/style.css")
+			hasIcon = hasIcon || (e.attrs["rel"] == "icon" && e.attrs["href"] == "/favicon.svg")
+		case "script":
+			hasModule = e.attrs["type"] == "module" && e.attrs["src"] == "/app.mjs"
 		case "html":
 			hasLang = e.attrs["lang"] == "en"
 		case "meta":
@@ -102,6 +114,31 @@ func TestIndexStructure(t *testing.T) {
 	}
 	if !hasLang || !hasCharset || !hasTitle || !hasMain {
 		t.Errorf("faltam lang=en (%v), charset utf-8 (%v), title (%v) ou main (%v)", hasLang, hasCharset, hasTitle, hasMain)
+	}
+	if !hasCSS || !hasIcon || !hasModule {
+		t.Errorf("faltam style.css (%v), favicon.svg (%v) ou o módulo app.mjs (%v)", hasCSS, hasIcon, hasModule)
+	}
+	// elementos que o app.mjs procura por id (spec 014 RF-03..RF-05)
+	for _, id := range []string{
+		"feed", "feed-state", "feed-empty", "pause", "pending", "clear", "run-probe", "filters",
+		"f-port", "f-proto", "f-ip", "f-probe", "announce", "probe-panel", "probe-title", "probe-steps",
+		"probe-result", "detail", "detail-title", "detail-status", "detail-fields", "detail-pre",
+		"detail-pcap", "detail-raw-in", "detail-raw-out", "detail-json", "detail-refresh", "detail-close",
+	} {
+		if _, ok := ids[id]; !ok {
+			t.Errorf("index.html sem o elemento id=%q", id)
+		}
+	}
+	for id, name := range map[string]string{"f-port": "port", "f-proto": "proto", "f-ip": "ip", "f-probe": "probe"} {
+		if ids[id].attrs["name"] != name {
+			t.Errorf("filtro %s deve ter name=%q", id, name)
+		}
+	}
+	if ids["announce"].attrs["aria-live"] != "polite" {
+		t.Error("a região de anúncios deve ter aria-live=polite")
+	}
+	if _, ok := ids["feed"].attrs["aria-live"]; ok {
+		t.Error("a lista do feed não pode ser aria-live (anúncio moderado fica em #announce)")
 	}
 	// conteúdo exigido pela task 034 e pela spec 014 RF-07
 	for _, want := range []string{
@@ -125,9 +162,12 @@ func TestIndexNoThirdParty(t *testing.T) {
 		if forbiddenElements[e.name] {
 			t.Errorf("elemento proibido <%s>", e.name)
 		}
+		if e.name == "script" && (e.attrs["type"] != "module" || e.attrs["src"] != "/app.mjs") {
+			t.Errorf("<script> só como módulo local /app.mjs: %v", e.attrs)
+		}
 		for k, v := range e.attrs {
 			if strings.HasPrefix(k, "on") {
-				t.Errorf("<%s> com tratador de evento %s (sem JS na F3)", e.name, k)
+				t.Errorf("<%s> com tratador de evento %s (o JS fica em app.mjs)", e.name, k)
 			}
 			if resourceAttrs[k] && isExternal(v) {
 				t.Errorf("<%s %s=%q> carrega recurso externo", e.name, k, v)
@@ -137,7 +177,7 @@ func TestIndexNoThirdParty(t *testing.T) {
 			t.Errorf("<link href=%q> carrega recurso externo", e.attrs["href"])
 		}
 		if e.name == "a" {
-			if h := e.attrs["href"]; isExternal(h) && !isOwnHost(h) {
+			if h := e.attrs["href"]; isExternal(h) && !isAllowedHost(h) {
 				t.Errorf("link para host de terceiros: %q", h)
 			}
 		}
@@ -156,12 +196,14 @@ func isExternal(v string) bool {
 	return strings.HasPrefix(v, "//") || strings.Contains(v, "://")
 }
 
-func isOwnHost(v string) bool {
+// isAllowedHost diz se a URL aponta para a API ou para um host da zona dos probes.
+func isAllowedHost(v string) bool {
 	u, err := url.Parse(v)
 	if err != nil {
 		return false
 	}
-	return strings.HasSuffix("."+u.Hostname(), ownHostSuffix)
+	h := u.Hostname()
+	return h == apiHost || (strings.HasSuffix(h, probeZone) && len(h) > len(probeZone))
 }
 
 func TestRobots(t *testing.T) {
@@ -189,16 +231,19 @@ func TestOnlyServableFiles(t *testing.T) {
 	}
 }
 
-func TestIsOwnHost(t *testing.T) {
+func TestIsAllowedHost(t *testing.T) {
 	cases := map[string]bool{
 		"https://vps602.tmsoft.com.br:9000/x":    true,
+		"wss://vps602.tmsoft.com.br:9000/ws":     true,
 		"https://abc.dns-monitor.tmsoft.com.br/": true,
+		"https://dns-monitor.tmsoft.com.br/":     false,
+		"https://blog.tmsoft.com.br/":            false,
 		"https://eviltmsoft.com.br/":             false,
 		"https://cdn.example.com/a.js":           false,
 	}
 	for in, want := range cases {
-		if got := isOwnHost(in); got != want {
-			t.Errorf("isOwnHost(%q) = %v, quero %v", in, got, want)
+		if got := isAllowedHost(in); got != want {
+			t.Errorf("isAllowedHost(%q) = %v, quero %v", in, got, want)
 		}
 	}
 }
