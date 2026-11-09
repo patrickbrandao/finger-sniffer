@@ -466,3 +466,133 @@ func FuzzParseFrame(f *testing.F) {
 		}
 	})
 }
+
+// Ociosidade antes do fechamento (spec 013 RF-02, task 075): do último dado de aplicação antes do primeiro FIN/RST
+// até ele, sem os registros curtos que quem fecha manda logo antes (close_notify, GOAWAY) e sem nada que venha
+// depois do primeiro FIN (resposta de fechamento do outro lado, "half-close test" do raw). O close_notify/GOAWAY
+// do outro lado depois do FIN continua marcando half_close, como antes: são dados depois de um FIN.
+func TestIdleBeforeClose(t *testing.T) {
+	hs := []pkt{{0, true, tcpSYN, 0}, {10, false, tcpSYN | tcpACK, 0}, {20, true, tcpACK, 0}}
+	const fa = tcpFIN | tcpACK
+	cases := []struct {
+		name string
+		pkts []pkt
+		by   string
+		want float64 // -1 = nulo
+		half bool
+	}{
+		{"h1 cliente fecha", fullTCP[3:], "client", 1005, false},
+		{"h1 Connection: close", []pkt{
+			{25, true, tcpACK | tcpPSH, 100},
+			{30, false, tcpACK | tcpPSH, 500},
+			{30, false, fa, 0},
+			{40, true, fa, 0},
+		}, "server", 0, false},
+		{"TLS cliente fecha com close_notify", []pkt{
+			{25, true, tcpACK | tcpPSH, 100},
+			{35, false, tcpACK | tcpPSH, 1000},
+			{45, true, tcpACK, 0},
+			{30035, true, tcpACK | tcpPSH, 24},
+			{30035, true, fa, 0},
+			{30036, false, tcpACK | tcpPSH, 24},
+			{30036, false, fa, 0},
+			{30046, true, tcpACK, 0},
+		}, "client", 30000, true},
+		{"h2 cliente fecha com GOAWAY e close_notify", []pkt{
+			{25, true, tcpACK | tcpPSH, 300},
+			{35, false, tcpACK | tcpPSH, 1000},
+			{90035, true, tcpACK | tcpPSH, 46},
+			{90035, true, tcpACK | tcpPSH, 24},
+			{90035, true, fa, 0},
+			{90036, false, tcpACK | tcpPSH, 46},
+			{90036, false, fa, 0},
+		}, "client", 90000, true},
+		{"h2 cliente fecha só com FIN", []pkt{
+			{25, true, tcpACK | tcpPSH, 300},
+			{35, false, tcpACK | tcpPSH, 1000},
+			{180035, true, fa, 0},
+			{180036, false, tcpACK | tcpPSH, 46},
+			{180036, false, tcpACK | tcpPSH, 24},
+			{180036, false, fa, 0},
+		}, "client", 180000, true},
+		{"h2 servidor fecha por ociosidade", []pkt{
+			{25, true, tcpACK | tcpPSH, 300},
+			{35, false, tcpACK | tcpPSH, 1000},
+			{45, true, tcpACK | tcpPSH, 31},
+			{30045, false, tcpACK | tcpPSH, 46},
+			{30045, false, tcpACK | tcpPSH, 24},
+			{30045, false, fa, 0},
+			{30055, true, tcpACK | tcpPSH, 24},
+			{30055, true, fa, 0},
+		}, "server", 30000, true},
+		{"raw com meio-fechamento", []pkt{
+			{25, true, tcpACK | tcpPSH, 26},
+			{26, false, tcpACK | tcpPSH, 6},
+			{5026, true, fa, 0},
+			{5027, false, tcpACK | tcpPSH, 17},
+			{5027, false, fa, 0},
+		}, "client", 5000, true},
+		{"cliente manda pouco e fecha sem resposta", []pkt{
+			{25, true, tcpACK | tcpPSH, 50}, {25, true, fa, 0}, {30, false, tcpACK | tcpPSH, 500}, {30, false, fa, 0},
+		}, "client", -1, true},
+		{"servidor manda em volume e fecha", []pkt{
+			{25, true, tcpACK | tcpPSH, 100},
+			{30, false, tcpACK, 1400},
+			{31, false, tcpACK, 1400},
+			{32, false, tcpACK | tcpPSH, 60},
+			{32, false, fa, 0},
+			{40, true, fa, 0},
+		}, "server", 1, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in, db := newTestIngestor(t, nil)
+			all := append(append([]pkt{}, hs...), c.pkts...)
+			run(t, in, all[len(all)-1].ms+3000, batch(client, mirror, protoTCP, all))
+			_, r := onlyConn(t, db)
+			cl := r.Close
+			if cl.By != c.by || cl.How != "fin" || cl.HalfClose != c.half {
+				t.Fatalf("close %+v", cl)
+			}
+			switch {
+			case c.want < 0 && cl.IdleBeforeCloseMs != nil:
+				t.Fatalf("idle = %v, quer nulo", *cl.IdleBeforeCloseMs)
+			case c.want >= 0 && (cl.IdleBeforeCloseMs == nil || *cl.IdleBeforeCloseMs != c.want):
+				t.Fatalf("idle = %v, quer %v", cl.IdleBeforeCloseMs, c.want)
+			}
+		})
+	}
+}
+
+// Mesma regra nos pcaps reais; o esperado sai do frame.time_epoch do tshark (FIN/RST − último dado que conta).
+func TestIdleBeforeClosePcaps(t *testing.T) {
+	cases := []struct {
+		file string
+		by   string
+		want float64
+	}{
+		// cliente manda close_notify (frame 23) e FIN (24); conta a resposta 2 (frame 21); antes saía nulo
+		// porque o close_notify do espelho (25) vem depois do FIN
+		{"macos-https-keepalive.pcap", "client", 22.632785},
+		// FIN do cliente (13) − resposta 2 (12)
+		{"macos-http-keepalive.pcap", "client", 20.300866},
+		// o "cliente" (172.233.24.85) manda 48 + 24 B (frames 20, 21) antes do FIN (22); conta o frame 18
+		{"linux-https-v4.pcap", "client", 1.207783},
+		// o espelho manda 185 B (6) e 3 B com FIN (7): os 3 B são o fechamento, conta o frame 6
+		{"macos-http-finretx.pcap", "server", 0.065821},
+	}
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			in, db := newTestIngestor(t, nil)
+			run(t, in, 0, pcapBatch(t, filepath.Join("testdata", c.file)))
+			if err := in.Finalize(t.Context(), in.flows.due(1<<62)); err != nil {
+				t.Fatal(err)
+			}
+			_, r := onlyConn(t, db)
+			cl := r.Close
+			if cl.By != c.by || cl.IdleBeforeCloseMs == nil || abs(*cl.IdleBeforeCloseMs-c.want) > 0.000002 {
+				t.Fatalf("close %+v idle %v, quer %s %.6f", cl, cl.IdleBeforeCloseMs, c.by, c.want)
+			}
+		})
+	}
+}

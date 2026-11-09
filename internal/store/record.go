@@ -148,12 +148,44 @@ func (c *conn) closeInfo(how string) closeJSON {
 	}
 	if first.ts != 0 {
 		ci.By, ci.How = first.by, first.how
-		if c.lastData != 0 && c.lastData <= first.ts {
-			ms := float64(first.ts-c.lastData) / 1e6
+		if last := c.lastDataBeforeClose(first.ts, first.by == "client"); last != 0 {
+			ms := float64(first.ts-last) / 1e6
 			ci.IdleBeforeCloseMs = &ms
 		}
 	}
 	return ci
+}
+
+// Ociosidade antes do fechamento (spec 013 RF-02).
+const (
+	closeRing      = 5          // segmentos de dados guardados antes do primeiro FIN/RST
+	closeMaxSkip   = 4          // no máximo tantos segmentos de fechamento do lado que fecha
+	closeSegMax    = 128        // bytes de um registro de fechamento (close_notify, GOAWAY)
+	closeBurstMax  = 256        // bytes de todos eles juntos
+	closeMinWindow = int64(1e6) // 1 ms: janela mínima antes do FIN em que eles são procurados
+)
+
+// lastDataBeforeClose devolve o instante do último dado de aplicação antes do fechamento em closeTs, ou 0. Quem
+// fecha costuma mandar registros curtos logo antes do FIN (close_notify do TLS, GOAWAY do h2): esses não são
+// atividade e são pulados — segmentos de até 128 B do lado que fecha, até 1 RTT do handshake (mínimo 1 ms)
+// antes do FIN/RST, sem dado do outro lado no meio. Dados depois do primeiro FIN/RST nem entram (observe).
+func (c *conn) lastDataBeforeClose(closeTs int64, closerIsClient bool) int64 {
+	win := closeMinWindow
+	if c.synAck != 0 && c.established > c.synAck {
+		win = max(win, c.established-c.synAck)
+	}
+	skipped, bytes := 0, 0
+	for i := c.recentN - 1; i >= 0 && i >= c.recentN-closeRing; i-- {
+		d := c.recentData[i%closeRing]
+		if d.cli == closerIsClient && d.n <= closeSegMax && bytes+d.n <= closeBurstMax &&
+			closeTs-d.ts <= win && skipped < closeMaxSkip {
+			skipped++
+			bytes += d.n
+			continue
+		}
+		return d.ts
+	}
+	return 0
 }
 
 // strayJSON é o registro de stray_packets.record_json (schema StrayPacket sem o frame).
