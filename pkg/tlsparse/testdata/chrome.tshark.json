@@ -1,0 +1,150 @@
+[
+  {
+    "_index": "packets-2026-11-09",
+    "_type": "doc",
+    "_score": null,
+    "_source": {
+      "layers": {
+        "tls.record.version": [
+          "0x0301"
+        ],
+        "tls.handshake.version": [
+          "0x0303"
+        ],
+        "tls.handshake.random": [
+          "2f6ecb4af604c3ffbf06f5e1a6f2e428e1201358d6019c9b355b688b99b3bb36"
+        ],
+        "tls.handshake.session_id_length": [
+          "32"
+        ],
+        "tls.handshake.ciphersuite": [
+          "0xdada",
+          "0x1301",
+          "0x1302",
+          "0x1303",
+          "0xc02b",
+          "0xc02f",
+          "0xc02c",
+          "0xc030",
+          "0xcca9",
+          "0xcca8",
+          "0xc013",
+          "0xc014",
+          "0x009c",
+          "0x009d",
+          "0x002f",
+          "0x0035"
+        ],
+        "tls.handshake.comp_method": [
+          "0"
+        ],
+        "tls.handshake.extension.type": [
+          "39578",
+          "65037",
+          "27",
+          "17613",
+          "51",
+          "35",
+          "0",
+          "10",
+          "65281",
+          "16",
+          "13",
+          "45",
+          "18",
+          "23",
+          "43",
+          "5",
+          "11",
+          "51764",
+          "27242"
+        ],
+        "tls.handshake.extension.len": [
+          "0",
+          "218",
+          "3",
+          "5",
+          "1263",
+          "0",
+          "16",
+          "12",
+          "1",
+          "14",
+          "26",
+          "2",
+          "0",
+          "0",
+          "7",
+          "5",
+          "2",
+          "186",
+          "1"
+        ],
+        "tls.handshake.extensions_server_name": [
+          "example.com"
+        ],
+        "tls.handshake.extensions_alpn_str": [
+          "h2",
+          "http/1.1"
+        ],
+        "tls.handshake.extensions_supported_group": [
+          "0x2a2a",
+          "0x11ec",
+          "0x001d",
+          "0x0017",
+          "0x0018"
+        ],
+        "tls.handshake.extensions_ec_point_format": [
+          "0"
+        ],
+        "tls.handshake.sig_hash_alg": [
+          "0x2a2a",
+          "0x0904",
+          "0x0905",
+          "0x0906",
+          "0x0403",
+          "0x0804",
+          "0x0401",
+          "0x0503",
+          "0x0805",
+          "0x0501",
+          "0x0806",
+          "0x0601"
+        ],
+        "tls.handshake.extensions.supported_version": [
+          "0xdada",
+          "0x0304",
+          "0x0303"
+        ],
+        "tls.handshake.extensions_key_share_group": [
+          "10794",
+          "4588",
+          "29"
+        ],
+        "tls.handshake.extensions_key_share_key_exchange_length": [
+          "1",
+          "1216",
+          "32"
+        ],
+        "tls.extension.psk_ke_mode": [
+          "1"
+        ],
+        "tls.compress_certificate.algorithm": [
+          "2"
+        ],
+        "tls.handshake.ja3_full": [
+          "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,65037-27-17613-51-35-0-10-65281-16-13-45-18-23-43-5-11-51764,4588-29-23-24,0"
+        ],
+        "tls.handshake.ja3": [
+          "83533488f870b1b04a0f060678c9b5b7"
+        ],
+        "tls.handshake.ja4": [
+          "t13d1517h2_8daaf6152771_5cd47779f5c5"
+        ],
+        "tls.handshake.ja4_r": [
+          "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_2a2a,0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601"
+        ]
+      }
+    }
+  }
+]

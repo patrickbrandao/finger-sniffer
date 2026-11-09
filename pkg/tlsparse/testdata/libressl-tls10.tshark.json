@@ -1,0 +1,87 @@
+[
+  {
+    "_index": "packets-2026-11-09",
+    "_type": "doc",
+    "_score": null,
+    "_source": {
+      "layers": {
+        "tls.record.version": [
+          "0x0301"
+        ],
+        "tls.handshake.version": [
+          "0x0301"
+        ],
+        "tls.handshake.random": [
+          "ecc0c5a993663476aa0757bacc7b796c8c5cc83dc19a04aa19d46945d95900a9"
+        ],
+        "tls.handshake.session_id_length": [
+          "0"
+        ],
+        "tls.handshake.ciphersuite": [
+          "0xc014",
+          "0xc00a",
+          "0x0039",
+          "0xff85",
+          "0x0088",
+          "0x0081",
+          "0x0035",
+          "0x0084",
+          "0xc013",
+          "0xc009",
+          "0x0033",
+          "0x0045",
+          "0x002f",
+          "0x0041",
+          "0xc011",
+          "0xc007",
+          "0x0005",
+          "0x0004",
+          "0xc012",
+          "0xc008",
+          "0x0016",
+          "0x000a",
+          "0x00ff"
+        ],
+        "tls.handshake.comp_method": [
+          "0"
+        ],
+        "tls.handshake.extension.type": [
+          "0",
+          "11",
+          "10",
+          "35"
+        ],
+        "tls.handshake.extension.len": [
+          "16",
+          "2",
+          "10",
+          "0"
+        ],
+        "tls.handshake.extensions_server_name": [
+          "example.com"
+        ],
+        "tls.handshake.extensions_supported_group": [
+          "0x001d",
+          "0x0017",
+          "0x0018",
+          "0x0019"
+        ],
+        "tls.handshake.extensions_ec_point_format": [
+          "0"
+        ],
+        "tls.handshake.ja3_full": [
+          "769,49172-49162-57-65413-136-129-53-132-49171-49161-51-69-47-65-49169-49159-5-4-49170-49160-22-10-255,0-11-10-35,29-23-24-25,0"
+        ],
+        "tls.handshake.ja3": [
+          "0b21b9c06fd9d879759ea76756d57e4e"
+        ],
+        "tls.handshake.ja4": [
+          "t10d230400_ea993547cb5d_a875e5012fde"
+        ],
+        "tls.handshake.ja4_r": [
+          "t10d230400_0004,0005,000a,0016,002f,0033,0035,0039,0041,0045,0081,0084,0088,00ff,c007,c008,c009,c00a,c011,c012,c013,c014,ff85_000a,000b,0023"
+        ]
+      }
+    }
+  }
+]
