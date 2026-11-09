@@ -270,8 +270,9 @@ func splitTerm(line []byte) ([]byte, string) {
 	return line, ""
 }
 
-// ReadHead lê a linha de requisição e os campos até a linha vazia. io.EOF limpo (nenhum byte) indica que o
-// cliente fechou entre requisições. Em erro, o *Request devolvido (quando não nil) traz o que foi lido.
+// ReadHead lê a linha de requisição e os campos até a linha vazia. Erro sem nenhum byte lido (io.EOF limpo,
+// prazo de leitura vencido ou outro erro de leitura) devolve *Request nil: o cliente fechou ou ficou ocioso
+// entre requisições. Nos demais erros, o *Request devolvido traz o que foi lido.
 func (r *Reader) ReadHead() (*Request, error) {
 	maxHead := r.maxHead()
 	req := &Request{
@@ -298,8 +299,10 @@ func (r *Reader) ReadHead() (*Request, error) {
 		l, err := r.readLine(maxHead - len(req.RawHead))
 		req.RawHead = append(req.RawHead, l...)
 		if err != nil {
-			if errors.Is(err, io.EOF) && len(req.RawHead) == 0 {
-				return nil, io.EOF
+			if len(bytes.Trim(req.RawHead, "\r\n")) == 0 {
+				// Nenhum byte da próxima requisição (no máximo linhas vazias toleradas): EOF limpo, prazo de
+				// leitura vencido (ociosidade) ou erro de leitura. Não há requisição a registrar.
+				return nil, err
 			}
 			return fail(err)
 		}

@@ -1,0 +1,1 @@
+- web: ociosidade vencida (`idle=` ou o padrão) ou EOF sem nenhum byte da próxima requisição (no máximo linhas vazias) não publica mais `fs.v1.web.http1.request` vazio; `h1.Reader.ReadHead` devolve `nil` com o erro nesse caso e `TestCase5Idle` deixa de pular (task 047).

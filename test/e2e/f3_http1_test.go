@@ -540,18 +540,8 @@ func TestCase5Idle(t *testing.T) {
 			if len(rc.HTTP) == 0 || rc.HTTP[0].Status != 200 {
 				t.Fatalf("requisição não registrada: %+v", rc.HTTP)
 			}
-			// Bug conhecido (relatório da task 039): quando a ociosidade vence sem nenhum byte novo, o web
-			// publica um fs.v1.web.http1.request vazio (method/form/terminator "", status 0), que entra em
-			// http[] e em requests e não valida contra o openapi (enums de form e terminator). Causa:
-			// h1.Reader.ReadHead só devolve (nil, io.EOF) no EOF limpo; no timeout de leitura sem bytes devolve
-			// uma Request vazia com o erro, e web.h1Session.headError a publica. Enquanto não for corrigido, o
-			// caso registra o achado e pula, sem mandar essa resposta para a validação de contrato.
+			// A ociosidade vencida sem nenhum byte novo não gera requisição (task 047).
 			if len(rc.HTTP) > 1 {
-				extra := rc.HTTP[len(rc.HTTP)-1]
-				if extra.RequestLine.Method == "" && extra.Status == 0 && extra.HeadSize == 0 {
-					t.Skipf("bug conhecido (task 039): ociosidade vencida publica requisição vazia: http[%d] = %+v, requests=%d",
-						extra.Index, extra.RequestLine, rc.Requests)
-				}
 				t.Errorf("%d requisições registradas numa conexão com 1: %+v", len(rc.HTTP), rc.HTTP)
 			}
 			addLive("probe-example.json", body)
