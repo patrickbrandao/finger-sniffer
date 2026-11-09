@@ -237,3 +237,42 @@ func TestAuditF5Docs(t *testing.T) {
 		}
 	}
 }
+
+// TestListenAndRecordReadyDocs: os guias dizem onde a API escuta (task 082, ADR 0023) e explicam o tempo até o
+// registro com o rótulo reason e FS_TCP_CLOSE_GRACE (tasks 077 e 090), sem a folga antiga de 2 s do QUIC.
+func TestListenAndRecordReadyDocs(t *testing.T) {
+	want := map[string][]string{
+		"api.md": {
+			"`127.0.0.1`", "`FS_LISTEN_IPV4`", "`FS_LISTEN_IPV6`", "**nunca** em todos os endereços",
+			"`FS_TCP_CLOSE_GRACE`", "`conntrack loaded`", "differs from store",
+		},
+		"../README.md": {"`127.0.0.1`", "`FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`"},
+		"metrics.md": {
+			"## Tempo até o registro", "`fs_store_record_ready_seconds{reason}`", "`close`", "`quic_close`",
+			"`idle`", "`FS_TCP_CLOSE_GRACE`", "**100 ms**", "de 0 a 500 ms", "task 077", "task 090",
+		},
+		"http3.md":  {"task 090", "100 ms", "#tempo-até-o-registro"},
+		"probes.md": {"`FS_TCP_CLOSE_GRACE` (100 ms)", "task 090"},
+	}
+	// frases da folga antiga do QUIC que não podem voltar
+	banned := map[string][]string{
+		"http3.md":  {"~2 s depois", "Esse atraso de ~2 s"},
+		"probes.md": {"cerca de 2 s depois", "uns 2 s depois"},
+	}
+	for file, items := range want {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range items {
+			if !strings.Contains(string(data), w) {
+				t.Errorf("%s sem %q", file, w)
+			}
+		}
+		for _, b := range banned[file] {
+			if strings.Contains(string(data), b) {
+				t.Errorf("%s ainda diz %q", file, b)
+			}
+		}
+	}
+}

@@ -34,7 +34,7 @@ de WebSocket; o capture publica os seus zerados desde a partida):
 | web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening` (1 com o listener UDP 443 de pé) |
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions` |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total` |
-| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total` (pacote tardio, como o ACK ou o RST depois do FIN, anexado ao pcap e ao registro já gravado, até 2 s depois do fecho), `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_pending_events_total` (evento de aplicação que chegou antes dos pacotes da conexão e esperou), `fs_store_event_only_connections_total` (conexão criada só por eventos, sem pacotes: capture fora do ar ou atrasado), `fs_store_bad_events_total` (evento sem 5-tupla, descartado) |
+| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total` (pacote tardio, como o ACK ou o RST depois do FIN, anexado ao pcap e ao registro já gravado, TCP ou QUIC, até 2 s depois do fim), `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_pending_events_total` (evento de aplicação que chegou antes dos pacotes da conexão e esperou), `fs_store_event_only_connections_total` (conexão criada só por eventos, sem pacotes: capture fora do ar ou atrasado), `fs_store_bad_events_total` (evento sem 5-tupla, descartado) |
 | todos que publicam no NATS | `fs_published_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (buffer do produtor) |
 | host (pelo store) | `fs_host_syncookies_sent` |
 
@@ -85,7 +85,7 @@ fs_dropped_events_total{service="capture"} 0
 | `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção) ou `size` (teto do banco) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |
 | `fs_store_connections` | gauge | conexões guardadas no banco (abertas e fechadas, dentro da retenção) |
-| `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (FIN/RST, meta ≤ 500 ms), `quic_close` ou `idle` (fechada por ociosidade) |
+| `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (TCP com FIN/RST, meta p95 ≤ 500 ms), `quic_close` (QUIC encerrado, visto pelo web) ou `idle` (fechada por ociosidade); ver [abaixo](#tempo-até-o-registro) |
 | `fs_store_live_clients{transport}` | gauge | clientes de tempo real, `transport` = `sse` ou `ws` |
 | `fs_store_live_events_total{kind}` | contador | eventos ao vivo emitidos, por tipo |
 | `fs_store_live_dropped_total` | contador | eventos descartados para clientes lentos (ADR 0020) |
@@ -118,6 +118,44 @@ $ curl -s -o /dev/null -w '%{http_code}\n' https://vps602.tmsoft.com.br:9000/met
 `proto` no rótulo é o do momento da gravação da conexão (spec 004), por isso aparecem `tls` (handshake TLS sem
 requisição HTTP, comum em varreduras) e `udp` (fluxo UDP sem camada de aplicação).
 
+## Tempo até o registro
+
+`fs_store_record_ready_seconds` mede, para cada conexão finalizada, o tempo entre o fim dela (o último pacote, ou o
+CONNECTION_CLOSE do QUIC se vier depois) e o commit do registro completo. O rótulo `reason` separa três casos:
+
+| `reason` | Quando | Tempo esperado |
+| --- | --- | --- |
+| `close` | TCP com RST, ou FIN dos dois lados | RST e FIN com o ACK final: na hora (mais o lote do ingest); FIN sem o ACK final: `FS_TCP_CLOSE_GRACE` |
+| `quic_close` | QUIC com CONNECTION_CLOSE, stateless reset ou fim por ociosidade informado pelo web | `FS_TCP_CLOSE_GRACE` contado do evento do web |
+| `idle` | fluxo sem fim visto, fechado pelo store por falta de pacotes | o próprio prazo de ociosidade: `FS_IDLE_DEFAULT` + 30 s no TCP (150 s), 30 s no UDP |
+
+`FS_TCP_CLOSE_GRACE` é a folga para os últimos pacotes do capture: padrão **100 ms**, aceita de 0 a 500 ms (fora
+disso o store não sobe, spec 004 RNF-01). Pacotes que chegam depois do registro gravado (ACK final atrasado, RST
+depois do FIN, último datagrama QUIC) não viram conexão nova: são anexados ao registro e ao pcap por até 2 s e
+contados em `fs_store_late_packets_total`. Antes da task 077 o TCP esperava 1 s fixo; antes da task 090 o QUIC
+esperava 2 s.
+
+A meta de registro ≤ 500 ms (spec 000 RNF-04) vale para `close`; para `quic_close`, a meta oficial da `v0.1.0`
+continua a provisória de p95 ≤ 3 s da ADR [0024](../specs/decisions/0024-registro-quic-meta-provisoria.md) até o
+architect substituí-la, embora o valor medido já fique abaixo de 500 ms. `idle` não tem meta: o atraso é o
+prazo de ociosidade, por definição.
+
+Na vps602 (commit `6facb2c`, `FS_TCP_CLOSE_GRACE=100ms`), em 9/11/2026:
+
+```console
+$ curl -s http://vps602.tmsoft.com.br:9001/metrics | grep -E '^fs_store_record_ready_seconds_(sum|count)'
+fs_store_record_ready_seconds_sum{reason="close"} 5.708734011000001
+fs_store_record_ready_seconds_count{reason="close"} 87
+fs_store_record_ready_seconds_sum{reason="idle"} 120.444764897
+fs_store_record_ready_seconds_count{reason="idle"} 4
+fs_store_record_ready_seconds_sum{reason="quic_close"} 2.809077488
+fs_store_record_ready_seconds_count{reason="quic_close"} 21
+```
+
+Média de 66 ms no `close` (86 de 87 abaixo de 158 ms, todos abaixo de 316 ms), 134 ms no `quic_close` (19 de 21
+abaixo de 158 ms, todos abaixo de 316 ms) e 30 s no `idle` (fluxos UDP). Os buckets são exponenciais de 10 ms a
+10 s.
+
 ## Consultas úteis
 
 ```promql
@@ -142,6 +180,6 @@ histogram_quantile(0.95, sum by (le) (rate(fs_store_live_delay_seconds_bucket[5m
 # p95 da API por rota
 histogram_quantile(0.95, sum by (le, route) (rate(fs_store_api_request_duration_seconds_bucket[5m])))
 
-# registro pronto depois do fim da conexão (p99)
-histogram_quantile(0.99, sum by (le) (rate(fs_store_record_ready_seconds_bucket{reason="close"}[5m])))
+# registro pronto depois do fim da conexão (p95 por motivo; meta 500 ms no close)
+histogram_quantile(0.95, sum by (le, reason) (rate(fs_store_record_ready_seconds_bucket{reason=~"close|quic_close"}[5m])))
 ```
