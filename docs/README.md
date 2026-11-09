@@ -16,14 +16,15 @@ por uma API em portas que não são capturadas.
 | Documento | Conteúdo |
 | --- | --- |
 | [api.md](api.md) | Portas 9000/9001, rotas, filtros, long-poll `wait`, pcap e bytes crus, erros, retenção |
-| [probes.md](probes.md) | Como sondar com um probe ID: HTTP/1, h2, h3, WebSocket, portas cruas, DNS e controles de resposta; receita do go-xproxy |
+| [probes.md](probes.md) | Como sondar com um probe ID; `Date` e controles de resposta; uma receita por caso da matriz (1–13) com campos estáveis e diferenças esperadas por proxy (o que o script do xProxy consome) |
 | [realtime.md](realtime.md) | Feed ao vivo: `/api/v1/stream` (SSE) e `/api/v1/ws` (WebSocket), tipos de evento, filtros, descarte |
 | [http3.md](http3.md) | O que o registro `http3` traz (Initial, parâmetros de transporte, JA4 `q`, QPACK) e como forçar h3 |
 | [metrics.md](metrics.md) | Métricas Prometheus em `/metrics` (porta 9001) |
 
 ## Para quem desenvolve
 
-- [dev/spike-carga.md](dev/spike-carga.md): relatório do spike de carga da F1 (NATS e SQLite com BLOBs).
+- [dev/README.md](dev/README.md): índice do que é de desenvolvimento (spike de carga da F1, teste de carga da F5).
+- Visão geral do repositório e comandos: [README de raiz](../README.md).
 - Organização do trabalho, papéis e Definition of Done: [specs/002](../specs/002-organizacao-do-trabalho.md).
 - Verificação (`make verify-quick`, `make verify-full`): [specs/017](../specs/017-verificacao.md).
 

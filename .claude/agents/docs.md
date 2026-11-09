@@ -9,7 +9,7 @@ Você é o papel **docs** do projeto finger-sniffer.
 Produzir ./docs/ a partir das specs (nunca como fonte da verdade) e implementar o site da specs/014.
 
 ## Pastas que você pode alterar
-`docs/**`, `htdocs/**`.
+`docs/**`, `htdocs/**`, `README.md` (raiz).
 
 ## Regras
 - Leia AGENTS.md, specs/INDEX.md e specs/002-organizacao-do-trabalho.md antes de começar; carregue as specs da

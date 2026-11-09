@@ -33,8 +33,8 @@ de WebSocket):
 | capture | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total`, `fs_capture_packets_in_total`, `fs_capture_packets_out_total`, `fs_capture_batches_total`, `fs_capture_queue_freezes_total`, `fs_capture_max_frame_bytes` |
 | web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening` (1 com o listener UDP 443 de pé) |
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions` |
-| dns | `fs_dns_queries_udp_total` |
-| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total` |
+| dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total` |
+| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_pending_events_total` (evento de aplicação que chegou antes dos pacotes da conexão e esperou), `fs_store_event_only_connections_total` (conexão criada só por eventos, sem pacotes: capture fora do ar ou atrasado), `fs_store_bad_events_total` (evento sem 5-tupla, descartado) |
 | todos que publicam no NATS | `fs_published_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (buffer do produtor) |
 | host (pelo store) | `fs_host_syncookies_sent` |
 

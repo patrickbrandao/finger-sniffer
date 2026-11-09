@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -63,6 +64,8 @@ func TestRelativeLinks(t *testing.T) {
 	}
 	sub, _ := filepath.Glob("*/*.md")
 	files = append(files, sub...)
+	// O README de raiz também é do papel docs (spec 002) e aponta para docs/, specs e contratos.
+	files = append(files, filepath.Join("..", "README.md"))
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -99,6 +102,77 @@ func TestIndexListsGuides(t *testing.T) {
 	for _, f := range files {
 		if f != "README.md" && !strings.Contains(string(readme), "]("+f+")") {
 			t.Errorf("README.md não lista %s", f)
+		}
+	}
+}
+
+// TestIndexListsDevDocs: o índice de dev/ lista todos os documentos da pasta.
+func TestIndexListsDevDocs(t *testing.T) {
+	readme, err := os.ReadFile(filepath.Join("dev", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join("dev", "*.md"))
+	for _, f := range files {
+		name := filepath.Base(f)
+		if name != "README.md" && !strings.Contains(string(readme), "]("+name+")") {
+			t.Errorf("dev/README.md não lista %s", name)
+		}
+	}
+}
+
+// TestRootReadme: o README de raiz traz o aviso de tráfego público e aponta para docs, specs, contratos e licença.
+func TestRootReadme(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, want := range []string{
+		"](docs/README.md)", "](docs/probes.md)", "](specs/INDEX.md)", "](cmd/finger-sniffer-store/openapi.yaml)",
+		"](eventbus/nats/asyncapi.yaml)", "](LICENSE)", "](NOTICE)", "FoxIO License 1.1",
+		"público", "10 minutos", "make verify-quick", "make deploy", "make tools",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("README.md sem %q", want)
+		}
+	}
+}
+
+// TestProbesMatrix: probes.md tem uma receita por caso da matriz da spec 017 (1–13), cada uma com o que procurar,
+// os campos estáveis e as diferenças esperadas por proxy (ADR 0022), e documenta o Date e o date=0 (ADR 0021).
+func TestProbesMatrix(t *testing.T) {
+	data, err := os.ReadFile("probes.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	heads := regexp.MustCompile(`(?m)^### Caso (\d+):`).FindAllStringSubmatchIndex(s, -1)
+	if len(heads) != 13 {
+		t.Fatalf("probes.md tem %d casos, quero 13", len(heads))
+	}
+	for i, h := range heads {
+		num := s[h[2]:h[3]]
+		if want := strconv.Itoa(i + 1); num != want {
+			t.Errorf("caso fora de ordem: %s, quero %s", num, want)
+		}
+		end := len(s)
+		if i+1 < len(heads) {
+			end = heads[i+1][0]
+		}
+		body := s[h[0]:end]
+		for _, want := range []string{"```console", "**Procurar**", "**Estáveis**", "**Diferenças esperadas**"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("caso %s sem %q", num, want)
+			}
+		}
+	}
+	for _, want := range []string{
+		"`date=0`", "### `Date`", "squid 1080", "go-xproxy 4128", "go-xproxy 4443",
+		"`-random`", "absolute-form", "`Proxy-Connection`",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("probes.md sem %q", want)
 		}
 	}
 }

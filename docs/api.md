@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.0, servido também em
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.1, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação

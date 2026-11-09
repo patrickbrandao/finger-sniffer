@@ -130,9 +130,10 @@ O ClientHello com ML-KEM (`X25519MLKEM768`) não coube num datagrama: `client_he
 parâmetros de transporte vêm em hex como estão no fio (varint QUIC: `80008000` = 32768).
 
 **Atenção a inteiros grandes**: valores de SETTINGS e de parâmetros podem chegar a 2^62-1. Em JavaScript
-(`JSON.parse`) e no `jq`, números acima de 2^53 perdem precisão. No exemplo acima o curl mandou
-`SETTINGS_MAX_FIELD_SECTION_SIZE = 4611686018427387903`, e a API hoje devolve o valor arredondado
-(`4611686018427388000`); a correção está na fila (task 062).
+(`JSON.parse`) e em `jq` antigos (antes do 1.7), números acima de 2^53 perdem precisão. A API devolve o
+inteiro exato (no exemplo acima o curl mandou `SETTINGS_MAX_FIELD_SECTION_SIZE = 4611686018427387903`); quem lê em
+JavaScript precisa de um parser que preserve inteiros grandes (por exemplo `JSON.parse` com `reviver` e
+`context.source`, ou BigInt).
 
 ## Fim da conexão
 
@@ -147,7 +148,7 @@ resposta termina, como no h2.
 
 ## Controles de resposta em h3
 
-Valem `status`, `size`, `delay_head`, `delay_body`, `h=` e `alt_svc`. Os demais (`ver`, `frame`, `conn`, `ka`,
+Valem `status`, `size`, `delay_head`, `delay_body`, `h=`, `alt_svc` e `date`. Os demais (`ver`, `frame`, `conn`, `ka`,
 `close`, `rst`, `idle`, `hsize`, `continue`, `upgrade`) respondem **400** com explicação, registrado. Detalhes em
 [probes.md](probes.md#controles-de-resposta-pidr).
 
