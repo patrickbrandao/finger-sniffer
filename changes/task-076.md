@@ -1,0 +1,1 @@
+- Infra: o passo e2e do `verify-full` passa `-timeout` ao `go test` (`FS_E2E_TIMEOUT`, padrão 45m); `FS_E2E_LONG=1` não morre mais nos 10 min padrão (task 076).
