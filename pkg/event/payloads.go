@@ -200,6 +200,12 @@ type HTTP3Request struct {
 	Status          int          `json:"status"`
 	// Controls segue o schema Controls do openapi (os controles de resposta do web).
 	Controls json.RawMessage `json:"controls,omitempty"`
+	// Instantes da requisição e da resposta (FormatTime, relógio do web; nulos quando não houve), contrato
+	// 0.4.0, ADR 0029.
+	RequestStartedAt  *string `json:"request_started_at"`
+	RequestEndedAt    *string `json:"request_ended_at"`
+	ResponseStartedAt *string `json:"response_started_at"`
+	ResponseEndedAt   *string `json:"response_ended_at"`
 }
 
 // QPACKField é uma linha de campo QPACK como chegou (RFC 9204 4.5).

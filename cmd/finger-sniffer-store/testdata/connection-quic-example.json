@@ -94,6 +94,10 @@
             ":authority",
             ":path"
           ],
+          "request_ended_at": null,
+          "request_started_at": null,
+          "response_ended_at": null,
+          "response_started_at": null,
           "status": 200,
           "stream_id": 0,
           "values_truncated": false
@@ -130,6 +134,10 @@
             ":authority",
             ":path"
           ],
+          "request_ended_at": null,
+          "request_started_at": null,
+          "response_ended_at": null,
+          "response_started_at": null,
           "status": 404,
           "stream_id": 4,
           "values_truncated": false

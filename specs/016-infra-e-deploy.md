@@ -14,7 +14,8 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
   reporta `degraded`.
 - RF-02: aplica `deploy/sysctl/90-finger-sniffer.conf` (versionado): `tcp_syncookies=1`, `somaxconn=4096`,
   `tcp_max_syn_backlog=4096`, `tcp_timestamps=1`, `tcp_ecn=2`, `tcp_sack=1`, `tcp_window_scaling=1`,
-  `tcp_congestion_control=htcp`, `default_qdisc=fq_codel`, `tcp_fastopen=3` (para observar TFO do cliente),
+  `tcp_congestion_control=htcp`, `default_qdisc=fq_codel`, `tcp_fastopen=3` (cliente e servidor; o servidor só concede cookie nos listeners que ligam `TCP_FASTOPEN`:
+  web e raw, ADR 0029),
   `ip_local_port_range`, `net.core.rmem_max=7340032` e `net.core.wmem_max=7340032` (buffer UDP do quic-go,
   ADR 0019); o arquivo é a documentação oficial da resposta TCP do espelho.
 - RF-03: sem firewall com estado, sem conntrack/NAT: o deploy confere que `nft list ruleset` está vazio e que
@@ -72,3 +73,4 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 - specs/decisions/0016-stream-em-memoria.md
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0013-verificacao-dois-niveis.md
+- specs/decisions/0029-campos-da-auditoria-de-requisitos.md
