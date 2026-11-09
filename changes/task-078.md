@@ -1,0 +1,1 @@
+- Infra: `make deploy SVC=x` instala só o binário de x; os reinícios comparam o binário em execução (`/proc/<pid>/exe`) com o do disco, então um `make deploy` completo corrige versões desencontradas; o smoke falha com `versions_match: false` (com `SVC`, só avisa em vermelho) e `/finger-sniffer/htdocs` recebe só arquivos servíveis (task 078).

@@ -24,7 +24,8 @@ type fakeMirror struct {
 	statuses map[string]string
 	reasons  map[string][]string
 	metrics  map[string]map[string]int
-	altSvc   string // Alt-Svc das respostas ("" = nenhum)
+	altSvc   string            // Alt-Svc das respostas ("" = nenhum)
+	versions map[string]string // versão por serviço ("" = "test")
 
 	plain, tls *httptest.Server
 	dnsSrv     *dns.Server
@@ -48,6 +49,12 @@ func (f *fakeMirror) setAltSvc(v string) {
 	f.altSvc = v
 }
 
+func (f *fakeMirror) setVersion(svc, v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.versions[svc] = v
+}
+
 func (f *fakeMirror) setStatus(svc, status string, reasons ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -66,21 +73,29 @@ func (f *fakeMirror) health(w http.ResponseWriter, _ *http.Request) {
 		Metrics map[string]int `json:"metrics,omitempty"`
 	}
 	services := map[string]svc{}
+	match := true
 	for name, st := range f.statuses {
 		m := f.metrics[name]
 		if m == nil {
 			m = map[string]int{"x_total": 1}
 		}
-		services[name] = svc{Status: st, Version: "test", Reasons: f.reasons[name], Metrics: m}
+		v := f.versions[name]
+		if v == "" {
+			v = "test"
+		}
+		match = match && v == "test"
+		services[name] = svc{Status: st, Version: v, Reasons: f.reasons[name], Metrics: m}
 	}
-	b, _ := json.MarshalIndent(map[string]any{"ok": true, "services": services}, "", "  ")
+	b, _ := json.MarshalIndent(map[string]any{
+		"ok": true, "version": "test", "versions_match": match, "services": services,
+	}, "", "  ")
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(b)
 }
 
 func newFakeMirror(t *testing.T) *fakeMirror {
 	t.Helper()
-	f := &fakeMirror{statuses: map[string]string{}, reasons: map[string][]string{}, metrics: map[string]map[string]int{}}
+	f := &fakeMirror{statuses: map[string]string{}, reasons: map[string][]string{}, metrics: map[string]map[string]int{}, versions: map[string]string{}}
 	for _, s := range []string{"capture", "web", "raw", "dns", "store"} {
 		f.statuses[s] = "ok"
 	}
@@ -372,5 +387,33 @@ func TestSmokeH3FailsWhenListenerDown(t *testing.T) {
 	out, rc := runSmoke(t, f, "web")
 	if rc == 0 || !strings.Contains(out, "h3_listener_down") {
 		t.Fatalf("esperava falha com h3_listener_down, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeFailsOnVersionMismatchInFullDeploy(t *testing.T) {
+	// task 078: deploy completo com versões desencontradas reprova, mostrando a versão de cada serviço
+	f := selfSignedMirror(t)
+	f.setVersion("raw", "old1234")
+	out, rc := runSmoke(t, f, "")
+	if rc == 0 || !strings.Contains(out, "VERSÕES DESENCONTRADAS") || !strings.Contains(out, "raw=old1234") {
+		t.Fatalf("esperava falha por versions_match=false, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeWarnsOnVersionMismatchWithSVC(t *testing.T) {
+	// com SVC=<svc>, desencontro é esperado (um serviço de outro commit): só avisa
+	f := selfSignedMirror(t)
+	f.setVersion("raw", "old1234")
+	out, rc := runSmoke(t, f, "capture")
+	if rc != 0 || !strings.Contains(out, "AVISO VERSÕES DESENCONTRADAS") {
+		t.Fatalf("esperava aviso sem falha, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokePassesWhenVersionsMatch(t *testing.T) {
+	f := selfSignedMirror(t)
+	out, rc := runSmoke(t, f, "capture")
+	if rc != 0 || !strings.Contains(out, "health versions_match") || strings.Contains(out, "DESENCONTRADAS") {
+		t.Fatalf("rc=%d\n%s", rc, out)
 	}
 }

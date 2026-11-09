@@ -7,7 +7,6 @@ STAGING="$1"
 DEST=/finger-sniffer
 SVC="${SVC:-}"
 FORCE="${FORCE:-0}"
-UNITS="finger-sniffer-nats finger-sniffer-store finger-sniffer-capture finger-sniffer-web finger-sniffer-raw finger-sniffer-dns"
 CHANGED_CONFIG=0
 ENV_CHANGED=0
 
@@ -15,6 +14,9 @@ log() { echo "[deploy] $*"; }
 
 # shellcheck disable=SC1091
 . "$STAGING/deploy/versions.env"
+# shellcheck disable=SC1091
+. "$STAGING/deploy/install-lib.sh"
+UNITS="$FS_UNITS"
 
 # install_if_changed <origem> <destino> <modo>: copia só se diferente; devolve 0 se mudou.
 install_if_changed() {
@@ -35,20 +37,20 @@ mkdir -p "$DEST/bin" "$DEST/etc" "$DEST/var/store" "$DEST/var/certs" "$DEST/var/
 chown -R finger-sniffer:finger-sniffer "$DEST/var"
 chmod 0750 "$DEST/var"
 
-# 2. Binários: guarda o hash anterior para reiniciar só o que mudou
-declare -A before=()
-for u in $UNITS; do
-	b="$DEST/bin/${u}"
-	[ "$u" = finger-sniffer-nats ] && b="$DEST/bin/nats-server"
-	before[$u]=$(sha256sum "$b" 2>/dev/null | cut -d' ' -f1 || true)
-done
-conf_before=$(sha256sum "$DEST/eventbus/nats/nats.conf" 2>/dev/null | cut -d' ' -f1 || true)
-
-# 3. Repositório → /finger-sniffer (preserva var/, etc/ e o nats-server instalado)
-rsync -a --delete --chown=root:root --exclude='/var/' --exclude='/etc/' --exclude='/bin/nats-server' "$STAGING/" "$DEST/"
+# 2. Repositório → /finger-sniffer (preserva var/, etc/ e bin/). bin/ e htdocs/ têm passos próprios.
+conf_before=$(hash_file "$DEST/eventbus/nats/nats.conf")
+rsync -a --delete --chown=root:root --exclude='/var/' --exclude='/etc/' --exclude='/bin/' --exclude='/htdocs/' \
+	"$STAGING/" "$DEST/"
 chmod 0755 "$DEST/deploy/net/finger-sniffer-net.sh"
-# htdocs: leitura pelo usuário finger-sniffer (web), qualquer que seja o umask de quem fez o checkout
-[ -d "$DEST/htdocs" ] && chmod -R a+rX "$DEST/htdocs"
+
+# 3. Binários: só os da seleção (SVC=<svc> instala só o dele; task 078). Os reinícios (passo 9) comparam o
+#    binário em disco com o que está em execução.
+install_binaries "$STAGING" "$DEST" "$SVC"
+
+# htdocs: só os arquivos servíveis (sem *.go nem testdata/; --delete-excluded limpa os que já estavam lá) e
+# leitura pelo usuário finger-sniffer (web), qualquer que seja o umask de quem fez o checkout
+install_htdocs "$STAGING" "$DEST"
+chown -R root:root "$DEST/htdocs"
 
 # 4. Configuração: env instalado só se ausente (nunca sobrescreve); depois, acrescenta as chaves novas do
 #    .env.example sem mudar as existentes e avisa dos valores que diferem do padrão novo.
@@ -101,23 +103,18 @@ fi
 # 8. Rede (sempre: é barato e garante o estado)
 systemctl restart finger-sniffer-net.service
 
-# 9. Reinícios
-conf_after=$(sha256sum "$DEST/eventbus/nats/nats.conf" | cut -d' ' -f1)
+# 9. Reinícios: binário em execução ≠ binário em disco reinicia sempre (com ou sem SVC); com SVC, o serviço
+#    pedido também; sem SVC, ainda config/env/nats.conf mudados, FORCE=1 ou unit parada.
+conf_after=$(hash_file "$DEST/eventbus/nats/nats.conf")
+NATS_CONF_CHANGED=0
+[ "$conf_before" = "$conf_after" ] || NATS_CONF_CHANGED=1
 restart=""
-for u in $UNITS; do
-	b="$DEST/bin/${u}"
-	[ "$u" = finger-sniffer-nats ] && b="$DEST/bin/nats-server"
-	after=$(sha256sum "$b" | cut -d' ' -f1)
-	short=${u#finger-sniffer-}
-	if [ -n "$SVC" ]; then
-		[ "$short" = "$SVC" ] && restart="$restart $u"
-	elif [ "$FORCE" = 1 ] || [ "$CHANGED_CONFIG" = 1 ] || [ "${before[$u]}" != "$after" ] ||
-		{ [ "$ENV_CHANGED" = 1 ] && [ "$u" != finger-sniffer-nats ]; } ||
-		{ [ "$u" = finger-sniffer-nats ] && [ "$conf_before" != "$conf_after" ]; } ||
-		! systemctl is-active --quiet "$u"; then
-		restart="$restart $u"
-	fi
-done
+while IFS=$'\t' read -r u why; do
+	[ -n "$u" ] || continue
+	log "${u#finger-sniffer-}: $why"
+	restart="$restart $u"
+done < <(FORCE="$FORCE" CHANGED_CONFIG="$CHANGED_CONFIG" ENV_CHANGED="$ENV_CHANGED" \
+	NATS_CONF_CHANGED="$NATS_CONF_CHANGED" plan_restarts "$DEST" "$SVC")
 if [ -n "$restart" ]; then
 	log "reiniciando:$restart"
 	# shellcheck disable=SC2086
