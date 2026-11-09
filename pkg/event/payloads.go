@@ -134,8 +134,10 @@ type HTTP3Info struct {
 	// ClientHello segue o schema TLSInfo (pkg/tlsparse); fica cru aqui para pkg/event não depender do parser.
 	ClientHello json.RawMessage `json:"client_hello,omitempty"`
 	H3Settings  [][2]uint64     `json:"h3_settings"`
-	Close       *HTTP3Close     `json:"close"`
-	Requests    []HTTP3Request  `json:"requests"`
+	// H3ControlStreamSeen: o cliente abriu o stream de controle h3 e o SETTINGS foi lido (contrato 0.3.2).
+	H3ControlStreamSeen bool           `json:"h3_control_stream_seen"`
+	Close               *HTTP3Close    `json:"close"`
+	Requests            []HTTP3Request `json:"requests"`
 }
 
 // HTTP3Close é o fim da conexão QUIC visto pelo web.

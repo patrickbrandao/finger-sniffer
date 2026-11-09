@@ -24,8 +24,10 @@ type Info struct {
 	TransportParams        []TransportParam `json:"transport_params"`
 	ClientHello            *tlsparse.Info   `json:"client_hello"`
 	H3Settings             [][2]uint64      `json:"h3_settings"`
-	Close                  *Close           `json:"close"`
-	Requests               []HTTP3Request   `json:"requests"`
+	// H3ControlStreamSeen: o cliente abriu o stream de controle h3 (tipo 0x00) e o SETTINGS foi lido.
+	H3ControlStreamSeen bool           `json:"h3_control_stream_seen"`
+	Close               *Close         `json:"close"`
+	Requests            []HTTP3Request `json:"requests"`
 }
 
 // Close é o fim da conexão QUIC visto pelo web (HTTP3Info.close).

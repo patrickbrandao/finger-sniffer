@@ -92,7 +92,7 @@ func h3Conn(alpn string, settings bool, cl *event.HTTP3Close) event.HTTP3Info {
 		ClientHello:     hello, H3Settings: [][2]uint64{}, Close: cl, Requests: []event.HTTP3Request{},
 	}
 	if settings {
-		info.H3Settings = [][2]uint64{{1, 0}, {6, 16384}, {7, 0}}
+		info.H3Settings, info.H3ControlStreamSeen = [][2]uint64{{1, 0}, {6, 16384}, {7, 0}}, true
 	}
 	return info
 }

@@ -100,7 +100,7 @@ func TestPayloadsMatchAsyncAPI(t *testing.T) {
 		// Payloads h3 (ADR 0019): os schemas estão no openapi, referenciados pelas mensagens do asyncapi.
 		{"HTTP3Info", HTTP3Info{
 			InitialFrames: []string{"CRYPTO"}, TransportParams: []TransportParam{{ID: 1, Name: "max_idle_timeout", ValueHex: "00"}},
-			ClientHello: json.RawMessage(`{}`), H3Settings: [][2]uint64{{1, 0}},
+			ClientHello: json.RawMessage(`{}`), H3Settings: [][2]uint64{{1, 0}}, H3ControlStreamSeen: true,
 			Close: &HTTP3Close{By: "client", How: QUICCloseConnection, ErrorCode: &u, Reason: &s}, Requests: []HTTP3Request{},
 		}},
 		{"HTTP3Request", HTTP3Request{PseudoOrder: []string{":method"}, Fields: []QPACKField{}, JA4H: &s, Controls: json.RawMessage(`{}`)}},

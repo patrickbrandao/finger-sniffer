@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.3.1
+  version: 0.3.2
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -864,6 +864,12 @@ components:
             prefixItems: [{ type: integer }, { type: integer }]
             minItems: 2
             maxItems: 2
+        h3_control_stream_seen:
+          type: boolean
+          description: |
+            O cliente abriu o stream de controle h3 (unidirecional tipo 0x00) e o SETTINGS foi lido. `false` com
+            `h3_settings: []` = o cliente não abriu (ou não completou) o stream de controle antes do fim; `true` com
+            `h3_settings: []` = SETTINGS vazio. Ausente em eventos anteriores ao contrato 0.3.2.
         close:
           type: [object, "null"]
           description: Fim da conexão QUIC visto pelo web; nulo enquanto aberta.
