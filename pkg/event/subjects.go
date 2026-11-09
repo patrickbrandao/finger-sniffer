@@ -1,6 +1,6 @@
 package event
 
-// Subjects do barramento (fs.v1.<origem>.<tipo>), conforme eventbus/nats/asyncapi.yaml 0.2.0.
+// Subjects do barramento (fs.v1.<origem>.<tipo>), conforme eventbus/nats/asyncapi.yaml 0.3.0.
 const (
 	SubjectCapturePacket      = "fs.v1.capture.packet"
 	SubjectWebTLSClientHello  = "fs.v1.web.tls.client_hello"
@@ -9,6 +9,7 @@ const (
 	SubjectWebHTTP2Connection = "fs.v1.web.http2.connection"
 	SubjectWebHTTP2Stream     = "fs.v1.web.http2.stream"
 	SubjectWebHTTP3Connection = "fs.v1.web.http3.connection"
+	SubjectWebHTTP3Request    = "fs.v1.web.http3.request"
 	SubjectWebWebSocketFrame  = "fs.v1.web.websocket.frame"
 	SubjectWebStreamBytes     = "fs.v1.web.stream.bytes"
 	SubjectWebRawSession      = "fs.v1.web.raw.session"
@@ -39,9 +40,9 @@ var StreamSubjects = []string{
 // EventSubjects lista todos os subjects de eventos (os que o stream guarda).
 var EventSubjects = []string{
 	SubjectCapturePacket, SubjectWebTLSClientHello, SubjectWebTLSHandshake, SubjectWebHTTP1Request,
-	SubjectWebHTTP2Connection, SubjectWebHTTP2Stream, SubjectWebHTTP3Connection, SubjectWebWebSocketFrame,
-	SubjectWebStreamBytes, SubjectWebRawSession, SubjectRawSession, SubjectRawRead, SubjectDNSQuery,
-	SubjectHeartbeat,
+	SubjectWebHTTP2Connection, SubjectWebHTTP2Stream, SubjectWebHTTP3Connection, SubjectWebHTTP3Request,
+	SubjectWebWebSocketFrame, SubjectWebStreamBytes, SubjectWebRawSession, SubjectRawSession, SubjectRawRead,
+	SubjectDNSQuery, SubjectHeartbeat,
 }
 
 // RequestSubjects lista os request/reply NATS core (fora do stream).

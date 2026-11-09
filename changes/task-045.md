@@ -1,1 +1,0 @@
-- Exemplos golden de `Heartbeat`, `ConnIDRequest` e `ConnIDReply` gerados pelo código real (`pkg/service` e `internal/store`, regravados com `-update`) e referenciados no asyncapi no lugar dos exemplos à mão (task 045).

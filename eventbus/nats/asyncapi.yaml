@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.2.1
+  version: 0.3.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
@@ -66,6 +66,10 @@ channels:
     address: fs.v1.web.http3.connection
     messages:
       http3Connection: { $ref: "#/components/messages/HTTP3Connection" }
+  webHTTP3Request:
+    address: fs.v1.web.http3.request
+    messages:
+      http3Request: { $ref: "#/components/messages/HTTP3Request" }
   webWebSocketFrame:
     address: fs.v1.web.websocket.frame
     messages:
@@ -147,6 +151,9 @@ operations:
   publishHTTP3Connection:
     action: send
     channel: { $ref: "#/channels/webHTTP3Connection" }
+  publishHTTP3Request:
+    action: send
+    channel: { $ref: "#/channels/webHTTP3Request" }
   publishWebSocketFrame:
     action: send
     channel: { $ref: "#/channels/webWebSocketFrame" }
@@ -424,14 +431,30 @@ components:
     HTTP3Connection:
       name: HTTP3Connection
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
-      summary: Initial QUIC analisado e requisições h3 (spec 011).
-      description: Sem exemplo até o produtor h3 existir (F4); a tarefa do h3 acrescenta o golden.
+      summary: Initial QUIC analisado, SETTINGS do h3 e fim da conexão (spec 011, ADR 0019).
+      description: |
+        Nível de conexão; `requests` vai vazio (as requisições vão por `fs.v1.web.http3.request`). Publicado até
+        três vezes por conexão QUIC, cada versão substituindo a anterior no store: (1) quando o handshake termina
+        ou falha, com o Initial analisado; (2) quando chega o SETTINGS do cliente; (3) no fim, com `close`
+        preenchido. `flow.l4` = `udp` e `flow.quic_dcid_hex` = DCID do primeiro Initial do cliente. Sem exemplo
+        até o produtor h3 existir; a tarefa do h3 (task 057) acrescenta o golden.
       payload:
         allOf:
           - $ref: "#/components/schemas/Envelope"
           - type: object
             properties:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP3Info" }
+    HTTP3Request:
+      name: HTTP3Request
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Uma requisição h3, publicada quando a resposta termina (spec 011 RF-03, ADR 0019).
+      description: Sem exemplo até o produtor h3 existir; a tarefa do h3 (task 057) acrescenta o golden.
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP3Request" }
     WebSocketFrame:
       name: WebSocketFrame
       examples:

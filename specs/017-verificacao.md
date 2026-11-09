@@ -58,6 +58,10 @@ Caminho {direto, squid 1080, go-xproxy 4128, go-xproxy HTTPS-proxy 4443} × sufi
 9. WebSocket `ws://` e `wss://`.
 10. DNS: qual resolvedor consulta, com ECS ou não, A/AAAA/HTTPS.
 11. TCP: JA4T/p0f e TTL de cada caminho; RTT handshake × aplicação; relógio de timestamps entre IPs de saída.
+12. HTTP/3 (só caminho direto; proxies HTTP não transportam QUIC): `curl --http3-only`, quic-go, Chrome (Alt-Svc e
+    HTTPS RR) e Firefox quando der sem desligar o sandbox; transport params na ordem, JA4 `q`, fim da conexão.
+13. Tempo real e site: `/ws` e `/stream` (filtros, `stream.dropped`, 503), página do htdocs em Chrome headless
+    mostrando a própria sondagem no feed em < 1 s, sem requisições a terceiros.
 
 Critério: em HTTP/TLS/keep-alive, o que chega pelo proxy é idêntico ao direto (diferenças esperadas listadas:
 `absolute-form` → `origin-form`, ausência de `Proxy-*`; `-random` abre conexão nova por requisição). Em TCP, o

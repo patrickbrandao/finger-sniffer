@@ -12,8 +12,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-01: consumidor durável `store` do stream JetStream `FS_EVENTS`; cria/ajusta o stream no start
   (`MemoryStorage`, `max_age` 60 s, `max_bytes` 32 MiB, `DiscardOld` — ADR 0016), com a lista explícita de subjects
   de eventos da ADR 0017 (request/reply fica fora).
-- RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC por 4-tupla + DCID; associação ao
-  probe assim que o ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
+- RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC pela 5-tupla UDP, e um Initial com
+  DCID novo depois do fim da conexão QUIC anterior abre conexão nova (ADR 0019); associação ao probe assim que o
+  ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
 - RF-02a: responde o request/reply `fs.v1.store.conn_id` (ADR 0017): devolve o ID da conexão aberta com a 5-tupla
   ou reserva um ULID por 30 s para a próxima conexão criada pelos pacotes com essa 5-tupla.
 - RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto) ficam como "pacotes
@@ -28,10 +29,13 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
   e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês.
 - RF-08: tempo real: SSE `GET /api/v1/stream` e WebSocket `GET /api/v1/ws`, filtros `probe`, `src_ip`,
-  `dst_port`, `kind`; sem filtro = feed global.
+  `dst_port`, `kind`; sem filtro = feed global. Hub em memória após o commit, sem replay, fila por cliente
+  `FS_LIVE_BUFFER` (1024) com descarte e `stream.dropped`, até `FS_LIVE_MAX_CLIENTS` (64) clientes (ADR 0020).
+  Detalhes em "Tempo real".
 - RF-09: health agregado: heartbeat de cada serviço (5 s; `down` após 15 s sem heartbeat), versões
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
-- RF-10: `/metrics` (Prometheus) em 9001 com as métricas do store e as recebidas no heartbeat dos demais.
+- RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
+  "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de 200 conexões simultâneas ou 50 novas/s, mantém o resumo, para de
   guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
 - RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim; evento ao vivo < 1 s.
@@ -54,6 +58,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 | `web.http1.request` | `http[]` | acrescenta, ordenado por `index`; `requests` = total h1+h2+h3 |
 | `web.http2.connection` | `http2` (nível de conexão) | a última versão vale; preserva `streams` |
 | `web.http2.stream` | `http2.streams[]` | acrescenta ou substitui por `stream_id` |
+| `web.http3.connection` | `http3` (nível de conexão), `tls` (= `http3.client_hello`), `times.tls_done` | a última versão vale; preserva `requests`; com `close` preenchido, fecha a conexão 2 s depois (ADR 0019) |
+| `web.http3.request` | `http3.requests[]` | acrescenta ou substitui por `stream_id`; conta em `requests` |
 | `web.websocket.frame` | `websocket` | o primeiro frame com `upgrade` preenche `over/path/extensions/subprotocol`; frames acrescentados (teto da ADR 0018, `frames_truncated`); `close` preenche `websocket.close` |
 | `raw.session`, `web.raw.session` | `raw` | substitui |
 | `web.stream.bytes`, `raw.read` | `raw_streams`, `raw_truncated` | grava o pedaço pelo `offset`; `truncated` marca o sentido |
@@ -62,12 +68,54 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - `proto` da conexão, derivado dos eventos: `tls/` como prefixo quando houve `client_hello`; depois `http1.0` ou
   `http1.1` (versão da primeira requisição), `h2` (ALPN) ou `h2c` (prior knowledge/Upgrade), `ws` acrescentado como
   sufixo quando houve Upgrade (ex. `tls/http1.1/ws`), `raw` (raw), `raw/unknown` (web sem protocolo reconhecido),
-  `dns` (fluxo da porta 53 com `dns.query`), `quic/h3` (F4). Sem evento de aplicação: `tcp` ou `udp`.
+  `dns` (fluxo da porta 53 com `dns.query`), `quic/h3` (`http3.connection` com ALPN `h3` negociado) ou `quic`
+  (Initial analisado sem h3: versão desconhecida, handshake falho, outro ALPN). Sem evento de aplicação: `tcp` ou
+  `udp`.
+- Fim de conexão QUIC (ADR 0019): `http3.connection` com `close` → `end` 2 s depois, `close.by` do web,
+  `close.how = quic_close` (ou `timeout` quando o web informa `idle_timeout`). O `tls` do registro QUIC é o ClientHello do Initial, mas
+  o `proto` não ganha o prefixo `tls/`. Fluxo UDP com evento h3 e sem
+  `close` usa ociosidade `FS_IDLE_DEFAULT` + 30 s, não a de UDP.
 - `probe_id` da conexão: o primeiro `probe_id` não nulo dos envelopes da conexão; a tabela `probes` é atualizada
   (`first_seen`/`last_seen`) a cada conexão ou consulta DNS com probe.
-- Long-poll `GET /api/v1/probes/{id}?wait=10s`: responde quando todas as conexões do probe estiverem fechadas ou no
-  fim do prazo (máx 60 s).
+- Long-poll `GET /api/v1/probes/{id}?wait=10s` (máx 60 s): responde quando o probe tem **ao menos uma conexão** e
+  todas estão fechadas, ou no fim do prazo. Só consultas DNS (ou nada) não bastam: a espera continua até a
+  primeira conexão aparecer e fechar (ex.: o xProxy resolveu o nome, mas a conexão ainda não chegou). No fim do
+  prazo: 200 com o estado atual (`all_closed` = nenhuma conexão aberta) ou 404 se o probe não tem nada. Sem
+  `wait`, responde na hora como antes.
 - Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
+
+### Tempo real (RF-08, ADR 0020)
+- Eventos, emitidos depois do commit do lote que os produziu:
+
+| `kind` | Quando | `data` |
+| --- | --- | --- |
+| `connection.opened` | conexão criada (pacotes ou só eventos) | `ConnectionSummary` |
+| `connection.updated` | camada de aplicação fundida no registro aberto; no máximo 1 por conexão a cada 250 ms | `ConnectionSummary` |
+| `connection.closed` | registro finalizado e gravado | `ConnectionSummary` |
+| `http.request` | cada `http1.request`, `http2.stream`, `http3.request` | `HTTP1Request`, `HTTP2Stream`, `HTTP3Request` |
+| `dns.query` | cada consulta gravada | `DNSQuery` |
+| `packet.stray` | cada pacote avulso gravado | `StrayPacket` |
+| `stream.dropped` | só para o cliente que perdeu eventos, quando a fila volta a ter espaço | `LiveDropped` |
+
+- `conn_id` e `probe_id` do envelope do `LiveEvent` preenchidos quando houver. Filtros: `probe` (= `probe_id`),
+  `src_ip` (cliente; para `dns.query`, o resolvedor), `dst_port` (porta do espelho; `dns.query` = 53), `kind`
+  (lista por vírgula). Filtro inválido → 400 antes do upgrade/stream.
+- SSE: `event: <kind>`, `data: <JSON>`, comentário `: ping` a cada 15 s, `Cache-Control: no-store`, flush por
+  evento. WS: uma mensagem de texto por evento, ping a cada 30 s, mensagens do cliente ignoradas, fecha com 1001
+  no desligamento.
+- Mais de `FS_LIVE_MAX_CLIENTS` clientes → 503. A latência ingest → cliente entra na métrica
+  `fs_store_live_delay_seconds` (`ts` do evento de origem até o envio).
+
+### Métricas (RF-10)
+Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no heartbeat e `fs_service_up`:
+`fs_service_info{service,version}`, `fs_store_events_ingested_total{subject}`, `fs_store_ingest_lag_seconds`
+(histograma: `ts` do envelope → commit), `fs_store_connections_open`, `fs_store_connections_total{l4,proto}`,
+`fs_store_connections_degraded_total`, `fs_store_stray_packets_total`, `fs_store_dns_queries_total`,
+`fs_store_purged_total{reason=age|size}`, `fs_store_db_bytes`, `fs_store_record_ready_seconds` (histograma: fim →
+registro gravado), `fs_store_live_clients{transport=sse|ws}`, `fs_store_live_events_total{kind}`,
+`fs_store_live_dropped_total`, `fs_store_live_delay_seconds` (histograma),
+`fs_store_api_requests_total{route,code}` e `fs_store_api_request_duration_seconds{route}` (histograma; `route` =
+padrão do mux, nunca o caminho com IDs).
 
 ## Interfaces e contratos
 Contrato: [cmd/finger-sniffer-store/openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (servido em
@@ -118,6 +166,11 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - [ ] O pcap baixado abre no tshark e mostra os dois sentidos.
 - [ ] Respostas de todas as rotas validam contra o openapi.yaml (teste de contrato).
 - [ ] Parar o capture faz `/api/v1/health` mostrar `capture: down` em ≤ 15 s.
+- [ ] `?wait=10s` num probe com só consultas DNS espera a primeira conexão e responde quando ela fecha.
+- [ ] Feed global pelo `/ws` e pelo `/stream`: evento de uma requisição h1/h2/h3 chega em < 1 s; cliente que não lê
+      recebe `stream.dropped` e não atrasa o ingest; 65º cliente recebe 503.
+- [ ] Conexão `quic/h3` encerrada pelo cliente fecha no store em ≤ 3 s, com `close.how = quic_close`.
+- [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).
 
 ## Fora de escopo
 - Autenticação, paginação por cursor (só `limit`), histórico além da retenção.
@@ -129,3 +182,5 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - specs/decisions/0004-pacotes-pelo-nats.md
 - specs/decisions/0017-request-reply-e-conn-id.md
 - specs/decisions/0018-tamanho-dos-eventos.md
+- specs/decisions/0019-http3-eventos-e-fim-quic.md
+- specs/decisions/0020-tempo-real-sem-replay.md

@@ -50,8 +50,15 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
 - **Objetivo**: QUIC/h3, SSE/WS na API, página htdocs com feed global, métricas agregadas.
 - **Specs**: 004 (RF-08..10), 011, 014.
 - **Dependências**: F3.
-- **Frentes**: implementer-web (h3 + Initial) ‖ implementer-store (stream SSE/WS, métricas) ‖ docs (htdocs e
-  docs/ de uso da API).
+- **Frentes** (tarefas 049–060, ADRs 0019 e 0020):
+  - implementer-web: `pkg/quicparse` + JA4 `q` (049) → servidor h3, eventos, Alt-Svc (057, depois de 049, 051
+    e 055);
+  - implementer-store: ingest h3 e fim do QUIC (051) → tempo real SSE/WS (053) → métricas (054) ‖ long-poll
+    `wait` (052);
+  - implementer-dns: HTTPS RR conforme `FS_WEB_UDP_PORTS` (056);
+  - infra: UDP/QUIC na vps602, env do tempo real e smoke h3 (055);
+  - docs: página com feed global (058, depois de 053) ‖ docs/ de uso da API (059, depois de 052 e 053);
+  - tester: golden de Initials QUIC (050, desde o início) → e2e da F4, casos 12 e 13 (060, no fim).
 - **Critério de saída**: Chrome e Firefox usam h3 e veem o feed em < 1 s; `curl --http3-only` registrado com
   transport params; página sem recursos de terceiros.
 
