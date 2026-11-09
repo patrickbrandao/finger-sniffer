@@ -38,7 +38,7 @@ func TestDNSQueryUDP(t *testing.T) {
 	if count(t, db, "SELECT count(*) FROM probes WHERE probe_id = 't1a2b3c4'") != 1 || count(t, db, "SELECT count(*) FROM app_events") != 0 {
 		t.Fatal("probe row expected, no app event for UDP")
 	}
-	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", 0)
+	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", ProbeWait{})
 	if err != nil || len(p.DNS) != 1 || len(p.Connections) != 0 {
 		t.Fatalf("%+v %v", p, err)
 	}
@@ -61,7 +61,7 @@ func TestDNSQueryTCP(t *testing.T) {
 	if connID != id || m["conn_id"] != id || r.ProbeID == nil {
 		t.Fatalf("conn_id %s (want %s) %s", connID, id, rec)
 	}
-	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", 0)
+	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", ProbeWait{})
 	if err != nil || len(p.DNS) != 1 || len(p.Connections) != 1 {
 		t.Fatalf("%+v %v", p, err)
 	}

@@ -107,7 +107,17 @@ func h3Req(stream int64, path string, status int) event.HTTP3Request {
 			{Name: ":path", Value: path, Repr: "literal-name-ref", Static: ptrTo(true), Index: ptrTo(1), NeverIndexed: &f, HuffmanValue: &f},
 		},
 		BodyLen: 0, Status: status,
+		// instantes da aplicação (ADR 0029): requisição a partir de 40 ms + stream; resposta só com status
+		RequestStartedAt: tsPtr(base + (40+stream)*1e6), RequestEndedAt: tsPtr(base + (41+stream)*1e6),
+		ResponseStartedAt: respAt(status, 43+stream), ResponseEndedAt: respAt(status, 45+stream),
 	}
+}
+
+func respAt(status int, ms int64) *string {
+	if status == 0 {
+		return nil
+	}
+	return tsPtr(base + ms*1e6)
 }
 
 func ptrTo[T any](v T) *T { return &v }

@@ -34,6 +34,7 @@
             "index": 0,
             "out_offset": 0,
             "raw_head_b64": "R0VUIC9wL3QxYTJiM2M0LyBIVFRQLzEuMQ0KSG9zdDogdDFhMmIzYzQuZG5zLW1vbml0b3IudG1zb2Z0LmNvbS5icg0KDQo=",
+            "request_ended_at": "2026-11-07T12:00:00.031000000Z",
             "request_line": {
               "form": "origin",
               "method": "GET",
@@ -41,7 +42,10 @@
               "terminator": "crlf",
               "version": "HTTP/1.1"
             },
+            "request_started_at": "2026-11-07T12:00:00.030000000Z",
+            "response_ended_at": "2026-11-07T12:00:00.035000000Z",
             "response_sent_size": 120,
+            "response_started_at": "2026-11-07T12:00:00.033000000Z",
             "status": 200
           }
         ],
@@ -55,6 +59,44 @@
           "ip_id_pattern": "zero",
           "ip_id_syn": 0,
           "options_hex": "",
+          "packets": {
+            "ack": {
+              "df": false,
+              "dscp": 0,
+              "ecn": "not-ect",
+              "flow_label": null,
+              "fragmented": false,
+              "ip_id": 0,
+              "options_hex": "",
+              "tos": 0,
+              "total_length": 40,
+              "ttl": 64
+            },
+            "first_data": {
+              "df": false,
+              "dscp": 0,
+              "ecn": "not-ect",
+              "flow_label": null,
+              "fragmented": false,
+              "ip_id": 0,
+              "options_hex": "",
+              "tos": 0,
+              "total_length": 140,
+              "ttl": 64
+            },
+            "syn": {
+              "df": false,
+              "dscp": 0,
+              "ecn": "not-ect",
+              "flow_label": null,
+              "fragmented": false,
+              "ip_id": 0,
+              "options_hex": "",
+              "tos": 0,
+              "total_length": 40,
+              "ttl": 64
+            }
+          },
           "tos": 0,
           "traffic_class": null,
           "ttl": 64,

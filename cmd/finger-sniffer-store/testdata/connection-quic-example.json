@@ -94,10 +94,10 @@
             ":authority",
             ":path"
           ],
-          "request_ended_at": null,
-          "request_started_at": null,
-          "response_ended_at": null,
-          "response_started_at": null,
+          "request_ended_at": "2026-11-07T12:00:00.041000000Z",
+          "request_started_at": "2026-11-07T12:00:00.040000000Z",
+          "response_ended_at": "2026-11-07T12:00:00.045000000Z",
+          "response_started_at": "2026-11-07T12:00:00.043000000Z",
           "status": 200,
           "stream_id": 0,
           "values_truncated": false
@@ -134,10 +134,10 @@
             ":authority",
             ":path"
           ],
-          "request_ended_at": null,
-          "request_started_at": null,
-          "response_ended_at": null,
-          "response_started_at": null,
+          "request_ended_at": "2026-11-07T12:00:00.045000000Z",
+          "request_started_at": "2026-11-07T12:00:00.044000000Z",
+          "response_ended_at": "2026-11-07T12:00:00.049000000Z",
+          "response_started_at": "2026-11-07T12:00:00.047000000Z",
           "status": 404,
           "stream_id": 4,
           "values_truncated": false
@@ -165,6 +165,22 @@
       "ip_id_pattern": "zero",
       "ip_id_syn": 0,
       "options_hex": "",
+      "packets": {
+        "ack": null,
+        "first_data": {
+          "df": false,
+          "dscp": 0,
+          "ecn": "not-ect",
+          "flow_label": null,
+          "fragmented": false,
+          "ip_id": 0,
+          "options_hex": "",
+          "tos": 0,
+          "total_length": 1228,
+          "ttl": 64
+        },
+        "syn": null
+      },
       "tos": 0,
       "traffic_class": null,
       "ttl": 64,

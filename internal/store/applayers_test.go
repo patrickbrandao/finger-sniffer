@@ -50,6 +50,73 @@ func http1Payload(index int, version string) map[string]any {
 		"request_line": map[string]any{"method": "GET", "target": "/p/t1a2b3c4/", "form": "origin", "version": version, "terminator": "crlf"},
 		"fields":       [][]string{{"Host", ": ", "t1a2b3c4.dns-monitor.tmsoft.com.br", "crlf"}},
 		"field_count":  1, "head_size": len(head), "status": 200, "response_sent_size": 120,
+		// instantes da aplicação (ADR 0029), 10 ms por requisição a partir de 30 ms
+		"request_started_at": tsAt(30 + 10*index), "request_ended_at": tsAt(31 + 10*index),
+		"response_started_at": tsAt(33 + 10*index), "response_ended_at": tsAt(35 + 10*index),
+	}
+}
+
+// reqTimes são os quatro instantes de uma requisição (ADR 0029) como chegam no registro.
+type reqTimes struct {
+	RequestStartedAt  *string `json:"request_started_at"`
+	RequestEndedAt    *string `json:"request_ended_at"`
+	ResponseStartedAt *string `json:"response_started_at"`
+	ResponseEndedAt   *string `json:"response_ended_at"`
+}
+
+func (r reqTimes) String() string {
+	s := func(p *string) string {
+		if p == nil {
+			return "null"
+		}
+		return *p
+	}
+	return s(r.RequestStartedAt) + " " + s(r.RequestEndedAt) + " " + s(r.ResponseStartedAt) + " " + s(r.ResponseEndedAt)
+}
+
+// TestLayersRequestTimes: os instantes de cada requisição e resposta publicados pelo web chegam inalterados em
+// http[], http2.streams[] e http3.requests[] (spec 013 RF-01, ADR 0029); o ts do envelope não é copiado.
+func TestLayersRequestTimes(t *testing.T) {
+	want := tsAt(30) + " " + tsAt(31) + " " + tsAt(33) + " " + tsAt(35)
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP),
+		appMsg(t, event.SubjectWebHTTP1Request, "tcp", client, mirror, 40, "", http1Payload(0, "HTTP/1.1")))
+	_, r := onlyConn(t, db)
+	var h1 reqTimes
+	if len(r.HTTP) != 1 || json.Unmarshal(r.HTTP[0], &h1) != nil || h1.String() != want {
+		t.Fatalf("http[0] = %s, quer %s", h1, want)
+	}
+
+	in, db = newTestIngestor(t, nil)
+	stream := map[string]any{
+		"stream_id": 1, "status": 200, "request_started_at": tsAt(30), "request_ended_at": tsAt(31),
+		"response_started_at": tsAt(33), "response_ended_at": tsAt(35),
+	}
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP),
+		appMsg(t, event.SubjectWebTLSClientHello, "tcp", client, mirror, 25, "", tlsHelloPayload(clientHelloRaw(95))),
+		appMsg(t, event.SubjectWebHTTP2Stream, "tcp", client, mirror, 40, "", stream),
+		appMsg(t, event.SubjectWebHTTP2Connection, "tcp", client, mirror, 41, "", map[string]any{"mode": "alpn", "preface_ok": true, "streams": []any{}}))
+	_, r = onlyConn(t, db)
+	var h2 struct {
+		Streams []reqTimes `json:"streams"`
+	}
+	if json.Unmarshal(r.HTTP2, &h2) != nil || len(h2.Streams) != 1 || h2.Streams[0].String() != want {
+		t.Fatalf("http2 = %s, quer %s", r.HTTP2, want)
+	}
+
+	in, _ = newTestIngestor(t, nil)
+	msgs := h3Session(t, 1000)
+	run(t, in, 900, msgs[:6]...)
+	run(t, in, 1100, msgs[6])
+	run(t, in, 3100)
+	_, r = onlyConn(t, in.db)
+	var h3 struct {
+		Requests []reqTimes `json:"requests"`
+	}
+	r0 := h3Req(0, "/", 200)
+	w3 := reqTimes{r0.RequestStartedAt, r0.RequestEndedAt, r0.ResponseStartedAt, r0.ResponseEndedAt}.String()
+	if json.Unmarshal(r.HTTP3, &h3) != nil || len(h3.Requests) != 2 || h3.Requests[0].String() != w3 || h3.Requests[0].RequestStartedAt == nil {
+		t.Fatalf("http3 = %s, quer %s", r.HTTP3, w3)
 	}
 }
 
@@ -204,7 +271,7 @@ func TestProbeTLSHTTPDNS(t *testing.T) {
 		appMsg(t, event.SubjectWebTLSHandshake, "tcp", client, mirror, 33, "", handshakePayload()),
 		appMsg(t, event.SubjectWebHTTP1Request, "tcp", client, mirror, 40, "t1a2b3c4", http1Payload(0, "HTTP/1.1")))
 	q := NewQueries(db, in.flows.live, 65535)
-	p, err := q.Probe(context.Background(), "t1a2b3c4", 0)
+	p, err := q.Probe(context.Background(), "t1a2b3c4", ProbeWait{})
 	if err != nil || len(p.Connections) != 1 || len(p.DNS) != 1 || !p.AllClosed {
 		t.Fatalf("%+v %v", p, err)
 	}

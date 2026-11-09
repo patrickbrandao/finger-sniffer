@@ -347,31 +347,58 @@ func (q *Queries) rawList(ctx context.Context, sqlq string, args ...any) ([]json
 
 // probeJSON é o schema Probe.
 type probeJSON struct {
-	ProbeID     string            `json:"probe_id"`
-	AllClosed   bool              `json:"all_closed"`
+	ProbeID   string `json:"probe_id"`
+	AllClosed bool   `json:"all_closed"`
+	// WaitMet só aparece com wait (ADR 0029): true quando saiu pelo critério, false pelo fim do prazo.
+	WaitMet     *bool             `json:"wait_met,omitempty"`
 	Connections []json.RawMessage `json:"connections"`
 	DNS         []json.RawMessage `json:"dns"`
 }
 
-// Probe devolve as conexões e consultas DNS do probe. Com wait > 0, espera até haver ao menos uma conexão e
-// nenhuma aberta, ou até o prazo acabar (máx. 60 s); só consultas DNS (ou nada) não encerram a espera. No fim do
-// prazo devolve o estado atual, ou ErrNotFound se o probe não tem nada.
-func (q *Queries) Probe(ctx context.Context, id string, wait time.Duration) (probeJSON, error) {
+// ProbeWait é o critério do long-poll de /probes/{id} (spec 004, ADR 0029). Wait 0 responde na hora.
+type ProbeWait struct {
+	Wait time.Duration
+	// Settle é o silêncio exigido: nenhuma conexão do probe criada, correlacionada ou fechada nesse intervalo.
+	Settle time.Duration
+	// MinConns é o mínimo de conexões (0 vale 1).
+	MinConns int
+}
+
+// Probe devolve as conexões e consultas DNS do probe. Com Wait > 0, espera até haver ao menos MinConns conexões,
+// nenhuma aberta e nenhuma mudança nas conexões do probe nos últimos Settle, ou até o prazo acabar (máx. 60 s);
+// só consultas DNS (ou nada) não encerram a espera. No fim do prazo devolve o estado atual, ou ErrNotFound se o
+// probe não tem nada.
+func (q *Queries) Probe(ctx context.Context, id string, pw ProbeWait) (probeJSON, error) {
 	if !probe.Valid(id) {
 		return probeJSON{}, bad("invalid probe id %q", id)
 	}
-	if wait > 60*time.Second {
-		wait = 60 * time.Second
-	}
+	wait := min(pw.Wait, 60*time.Second)
+	minConns := max(pw.MinConns, 1)
 	deadline := q.now().Add(wait)
+	var last probeState
+	var lastChange time.Time
 	for {
-		p, open, err := q.probeOnce(ctx, id)
+		p, st, err := q.probeOnce(ctx, id)
 		if err != nil {
 			return p, err
 		}
-		if (len(p.Connections) > 0 && !open) || !q.now().Before(deadline) {
+		now := q.now()
+		// Mudança no conjunto (conexão nova, correlacionada ao probe ou fechada) vista pelo próprio poll; na
+		// primeira leitura vale o instante em que o store registrou a última mudança no banco.
+		switch {
+		case lastChange.IsZero():
+			lastChange = time.Unix(0, min(st.updated, now.UnixNano()))
+		case !st.same(last):
+			lastChange = now
+		}
+		last = st
+		met := len(p.Connections) >= minConns && !st.open && now.Sub(lastChange) >= pw.Settle
+		if met || !now.Before(deadline) {
 			if len(p.Connections) == 0 && len(p.DNS) == 0 {
 				return p, ErrNotFound
+			}
+			if wait > 0 {
+				p.WaitMet = &met
 			}
 			return p, nil
 		}
@@ -383,22 +410,44 @@ func (q *Queries) Probe(ctx context.Context, id string, wait time.Duration) (pro
 	}
 }
 
-func (q *Queries) probeOnce(ctx context.Context, id string) (probeJSON, bool, error) {
-	p := probeJSON{ProbeID: id, Connections: []json.RawMessage{}, DNS: []json.RawMessage{}}
-	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns FROM connections WHERE probe_id = ? ORDER BY started_ns", id)
-	if err != nil {
-		return p, false, err
+// probeState resume as conexões de uma leitura do probe para detectar mudanças entre leituras.
+type probeState struct {
+	open    bool
+	updated int64           // maior updated_ns das conexões
+	conns   map[string]bool // conn_id → fechada
+}
+
+func (a probeState) same(b probeState) bool {
+	if len(a.conns) != len(b.conns) {
+		return false
 	}
-	open := false
+	for id, closed := range a.conns {
+		if c, ok := b.conns[id]; !ok || c != closed {
+			return false
+		}
+	}
+	return true
+}
+
+func (q *Queries) probeOnce(ctx context.Context, id string) (probeJSON, probeState, error) {
+	p := probeJSON{ProbeID: id, Connections: []json.RawMessage{}, DNS: []json.RawMessage{}}
+	st := probeState{conns: map[string]bool{}}
+	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns, updated_ns FROM connections WHERE probe_id = ? ORDER BY started_ns", id)
+	if err != nil {
+		return p, st, err
+	}
 	for rows.Next() {
 		var cid, rec string
 		var ended sql.NullInt64
-		if err := rows.Scan(&cid, &rec, &ended); err != nil {
+		var updated int64
+		if err := rows.Scan(&cid, &rec, &ended, &updated); err != nil {
 			_ = rows.Close()
-			return p, false, err
+			return p, st, err
 		}
+		st.updated = max(st.updated, updated)
+		st.conns[cid] = ended.Valid
 		if !ended.Valid {
-			open = true
+			st.open = true
 			if r, ok := q.live(cid); ok {
 				b, _ := json.Marshal(r)
 				rec = string(b)
@@ -409,11 +458,11 @@ func (q *Queries) probeOnce(ctx context.Context, id string) (probeJSON, bool, er
 	_ = rows.Close()
 	dns, err := q.rawList(ctx, "SELECT record_json FROM dns_queries WHERE probe_id = ? ORDER BY ts_ns", id)
 	if err != nil {
-		return p, false, err
+		return p, st, err
 	}
 	p.DNS = dns
-	p.AllClosed = !open
-	return p, open, nil
+	p.AllClosed = !st.open
+	return p, st, nil
 }
 
 // DeleteProbe apaga o probe, suas conexões (com pacotes, pcaps e bytes, em cascata) e consultas DNS.
