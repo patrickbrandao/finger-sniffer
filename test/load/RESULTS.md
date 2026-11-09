@@ -1,10 +1,9 @@
-# Carga de 10 min — metas RNF (task 068, spec 017 RF-13, ADR 0022/0024/0025)
+# Carga de 10 min — metas RNF (task 068, spec 017 RF-13, ADR 0022/0024/0025/0026)
 
-Resultado da rodada atual (`efcb465`, depois das tasks 103, 105 e 106; janela oficial `official-50d`): **todas as
-metas da ADR 0022 passam, menos `degraded` = 0**: 6 de 30 000 conexões (0,02%) saíram `degraded` numa rajada de
-pacotes depois de uma pausa de ~360 ms da rede (o store viu 210 vivas por um instante). A task 068 fica
-`bloqueada` na task 108 (store). Feed, API, registro TCP e QUIC (meta de 500 ms da task 090), perdas, RAM,
-retenção e MTU passam com folga.
+Resultado da rodada atual (`899ade1`, depois da task 108; janela oficial `official-50e`): **todas as metas da
+ADR 0022 passam**, com a meta de registro QUIC de 500 ms (task 090, ADR 0026). 0 de 30 000 conexões da carga
+saíram `degraded`, 0 probes sem registro, 0 erros no cliente; o máximo do feed caiu de 30,1 s para 576 ms (o
+`packet.stray` por ociosidade agora usa o instante da decisão). Item 3 de sucesso da spec 000 cumprido.
 
 ## Como reproduzir
 
@@ -24,6 +23,10 @@ go build -tags load -o tmp/load/loadgen ./test/load/cmd/loadgen
 tmp/load/loadgen run -out tmp/load/raw/prefill -duration 9m -retention-check=false -commit <commit> \
   -clock-cmd "ssh -p 48022 -o BatchMode=yes root@vps602.tmsoft.com.br /tmp/fs-load/loadmon clock"
 ```
+
+O vigia de tráfego alheio (`foreign_watch.txt`) é um laço no Mac, do início do pré-aquecimento ao fim da janela:
+a cada 15 s, `GET /api/v1/connections?since=<agora − 15 s>&limit=1000` na 9001 e a lista das conexões cuja
+`src.ip` não é o IP público do Mac. Uma janela em que o tráfego alheio mexe em alguma meta é repetida.
 
 `run.sh` (no Mac) compila o `loadgen` (local) e o `loadmon` (linux/amd64, build tag `load`), cria
 `/tmp/fs-load-running` na vps602 (convenção: ninguém implanta nem roda e2e enquanto existir), sobe o `loadmon`
@@ -57,7 +60,89 @@ em gzip; `run.log` vira `run.txt` porque o `.gitignore` ignora `*.log`).
   `kernel_drops`; RNF-05 = depois da carga, os 20 primeiros probes somem (404) após retenção + 75 s e os fechados há
   ~9 min continuam (200); RNF-07 = `capture_max_frame_bytes`, `offload_suspect`.
 
-## Execuções (rodada atual, `efcb465`)
+## Execuções (rodada atual, `899ade1`)
+
+| Pasta | Início (UTC) | Commit | Taxa | Observação |
+| --- | --- | --- | --- | --- |
+| (`tmp/load/raw/prefill`, fora do Git) | 2026-11-09 14:51:56 | `899ade1` | 50/s, 9 min | pré-aquecimento do banco, sem medição; a vps602 já estava em `899ade1` com `versions_match: true` (último deploy às 14:38 UTC, nenhum deploy desta rodada), `FS_RETENTION=10m` conferido no env; `/tmp/fs-load-running` criado antes do pré-aquecimento |
+| `results/official-50e` | 2026-11-09 15:01:24 | `899ade1` | 50/s | **janela oficial**: banco em regime (expurgo do pré-aquecimento durante a carga), sem deploy nem e2e; `versions_match: true` e `899ade1` antes e depois; vigia de conexões alheias a cada 15 s (`foreign_watch.txt`, ver abaixo) |
+
+## Resultado por meta (janela oficial `official-50e`, `899ade1`)
+
+| Meta | Métrica | Alvo | Medido | Resultado |
+| --- | --- | --- | --- | --- |
+| RNF-02 | feed /ws, chegada − `LiveEvent.ts` (ADR 0025), p99 | < 1 s | p50 108 / p95 324 / **p99 389** / máx 576 ms (202 105 eventos) | passou |
+| RNF-02 | feed /stream (SSE), idem | < 1 s | p50 109 / p95 324 / **p99 388** / máx 576 ms | passou |
+| RNF-02 | `stream.dropped` (ws e sse) | 0 | 0 | passou |
+| RNF-03 | `GET /connections/{id}`, p95 no cliente / no servidor | < 100 ms | 28,5 ms / 1,3 ms | passou |
+| RNF-03 | `GET /probes/{id}`, p95 no cliente / no servidor | < 100 ms | 30,6 ms / 1,8 ms | passou |
+| RNF-04 | TCP: fim no cliente → registro, p95 | ≤ 500 ms | p50 129 / **p95 193** / p99 225 / máx 515 ms | passou |
+| RNF-04 | QUIC: CONNECTION_CLOSE → registro, p95 | ≤ 500 ms (task 090, ADR 0026) | p50 191 / **p95 250** / p99 282 / máx 472 ms | passou |
+| RNF-01 | probes sem registro | 0 | 0 de 30 000 | passou |
+| RNF-01 | registros `degraded` da carga | 0 | **0** | passou |
+| RNF-01 | erros no cliente / puladas pelo teto | 0 | 0 / 0 | passou |
+| RNF-01 | `dropped_events_total` (5 serviços), `kernel_drops`, health fora de `ok` | 0 | 0 / 0 / 0 | passou |
+| RNF-01 | RAM: anon máx (memory.current) / MemoryMax, MiB | anon < MemoryMax | capture 9 (10)/96, web 30 (43)/96, raw 10 (12)/96, dns 4 (5)/96, store 75 (384)/384, nats 90 (99)/192 | passou |
+| RNF-05 | expurgo: 20 primeiros 404; ~9 min ainda 200 | — | 20/20 sumiram; 20/20 presentes | passou |
+| RNF-07 | maior frame / `offload_suspect` | ≤ 1514 / 0 | 1514 / 0 (0 de 2 700 registros amostrados) | passou |
+
+CPU por unit (% de 1 vCPU, média / p95 / máx): capture 1,7/2,0/2,3; web 14,6/15,6/16,6; raw 1,9/2,1/2,4;
+dns 0/0,1/0,1; store 28,1/32,9/41,5; nats 4,6/5,2/5,7; host 52/58/83 (steal 0,1).
+
+### Decomposição do atraso (ms, p50 / p95 / p99)
+
+| Etapa | official-50e (`899ade1`) | official-50d (`efcb465`) |
+| --- | --- | --- |
+| `ingest_lag` (`ts` do envelope → commit) | 92 / 155 / 298 | 91 / 155 / 295 |
+| `live_delay` (`LiveEvent.ts` → envio ao cliente) | 104 / 326 / 570 ¹ | 104 / 318 / 569 ¹ |
+| cliente /ws (`LiveEvent.ts` → chegada) | 108 / 324 / 389 | 107 / 323 / 389 |
+| `record_ready{close}` (fim → gravado) | 106 / 212 / 296 | 106 / 203 / 294 |
+| `record_ready{quic_close}` | 189 / 304 / 314 | 194 / 304 / 314 |
+| API `GET /connections/{id}` no servidor | 0,5 / 1,3 / 2,6 | 0,5 / 1,6 / 3,6 |
+
+¹ Histograma do store interpolado em buckets largos (0,25–0,5–1 s), por isso acima do medido no cliente.
+O pipeline não mudou com a 108 (mesmos números da `official-50d`). Por tipo, o maior p99 continua no
+`connection.updated` do h3 (421 ms) e do TLS (h2 399, h1 414 ms); `packet.stray` (642 eventos) p99 174 / máx
+207 ms, sem o avulso de 30 s da rodada anterior.
+
+### Tráfego alheio e `fs_store_connections_degraded_total`
+
+O vigia (`foreign_watch.txt`, conexões com origem diferente do Mac a cada 15 s) viu, durante a janela, varreduras
+avulsas (ssh e portas variadas, 1–4 por janela de 15 s), um rastreador em `45.79.207.71:80` a partir de 15:07 e,
+**no minuto de aquecimento** (descartado), uma rajada de 14 conexões de `128.14.236.41` na 8443 às 15:01:35–49.
+Nesse instante o `store_connections_open` chegou a 197–199 (t=20–30 s em `timeline.csv`); no período medido o
+máximo foi 196.
+
+O contador `fs_store_connections_degraded_total` subiu 15 entre o fim do aquecimento e o fim (é somado quando o
+registro é gravado, no fechamento), e **nenhuma** das 15 é da carga (`conns.csv`: 0 `degraded` em 30 000). Uma foi
+conferida na API antes do expurgo: varredura ssh de `91.230.168.140` às 15:10:24. As outras 14 já tinham saído da
+retenção quando a análise começou; o número bate com a rajada de 14 conexões da 8443 no aquecimento (inferência:
+abertas com a conta no limite, gravadas só depois). É o modo degradado da spec 004 RF-11 agindo sobre tráfego
+acima do perfil, não sobre a carga; a janela não foi repetida porque a interferência não tocou nenhuma meta
+(diferente da `official-50c`, em que 3 309 conexões da carga saíram `degraded`).
+
+## Arquivos
+
+- `results/<run>/summary.md` e `summary.json`: tabela completa (todas as metas, por tipo de conexão e de evento).
+- `timeline.csv`: por segundo, conexões abertas, puladas, erros e (a cada 5 s) `store_connections_open`,
+  `web_connections_active`, `raw_active_sessions`.
+- `feed_delay_by_second.csv`: atraso do /ws por segundo do `ts` (n, p50, p95, p99, máx).
+- `cpu_mem_by_second.csv`: CPU % por unit e do host por segundo.
+- `run.txt`: log do gerador.
+- Em `official-50e` (~1,3 MB) e `official-50d` (~2,4 MB), brutos: `conns.csv.gz` (uma linha por conexão: tipo, probe, `conn_id`, proto,
+  `degraded`, registro no cliente e a partir de `data.ended`), `cgroup.csv.gz` (amostras do cgroup por unit a cada
+  1 s), `gen.json.gz` (configuração, health a cada 5 s, medições do relógio e resultados agregados),
+  `metrics_{start,warm,end}.prom` (coletas do `/metrics`) e `foreign_watch.txt` (vigia de conexões alheias à
+  carga a cada 15 s, desde o início do pré-aquecimento na `official-50e`); só na `official-50d`,
+  `connections_api.json.gz` (`GET /connections` de 13:50:33 a 13:58:27, antes do expurgo, usado na análise da
+  rajada).
+
+## Histórico: rodada de `efcb465` (depois das tasks 103, 105 e 106; antes da 108)
+
+Resultado: todas as metas passavam, menos `degraded` = 0: 6 de 30 000 conexões (0,02%) saíram `degraded` numa
+rajada de pacotes depois de uma pausa de ~360 ms da rede (o store viu 210 vivas por um instante). A 068 ficou
+`bloqueada` na task 108 (store).
+### Execuções
 
 | Pasta | Início (UTC) | Commit | Taxa | Observação |
 | --- | --- | --- | --- | --- |
@@ -65,7 +150,7 @@ em gzip; `run.log` vira `run.txt` porque o `.gitignore` ignora `*.log`).
 | `results/official-50c` | 2026-11-09 13:35:38 | `efcb465` | 50/s | **interferência externa**: às 13:43:13 um serviço de checagem de sites abriu ~30 conexões de várias regiões (h2 com keep-alive, além de consultas DNS dos resolvedores públicos); `store_connections_open` 214–235 por 66 s e 3 309 conexões da carga `degraded` (todas entre t=464 e 531 s). O resto passou; repetida |
 | `results/official-50d` | 2026-11-09 13:48:22 | `efcb465` | 50/s | **janela oficial**: banco em regime (expurgo da `official-50c` durante a carga), sem deploy nem e2e; vigia de conexões alheias a cada 15 s (`foreign_watch.txt`): só varreduras avulsas (ssh, 1–3 por janela de 15 s) |
 
-## Resultado por meta (janela oficial `official-50d`, `efcb465`)
+### Resultado por meta (janela oficial `official-50d`, `efcb465`)
 
 | Meta | Métrica | Alvo | Medido | Resultado |
 | --- | --- | --- | --- | --- |
@@ -117,21 +202,6 @@ nunca passou de 197 simultâneas e o balde de novas/s, simulado com os `started`
 janela (`connections_api.json.gz`, inclusive as 16 alheias), nunca ficou abaixo de 25 fichas. Sem a rajada, a
 janela teria 0 `degraded`: a 103 resolveu o modo degradado no perfil, falta tolerar a reordenação da rajada
 (task 108).
-
-## Arquivos
-
-- `results/<run>/summary.md` e `summary.json`: tabela completa (todas as metas, por tipo de conexão e de evento).
-- `timeline.csv`: por segundo, conexões abertas, puladas, erros e (a cada 5 s) `store_connections_open`,
-  `web_connections_active`, `raw_active_sessions`.
-- `feed_delay_by_second.csv`: atraso do /ws por segundo do `ts` (n, p50, p95, p99, máx).
-- `cpu_mem_by_second.csv`: CPU % por unit e do host por segundo.
-- `run.txt`: log do gerador.
-- Só em `official-50d` (brutos, ~2,4 MB): `conns.csv.gz` (uma linha por conexão: tipo, probe, `conn_id`, proto,
-  `degraded`, registro no cliente e a partir de `data.ended`), `cgroup.csv.gz` (amostras do cgroup por unit a cada
-  1 s), `gen.json.gz` (configuração, health a cada 5 s, medições do relógio e resultados agregados),
-  `metrics_{start,warm,end}.prom` (coletas do `/metrics`), `connections_api.json.gz` (`GET /connections` de
-  13:50:33 a 13:58:27, antes do expurgo, usado na análise da rajada) e `foreign_watch.txt` (vigia de conexões
-  alheias à carga a cada 15 s).
 
 ## Histórico: rodada de `6facb2c` (antes das tasks 103–106)
 
