@@ -1,1 +1,0 @@
-- docs: guias de uso em `docs/` (API e long-poll `wait`, sondagens e receita do go-xproxy, tempo real SSE/WS, HTTP/3, métricas), com exemplos executados na vps602 e teste de links relativos (task 059).

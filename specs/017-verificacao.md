@@ -65,12 +65,17 @@ Caminho {direto, squid 1080, go-xproxy 4128, go-xproxy HTTPS-proxy 4443} × sufi
 
 Critério: em HTTP/TLS/keep-alive, o que chega pelo proxy é idêntico ao direto (diferenças esperadas listadas:
 `absolute-form` → `origin-form`, ausência de `Proxy-*`; `-random` abre conexão nova por requisição). Em TCP, o
-critério é consistência entre saídas e execuções. **No espelho**, o teste e2e verifica que cada caso gera os
-campos esperados; a comparação entre caminhos é do script do xProxy.
+critério é consistência entre saídas e execuções. **No espelho**, o teste e2e roda os 13 casos pelo caminho
+direto e verifica que cada caso gera os campos esperados; a comparação entre caminhos é do script do xProxy, que
+usa as receitas e a lista de campos estáveis de `docs/probes.md` (ADR 0022). Casos 6 (ociosidade 30/90/180 s) e 11
+(JA4T/p0f/TTL, RTT, relógio TS entre execuções) no caminho direto comparam execuções repetidas do mesmo cliente.
 
 ### Carga
 - RF-13: `test/load/`: 200 conexões simultâneas e 50 novas/s por 10 min, mix h1/h2/h3/raw; mede CPU/RAM por
-  serviço, latência da API (p95), atraso do feed, `dropped_events_total`, `kernel_drops`.
+  serviço, latência da API (p95), atraso do feed, `dropped_events_total`, `kernel_drops`. Gerador em Go fora da
+  vps602 (a máquina cliente), para não disputar a 1 vCPU; amostragem de CPU/RAM por unit (cgroup) na vps602;
+  metas e percentis da ADR 0022, primeiro minuto descartado. Relatório em `test/load/RESULTS.md` com versão,
+  data, perfil, números por meta (passou/falhou) e a decomposição do atraso do feed.
 
 ### Regras para os agentes
 - Toda mudança vem com o teste que a cobre; o nível só decide quanto da suíte roda.
@@ -84,3 +89,4 @@ campos esperados; a comparação entre caminhos é do script do xProxy.
 
 ## Decisões relacionadas
 - specs/decisions/0013-verificacao-dois-niveis.md
+- specs/decisions/0022-prova-do-mvp-no-espelho.md

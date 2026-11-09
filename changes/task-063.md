@@ -1,1 +1,0 @@
-- web: SETTINGS h3 do cliente não se perdem mais quando ele fecha logo depois da resposta (curl): a primeira requisição espera até 50 ms o stream de controle ainda não lido e o `http3.connection` final só sai depois dos leitores (task 063).

@@ -63,10 +63,21 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   transport params; página sem recursos de terceiros.
 
 ## F5 — MVP
-- **Objetivo**: provar a spec 000 (objetivos e RNF) e lançar `v0.1.0`.
-- **Specs**: 000, 017.
+- **Objetivo**: provar a spec 000 (objetivos e RNF) no espelho e lançar `v0.1.0` (ADR 0022).
+- **Specs**: 000, 005 (RF-07a), 017.
 - **Dependências**: F4.
-- **Frentes**: tester (matriz completa com xProxy, conferência FoxIO/tshark, carga 10 min) ‖ reviewer (auditoria
-  spec × implementação) ‖ docs (docs/ completas).
-- **Critério de saída**: os três itens de sucesso da spec 000 registrados no PR de release; tag `v0.1.0`;
+- **Frentes** (tarefas 065–073):
+  - implementer-web: `Date` em h1/h3 e controle `date=0` (task 065, ADR 0021) → `h3_control_stream_seen`
+    (task 073);
+  - tester: matriz direta completa, casos 1–13 com 6 e 11 novos (task 066) ‖ conferência FoxIO/tshark consolidada
+    de curl, Go, Chrome e Firefox (task 067) → carga de 10 min com as metas da ADR 0022 (task 068, sozinha na
+    vps602, depois de 065–067 e 073);
+  - docs: `docs/` completas, receitas por caso e campos estáveis para o xProxy, README de raiz (task 069);
+  - infra: build reproduzível, `make release`, checklist, limpeza do repositório (task 070);
+  - reviewer: auditoria spec × implementação de todas as specs e ADRs (task 071, depois de 065 e 069);
+  - architect: release `v0.1.0` (task 072, depois de todas e das tarefas que a carga e a auditoria abrirem).
+- **Fora do alcance do espelho**: a matriz com squid/go-xproxy (`xproxy03`) é do script do xProxy; fica como
+  pendência externa no PR de release.
+- **Critério de saída**: os três itens de sucesso da spec 000 registrados no PR de release (item 1 pelo caminho
+  direto, item 3 com o relatório `test/load/RESULTS.md`); nenhuma divergência aberta da auditoria; tag `v0.1.0`;
   CHANGELOG com a seção `[0.1.0]`.

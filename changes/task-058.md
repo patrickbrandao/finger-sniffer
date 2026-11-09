@@ -1,1 +1,0 @@
-- docs(htdocs): página com feed global ao vivo pela 9000 (WebSocket com fallback SSE, reconexão com espera crescente, pausa com "N new", filtros locais), detalhe da conexão com pcap e "run probe" (h1/h2/h3 e WebSocket em `<id>.dns-monitor`); JS puro em `app.mjs`, sem terceiros nem `innerHTML`, testado com node no `htdocs_test` (task 058).

@@ -23,11 +23,12 @@ incorporado nas specs 003–017; o arquivo original não é versionado).
 
 ## Objetivos e medida de sucesso
 O MVP está pronto quando:
-1. os 11 casos da matriz de testes (spec 017) rodam de ponta a ponta contra `vps602` e cada registro traz os campos
-   das specs 008–013;
+1. os 13 casos da matriz de testes (spec 017) rodam de ponta a ponta contra `vps602` pelo caminho direto e cada
+   registro traz os campos das specs 008–013; os caminhos com proxy são do script do xProxy, a quem o espelho
+   entrega receitas e campos estáveis (ADR 0022);
 2. JA3, JA4, JA4T e Akamai HTTP/2 de curl, Go, Chrome e Firefox batem com FoxIO `ja4` e `tshark` aplicados ao
    mesmo pcap;
-3. as metas de RNF abaixo são atingidas no teste de carga.
+3. as metas de RNF abaixo são atingidas no teste de carga, medidas como na ADR 0022 (feed p99, API e registro p95).
 
 ## Escopo
 - Servidor web nas portas capturadas TCP 80/443/8080/8443 e UDP 443: HTTP/1.0, HTTP/1.1, h2 (ALPN), h2c (prior
@@ -85,3 +86,4 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - specs/decisions/0001-decisoes-iniciais.md
 - specs/decisions/0007-api-aberta-e-feed-global.md
 - specs/decisions/0012-retencao-curta.md
+- specs/decisions/0022-prova-do-mvp-no-espelho.md
