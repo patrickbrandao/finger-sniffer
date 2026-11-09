@@ -207,7 +207,8 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?dst_port=443&src
 `tls/h2`, `tls/http1.1/ws`, `quic/h3`, `quic`, `raw`, `tls/raw`, `raw/unknown`, `dns` (regra completa na spec 004).
 `dns` vale só para fluxos **TCP** da porta 53; um fluxo UDP da 53 fica `udp` e sem `probe_id`, e a consulta em si
 está em `/api/v1/dns` (com `probe_id`), como na seção [DNS e pacotes avulsos](#dns-e-pacotes-avulsos) (ADR 0023).
-`degraded: true` indica que o espelho estava acima de 200 conexões simultâneas ou 50 novas/s e não guardou pcap
+`degraded: true` indica que o espelho estava acima do limite do modo degradado (padrão 250 conexões simultâneas ou
+60 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 200 e 50/s, ADR 0030) e não guardou pcap
 nem bytes crus dessa conexão.
 
 ### Registro completo

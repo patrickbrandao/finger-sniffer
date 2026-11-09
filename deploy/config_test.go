@@ -117,6 +117,9 @@ func TestEnvExampleLiveAndUDP(t *testing.T) {
 		"FS_LIVE_BUFFER":      "1024",
 		"FS_LIVE_MAX_CLIENTS": "64",
 		"FS_WEB_UDP_PORTS":    "443",
+		// limites do modo degradado com margem sobre a garantia do RNF-01 (ADR 0030)
+		"FS_MAX_CONNS":           "250",
+		"FS_MAX_NEW_CONNS_PER_S": "60",
 	}
 	for k, v := range want {
 		if vals[k] != v {

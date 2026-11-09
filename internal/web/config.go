@@ -25,7 +25,7 @@ const (
 	DefaultHtdocs      = "/finger-sniffer/htdocs"
 	DefaultIdle        = 120 * time.Second
 	DefaultIdleMax     = 600 * time.Second
-	DefaultMaxConns    = 200
+	DefaultMaxConns    = 250 // mesmo padrão do store (ADR 0030)
 	defaultRetryListen = 10 * time.Second
 )
 

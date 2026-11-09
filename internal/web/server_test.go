@@ -600,6 +600,7 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_WEB_TCP_PORTS", "80, 8080")
 	t.Setenv("FS_RAW_BODY_MAX_BYTES", "1048576")
 	t.Setenv("FS_IDLE_DEFAULT", "30s")
+	t.Setenv("FS_MAX_CONNS", "")
 	base, err := service.LoadConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -610,6 +611,10 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if c.RawBodyMax != base.EventInlineMax || len(c.Warnings) != 1 || c.IdleDefault != 30*time.Second {
 		t.Fatalf("config %+v", c)
+	}
+	// padrão de FS_MAX_CONNS igual ao do store (ADR 0030)
+	if c.MaxConns != 250 {
+		t.Fatalf("MaxConns %d, quer 250", c.MaxConns)
 	}
 	if got := c.listenAddrs(); len(got) != 2 || got[0] != "127.0.0.1:80" || got[1] != "127.0.0.1:8080" {
 		t.Fatalf("addrs %v", got)

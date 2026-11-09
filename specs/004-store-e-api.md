@@ -37,9 +37,10 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
   "Métricas") e as recebidas no heartbeat dos demais.
-- RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (200) conexões simultâneas ou `FS_MAX_NEW_CONNS_PER_S`
-  (50) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas conexões e marca `degraded=true`.
-  Contagem (ADR 0026):
+- RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 250) conexões simultâneas ou
+  `FS_MAX_NEW_CONNS_PER_S` (padrão 60) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas conexões
+  e marca `degraded=true`. A garantia continua a da spec 000 (200 e 50/s com análise completa); o padrão fica
+  acima dela, com margem para o tráfego alheio de um servidor público (ADR 0030). Contagem (ADR 0026):
   - simultâneas = conexões TCP e QUIC vivas, de qualquer cliente; as já fechadas (FIN dos dois lados ou RST) que
     só esperam a folga não contam; fluxos UDP que não são QUIC (DNS e outros) não entram nos limites, mas saem
     `degraded` se chegarem com o limite passado; `fs_store_connections_open` continua contando a tabela inteira;
@@ -222,8 +223,9 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
       `close`, com `close.how = quic_close`; datagramas tardios entram no mesmo registro (ADR 0026).
 - [ ] FIN dos dois lados com ACK final fecha o registro no ACK; sem ACK, depois de `FS_TCP_CLOSE_GRACE`; RST fecha
       na hora; ACK/RST tardio até 2 s entra no registro gravado, sem conexão nova nem avulso.
-- [ ] O perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS e varreduras por cima) não marca
-      `degraded`; excesso sustentado acima de 200 vivas ou de 50 novas/s marca.
+- [ ] Com os padrões (250/60), o perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS, varreduras
+      e algumas dezenas de conexões alheias por cima) não marca `degraded`; excesso sustentado acima de
+      `FS_MAX_CONNS` vivas ou de `FS_MAX_NEW_CONNS_PER_S` novas/s marca (ADR 0030).
 - [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).
 
 ## Fora de escopo
@@ -242,3 +244,4 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - specs/decisions/0022-prova-do-mvp-no-espelho.md
 - specs/decisions/0025-ts-dos-eventos-ao-vivo.md
 - specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md
+- specs/decisions/0030-margem-do-modo-degradado.md

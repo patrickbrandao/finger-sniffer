@@ -19,6 +19,13 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
+// Padrões do modo degradado (spec 004 RF-11): acima da garantia da spec 000 RNF-01 (200 e 50/s), com margem para
+// o tráfego alheio de um servidor público (ADR 0030).
+const (
+	DefaultMaxConns        = 250
+	DefaultMaxNewConnsPerS = 60
+)
+
 // Config do store nesta fase.
 type Config struct {
 	DBPath    string
@@ -72,11 +79,11 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	maxOpen, err := service.EnvInt("FS_MAX_CONNS", 200)
+	maxOpen, err := service.EnvInt("FS_MAX_CONNS", DefaultMaxConns)
 	if err != nil {
 		return c, err
 	}
-	maxNew, err := service.EnvInt("FS_MAX_NEW_CONNS_PER_S", 50)
+	maxNew, err := service.EnvInt("FS_MAX_NEW_CONNS_PER_S", DefaultMaxNewConnsPerS)
 	if err != nil {
 		return c, err
 	}
