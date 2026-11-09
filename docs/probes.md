@@ -40,9 +40,19 @@ do ClientHello e o tamanho dos segmentos.
 
 O espelho **nunca fecha uma conexão por conta própria antes de `FS_IDLE_DEFAULT` (120 s)** sem atividade: todo
 fechamento observado vem do cliente ou de quem está no caminho (exceto quando a sondagem pede, com `close=`,
-`rst=`, `idle=`, `frame=close`, `Connection: close` na requisição, o modo `source`, quando o cliente encerra o TLS
-com `close_notify`, que o espelho responde fechando, ou depois da troca de closes do WebSocket, caso 9). O controle
-`conn=close` não está nessa lista: ele só escreve o campo na resposta.
+`rst=`, `idle=`, `frame=close`, o modo `source`, quando o cliente encerra o TLS com `close_notify`, que o espelho
+responde fechando, ou depois da troca de closes do WebSocket, caso 9). O controle `conn=close` não está nessa
+lista: ele só escreve o campo na resposta.
+
+**`Connection: close` na requisição não faz o espelho fechar** (spec 005 RF-08): ele responde normalmente (sem
+`Connection: close` na resposta, salvo com `conn=close`) e mantém a conexão aberta até o cliente fechar ou até a
+ociosidade. Quem fecha é o cliente, que costuma fechar logo depois de ler a resposta: em claro aparece
+`close.by: client`; em TLS o cliente manda `close_notify` e o espelho responde fechando, então aparece
+`close.by: server` com `idle_before_close_ms` < 1 ms. Um cliente que pede `Connection: close` e **espera o
+servidor fechar** (lê até o EOF: Go cru, `openssl s_client -ign_eof`, `nc` sem `-w`) fica pendurado até
+`FS_IDLE_DEFAULT` e o registro mostra `close.by: server` com `idle_before_close_ms` ≈ 120000. Para o servidor
+fechar logo depois da resposta, use o controle `close=after` (`/p/<id>/r?close=after`, `close.by: server`,
+`idle_before_close_ms` < 1 ms); para um prazo menor, `idle=<s>` (ex.: `idle=5`).
 
 As portas cruas (raw) escutam só nos IPs públicos do espelho (`FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`, ADR 0001), como
 o web e o dns: sonde pelo nome ou por esses IPs.
@@ -306,7 +316,11 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, requests,
 - **Procurar**: `requests` por conexão, `http[].index`, `http[].pipelined` (a requisição chegou antes de a
   resposta anterior terminar), `t_since_prev_response_ms`, `close`. Na primeira conexão o curl encerra o TLS com
   `close_notify` ao sair e o espelho responde fechando (`close.by: server`, `idle_before_close_ms` de poucas
-  dezenas de ms); na segunda, o espelho fecha porque o cliente pediu `Connection: close`.
+  dezenas de ms). Na segunda, o `Connection: close` **não** faz o espelho fechar: o curl fecha sozinho ao ler a
+  resposta inteira e encerra o TLS com `close_notify`, que o espelho responde fechando; por isso também aparece
+  `close.by: server`, com `idle_before_close_ms` < 1 ms. Na terceira, em claro, o `nc` fecha ao fim do `-w 3`
+  (`close.by: client`); sem `-w` ele esperaria o EOF e ficaria pendurado até os 120 s de `FS_IDLE_DEFAULT`. Para
+  o espelho fechar depois da resposta, acrescente `close=after` à URL (`/p/$id/r?close=after`).
 - **Estáveis**: número de conexões e de requisições em cada uma, `pipelined`, `close.by`/`close.how`.
 - **Diferenças esperadas**: por proxy HTTP, as 5 requisições podem chegar em menos ou mais conexões (pool do
   proxy) e o pipelining costuma ser desfeito (`pipelined: false`); sem reaproveitamento, 5 conexões de 1 requisição.

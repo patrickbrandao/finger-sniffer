@@ -285,3 +285,30 @@ func TestListenAndRecordReadyDocs(t *testing.T) {
 		}
 	}
 }
+
+// TestConnectionCloseDocs: o guia não diz que o espelho fecha por causa do `Connection: close` da requisição
+// (spec 005 RF-08, task 119); explica quem fecha, o pendurado até a ociosidade e como pedir o fechamento.
+func TestConnectionCloseDocs(t *testing.T) {
+	data, err := os.ReadFile("probes.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, w := range []string{
+		"**`Connection: close` na requisição não faz o espelho fechar**", "espera o\nservidor fechar",
+		"`idle_before_close_ms` ≈ 120000", "`/p/<id>/r?close=after`", "`idle=<s>`",
+		"o `Connection: close` **não** faz o espelho fechar",
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("probes.md sem %q", w)
+		}
+	}
+	for _, b := range []string{
+		"o espelho fecha porque o cliente pediu `Connection: close`",
+		"`frame=close`, `Connection: close` na requisição",
+	} {
+		if strings.Contains(s, b) {
+			t.Errorf("probes.md ainda diz %q", b)
+		}
+	}
+}
