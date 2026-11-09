@@ -1,6 +1,6 @@
 # 0024 — Meta de registro do QUIC: exceção provisória de 3 s
 
-Status: provisória (revisar quando a task 090 aplicar ao QUIC o fechamento rápido da task 077)
+Status: substituída por 0026
 Data: 2026-11-09
 
 ## Contexto

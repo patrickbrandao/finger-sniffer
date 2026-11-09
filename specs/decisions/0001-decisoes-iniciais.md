@@ -1,6 +1,6 @@
 # 0001 — Decisões iniciais (agrupadas)
 
-Status: aceita (endereços: ver 0023; meta de registro do QUIC: ver 0024)
+Status: aceita (endereços: ver 0023; meta de registro do QUIC: ver 0026)
 Data: 2026-11-07
 
 ## Contexto

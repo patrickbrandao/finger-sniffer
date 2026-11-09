@@ -1,1 +1,0 @@
-- Raw: escuta só em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6` (ADR 0001), um socket por IP e porta, sem `FS_RAW_LISTEN_HOST`; `half_close.server_sent_after_client_fin` só é true quando o cliente confirma (ACK) a mensagem, e RST depois do envio fica false com os `bytes` escritos (task 083).

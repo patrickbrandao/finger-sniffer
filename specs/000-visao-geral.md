@@ -73,8 +73,8 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - RNF-02: evento ao vivo entregue ao cliente da 9000 em < 1 s após o espelho ter o fato (o pacote chegar ou o
   evento de aplicação ser publicado; `ts` do evento, ADR 0025).
 - RNF-03: `GET` de conexão ou probe com p95 < 100 ms.
-- RNF-04: registro completo disponível em ≤ 500 ms após o fim da conexão. Exceção provisória para QUIC: ≤ 3 s
-  depois do CONNECTION_CLOSE, até a task 090 (ADR 0024).
+- RNF-04: registro completo disponível em ≤ 500 ms após o fim da conexão (p95), TCP e QUIC; no QUIC, o fim é o
+  CONNECTION_CLOSE visto pelo web (ADR 0026).
 - RNF-05: retenção padrão de 10 min (`FS_RETENTION`) e teto de 2 GiB (`FS_STORE_MAX_BYTES`); o primeiro limite
   atingido expurga o mais antigo.
 - RNF-06: tempos em UTC com nanossegundos; relógio sincronizado por NTP.
@@ -89,3 +89,4 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - specs/decisions/0007-api-aberta-e-feed-global.md
 - specs/decisions/0012-retencao-curta.md
 - specs/decisions/0022-prova-do-mvp-no-espelho.md
+- specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md

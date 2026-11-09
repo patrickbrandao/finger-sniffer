@@ -57,7 +57,8 @@ o Initial.
 - [ ] JA4 `q...` bate com FoxIO `ja4` sobre o pcap do Initial (FoxIO `chrome-cloudflare-quic` e capturas próprias
       de curl, Chrome, Firefox e quic-go).
 - [ ] Parâmetros de transporte e frames do Initial batem com o tshark 4.4 nos mesmos pcaps.
-- [ ] Conexão encerrada pelo cliente aparece fechada no store em ≤ 3 s (`close.how = quic_close`).
+- [ ] Conexão encerrada pelo cliente aparece fechada no store em ≤ 500 ms (p95) do CONNECTION_CLOSE
+      (`close.how = quic_close`; ADR 0026).
 - [ ] `pkg/quicparse` com fuzz e cobertura ≥ 80% (spec 017).
 
 ## Fora de escopo
@@ -67,4 +68,5 @@ o Initial.
 - specs/decisions/0001-decisoes-iniciais.md
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0019-http3-eventos-e-fim-quic.md
+- specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md
 - specs/decisions/0021-date-nas-respostas.md

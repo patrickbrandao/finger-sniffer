@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.3.4
+  version: 0.3.5
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -1078,8 +1078,10 @@ components:
             `connection.opened` = primeiro pacote ou evento; `connection.updated` = publicação do evento de
             aplicação que o produziu (entrada no stream do NATS), não o início da sessão; `connection.closed` =
             fim por FIN/RST/QUIC ou, por ociosidade, o instante em que o espelho decidiu fechar;
-            `http.request`, `dns.query`, `packet.stray` = o fato; `stream.dropped` = o envio. Os tempos da
-            conexão estão em `data.started` e `data.ended`.
+            `http.request`, `dns.query` = o fato; `packet.stray` = o pacote quando emitido na chegada (RST
+            avulso, ICMP) ou, para o avulso decidido pelo fim do fluxo por ociosidade (UDP ou SYN sem resposta),
+            o instante da decisão (ADR 0026); `stream.dropped` = o envio. Os tempos da conexão estão em
+            `data.started` e `data.ended`; os do pacote, no `data` do `packet.stray`.
         conn_id: { type: [string, "null"] }
         probe_id: { type: [string, "null"] }
         data:

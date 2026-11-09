@@ -1,1 +1,0 @@
-- Store: `ts` do feed conforme a ADR 0025: `connection.updated` gerado por evento de aplicação usa o instante em que o evento entrou no `FS_EVENTS` (metadado do JetStream; sem ele, o recebimento do lote), e `connection.closed` por ociosidade usa o instante da decisão do store (`data.ended` continua no último pacote); demais eventos sem mudança (task 106).
