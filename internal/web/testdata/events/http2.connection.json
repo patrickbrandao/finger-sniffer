@@ -1,0 +1,100 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 52924,
+    "l4": "tcp",
+    "src_ip": "127.0.0.1",
+    "src_port": 52926
+  },
+  "payload": {
+    "akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s",
+    "frames": [
+      {
+        "dir": "in",
+        "flags": 0,
+        "length": 24,
+        "stream_id": 0,
+        "t_ms": 0.073166,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "in",
+        "flags": 0,
+        "length": 4,
+        "stream_id": 0,
+        "t_ms": 0.078416,
+        "type": "WINDOW_UPDATE"
+      },
+      {
+        "dir": "in",
+        "flags": 5,
+        "length": 68,
+        "stream_id": 1,
+        "t_ms": 0.081708,
+        "type": "HEADERS"
+      },
+      {
+        "dir": "out",
+        "flags": 0,
+        "length": 36,
+        "stream_id": 0,
+        "t_ms": 0.112,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "out",
+        "flags": 1,
+        "length": 0,
+        "stream_id": 0,
+        "t_ms": 0.120625,
+        "type": "SETTINGS"
+      },
+      {
+        "dir": "out",
+        "flags": 0,
+        "length": 4,
+        "stream_id": 0,
+        "t_ms": 0.120625,
+        "type": "WINDOW_UPDATE"
+      },
+      {
+        "dir": "in",
+        "flags": 1,
+        "length": 0,
+        "stream_id": 0,
+        "t_ms": 0.231916,
+        "type": "SETTINGS"
+      }
+    ],
+    "frames_truncated": false,
+    "mode": "prior-knowledge",
+    "preface_ok": true,
+    "priorities": [],
+    "priority_frames_capped": false,
+    "settings": [
+      [
+        2,
+        0
+      ],
+      [
+        4,
+        4194304
+      ],
+      [
+        5,
+        1048576
+      ],
+      [
+        6,
+        10485760
+      ]
+    ],
+    "streams": [],
+    "window_update": 1073741824
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T04:37:04.159504000Z"
+}

@@ -361,7 +361,8 @@ func TestDetectionAnyPort(t *testing.T) {
 				}
 				p := ev.Payload
 				if num(t, p["status"]) != 200 || num(t, p["index"]) != 0 || num(t, p["in_offset"]) != 0 ||
-					num(t, p["out_offset"]) != 0 || p["ja4h"] != nil || p["t_first_byte_ms"] == nil {
+					num(t, p["out_offset"]) != 0 || p["ja4h"] != "ge11nn020000_818f42cc3fd7_000000000000_000000000000" ||
+					p["t_first_byte_ms"] == nil {
 					t.Fatalf("payload %v", p)
 				}
 				if got := num(t, p["response_sent_size"]); got != cl.rec.buf.Len() {
@@ -491,26 +492,6 @@ func TestRawProbeLine(t *testing.T) {
 	rs := h.events.wait(t, event.SubjectWebRawSession, srcPort(c), 1)[0]
 	if rs.Payload["probe_line"] != "PROBE "+testProbe || rs.Env.ProbeID == nil || *rs.Env.ProbeID != testProbe {
 		t.Fatalf("raw session %v %v", rs.Payload, rs.Env.ProbeID)
-	}
-}
-
-// TestH2CStub: o prefácio h2c é registrado no fluxo in e a conexão é fechada (h2c na task 025).
-func TestH2CStub(t *testing.T) {
-	h := newHarness(t, harnessOpts{})
-	c := dial(t, h.addr443)
-	preface := "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-	_, _ = io.WriteString(c, preface)
-	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
-		t.Fatalf("want close, got %v", err)
-	}
-	port := srcPort(c)
-	deadline := time.Now().Add(2 * time.Second)
-	for string(h.events.stream(t, port, event.DirectionIn)) != preface {
-		if time.Now().After(deadline) {
-			t.Fatalf("stream in %q", h.events.stream(t, port, event.DirectionIn))
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -1,0 +1,82 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 52924,
+    "l4": "tcp",
+    "src_ip": "127.0.0.1",
+    "src_port": 52926
+  },
+  "payload": {
+    "controls": {
+      "params": {
+        "status": "200"
+      }
+    },
+    "end_stream": true,
+    "fields": [
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 1,
+        "name": ":authority",
+        "repr": "literal-indexed",
+        "value": "abcdefgh.dns-monitor.tmsoft.com.br"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": null,
+        "index": 2,
+        "name": ":method",
+        "repr": "indexed",
+        "value": "GET"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 5,
+        "name": ":path",
+        "repr": "literal-indexed",
+        "value": "/p/abcdefgh/r?status=200"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": null,
+        "index": 6,
+        "name": ":scheme",
+        "repr": "indexed",
+        "value": "http"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 16,
+        "name": "accept-encoding",
+        "repr": "literal-indexed",
+        "value": "gzip"
+      },
+      {
+        "huffman_name": null,
+        "huffman_value": true,
+        "index": 58,
+        "name": "user-agent",
+        "repr": "literal-indexed",
+        "value": "Go-http-client/2.0"
+      }
+    ],
+    "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
+    "priority": null,
+    "pseudo_order": [
+      ":authority",
+      ":method",
+      ":path",
+      ":scheme"
+    ],
+    "status": 200,
+    "stream_id": 1
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T04:37:04.159490000Z"
+}

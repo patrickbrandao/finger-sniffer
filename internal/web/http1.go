@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4plus"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
+	"github.com/patrickbrandao/finger-sniffer/pkg/h2passive"
 	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 )
 
@@ -29,6 +31,8 @@ type h1Session struct {
 	prevRespEnd  time.Time
 	// ctl são os controles da requisição atual (nil fora de /r).
 	ctl *Controls
+	// h2up é o Upgrade: h2c aceito; o laço HTTP/1 termina e a conexão segue em h2 (spec 010 RF-05).
+	h2up *h2Upgrade
 }
 
 // serveHTTP1 atende requisições HTTP/1 em sequência (keep-alive e pipelining) até o cliente fechar ou a
@@ -44,8 +48,13 @@ func (c *conn) serveHTTP1(t *tap, ic *idleConn, handshakeEnd time.Time) {
 	}
 	for idx := 0; ; idx++ {
 		if !sess.serveOne(idx) {
-			return
+			break
 		}
+	}
+	if up := sess.h2up; up != nil {
+		// O que o bufio já leu depois da requisição do Upgrade é o começo do h2 (prefácio).
+		up.buffered, _ = br.Peek(br.Buffered())
+		c.serveH2(t, ic, h2passive.ModeUpgrade, up)
 	}
 }
 
@@ -74,6 +83,7 @@ func (s *h1Session) serveOne(idx int) bool {
 	}
 
 	probeID := s.probeOf(req)
+	req.JA4H = ja4hOfRequest(req)
 	req.ProxySignals = h1.DetectProxySignals(req, h1.ProxyContext{
 		Rules: srv.cfg.ProxyRules, Direct: true, SNI: s.c.sniName(),
 	})
@@ -124,6 +134,9 @@ func (s *h1Session) serveOne(idx int) bool {
 		return s.bodyError(req, probeID, outOffset, berr)
 	}
 
+	if up := s.h2cUpgrade(req); up != nil {
+		return s.switchToH2(req, probeID, outOffset, up)
+	}
 	resp := s.route(req, probeID)
 	if expect && cont == ContinueLate {
 		resp.interim = append([]h1.Interim{{Status: http.StatusContinue}}, resp.interim...)
@@ -135,6 +148,30 @@ func (s *h1Session) serveOne(idx int) bool {
 		return false
 	}
 	return werr == nil
+}
+
+// switchToH2 responde 101 ao Upgrade: h2c, registra a requisição e encerra o laço HTTP/1; a resposta da
+// requisição sai no stream 1 do h2.
+func (s *h1Session) switchToH2(req *h1.Request, probeID string, outOffset int64, up *h2Upgrade) bool {
+	err := s.w.WriteHead(&h1.Response{
+		Status:  http.StatusSwitchingProtocols,
+		Fields:  []h1.HeaderField{{Name: "Connection", Value: "Upgrade"}, {Name: "Upgrade", Value: "h2c"}},
+		Framing: h1.FramingNone,
+	})
+	s.finish(req, probeID, outOffset, http.StatusSwitchingProtocols)
+	if err == nil {
+		s.h2up = up
+	}
+	return false
+}
+
+// ja4hOfRequest calcula o JA4H (FoxIO License, ADR 0010) da requisição HTTP/1, com os campos como vieram.
+func ja4hOfRequest(req *h1.Request) *string {
+	in := ja4plus.JA4HInput{Method: req.RequestLine.Method, Version: req.RequestLine.Version}
+	for _, f := range req.Fields {
+		in.Fields = append(in.Fields, ja4plus.JA4HField{Name: f.Name(), Value: strings.TrimSpace(f.Value())})
+	}
+	return ptr(ja4plus.JA4H(in).JA4H)
 }
 
 // fillTimes preenche pipelined, t_first_byte_ms e t_since_prev_response_ms (spec 009 RF-05/RF-06).
