@@ -106,6 +106,7 @@ type tsSample struct {
 // analysis é o estado da análise de uma conexão.
 type analysis struct {
 	ipSet      bool
+	dataTOS    bool // TOS/ECN já vieram de um segmento com dados
 	ip         ipJSON
 	ipIDs      []uint16
 	fragmented bool
@@ -293,14 +294,19 @@ func (a *analysis) ipPacket(fi frameInfo) {
 		a.ipIDs = append(a.ipIDs, binary.BigEndian.Uint16(ip[4:6]))
 	}
 	if a.ipSet {
+		// TOS/DSCP/ECN do primeiro segmento TCP com dados (openapi IPInfo: SYN e primeiro segmento com dados): o
+		// SYN nunca leva ECT (RFC 3168 6.1.1), então o ECN negociado só aparece nos dados.
+		if !a.dataTOS && fi.payload > 0 && fi.proto == protoTCP {
+			a.dataTOS = true
+			a.setTOS(fi.family, ip)
+		}
 		return
 	}
 	a.ipSet = true
+	a.dataTOS = fi.payload > 0
 	r := &a.ip
-	var tos int
 	if fi.family == 4 {
 		r.TTL = int(ip[8])
-		tos = int(ip[1])
 		id := int(binary.BigEndian.Uint16(ip[4:6]))
 		r.IPIDSyn = &id
 		r.DF = binary.BigEndian.Uint16(ip[6:8])&0x4000 != 0
@@ -309,15 +315,27 @@ func (a *analysis) ipPacket(fi frameInfo) {
 		}
 	} else if len(ip) >= 40 {
 		r.TTL = int(ip[7])
-		vtf := binary.BigEndian.Uint32(ip[0:4])
-		tos = int(vtf>>20) & 0xff
-		fl := int(vtf & 0xfffff)
-		r.FlowLabel, r.TrafficClass = &fl, &tos
+		fl := int(binary.BigEndian.Uint32(ip[0:4]) & 0xfffff)
+		r.FlowLabel = &fl
+	}
+	a.setTOS(fi.family, ip)
+	r.TTLInitial = initialTTL(r.TTL)
+	r.Hops = r.TTLInitial - r.TTL
+}
+
+// setTOS preenche TOS/DSCP/ECN (e o traffic class do IPv6) a partir do cabeçalho IP.
+func (a *analysis) setTOS(family int, ip []byte) {
+	r := &a.ip
+	var tos int
+	if family == 4 {
+		tos = int(ip[1])
+	} else if len(ip) >= 40 {
+		tos = int(binary.BigEndian.Uint32(ip[0:4])>>20) & 0xff
+		tc := tos
+		r.TrafficClass = &tc
 	}
 	r.TOS, r.DSCP = tos, tos>>2
 	r.ECN = [...]string{"not-ect", "ect1", "ect0", "ce"}[tos&0x03]
-	r.TTLInitial = initialTTL(r.TTL)
-	r.Hops = r.TTLInitial - r.TTL
 }
 
 func initialTTL(ttl int) int {

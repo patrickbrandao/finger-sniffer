@@ -56,6 +56,7 @@ type conn struct {
 	inBytes, outBytes                          int64
 	pcapBytes                                  int64
 	truncated                                  bool
+	offloadSuspect                             bool // algum pacote veio com FlagOffloadSuspect (spec 003 RF-06)
 	closeAt                                    int64
 	finEnd                                     [2]uint32 // seq depois do FIN (cliente, espelho)
 	finAcked                                   [2]bool   // o outro lado já confirmou o FIN

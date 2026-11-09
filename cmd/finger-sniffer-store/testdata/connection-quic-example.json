@@ -163,6 +163,7 @@
       "ttl_initial": 64
     },
     "l4": "udp",
+    "offload_suspect": false,
     "pcap_truncated": false,
     "probe_id": "t1a2b3c4",
     "proto": "quic/h3",

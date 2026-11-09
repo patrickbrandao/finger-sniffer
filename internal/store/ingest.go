@@ -259,6 +259,15 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if res.ended != nil {
 		*ended = append(*ended, res.ended)
 	}
+	if c := res.conn; c != nil {
+		// flags do capture: offload suspeito e frame cortado pelo snaplen (pcap incompleto)
+		if p.Flags&event.FlagOffloadSuspect != 0 {
+			c.offloadSuspect = true
+		}
+		if p.Flags&event.FlagTruncated != 0 {
+			c.truncated = true
+		}
+	}
 	if res.late {
 		in.metrics.Add("store_late_packets_total", 1)
 		c := res.conn
