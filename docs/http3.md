@@ -65,6 +65,7 @@ ganha o prefixo `tls/`. O campo `http3`:
 | `transport_params` | `[id, nome, valor_hex]` na ordem recebida, GREASE incluído (nome `GREASE`) |
 | `client_hello` | o ClientHello decifrado, no mesmo formato do `tls` do TCP; `ja4` começa com `q` |
 | `h3_settings` | `[id, valor]` do SETTINGS do cliente, na ordem |
+| `h3_control_stream_seen` | o cliente abriu o stream de controle h3 (unidirecional tipo `0x00`) e o SETTINGS foi lido. `false` com `h3_settings: []`: o cliente não abriu (ou não completou) o stream de controle antes do fim da conexão; `true` com `h3_settings: []`: SETTINGS vazio. Ausente em registros anteriores ao contrato 0.3.2 |
 | `close` | fim visto pelo web: `by`, `how` (`connection_close`, `application_close`, `idle_timeout`, `stateless_reset`, `handshake_failed`), `error_code`, `reason`; `null` enquanto aberta |
 | `requests` | uma entrada por requisição (`HTTP3Request`) |
 
@@ -90,7 +91,7 @@ Trecho real do registro da conexão acima (listas encurtadas):
 $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2GYYXJV6C49 | jq '{proto, l4, close,
     http3: (.http3 | {version, dcid_hex, token_len, initial_datagram_size, padded_to_1200, coalesced_packets,
     client_hello_datagrams, initial_frames: .initial_frames[0:5], transport_params: .transport_params[0:3],
-    ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_settings, close,
+    ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_control_stream_seen, h3_settings, close,
     request: (.requests[0] | {stream_id, pseudo_order, field: .fields[2], ja4h, status})})}'
 {
   "proto": "quic/h3",
@@ -113,7 +114,8 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2G
     "ja4": "q13d0311h3_55b375c5d22e_df5ee7f3ca36",
     "negotiated": { "alpn": "h3", "cipher": "TLS_AES_128_GCM_SHA256", "group": "X25519MLKEM768",
                     "resumed": false, "version": "TLS 1.3" },
-    "h3_settings": [[6, 4611686018427388000], [1, 0], [7, 0]],
+    "h3_control_stream_seen": true,
+    "h3_settings": [[6, 4611686018427387903], [1, 0], [7, 0]],
     "close": { "by": "client", "error_code": 0, "how": "connection_close", "reason": "" },
     "request": {
       "stream_id": 0,

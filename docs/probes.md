@@ -199,7 +199,7 @@ entre caminhos. A lista de cada caso diz quais importam ali; a tabela abaixo é 
 | TLS, cliente que embaralha extensões (Chrome) | os de cima; a **ordem** das extensões não | `ja3`, `ja3_md5`, `ja4_o` e a ordem de `extensions` |
 | HTTP/1 | `request_line` (método, forma, versão, terminador), `fields` (nome com caixa, separador, valor, terminador, ordem), `duplicates`, `field_count`, `head_size`, `obs_fold`, `ja4h`, `body` (enquadramento, tamanho, SHA-256, pedaços e extensões, trailers), `expect_continue.waited`, `pipelined`, `upgrade`, `proxy_signals` | `t_first_byte_ms`, `t_since_prev_response_ms`, `expect_continue.wait_ms`, valores com probe ID ou `conn_id` |
 | h2 | `http2.mode`, `settings` (ordem e valores), `window_update`, `priorities`, `akamai`, `streams[].pseudo_order`, ordem dos campos, `repr`/`huffman_*` do HPACK, `ja4h` | `t_ms` dos frames, índices da tabela dinâmica entre conexões diferentes |
-| h3 | `http3.version`, `initial_datagram_size`, `padded_to_1200`, `client_hello_datagrams`, ids e ordem de `transport_params` (e valores, menos os de CID), `client_hello.ja4` (prefixo `q`), `h3_settings`, `requests[].pseudo_order` | `dcid_hex`, `scid_hex`, `token_*`, `initial_frames` (o curl/ngtcp2 fragmenta o CRYPTO de forma aleatória), valor de `initial_source_connection_id` |
+| h3 | `http3.version`, `initial_datagram_size`, `padded_to_1200`, `client_hello_datagrams`, ids e ordem de `transport_params` (e valores, menos os de CID), `client_hello.ja4` (prefixo `q`), `h3_control_stream_seen`, `h3_settings`, `requests[].pseudo_order` | `dcid_hex`, `scid_hex`, `token_*`, `initial_frames` (o curl/ngtcp2 fragmenta o CRYPTO de forma aleatória), valor de `initial_source_connection_id` |
 | WebSocket | `websocket.over`, `extensions`, `subprotocol`, opcodes, FIN, RSV, `masked` e tamanhos dos frames, `close.code`/`reason` | `mask_key_hex`, `t_ms` |
 | DNS | sequência de `qtype`, `flags` (`rd`, `cd`, `ad`), `edns.udp_size`, `edns.do`, códigos de `edns.options`, presença de cookie, ECS (presença e `source_prefix`), uso de 0x20 | `id`, porta do resolvedor, a caixa de cada letra do `qname` (0x20 é aleatório), o IP do resolvedor num pool anycast |
 | raw | `raw.mode`, `banner`, `probe_line`, total de bytes lidos e escritos, `half_close.server_sent_after_client_fin` | quantidade e tamanho de cada leitura (segmentação), tempos |
@@ -553,7 +553,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, close: .c
 O curl precisa ser compilado com HTTP/3 (ngtcp2 ou quiche; `curl --version` lista `HTTP3`). Detalhes do
 registro em [http3.md](http3.md).
 
-- **Procurar**: `http3` (Initial, `transport_params` na ordem, `client_hello` com JA4 `q`, `h3_settings`,
+- **Procurar**: `http3` (Initial, `transport_params` na ordem, `client_hello` com JA4 `q`, `h3_control_stream_seen` e `h3_settings`,
   `close`), `close.how: quic_close`, as requisições com `pseudo_order` e `controls` (os controles que não se
   aplicam a h3 dão 400 com `invalid`). Para navegadores: Alt-Svc numa primeira conexão h1/h2 (ou o registro HTTPS
   do DNS) e a conexão `quic/h3` seguinte.

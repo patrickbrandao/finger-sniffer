@@ -189,3 +189,17 @@ func TestSlug(t *testing.T) {
 		}
 	}
 }
+
+// TestHTTP3Fields: http3.md descreve os campos do HTTP3Info que o xProxy e a página usam, inclusive os do contrato
+// 0.3.2.
+func TestHTTP3Fields(t *testing.T) {
+	data, err := os.ReadFile("http3.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"`h3_settings`", "`h3_control_stream_seen`", "`transport_params`", "`date`"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("http3.md sem %s", want)
+		}
+	}
+}
