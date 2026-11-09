@@ -1,0 +1,44 @@
+2026-11-09T13:47:57Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:48:12Z total=214 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:48:27Z total=751 foreign=1 foreign_tcp_quic=1 195.3.220.7:22
+2026-11-09T13:48:42Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:48:57Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:49:13Z total=751 foreign=1 foreign_tcp_quic=1 200.120.22.121:22
+2026-11-09T13:49:28Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:49:43Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:49:58Z total=751 foreign=1 foreign_tcp_quic=1 195.3.220.7:22
+2026-11-09T13:50:14Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:50:29Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:50:44Z total=752 foreign=1 foreign_tcp_quic=1 165.154.137.186:22
+2026-11-09T13:50:59Z total=751 foreign=1 foreign_tcp_quic=1 146.70.134.158:443
+2026-11-09T13:51:14Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:51:30Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:51:45Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:52:00Z total=752 foreign=2 foreign_tcp_quic=0 
+2026-11-09T13:52:15Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:52:30Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:52:46Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:53:01Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:53:16Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:53:31Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:53:47Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:54:02Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:54:17Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:54:32Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:54:47Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:55:03Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:55:18Z total=751 foreign=1 foreign_tcp_quic=0 
+2026-11-09T13:55:33Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:55:48Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:56:03Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:56:18Z total=752 foreign=2 foreign_tcp_quic=2 35.206.173.86:80 45.148.10.233:22
+2026-11-09T13:56:34Z total=751 foreign=1 foreign_tcp_quic=1 118.212.132.226:22
+2026-11-09T13:56:49Z total=753 foreign=3 foreign_tcp_quic=3 35.210.98.50:443
+2026-11-09T13:57:04Z total=751 foreign=1 foreign_tcp_quic=0 
+2026-11-09T13:57:19Z total=750 foreign=0 foreign_tcp_quic=0 
+2026-11-09T13:57:34Z total=751 foreign=1 foreign_tcp_quic=1 45.33.109.10:443
+2026-11-09T13:57:50Z total=752 foreign=2 foreign_tcp_quic=2 35.210.9.177:80 45.33.109.10:443
+2026-11-09T13:58:05Z total=752 foreign=2 foreign_tcp_quic=2 45.33.109.10:443
+2026-11-09T13:58:20Z total=139 foreign=3 foreign_tcp_quic=3 20.120.183.70:22 45.33.109.10:443
+2026-11-09T13:58:35Z total=2 foreign=2 foreign_tcp_quic=2 45.33.109.10:443
+2026-11-09T13:58:50Z total=1 foreign=1 foreign_tcp_quic=1 45.33.109.10:443

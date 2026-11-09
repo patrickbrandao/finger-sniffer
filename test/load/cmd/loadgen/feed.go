@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/patrickbrandao/finger-sniffer/test/load/loadstat"
 )
 
 // liveEvent é o LiveEvent do openapi (só os campos usados aqui).
@@ -48,6 +50,7 @@ type feedSample struct {
 // closedInfo é o connection.closed de um probe.
 type closedInfo struct {
 	Recv     int64 // chegada (relógio da vps602)
+	RecvLoc  int64 // chegada (relógio local; o RNF-04 compara com o fim no cliente, sem depender do deslocamento)
 	Ended    int64 // data.ended
 	ConnID   string
 	Proto    string
@@ -59,7 +62,7 @@ type closedInfo struct {
 // feed acumula o que um cliente de tempo real recebeu.
 type feed struct {
 	name    string
-	offset  time.Duration // relógio da vps602 − relógio local
+	clk     *loadstat.ClockTrack // deslocamento vps602 − local, atualizado durante a carga
 	mu      sync.Mutex
 	samples []feedSample
 	closed  map[string]closedInfo // por probe
@@ -71,8 +74,8 @@ type feed struct {
 
 type recentConn struct{ connID, probe string }
 
-func newFeed(name string, offset time.Duration) *feed {
-	return &feed{name: name, offset: offset, closed: map[string]closedInfo{}}
+func newFeed(name string, clk *loadstat.ClockTrack) *feed {
+	return &feed{name: name, clk: clk, closed: map[string]closedInfo{}}
 }
 
 func (f *feed) handle(b []byte, recv time.Time) {
@@ -85,7 +88,7 @@ func (f *feed) handle(b []byte, recv time.Time) {
 		f.mu.Unlock()
 		return
 	}
-	rv := recv.Add(f.offset).UnixNano()
+	rv := recv.Add(f.clk.Offset()).UnixNano()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	fs := feedSample{Kind: ev.Kind, TS: ev.TS.UnixNano(), Recv: rv}
@@ -107,7 +110,7 @@ func (f *feed) handle(b []byte, recv time.Time) {
 		if ev.ProbeID == nil || !strings.HasPrefix(*ev.ProbeID, "ld") {
 			return
 		}
-		ci := closedInfo{Recv: rv, Proto: s.Proto, L4: s.L4, Degraded: s.Degraded, Requests: s.Requests}
+		ci := closedInfo{Recv: rv, RecvLoc: recv.UnixNano(), Proto: s.Proto, L4: s.L4, Degraded: s.Degraded, Requests: s.Requests}
 		if s.Ended != nil {
 			ci.Ended = s.Ended.UnixNano()
 		}
