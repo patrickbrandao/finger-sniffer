@@ -32,7 +32,7 @@ func NewQueries(db *sql.DB, live func(string) (connectionJSON, bool), snaplen ui
 	if live == nil {
 		live = func(string) (connectionJSON, bool) { return connectionJSON{}, false }
 	}
-	return &Queries{db: db, live: live, now: time.Now, pollEvery: 200 * time.Millisecond, snaplen: snaplen}
+	return &Queries{db: db, live: live, now: time.Now, pollEvery: 50 * time.Millisecond, snaplen: snaplen}
 }
 
 // Erros de consulta mapeados para HTTP.

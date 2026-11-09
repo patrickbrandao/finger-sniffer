@@ -12,6 +12,17 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
 )
 
+// lateLinger é quanto, depois do último pacote, uma conexão TCP fechada continua recebendo pacotes tardios (ACK
+// final, RST depois do FIN), anexados ao pcap e ao registro já gravados em vez de virarem conexão nova ou pacote
+// avulso; lateKeep é a folga extra na memória para o atraso do ingest (a aceitação usa o instante de captura).
+const (
+	lateLinger = 2 * time.Second
+	lateKeep   = 10 * time.Second
+)
+
+// DefaultCloseGrace é a folga depois do FIN dos dois lados quando o ACK final não aparece (FS_TCP_CLOSE_GRACE).
+const DefaultCloseGrace = 200 * time.Millisecond
+
 // flowKey identifica um fluxo independente do sentido (pontas em ordem canônica).
 type flowKey struct {
 	l4   uint8
@@ -46,6 +57,9 @@ type conn struct {
 	pcapBytes                                  int64
 	truncated                                  bool
 	closeAt                                    int64
+	finEnd                                     [2]uint32 // seq depois do FIN (cliente, espelho)
+	finAcked                                   [2]bool   // o outro lado já confirmou o FIN
+	lingerUntil                                int64     // depois de finalizada: até quando aceita pacotes tardios
 	serverSeen                                 bool
 	quicDCID                                   string // DCID do primeiro Initial QUIC do cliente (hex)
 	ana                                        *analysis
@@ -106,11 +120,27 @@ func (c *conn) observe(fi frameInfo, ts int64, grace time.Duration) {
 	case fl&tcpACK != 0 && fl&tcpSYN == 0 && cli && c.synAck != 0 && c.established == 0:
 		c.established = ts
 	}
+	var seq, ack uint32
+	if len(fi.l4) >= 12 {
+		seq, ack = binary.BigEndian.Uint32(fi.l4[4:8]), binary.BigEndian.Uint32(fi.l4[8:12])
+	}
 	if fl&tcpFIN != 0 {
 		if cli && c.clientFin == 0 {
 			c.clientFin = ts
+			c.finEnd[0] = seq + uint32(fi.payload) + 1 //nolint:gosec // payload < 64 KiB
 		} else if !cli && c.serverFin == 0 {
 			c.serverFin = ts
+			c.finEnd[1] = seq + uint32(fi.payload) + 1 //nolint:gosec // idem
+		}
+	}
+	// ACK do FIN do outro lado (o FIN do segundo lado costuma confirmar o do primeiro)
+	if fl&tcpACK != 0 {
+		other, fin := 1, c.serverFin
+		if !cli {
+			other, fin = 0, c.clientFin
+		}
+		if fin != 0 && seqGE(ack, c.finEnd[other]) {
+			c.finAcked[other] = true
 		}
 	}
 	if fl&tcpRST != 0 {
@@ -120,9 +150,22 @@ func (c *conn) observe(fi frameInfo, ts int64, grace time.Duration) {
 			c.serverRst = ts
 		}
 	}
-	// Fecha depois de uma pequena folga para pegar o último ACK.
-	if c.closeAt == 0 && (c.clientRst != 0 || c.serverRst != 0 || (c.clientFin != 0 && c.serverFin != 0)) {
-		c.closeAt = ts + grace.Nanoseconds()
+	// Fechamento (spec 004 RNF-01: registro em ≤ 500 ms): RST fecha na hora; FIN dos dois lados fecha assim que
+	// os dois FIN estiverem confirmados (o ACK final) ou, sem ele, depois da folga. Pacotes que chegarem depois
+	// (ACK repetido, RST depois do FIN) vão para o registro já gravado (flowTable.closed).
+	switch {
+	case c.clientRst != 0 || c.serverRst != 0:
+		if c.closeAt == 0 || c.closeAt > ts {
+			c.closeAt = ts
+		}
+	case c.clientFin != 0 && c.serverFin != 0:
+		if c.finAcked[0] && c.finAcked[1] {
+			if c.closeAt == 0 || c.closeAt > ts {
+				c.closeAt = ts
+			}
+		} else if c.closeAt == 0 {
+			c.closeAt = ts + grace.Nanoseconds()
+		}
 	}
 }
 
@@ -142,6 +185,7 @@ func (c *conn) isStray() bool {
 type flowTable struct {
 	mu          sync.Mutex
 	conns       map[flowKey]*conn
+	closed      map[flowKey]*conn // TCP já finalizadas, à espera de pacotes tardios até lingerUntil
 	byID        map[string]*conn
 	reserved    map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
 	newID       func(ts int64) string
@@ -168,7 +212,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 		db = &p0f.DB{} // sem banco: assinatura crua sem palpite de SO
 	}
 	return &flowTable{
-		conns: map[flowKey]*conn{}, byID: map[string]*conn{}, reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
+		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
 	}
@@ -223,6 +267,7 @@ type result struct {
 	conn    *conn // conexão do pacote
 	created bool  // conexão nova (inserir a linha)
 	ended   *conn // conexão anterior com a mesma 5-tupla que terminou agora (reuso)
+	late    bool  // pacote tardio de uma conexão já gravada (conn é ela)
 }
 
 // handle correlaciona um pacote (spec 004 RF-02/RF-03).
@@ -250,6 +295,16 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		delete(t.byID, c.id)
 		t.finish(c)
 		res.ended, c = c, nil
+	}
+	if c == nil && fi.proto == protoTCP {
+		if old := t.closed[k]; old != nil {
+			if !isSYN && ts <= old.lingerUntil {
+				old.observe(fi, ts, t.grace)
+				old.analyze(fi, ts, old.fromClient(fi), t)
+				return result{conn: old, late: true}
+			}
+			delete(t.closed, k)
+		}
 	}
 	if c == nil {
 		// RST sem conexão conhecida é avulso.
@@ -301,6 +356,16 @@ func (t *flowTable) due(now int64) []*conn {
 			delete(t.conns, k)
 			delete(t.byID, c.id)
 			t.finish(c)
+			if c.l4 == protoTCP && c.closing() {
+				c.lingerUntil = c.lastSeen + lateLinger.Nanoseconds()
+				t.closed[k] = c
+			}
+		}
+	}
+	for k, c := range t.closed {
+		// a aceitação compara o instante de captura; a remoção dá folga para o atraso do ingest
+		if now > c.lingerUntil+lateKeep.Nanoseconds() {
+			delete(t.closed, k)
 		}
 	}
 	return out
