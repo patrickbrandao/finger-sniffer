@@ -42,6 +42,15 @@ type eventOnlyConn struct {
 	id            string
 	started, last int64
 	degraded      bool
+	// app é o estado de aplicação mantido em memória (incremental: cada evento custa O(1), sem reler app_events);
+	// nil = desconhecido (lote desfeito), recarregado de app_events no próximo uso.
+	app *appState
+}
+
+// dirtyConn é uma conexão gravada cujo registro precisa ser refeito no fim do lote.
+type dirtyConn struct {
+	end int64     // > 0 estende o fim (conexão só de eventos)
+	app *appState // nil = recarregar de app_events
 }
 
 // openFor devolve a conexão aberta da 5-tupla que contém ts (com folga antes do início).
@@ -136,7 +145,7 @@ func (in *Ingestor) appMessage(ctx context.Context, tx *sql.Tx, subject string, 
 	}
 	// Mantém a ordem: se a 5-tupla já tem evento pendente, este espera junto.
 	if in.hasPending(ev.key()) {
-		in.pending = append(in.pending, pendingEvent{ev: ev, arrived: in.now().UnixNano()})
+		in.addPending(ev)
 		return nil
 	}
 	tg, ok, err := in.locate(ctx, tx, ev)
@@ -144,25 +153,24 @@ func (in *Ingestor) appMessage(ctx context.Context, tx *sql.Tx, subject string, 
 		return err
 	}
 	if !ok {
-		in.pending = append(in.pending, pendingEvent{ev: ev, arrived: in.now().UnixNano()})
+		in.addPending(ev)
 		in.metrics.Add("store_pending_events_total", 1)
 		return nil
 	}
 	return in.applyEvent(ctx, tx, ev, tg)
 }
 
-func (in *Ingestor) hasPending(k flowKey) bool {
-	for _, p := range in.pending {
-		if p.ev.key() == k {
-			return true
-		}
-	}
-	return false
+// hasPending é O(1): pendingKeys conta os pendentes por 5-tupla.
+func (in *Ingestor) hasPending(k flowKey) bool { return in.pendingKeys[k] > 0 }
+
+func (in *Ingestor) addPending(ev appEvent) {
+	in.pending = append(in.pending, pendingEvent{ev: ev, arrived: in.now().UnixNano()})
+	in.pendingKeys[ev.key()]++
 }
 
-// flushPending tenta de novo os eventos pendentes; os que passaram de pendingWait criam a conexão só com os
-// eventos. Também expira as conexões só de eventos ociosas.
-func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx) error {
+// flushPending tenta de novo os eventos pendentes; os que passaram de pendingWait (ou todos, com force, no
+// desligamento) criam a conexão só com os eventos. Também expira as conexões só de eventos ociosas.
+func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx, force bool) error {
 	now := in.now().UnixNano()
 	for k, eo := range in.eventOnly {
 		if now-eo.last > eventOnlyIdle.Nanoseconds() {
@@ -174,11 +182,13 @@ func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx) error {
 	}
 	list := in.pending
 	in.pending = nil
+	clear(in.pendingKeys)
 	blocked := map[flowKey]bool{} // 5-tuplas que continuam esperando (preserva a ordem)
 	for _, p := range list {
 		k := p.ev.key()
 		if blocked[k] {
 			in.pending = append(in.pending, p)
+			in.pendingKeys[k]++
 			continue
 		}
 		tg, ok, err := in.locate(ctx, tx, p.ev)
@@ -186,9 +196,10 @@ func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		if !ok {
-			if now-p.arrived < pendingWait.Nanoseconds() {
+			if !force && now-p.arrived < pendingWait.Nanoseconds() {
 				blocked[k] = true
 				in.pending = append(in.pending, p)
+				in.pendingKeys[k]++
 				continue
 			}
 			if tg, err = in.createEventOnly(ctx, tx, p.ev); err != nil {
@@ -214,7 +225,7 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), ev.ts); err != nil {
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
-	in.eventOnly[k] = &eventOnlyConn{id: id, started: ev.ts, last: ev.ts}
+	in.eventOnly[k] = &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()}
 	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID.
 	in.flows.reserveFor(k, id, now)
 	in.metrics.Add("store_event_only_connections_total", 1)
@@ -263,14 +274,59 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 			return nil
 		}
 	}
-	end := int64(0)
+	// Conexão gravada: o registro é refeito uma vez no fim do lote (flushDirty), não a cada evento.
+	d := in.dirty[tg.id]
 	if tg.eventOnly {
-		end = ev.ts
-		if eo := in.eventOnly[ev.key()]; eo != nil && eo.id == tg.id && ev.ts > eo.last {
-			eo.last = ev.ts
+		if ev.ts > d.end {
+			d.end = ev.ts
+		}
+		if eo := in.eventOnly[ev.key()]; eo != nil && eo.id == tg.id {
+			if ev.ts > eo.last {
+				eo.last = ev.ts
+			}
+			if eo.app != nil {
+				eo.app.add(ev)
+			}
+			d.app = eo.app
 		}
 	}
-	return in.rebuildStored(ctx, tx, tg.id, end)
+	in.dirty[tg.id] = d
+	return nil
+}
+
+// flushDirty refaz o registro das conexões gravadas que receberam eventos neste lote. Conexão só de eventos usa
+// o estado em memória; as demais (evento tardio, raro) relêem app_events uma vez por lote.
+func (in *Ingestor) flushDirty(ctx context.Context, tx *sql.Tx) error {
+	for id, d := range in.dirty {
+		a := d.app
+		if a == nil {
+			var err error
+			in.appReloads++
+			if a, err = loadAppState(ctx, tx, id); err != nil {
+				return err
+			}
+			// Repõe o estado em memória da conexão só de eventos que o tinha perdido.
+			for _, eo := range in.eventOnly {
+				if eo.id == id && eo.app == nil {
+					eo.app = a
+				}
+			}
+		}
+		if err := in.writeStored(ctx, tx, id, a, d.end); err != nil {
+			return err
+		}
+	}
+	clear(in.dirty)
+	return nil
+}
+
+// discardBatchState desfaz o estado em memória que dependia do lote que falhou (a transação foi desfeita e as
+// mensagens voltam por Nak): o registro sujo é descartado e o estado das conexões só de eventos é relido depois.
+func (in *Ingestor) discardBatchState() {
+	clear(in.dirty)
+	for _, eo := range in.eventOnly {
+		eo.app = nil
+	}
 }
 
 // loadAppState reconstrói o estado de aplicação de uma conexão a partir de app_events.
@@ -293,13 +349,8 @@ func loadAppState(ctx context.Context, tx *sql.Tx, id string) (*appState, error)
 	return a, rows.Err()
 }
 
-// rebuildStored refaz as camadas de aplicação de uma conexão já gravada (evento tardio ou conexão só de eventos).
-// end > 0 estende o fim da conexão só de eventos.
-func (in *Ingestor) rebuildStored(ctx context.Context, tx *sql.Tx, id string, end int64) error {
-	a, err := loadAppState(ctx, tx, id)
-	if err != nil {
-		return err
-	}
+// writeStored aplica o estado de aplicação ao registro gravado; end > 0 estende o fim.
+func (in *Ingestor) writeStored(ctx context.Context, tx *sql.Tx, id string, a *appState, end int64) error {
 	var raw string
 	var ended sql.NullInt64
 	if err := tx.QueryRowContext(ctx, "SELECT record_json, ended_ns FROM connections WHERE conn_id = ?", id).Scan(&raw, &ended); err != nil {
@@ -319,7 +370,7 @@ func (in *Ingestor) rebuildStored(ctx context.Context, tx *sql.Tx, id string, en
 		}
 	}
 	rec, _ := json.Marshal(r)
-	_, err = tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
+	_, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
 		string(rec), r.ProbeID, r.Proto, nullIfZero(endNs), in.now().UnixNano(), id)
 	return err
 }
@@ -339,9 +390,15 @@ func (in *Ingestor) adoptEventOnly(ctx context.Context, tx *sql.Tx, c *conn, k f
 		return nil
 	}
 	delete(in.eventOnly, k)
-	a, err := loadAppState(ctx, tx, c.id)
-	if err != nil {
-		return err
+	// O registro passa a ser o dos pacotes (a linha foi substituída): o que estava sujo não vale mais.
+	delete(in.dirty, c.id)
+	a := eo.app
+	if a == nil {
+		var err error
+		in.appReloads++
+		if a, err = loadAppState(ctx, tx, c.id); err != nil {
+			return err
+		}
 	}
 	in.flows.setApp(c, a)
 	return nil

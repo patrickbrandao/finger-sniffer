@@ -50,8 +50,11 @@ type Ingestor struct {
 	lags  []float64 // ms, janela corrente
 
 	// Usados só pelo laço de ingest (sem trava).
-	pending   []pendingEvent             // eventos à espera da conexão (até pendingWait)
-	eventOnly map[flowKey]*eventOnlyConn // conexões criadas só pelos eventos
+	pending     []pendingEvent             // eventos à espera da conexão (até pendingWait)
+	pendingKeys map[flowKey]int            // pendentes por 5-tupla
+	eventOnly   map[flowKey]*eventOnlyConn // conexões criadas só pelos eventos
+	dirty       map[string]dirtyConn       // conexões gravadas a refazer no fim do lote
+	appReloads  int                        // releituras completas de app_events (testes de custo)
 }
 
 // NewIngestor cria o ingestor.
@@ -59,6 +62,7 @@ func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metr
 	return &Ingestor{
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
 		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
+		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{},
 	}
 }
 
@@ -105,7 +109,41 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 			in.log.Error("finalize", "err", err)
 		}
 	}
+	in.drainPending()
 	return nil
+}
+
+// drainPending, no desligamento, grava os eventos ainda pendentes como conexões só de eventos: as mensagens já
+// foram confirmadas no JetStream e, sem isso, se perderiam no reinício. Uma queda abrupta ainda perde até
+// pendingWait de eventos sem conexão (risco aceito: o ack só depois da associação prenderia o consumidor).
+func (in *Ingestor) drainPending() {
+	if len(in.pending) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := func() (err error) {
+		defer func() {
+			if err != nil {
+				in.discardBatchState()
+			}
+		}()
+		tx, err := in.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := in.flushPending(ctx, tx, true); err != nil {
+			return err
+		}
+		if err := in.flushDirty(ctx, tx); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}()
+	if err != nil {
+		in.log.Error("drain pending events", "err", err, "events", len(in.pending))
+	}
 }
 
 // msgSource é o que o Process precisa de uma mensagem (permite testar sem NATS).
@@ -127,7 +165,16 @@ func toSources(msgs []jetstream.Msg) []msgSource {
 	return out
 }
 
-func (in *Ingestor) process(ctx context.Context, msgs []msgSource) error {
+func (in *Ingestor) process(ctx context.Context, msgs []msgSource) (err error) {
+	defer func() {
+		if err != nil {
+			in.discardBatchState()
+		}
+	}()
+	return in.processTx(ctx, msgs)
+}
+
+func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	tx, err := in.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -162,7 +209,10 @@ func (in *Ingestor) process(ctx context.Context, msgs []msgSource) error {
 		}
 	}
 	// Eventos que chegaram antes dos pacotes (no mesmo lote ou antes) acham a conexão agora.
-	if err := in.flushPending(ctx, tx); err != nil {
+	if err := in.flushPending(ctx, tx, false); err != nil {
+		return err
+	}
+	if err := in.flushDirty(ctx, tx); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
