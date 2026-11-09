@@ -22,6 +22,8 @@ type API struct {
 	// Q responde às consultas (nil desliga as rotas de consulta); W é o banco de escrita (DELETE).
 	Q *Queries
 	W *sql.DB
+	// Live é o hub do tempo real (nil desliga /stream e /ws).
+	Live *Hub
 }
 
 // Handler devolve o http.Handler da 9001 (HTTP) com CORS aberto (ADR 0007), incluindo /metrics.
@@ -46,6 +48,10 @@ func (a *API) handler(withMetrics bool) http.Handler {
 		mux.HandleFunc("GET /api/v1/dns", a.listDNS)
 		mux.HandleFunc("GET /api/v1/probes/{id}", a.getProbe)
 		mux.HandleFunc("DELETE /api/v1/probes/{id}", a.deleteProbe)
+	}
+	if a.Live != nil {
+		mux.HandleFunc("GET /api/v1/stream", a.stream)
+		mux.HandleFunc("GET /api/v1/ws", a.ws)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})

@@ -55,7 +55,12 @@ type Ingestor struct {
 	eventOnly   map[flowKey]*eventOnlyConn // conexões criadas só pelos eventos
 	dirty       map[string]dirtyConn       // conexões gravadas a refazer no fim do lote
 	appReloads  int                        // releituras completas de app_events (testes de custo)
+	live        *Hub                       // tempo real (nil = desligado)
+	liveBatch   []*liveMsg                 // eventos ao vivo do lote em curso, publicados após o commit
 }
+
+// SetLive liga o tempo real: os lotes confirmados passam a alimentar o hub.
+func (in *Ingestor) SetLive(h *Hub) { in.live = h }
 
 // NewIngestor cria o ingestor.
 func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metrics) *Ingestor {
@@ -218,6 +223,7 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	in.publishLive()
 	now := in.now().UnixNano()
 	in.lagMu.Lock()
 	for _, ts := range tss {
@@ -236,6 +242,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	}
 	if res.stray {
 		in.metrics.Add("store_stray_total", 1)
+		in.liveStray(fi, p.TsNs, strayRecord(fi, p.TsNs, p.Dir, int(p.WireLen)))
 		return st.insertStray(ctx, fi, p)
 	}
 	c := res.conn
@@ -253,6 +260,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		if err := in.adoptEventOnly(ctx, tx, c, keyOf(c.l4, c.client, c.server)); err != nil {
 			return err
 		}
+		in.liveConn(LiveConnOpened, c.liveSummary(), c.started)
 	}
 	if c.degraded {
 		return nil // modo degradado: sem pcap nem bytes crus
@@ -281,10 +289,16 @@ func (in *Ingestor) Finalize(ctx context.Context, conns []*conn) error {
 	defer func() { _ = tx.Rollback() }()
 	for _, c := range conns {
 		if err := in.finalizeOne(ctx, tx, c); err != nil {
+			in.liveBatch = nil
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		in.liveBatch = nil
+		return err
+	}
+	in.publishLive()
+	return nil
 }
 
 func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error {
@@ -314,7 +328,9 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		// Sem resposta do outro lado: pacotes avulsos (spec 004 RF-03).
 		for _, p := range pkts {
 			fi := parseFrame(p.frame)
-			rec, _ := json.Marshal(strayRecord(fi, p.ts, p.dir, p.wireLen))
+			sr := strayRecord(fi, p.ts, p.dir, p.wireLen)
+			in.liveStray(fi, p.ts, sr)
+			rec, _ := json.Marshal(sr)
 			if _, err := tx.ExecContext(ctx, insStraySQL, p.ts, int(p.dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), p.frame); err != nil {
 				return err
 			}
@@ -347,9 +363,12 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", c.id); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ? WHERE conn_id = ?",
-		end, boolInt(c.truncated), string(rec), r.Proto, end, c.id)
-	return err
+	if _, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ? WHERE conn_id = ?",
+		end, boolInt(c.truncated), string(rec), r.Proto, end, c.id); err != nil {
+		return err
+	}
+	in.liveConn(LiveConnClosed, summaryFrom(r), end)
+	return nil
 }
 
 // recoverOrphans fecha conexões que ficaram abertas no banco por um reinício do store.

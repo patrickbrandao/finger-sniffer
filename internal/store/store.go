@@ -32,6 +32,8 @@ type Config struct {
 	Host         HostPaths
 	Ingest       IngestConfig
 	P0FPath      string // FS_P0F_DB
+	LiveBuffer   int    // FS_LIVE_BUFFER (ADR 0020)
+	LiveMax      int    // FS_LIVE_MAX_CLIENTS
 }
 
 // LoadConfig lê FS_* do store.
@@ -85,6 +87,12 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	if c.LiveBuffer, err = service.EnvInt("FS_LIVE_BUFFER", DefaultLiveBuffer); err != nil {
+		return c, err
+	}
+	if c.LiveMax, err = service.EnvInt("FS_LIVE_MAX_CLIENTS", DefaultLiveMaxClients); err != nil {
+		return c, err
+	}
 	if segs < 32 {
 		return c, fmt.Errorf("store: FS_TCP_SEGMENTS_TRACKED precisa ser >= 32 (spec 013 RF-09)")
 	}
@@ -109,6 +117,7 @@ type Store struct {
 	queries *Queries
 	openapi []byte
 	certs   *certs.Store // nil quando a 9000 está desligada
+	live    *Hub
 }
 
 // New abre o banco e prepara o store.
@@ -141,6 +150,8 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		}
 	}
 	s.ingest = NewIngestor(db, cfg.Ingest, svc.Log, svc.Metrics)
+	s.live = NewHub(cfg.LiveBuffer, cfg.LiveMax)
+	s.ingest.SetLive(s.live)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
 	// O estado dos certificados da 9000 também conta (spec 015 RF-05: autoassinado ou expirando = degraded).
@@ -211,8 +222,9 @@ func (s *Store) Run(ctx context.Context) error {
 		}
 	}()
 	go s.retentionLoop(ctx)
+	go s.live.Run(ctx.Done())
 
-	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db}
+	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live}
 	srv := &http.Server{
 		Addr: s.cfg.HTTPAddr, Handler: api.Handler(),
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
