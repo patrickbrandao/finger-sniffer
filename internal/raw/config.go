@@ -3,6 +3,7 @@
 package raw
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"strconv"
@@ -128,6 +129,11 @@ type Config struct {
 	StreamMax int64
 	// ProbeWait é quanto o modo source espera pela linha PROBE antes de começar a mandar.
 	ProbeWait time.Duration
+	// TLS é a configuração do servidor TLS (pkg/certs, a mesma do web); nil desliga o TLS: as portas tls-*
+	// atendem em claro e não há TLS automático.
+	TLS *tls.Config
+	// EventInlineMax é o teto do ClientHello inline no evento (FS_EVENT_INLINE_MAX, ADR 0018).
+	EventInlineMax int
 }
 
 // LoadConfig lê a configuração das variáveis FS_*.

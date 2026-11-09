@@ -2,11 +2,12 @@ package raw
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
-	"io"
 	"net"
 	"time"
 
+	"github.com/patrickbrandao/finger-sniffer/pkg/detect"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 )
@@ -45,6 +46,16 @@ type session struct {
 	lineDone bool
 	lineBuf  []byte
 
+	// TLS (spec 006 RF-02/RF-03). tlsCfg nil desliga o TLS; sniff guarda os primeiros bytes do cliente até
+	// decidir se são um registro TLS (0x16 0x03).
+	tlsCfg    *tls.Config
+	probes    *probe.Extractor
+	tlsOn     bool
+	sniff     []byte
+	sniffDone bool
+	// waitFrom é o início da espera pela linha PROBE no modo source (accept, ou fim do handshake TLS).
+	waitFrom time.Time
+
 	in, out stream
 	info    Info
 }
@@ -52,16 +63,25 @@ type session struct {
 func newSession(conn net.Conn, cfg *Config, port PortSpec, start time.Time, em *emitter) *session {
 	return &session{
 		conn: conn, cfg: cfg, port: port, start: start, em: em,
-		mode: port.Mode, sourceN: cfg.SourceBytes,
-		in:   stream{dir: event.DirectionIn, max: cfg.StreamMax},
-		out:  stream{dir: event.DirectionOut, max: cfg.StreamMax},
-		info: Info{TLS: port.TLS, ReadsIn: []TimedLength{}, WritesOut: []TimedLength{}},
+		mode: port.Mode, sourceN: cfg.SourceBytes, tlsCfg: cfg.TLS, waitFrom: start,
+		// Sem TLS configurado não há o que detectar.
+		sniffDone: cfg.TLS == nil,
+		in:        stream{dir: event.DirectionIn, max: cfg.StreamMax},
+		out:       stream{dir: event.DirectionOut, max: cfg.StreamMax},
+		info:      Info{ReadsIn: []TimedLength{}, WritesOut: []TimedLength{}},
 	}
 }
 
 // run atende a sessão até o fim e publica fs.v1.raw.session.
 func (s *session) run() {
 	defer s.finish()
+	if s.port.TLS && s.tlsCfg != nil {
+		// Porta tls-*: o TLS vem antes de tudo, inclusive do banner.
+		s.sniffDone = true
+		if !s.startTLS(nil) {
+			return
+		}
+	}
 	if s.mode == probe.ModeBanner {
 		if s.sendBanner() != nil {
 			return
@@ -73,19 +93,31 @@ func (s *session) run() {
 		// No modo source o servidor só espera a linha PROBE por ProbeWait; depois começa a mandar.
 		waitingProbe := s.mode == probe.ModeSource && !s.lineDone
 		if waitingProbe {
-			deadline = s.start.Add(s.cfg.ProbeWait)
+			deadline = s.waitFrom.Add(s.cfg.ProbeWait)
 		}
 		_ = s.conn.SetReadDeadline(deadline)
 		n, err := s.conn.Read(buf)
 		if n > 0 {
-			s.recordRead(buf[:n])
-			data := s.feed(buf[:n])
-			if s.mode == probe.ModeSource && s.lineDone {
-				s.runSource()
-				return
+			data, upgrade := s.sniffTLS(buf[:n])
+			if upgrade != nil {
+				if !s.startTLS(upgrade) {
+					return
+				}
+				if s.mode == probe.ModeBanner && s.sendBanner() != nil {
+					return
+				}
+				continue
 			}
-			if s.handle(data) != nil {
-				return
+			if len(data) > 0 {
+				s.recordRead(data)
+				data = s.feed(data)
+				if s.mode == probe.ModeSource && s.lineDone {
+					s.runSource()
+					return
+				}
+				if s.handle(data) != nil {
+					return
+				}
 			}
 		}
 		if err == nil {
@@ -97,9 +129,14 @@ func (s *session) run() {
 			s.lineDone, s.lineBuf = true, nil
 			s.runSource()
 			return
-		case errors.Is(err, io.EOF):
-			// Linha incompleta guardada vira dado comum do modo.
-			held := s.flushLine()
+		case isClientEOF(err, s.tlsOn):
+			// Bytes guardados (início de TLS ou linha incompleta) viram dado comum do modo.
+			var held []byte
+			if sniffed, _ := s.flushSniff(); len(sniffed) > 0 {
+				s.recordRead(sniffed)
+				held = s.feed(sniffed)
+			}
+			held = append(held, s.flushLine()...)
 			if s.mode == probe.ModeSource {
 				s.runSource()
 				return
@@ -114,6 +151,31 @@ func (s *session) run() {
 			return
 		}
 	}
+}
+
+// sniffTLS decide, pelos primeiros bytes do cliente, se a conexão é TLS (RF-03, pkg/detect). Devolve os
+// bytes a tratar em claro, ou upgrade != nil com os bytes já lidos quando é TLS. Enquanto só chegou 0x16,
+// guarda e espera o próximo byte.
+func (s *session) sniffTLS(b []byte) (data, upgrade []byte) {
+	if s.sniffDone {
+		return b, nil
+	}
+	s.sniff = append(s.sniff, b...)
+	if p, _ := detect.Classify(s.sniff); p == detect.TLS {
+		up := s.sniff
+		s.sniff, s.sniffDone = nil, true
+		return nil, up
+	}
+	if len(s.sniff) < 2 && s.sniff[0] == 0x16 {
+		return nil, nil
+	}
+	return s.flushSniff()
+}
+
+func (s *session) flushSniff() ([]byte, []byte) {
+	held := s.sniff
+	s.sniff, s.sniffDone = nil, true
+	return held, nil
 }
 
 // feed passa os bytes pela detecção da linha PROBE e devolve o que deve ser tratado pelo modo. Enquanto os

@@ -41,7 +41,7 @@ func startEnv(t *testing.T, ports []PortSpec, mutate func(*Config)) *testEnv {
 	}
 	t.Cleanup(nc.Close)
 	env := &testEnv{msgs: make(chan *nats.Msg, 4096)}
-	if _, err := nc.ChanSubscribe("fs.v1.raw.>", env.msgs); err != nil {
+	if _, err := nc.ChanSubscribe("fs.v1.>", env.msgs); err != nil {
 		t.Fatal(err)
 	}
 	if err := nc.Flush(); err != nil {
@@ -106,6 +106,8 @@ type sessionResult struct {
 	info      Info
 	in, out   []byte
 	truncated map[string]bool
+	// Eventos TLS publicados pela sessão (envelope com payload cru).
+	clientHello, handshake *event.Envelope
 }
 
 // waitSession lê eventos até o fs.v1.raw.session.
@@ -137,6 +139,10 @@ func (e *testEnv) waitSession(t *testing.T) sessionResult {
 				if ch.Truncated {
 					res.truncated[ch.Dir] = true
 				}
+			case event.SubjectWebTLSClientHello:
+				res.clientHello = &env
+			case event.SubjectWebTLSHandshake:
+				res.handshake = &env
 			case event.SubjectRawSession:
 				res.env = env
 				if err := json.Unmarshal(env.Payload, &res.info); err != nil {
@@ -360,7 +366,7 @@ func TestStreamTruncated(t *testing.T) {
 	}
 }
 
-func TestTLSModeServedPlainUntilTask030(t *testing.T) {
+func TestTLSModeWithoutConfigServesPlain(t *testing.T) {
 	env := startEnv(t, []PortSpec{{Port: 0, Mode: "banner", TLS: true, Banner: BannerFor(993)}}, nil)
 	c := dial(t, env.addr[0])
 	if got := readN(t, c, len(BannerFor(993))); got != BannerFor(993) {
