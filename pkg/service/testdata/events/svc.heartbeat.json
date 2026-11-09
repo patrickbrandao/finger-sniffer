@@ -1,0 +1,17 @@
+{
+  "payload": {
+    "commit": "768c24f",
+    "metrics": {
+      "published_events_total": 3
+    },
+    "reasons": [
+      "nats reconnecting"
+    ],
+    "started_at": "2026-11-09T11:00:00.000000000Z",
+    "status": "degraded"
+  },
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.1.0",
+  "ts": "2026-11-09T12:00:00.123456789Z"
+}

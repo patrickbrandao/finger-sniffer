@@ -17,11 +17,13 @@ type fakeRequester struct {
 	err      error
 	subject  string
 	req      event.ConnIDRequest
+	data     []byte
 	deadline time.Duration
 }
 
 func (f *fakeRequester) RequestWithContext(ctx context.Context, subj string, data []byte) (*nats.Msg, error) {
 	f.subject = subj
+	f.data = data
 	_ = json.Unmarshal(data, &f.req)
 	if d, ok := ctx.Deadline(); ok {
 		f.deadline = time.Until(d)

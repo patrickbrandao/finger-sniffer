@@ -538,45 +538,26 @@ components:
       name: ConnIDRequest
       examples:
         - name: accept
-          summary: (à mão) pedido do web no accept.
+          summary: pedido do produtor no accept (service.RequestConnID).
           payload:
-            flow:
-              l4: tcp
-              src_ip: 203.0.113.7
-              src_port: 51000
-              dst_ip: 198.51.100.1
-              dst_port: 443
-            ts: "2026-11-09T12:00:00.123456789Z"
+            $ref: "../../pkg/service/testdata/events/store.conn_id.request.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload: { $ref: "#/components/schemas/ConnIDRequestPayload" }
     ConnIDReply:
       name: ConnIDReply
       examples:
         - name: reserved
-          summary: (à mão) a conexão ainda não existia no store.
+          summary: a conexão ainda não existia no store.
           payload:
-            conn_id: 01JC5Q8T0M3J9V7K2N4P6R8S0W
-            reserved: true
+            $ref: "../../internal/store/testdata/events/store.conn_id.reply.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload: { $ref: "#/components/schemas/ConnIDReplyPayload" }
     Heartbeat:
       name: Heartbeat
       examples:
-        - name: web_ok
-          summary: (à mão)
+        - name: web_degraded
           payload:
-            schema_version: 1
-            service: web
-            service_version: 0.1.0
-            ts: "2026-11-09T12:00:00.123456789Z"
-            payload:
-              status: ok
-              reasons: []
-              commit: 768c24f
-              started_at: "2026-11-09T11:00:00.000000000Z"
-              metrics:
-                published_events_total: 1532
-                dropped_events_total: 0
+            $ref: "../../pkg/service/testdata/events/svc.heartbeat.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: A cada 5 s; o store marca `down` após 15 s sem heartbeat.
       payload:
