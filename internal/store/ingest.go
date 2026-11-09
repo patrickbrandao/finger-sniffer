@@ -166,6 +166,21 @@ type msgSource interface {
 	Data() []byte
 }
 
+// metadataSource é a mensagem do JetStream, com o instante em que entrou no stream.
+type metadataSource interface {
+	Metadata() (*jetstream.MsgMetadata, error)
+}
+
+// publishedAt devolve quando a mensagem entrou no stream (JetStream) ou, sem metadado, received (ADR 0025).
+func publishedAt(m msgSource, received int64) int64 {
+	if ms, ok := m.(metadataSource); ok {
+		if md, err := ms.Metadata(); err == nil && md != nil && !md.Timestamp.IsZero() {
+			return md.Timestamp.UnixNano()
+		}
+	}
+	return received
+}
+
 // Process grava as mensagens do lote numa transação.
 func (in *Ingestor) Process(ctx context.Context, msgs []jetstream.Msg) error {
 	return in.process(ctx, toSources(msgs))
@@ -203,11 +218,12 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	var tss []int64
 	var ended []*conn
 	in.appTs = in.appTs[:0]
+	received := in.now().UnixNano()
 	for _, m := range msgs {
 		subject := m.Subject()
 		in.prom.event(subject)
 		if isAppSubject(subject) {
-			if err := in.appMessage(ctx, tx, subject, m.Data()); err != nil {
+			if err := in.appMessage(ctx, tx, subject, m.Data(), publishedAt(m, received)); err != nil {
 				return err
 			}
 			continue
@@ -486,7 +502,13 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		end, boolInt(c.truncated), string(rec), r.Proto, end, c.id); err != nil {
 		return err
 	}
-	in.liveConn(LiveConnClosed, summaryFrom(r), end)
+	// Por ociosidade, o fato "fechou" só existe quando o store decide (ADR 0025): o ts do feed é esse instante;
+	// data.ended e o registro continuam com o último pacote.
+	liveTs := end
+	if reason == "idle" {
+		liveTs = in.now().UnixNano()
+	}
+	in.liveConn(LiveConnClosed, summaryFrom(r), liveTs)
 	in.prom.connection(r.L4, r.Proto)
 	in.readyEnds = append(in.readyEnds, readyEnd{end, reason})
 	return nil
