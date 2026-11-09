@@ -38,12 +38,22 @@ type Packet struct {
 }
 
 //go:embed testdata/syn/*.pcap testdata/syn/*.pcapng testdata/ja4t.golden.json testdata/p0f.golden.log
+//go:embed testdata/tls/*.pcap testdata/tls/*.pcapng testdata/tls/*.json
 var files embed.FS
 
 // Files lista os pcaps de testdata/syn em ordem alfabética (caminhos dentro do embed).
 func Files() ([]string, error) {
+	return glob("testdata/syn/*.pcap", "testdata/syn/*.pcapng")
+}
+
+// TLSFiles lista os pcaps de testdata/tls (fluxos com ClientHello) em ordem alfabética.
+func TLSFiles() ([]string, error) {
+	return glob("testdata/tls/*.pcap", "testdata/tls/*.pcapng")
+}
+
+func glob(pats ...string) ([]string, error) {
 	var out []string
-	for _, pat := range []string{"testdata/syn/*.pcap", "testdata/syn/*.pcapng"} {
+	for _, pat := range pats {
 		m, err := fs.Glob(files, pat)
 		if err != nil {
 			return nil, err

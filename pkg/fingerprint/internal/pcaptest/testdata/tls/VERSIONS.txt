@@ -1,0 +1,2 @@
+TShark (Wireshark) 4.4.19.
+ja4 0.18.6
