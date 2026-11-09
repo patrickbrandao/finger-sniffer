@@ -113,7 +113,8 @@ func (h *h2Conn) refreshLocked(st *h2passive.HTTP2Stream) {
 }
 
 // h2EndWait é a espera máxima, depois que o handler termina, pelo END_STREAM ou RST_STREAM do servidor no
-// fio: o x/net escreve o fim do stream depois que o handler retorna.
+// fio: o x/net escreve o fim do stream depois que o handler retorna. A espera acaba antes se o cliente
+// resetou o stream (o x/net não escreve nada depois do RST_STREAM do cliente) ou se a conexão fechou.
 const h2EndWait = time.Second
 
 // streamOutLocked devolve o stream id visto pelo parser out (cópia) e se existe. Chamar com h.mu.
@@ -126,10 +127,21 @@ func (h *h2Conn) streamOutLocked(id uint32) (h2passive.HTTP2Stream, bool) {
 	return h2passive.HTTP2Stream{}, false
 }
 
+// clientResetLocked informa se o parser in viu RST_STREAM do cliente no stream id. Chamar com h.mu.
+func (h *h2Conn) clientResetLocked(id uint32) bool {
+	for _, st := range h.in.Info().Streams {
+		if st.StreamID == id {
+			return !st.ResetAt.IsZero()
+		}
+	}
+	return false
+}
+
 // fillInstants preenche os instantes do stream (spec 010 RF-08, ADR 0029): os da requisição pelo parser in
 // (HEADERS e END_STREAM do cliente; nulos no stream 1 do Upgrade, que não tem HEADERS) e os da resposta
 // pelo parser out (primeiro HEADERS e END_STREAM ou RST_STREAM do servidor). Espera até h2EndWait o fim
-// do stream no fio.
+// do stream no fio; com RST_STREAM do cliente ou conexão fechada, sai na hora e response_ended_at fica
+// nulo se o servidor não encerrou o stream.
 func (h *h2Conn) fillInstants(rec *h2passive.HTTP2Stream, upgrade bool) {
 	if rec.StreamID == 0 {
 		return
@@ -140,13 +152,14 @@ wait:
 	for {
 		h.mu.Lock()
 		out, ok := h.streamOutLocked(rec.StreamID)
-		gen := h.outGen
+		clientReset := h.clientResetLocked(rec.StreamID)
+		gen := h.gen
 		if gen == nil {
 			gen = make(chan struct{})
-			h.outGen = gen
+			h.gen = gen
 		}
 		h.mu.Unlock()
-		if ok && (!out.EndAt.IsZero() || !out.ResetAt.IsZero()) {
+		if (ok && (!out.EndAt.IsZero() || !out.ResetAt.IsZero())) || clientReset {
 			break
 		}
 		select {

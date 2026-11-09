@@ -733,3 +733,11 @@ func TestMergeAlerts(t *testing.T) {
 		t.Fatalf("sem alerta: %v", got)
 	}
 }
+
+// TestListenConfigNoKeepAlive: o listener TCP do web desliga o keepalive do servidor (spec 013), como o raw.
+func TestListenConfigNoKeepAlive(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	if lc := h.srv.listenConfig(); lc.KeepAlive >= 0 || lc.Control == nil {
+		t.Fatalf("listenConfig = %+v", lc)
+	}
+}

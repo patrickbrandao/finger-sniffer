@@ -136,9 +136,11 @@ func (s *Server) listenLoop(ctx context.Context, addr string) {
 const tfoQueue = 256
 
 // listenConfig devolve a configuração dos listeners TCP: TCP_FASTOPEN ligado no socket antes do listen
-// (spec 005 RF-01). Falha no setsockopt só registra aviso e o listener segue sem TFO.
+// (spec 005 RF-01). Falha no setsockopt só registra aviso e o listener segue sem TFO. O keepalive TCP do
+// servidor fica desligado (KeepAlive -1), como no raw: os probes do espelho mudariam os pacotes analisados
+// da conexão (spec 013).
 func (s *Server) listenConfig() net.ListenConfig {
-	return net.ListenConfig{Control: func(_, address string, c syscall.RawConn) error {
+	return net.ListenConfig{KeepAlive: -1, Control: func(_, address string, c syscall.RawConn) error {
 		if err := enableTFO(c, tfoQueue); err != nil {
 			s.log.Warn("web tcp fastopen", "addr", address, "err", err)
 		}
