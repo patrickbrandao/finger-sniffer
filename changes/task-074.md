@@ -1,0 +1,1 @@
+- Store: `tcp.rtt_app_ms` (spec 013 RF-11) passa a ser calculado: menor intervalo entre o último dado novo do espelho e o próximo dado do cliente cujo ACK o cobre (Finished do TLS, próxima requisição); nulo quando nada do cliente depende da resposta; golden pcaps TLS e HTTP/1 keep-alive (task 074).

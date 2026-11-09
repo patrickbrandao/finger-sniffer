@@ -587,3 +587,25 @@ func TestAnalysisFinWithDataRetransmit(t *testing.T) {
 		t.Fatalf("retransmissões out = %d", rec.Totals.Out.Retransmits)
 	}
 }
+
+// Dado do cliente enviado antes de receber o do espelho (ACK não cobre) não é amostra; o seguinte, que
+// confirma, é. Fica a menor amostra.
+func TestAppRTTNeedsAck(t *testing.T) {
+	a := newAnalysis()
+	ms := int64(1e6)
+	a.appRTT(false, 10*ms, 1000, true, 1) // resposta do espelho até seq 1000
+	a.appRTT(true, 11*ms, 0, true, 500)   // cliente em paralelo: não viu o fim da resposta
+	a.appRTT(true, 15*ms, 0, false, 0)    // sem ACK
+	if a.rttApp >= 0 {
+		t.Fatalf("amostra sem ACK cobrindo: %d", a.rttApp)
+	}
+	a.appRTT(true, 30*ms, 0, true, 1000) // depende da resposta: 20 ms
+	a.appRTT(true, 31*ms, 0, true, 1000) // pendente já consumido
+	a.appRTT(false, 40*ms, 2000, true, 1)
+	a.appRTT(true, 45*ms, 0, true, 2000) // 5 ms
+	a.appRTT(false, 50*ms, 0x10, true, 1)
+	a.appRTT(true, 90*ms, 0, true, 0x10) // 40 ms, maior: não troca
+	if a.rttApp != 5*ms {
+		t.Fatalf("rttApp = %d, quer 5 ms", a.rttApp)
+	}
+}
