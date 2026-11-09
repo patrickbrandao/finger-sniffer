@@ -199,7 +199,14 @@ func TestQueryEventMatchesOpenAPI(t *testing.T) {
 	}
 	props["ip"], props["port"] = true, true
 	req := regexp.MustCompile(`required: \[([^\]]*)\]`).FindStringSubmatch(block)
-	files, _ := filepath.Glob("testdata/events/*.json")
+	// Só os eventos fs.v1.dns.query: as respostas do DNS-01 (dns.acme.reply.*) têm outro schema.
+	all, _ := filepath.Glob("testdata/events/*.json")
+	var files []string
+	for _, f := range all {
+		if !strings.HasPrefix(filepath.Base(f), "dns.acme.") {
+			files = append(files, f)
+		}
+	}
 	if len(files) == 0 {
 		t.Fatal("sem exemplos")
 	}

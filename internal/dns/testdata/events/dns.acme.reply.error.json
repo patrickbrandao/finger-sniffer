@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "error": "name is not _acme-challenge.\u003cname\u003e inside the zone"
+}
