@@ -58,12 +58,13 @@ type Body struct {
 	Raw          []byte  `json:"raw_b64"`
 	RawTruncated bool    `json:"raw_truncated"`
 	Chunks       []Chunk `json:"chunks,omitempty"`
-	Trailers     []Field `json:"trailers,omitempty"`
+	// ChunksTruncated indica que só os primeiros MaxChunks pedaços foram registrados (ou que a lista foi
+	// cortada para caber no teto do evento); tamanho e SHA-256 seguem do corpo inteiro.
+	ChunksTruncated bool    `json:"chunks_truncated"`
+	Trailers        []Field `json:"trailers,omitempty"`
 
 	// WireSize é o tamanho do corpo no fio (com o enquadramento chunked).
 	WireSize int64 `json:"-"`
-	// ChunksTruncated indica que só os primeiros MaxChunks pedaços foram registrados.
-	ChunksTruncated bool `json:"-"`
 }
 
 // BodyOptions controla a leitura do corpo.

@@ -1,7 +1,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
 )
 
 // TestKeepAlive5: cinco requisições na mesma conexão, com índice, offsets e tempos de cada uma.
@@ -198,6 +201,27 @@ func TestChunkedBody(t *testing.T) {
 		string(chunks) != `[{"ext":";a=1","size":3,"size_literal":"3"},{"ext":null,"size":2,"size_literal":"2"},{"ext":null,"size":0,"size_literal":"0"}]` ||
 		string(trailers) != `[["X-Trailer",": ","t","crlf"]]` {
 		t.Fatalf("body %v chunks %s trailers %s", body, chunks, trailers)
+	}
+	if body["chunks_truncated"] != false || body["raw_truncated"] != false {
+		t.Fatalf("truncation flags %v", body)
+	}
+}
+
+// TestChunksTruncated: corpo com mais de 4096 pedaços registra só os primeiros e marca chunks_truncated;
+// tamanho e SHA-256 continuam do corpo inteiro.
+func TestChunksTruncated(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	const n = h1.DefaultMaxChunks + 10
+	cl.send("POST /r HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n" +
+		strings.Repeat("1\r\nx\r\n", n) + "0\r\n\r\n")
+	cl.response("POST")
+	body := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 1)[0].Payload["body"].(map[string]any)
+	sum := sha256.Sum256([]byte(strings.Repeat("x", n)))
+	if body["chunks_truncated"] != true || len(body["chunks"].([]any)) != h1.DefaultMaxChunks ||
+		num(t, body["size"]) != n || body["sha256"] != hex.EncodeToString(sum[:]) {
+		t.Fatalf("chunks_truncated %v chunks %d size %v", body["chunks_truncated"], len(body["chunks"].([]any)), body["size"])
 	}
 }
 

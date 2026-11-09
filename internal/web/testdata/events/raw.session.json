@@ -1,10 +1,10 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 64166,
+    "dst_port": 64560,
     "l4": "tcp",
     "src_ip": "127.0.0.1",
-    "src_port": 64169
+    "src_port": 64563
   },
   "payload": {
     "banner": null,
@@ -13,16 +13,18 @@
     "probe_line": "PROBE abcdefgh",
     "reads_in": [
       [
-        0.028916,
+        0.046542,
         21
       ]
     ],
+    "reads_in_truncated": false,
     "tls": false,
-    "writes_out": []
+    "writes_out": [],
+    "writes_out_truncated": false
   },
   "probe_id": "abcdefgh",
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T03:53:56.586818000Z"
+  "ts": "2026-11-09T05:50:01.312978000Z"
 }

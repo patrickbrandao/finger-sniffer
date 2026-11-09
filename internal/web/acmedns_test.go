@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/netip"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -100,4 +102,56 @@ func TestNATSDNSProviderErrors(t *testing.T) {
 		!strings.Contains(err.Error(), "only TXT") {
 		t.Fatalf("type A: %v", err)
 	}
+}
+
+// TestACMERequestGolden grava em testdata/events/dns.acme.set.json o fs.v1.dns.acme.set real do provedor
+// libdns (sem envelope, contrato 0.2.1), respondido pelo dns real, e confere as chaves com o asyncapi.
+func TestACMERequestGolden(t *testing.T) {
+	nc := startNATS(t)
+	if _, err := dns.SubscribeACME(nc, testDNSZone(), nil); err != nil {
+		t.Fatal(err)
+	}
+	// Um assinante comum (sem resposta) recebe a mesma requisição que o dns.
+	got := make(chan []byte, 1)
+	sub, err := nc.Subscribe(event.SubjectDNSACMESet, func(m *nats.Msg) {
+		select {
+		case got <- m.Data:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	if err := nc.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	p := &natsDNSProvider{nc: nc, timeout: 2 * time.Second}
+	// Valor no formato do DNS-01 (base64url de 43 caracteres do SHA-256 do key authorization).
+	const value = "Qm9n9W2qkfQx1h4rM5fJb2u8yYxT0yQ8c0xYk7oHk1E"
+	recs := []libdns.Record{libdns.RR{Name: "_acme-challenge", Type: "TXT", Data: value}}
+	if _, err := p.AppendRecords(context.Background(), "dns-monitor.tmsoft.com.br.", recs); err != nil {
+		t.Fatal(err)
+	}
+	var data []byte
+	select {
+	case data = <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no acme.set seen")
+	}
+	var req map[string]any
+	if err := json.Unmarshal(data, &req); err != nil {
+		t.Fatal(err)
+	}
+	if req["name"] != "_acme-challenge.dns-monitor.tmsoft.com.br." || req["value"] != value || len(req) != 2 {
+		t.Fatalf("request %s", data)
+	}
+	schema := block(t, readDoc(t, "eventbus/nats/asyncapi.yaml"), "ACMERequest")
+	schema = schema[strings.Index(schema, "\n      payload:"):]
+	for k := range req {
+		if !regexp.MustCompile(`\n\s+` + regexp.QuoteMeta(k) + `:`).MatchString(schema) {
+			t.Errorf("key %q not in ACMERequest", k)
+		}
+	}
+	compareGolden(t, "dns.acme.set.json", req)
 }

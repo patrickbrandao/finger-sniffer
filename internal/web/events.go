@@ -24,13 +24,17 @@ const (
 
 // rawSession é o payload de fs.v1.web.raw.session (schema RawInfo do openapi, modo sink).
 type rawSession struct {
-	Mode      string     `json:"mode"`
-	TLS       bool       `json:"tls"`
-	Banner    *string    `json:"banner"`
-	ProbeLine *string    `json:"probe_line"`
-	ReadsIn   [][2]any   `json:"reads_in"`
-	WritesOut [][2]any   `json:"writes_out"`
-	HalfClose *halfClose `json:"half_close"`
+	Mode      string   `json:"mode"`
+	TLS       bool     `json:"tls"`
+	Banner    *string  `json:"banner"`
+	ProbeLine *string  `json:"probe_line"`
+	ReadsIn   [][2]any `json:"reads_in"`
+	WritesOut [][2]any `json:"writes_out"`
+	// ReadsInTruncated indica que só as primeiras maxRawReads leituras estão em ReadsIn (ADR 0018).
+	ReadsInTruncated bool `json:"reads_in_truncated"`
+	// WritesOutTruncated fica sempre false no web: o modo sink não escreve.
+	WritesOutTruncated bool       `json:"writes_out_truncated"`
+	HalfClose          *halfClose `json:"half_close"`
 }
 
 // halfClose é o meio-fechamento do RawInfo (o web em modo sink nunca escreve: fica sempre nulo).
@@ -118,6 +122,7 @@ func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h
 		}
 		if req.Body != nil && len(req.Body.Chunks) > 1024 {
 			req.Body.Chunks = req.Body.Chunks[:1024]
+			req.Body.ChunksTruncated = true
 		}
 		if req.Body != nil && len(req.Body.Trailers) > 256 {
 			req.Body.Trailers = req.Body.Trailers[:256]
@@ -128,6 +133,9 @@ func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h
 			req.ProxySignals = halve(req.ProxySignals)
 			req.Duplicates = halve(req.Duplicates)
 			if req.Body != nil {
+				if len(req.Body.Chunks) > 0 {
+					req.Body.ChunksTruncated = true
+				}
 				req.Body.Chunks = halve(req.Body.Chunks)
 				req.Body.Trailers = halve(req.Body.Trailers)
 			}

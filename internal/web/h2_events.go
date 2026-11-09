@@ -133,27 +133,45 @@ func ja4hOfStream(st *h2passive.HTTP2Stream) *string {
 	return ptr(ja4plus.JA4H(in).JA4H)
 }
 
+// h2StreamEvent é o payload de fs.v1.web.http2.stream: o registro do parser passivo mais as marcas de corte
+// do teto do evento (schema `HTTP2Stream`, contrato 0.2.1), sempre serializadas.
+type h2StreamEvent struct {
+	*h2passive.HTTP2Stream
+	FieldsTruncated bool `json:"fields_truncated"`
+	ValuesTruncated bool `json:"values_truncated"`
+}
+
 // publishStream publica fs.v1.web.http2.stream dentro do teto (ADR 0018): valores longos são cortados em
-// FS_EVENT_INLINE_MAX e, se ainda não couber, a lista de campos cai pela metade.
+// FS_EVENT_INLINE_MAX e, se ainda não couber, a lista de campos cai pela metade. Cada corte marca
+// values_truncated ou fields_truncated.
 func (h *h2Conn) publishStream(st *h2passive.HTTP2Stream, probeID string) {
 	s := h.c.srv
 	h.t.flush()
+	data := s.fitH2Stream(h.c.flow, probeID, st)
+	if data != nil {
+		s.publishRaw(event.SubjectWebHTTP2Stream, data)
+	}
+}
+
+// fitH2Stream serializa o stream dentro do teto do evento, cortando valores e depois campos.
+func (s *Server) fitH2Stream(flow *event.Flow, probeID string, st *h2passive.HTTP2Stream) []byte {
 	ts := s.now()
-	data := s.encode(ts, h.c.flow, probeID, st)
+	ev := &h2StreamEvent{HTTP2Stream: st}
+	data := s.encode(ts, flow, probeID, ev)
 	inline := max(s.cfg.EventInlineMax, 64)
 	for i := 0; i < 64 && data != nil && len(data) > event.MaxEventBytes; i++ {
 		for j := range st.Fields {
 			if len(st.Fields[j].Value) > inline {
 				st.Fields[j].Value = st.Fields[j].Value[:inline]
+				ev.ValuesTruncated = true
 			}
 		}
 		inline = max(inline/2, 64)
-		if i > 0 {
+		if i > 0 && len(st.Fields) > 0 {
 			st.Fields = halve(st.Fields)
+			ev.FieldsTruncated = true
 		}
-		data = s.encode(ts, h.c.flow, probeID, st)
+		data = s.encode(ts, flow, probeID, ev)
 	}
-	if data != nil {
-		s.publishRaw(event.SubjectWebHTTP2Stream, data)
-	}
+	return data
 }
