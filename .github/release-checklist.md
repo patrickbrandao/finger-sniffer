@@ -8,7 +8,7 @@ Quem conduz: architect (task 072 para a `v0.1.0`). Infra mantém o processo (tas
 - [ ] `main` local atualizada (`git checkout main && git pull`), árvore limpa.
 - [ ] `make verify-full ARGS="--e2e"` verde (inclui `linux_priv` na vps602 e a matriz da spec 017).
 - [ ] CI verde na `main` (jobs `verify-full` e `release-build`).
-- [ ] Teste de carga de 10 min (spec 017, ADR 0022) com as metas de RNF da spec 000 atingidas; relatório em `docs/`.
+- [ ] Teste de carga de 10 min (spec 017, ADR 0022) com as metas de RNF da spec 000 atingidas; relatório em `test/load/RESULTS.md`.
 - [ ] Conferência FoxIO `ja4`/`tshark` (JA3, JA4, JA4T, Akamai) de curl, Go, Chrome e Firefox registrada.
 - [ ] Auditoria spec × implementação do reviewer sem pendência bloqueante.
 - [ ] Fragmentos `changes/task-*.md` juntados no `CHANGELOG.md` na seção `[X.Y.Z] - AAAA-MM-DD` e apagados.
