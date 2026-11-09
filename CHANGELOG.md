@@ -5,6 +5,9 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+### Alterado
+- Projeto independente de consumidores específicos (ADR 0028): specs, docs e AGENTS genéricos, matriz e2e só pelo caminho direto, receitas por proxy genérico (`PROXY:PORTA`), sem pendência externa; `X-xproxy-*` sai dos sinais de proxy padrão (task 112).
+
 ## [0.1.0] - 2026-11-09
 
 ### Adicionado

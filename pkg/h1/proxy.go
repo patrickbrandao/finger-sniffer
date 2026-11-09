@@ -22,7 +22,7 @@ type ProxyRule struct {
 var DefaultProxyRules = MustParseProxyRules("Via,Forwarded,X-Forwarded-For,X-Forwarded-Host," +
 	"X-Forwarded-Proto,X-Forwarded-Port,X-Forwarded-Server,X-Real-IP,Client-IP,True-Client-IP,X-Client-IP," +
 	"X-Cache*,X-Squid*,Proxy-Connection,Proxy-Authorization,Surrogate-Capability,Cache-Control,Pragma," +
-	"X-BlueCoat-Via,X-Proxy-*,X-xproxy-*,Max-Forwards")
+	"X-BlueCoat-Via,X-Proxy-*,Max-Forwards")
 
 // ErrBadProxyRule indica item vazio na lista de regras.
 var ErrBadProxyRule = errors.New("h1: empty proxy rule")

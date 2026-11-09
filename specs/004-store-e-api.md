@@ -100,8 +100,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (`first_seen`/`last_seen`) a cada conexão ou consulta DNS com probe.
 - Long-poll `GET /api/v1/probes/{id}?wait=10s` (máx 60 s): responde quando o probe tem **ao menos uma conexão** e
   todas estão fechadas, ou no fim do prazo. Só consultas DNS (ou nada) não bastam: a espera continua até a
-  primeira conexão aparecer e fechar (ex.: o xProxy resolveu o nome, mas a conexão ainda não chegou). No fim do
-  prazo: 200 com o estado atual (`all_closed` = nenhuma conexão aberta) ou 404 se o probe não tem nada. Sem
+  primeira conexão aparecer e fechar (ex.: o resolvedor do cliente ou de um proxy já consultou o nome, mas a
+  conexão ainda não chegou). No fim do prazo: 200 com o estado atual (`all_closed` = nenhuma conexão aberta) ou 404 se o probe não tem nada. Sem
   `wait`, responde na hora como antes.
 - Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do

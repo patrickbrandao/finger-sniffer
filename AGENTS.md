@@ -4,7 +4,8 @@ Servidor espelho de análise de conexões. Recebe conexões em portas capturadas
 TLS, TCP cru, DNS autoritativo), registra **como** os pacotes e as conexões chegaram (IP, TCP, TLS, HTTP, DNS,
 temporização) e devolve tudo, cru e analisado, por uma API em portas não capturadas (9000 HTTPS, 9001 HTTP).
 Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com quais características ele alcança o
-servidor; o consumidor principal é o teste de não-interferência do go-xproxy.
+servidor, repetindo a mesma sondagem por caminhos diferentes (direto, proxies, túneis) e comparando o que o
+espelho viu (ADR 0028).
 
 Roda em `vps602.tmsoft.com.br` (Debian 13, 1 vCPU, 967 MiB), em `/finger-sniffer`, como 7 units systemd
 (rede + NATS + 5 serviços) agrupadas num target. Zona dos probes: `<id>.dns-monitor.tmsoft.com.br`.

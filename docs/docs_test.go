@@ -168,8 +168,8 @@ func TestProbesMatrix(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"`date=0`", "### `Date`", "squid 1080", "go-xproxy 4128", "go-xproxy 4443",
-		"`-random`", "absolute-form", "`Proxy-Connection`",
+		"`date=0`", "### `Date`", "proxy HTTP", "túnel CONNECT", "HTTPS-proxy",
+		"`PROXY:PORTA`", "absolute-form", "`Proxy-Connection`",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("probes.md sem %q", want)
@@ -190,7 +190,7 @@ func TestSlug(t *testing.T) {
 	}
 }
 
-// TestHTTP3Fields: http3.md descreve os campos do HTTP3Info que o xProxy e a página usam, inclusive os do contrato
+// TestHTTP3Fields: http3.md descreve os campos do HTTP3Info que os clientes e a página usam, inclusive os do contrato
 // 0.3.2.
 func TestHTTP3Fields(t *testing.T) {
 	data, err := os.ReadFile("http3.md")

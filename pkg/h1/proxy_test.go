@@ -30,13 +30,13 @@ func TestProxySignalsDefaults(t *testing.T) {
 		"via: 1.1 squid\r\n"+
 		"X-Forwarded-For: 10.0.0.1\r\n"+
 		"X-Cache-Lookup: MISS\r\n"+
-		"x-xproxy-trace: 1\r\n"+
+		"x-proxy-id: 1\r\n"+
 		"Proxy-Authorization: Basic c2VjcmV0\r\n"+
 		"User-Agent: curl\r\n"+
 		"Max-Forwards: 9\r\n\r\n")
 	sigs := DetectProxySignals(req, ProxyContext{Direct: true, SNI: "example.com"})
 	got := strings.Join(kinds(sigs), ",")
-	want := "via,x-forwarded-for,x-cache-lookup,x-xproxy-trace,proxy-authorization,max-forwards,absolute-form-direct"
+	want := "via,x-forwarded-for,x-cache-lookup,x-proxy-id,proxy-authorization,max-forwards,absolute-form-direct"
 	if got != want {
 		t.Fatalf("got %s", got)
 	}
@@ -104,4 +104,14 @@ func TestProxyRulesConfigurable(t *testing.T) {
 		}
 	}()
 	MustParseProxyRules("")
+}
+
+// TestProxySignalsVendorHeaderNotDefault: cabeçalho de um projeto específico (sem uso de mercado) não é sinal de
+// proxy na lista padrão (ADR 0028); quem precisar dele configura a lista.
+func TestProxySignalsVendorHeaderNotDefault(t *testing.T) {
+	req := head(t, "GET / HTTP/1.1\r\nHost: example.com\r\nX-xproxy-trace: 1\r\n\r\n")
+	sigs := DetectProxySignals(req, ProxyContext{Direct: true, SNI: "example.com"})
+	if len(sigs) != 0 {
+		t.Fatalf("sinais inesperados: %v", kinds(sigs))
+	}
 }
