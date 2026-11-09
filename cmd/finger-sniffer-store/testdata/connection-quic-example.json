@@ -37,6 +37,7 @@
       },
       "coalesced_packets": 1,
       "dcid_hex": "a1a2a3a4a5a6a7a8",
+      "h3_control_stream_seen": true,
       "h3_settings": [
         [
           1,

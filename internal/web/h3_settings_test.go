@@ -182,3 +182,63 @@ func TestH3SettingsAfterResponse(t *testing.T) {
 	_ = c.qc.CloseWithError(h3NoError, "")
 	checkLateSettings(t, finalSettings(t, h, c.port()))
 }
+
+// finalControlSeen espera o http3.connection com close da porta e devolve h3_control_stream_seen (que
+// precisa estar presente) e h3_settings.
+func finalControlSeen(t *testing.T, h *harness, port int) (bool, [][2]uint64) {
+	t.Helper()
+	settings := finalSettings(t, h, port)
+	conns := h.events.find(t, event.SubjectWebHTTP3Connection, port)
+	for _, c := range conns {
+		if _, ok := c.Payload["h3_control_stream_seen"].(bool); !ok {
+			t.Fatalf("h3_control_stream_seen ausente: %v", c.Payload["h3_control_stream_seen"])
+		}
+	}
+	return conns[len(conns)-1].Payload["h3_control_stream_seen"].(bool), settings
+}
+
+// TestH3ControlStreamSeen: sem stream de controle do cliente → false e []; SETTINGS vazio → true e [];
+// SETTINGS normal → true (task 073).
+func TestH3ControlStreamSeen(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	pc := startH3(t, h)
+
+	t.Run("sem stream de controle", func(t *testing.T) {
+		c := dialRawH3(t, pc)
+		c.readResponse(c.request("/p/" + testProbe + "/"))
+		_ = c.qc.CloseWithError(h3NoError, "")
+		seen, settings := finalControlSeen(t, h, c.port())
+		if seen || len(settings) != 0 {
+			t.Fatalf("seen=%v settings=%v", seen, settings)
+		}
+	})
+	t.Run("SETTINGS vazio", func(t *testing.T) {
+		c := dialRawH3(t, pc)
+		u, err := c.qc.OpenUniStream()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := u.Write(quicparse.AppendH3Frame([]byte{quicparse.StreamTypeControl}, quicparse.H3FrameSettings, nil)); err != nil {
+			t.Fatal(err)
+		}
+		c.readResponse(c.request("/p/" + testProbe + "/"))
+		time.Sleep(50 * time.Millisecond)
+		_ = c.qc.CloseWithError(h3NoError, "")
+		seen, settings := finalControlSeen(t, h, c.port())
+		if !seen || len(settings) != 0 {
+			t.Fatalf("seen=%v settings=%v", seen, settings)
+		}
+	})
+	t.Run("SETTINGS normal", func(t *testing.T) {
+		c := dialRawH3(t, pc)
+		c.sendSettings()
+		c.readResponse(c.request("/p/" + testProbe + "/"))
+		time.Sleep(50 * time.Millisecond)
+		_ = c.qc.CloseWithError(h3NoError, "")
+		seen, settings := finalControlSeen(t, h, c.port())
+		if !seen {
+			t.Fatal("seen=false")
+		}
+		checkLateSettings(t, settings)
+	})
+}

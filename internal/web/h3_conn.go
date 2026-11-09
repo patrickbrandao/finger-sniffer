@@ -213,6 +213,7 @@ func (h *h3Conn) onSettings(settings [][2]uint64) {
 	}
 	h.ctlSeen = true
 	h.info.H3Settings = slices.Clone(settings)
+	h.info.H3ControlStreamSeen = true
 	h.mu.Unlock()
 	close(h.ctlReady)
 	h.publishConn()
