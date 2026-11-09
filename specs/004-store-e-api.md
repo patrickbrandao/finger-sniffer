@@ -85,6 +85,10 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   prazo: 200 com o estado atual (`all_closed` = nenhuma conexão aberta) ou 404 se o probe não tem nada. Sem
   `wait`, responde na hora como antes.
 - Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
+- Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
+  openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
+  ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno. Toda rota do
+  openapi declara os códigos que devolve (contrato 0.3.3).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:

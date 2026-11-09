@@ -13,7 +13,10 @@ Testa se proxies repassam `ws://` e `wss://` intactos (caso 9 da matriz).
 - RF-03: eco de frames (coder/websocket para o protocolo; parser próprio na cópia dos bytes para registro).
 - RF-04: por frame recebido: opcode, FIN, RSV1–3, máscara (e a chave), fragmentação, tamanho, tempo.
 - RF-05: extensões negociadas (permessage-deflate e parâmetros), subprotocolos.
-- RF-06: fechamento: código e razão de cada lado, quem fechou.
+- RF-06: fechamento: quem iniciou (`close.by`) e o código e a razão do close de quem iniciou; o close de
+  resposta do outro lado fica registrado só como frame (`frames[]`: `dir`, opcode 8, tamanho), sem código nem
+  razão. Quando o cliente inicia, a resposta é do próprio espelho e não diz nada sobre o caminho; quando o espelho
+  inicia (1001 por ociosidade), basta saber se a resposta chegou.
 
 ## Interfaces e contratos
 - Evento `fs.v1.web.websocket.frame`; campo `websocket` do registro.

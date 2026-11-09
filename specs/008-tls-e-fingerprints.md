@@ -21,7 +21,7 @@ TLS (web e raw) e para o ClientHello dentro do QUIC Initial (spec 011). Técnica
 - RF-03: fingerprints (`pkg/fingerprint`): **JA3** (texto e MD5), **JA3N** (extensões ordenadas), **JA4**,
   **JA4_r**, **JA4_o**, **JA4 stable** (sem extensões dependentes de estado, como no fingerproxy). Prefixo `t` para
   TCP, `q` para QUIC.
-- RF-04: resultado do handshake: versão, cifra, grupo e ALPN negociados, retomada, tempo de handshake (ns),
+- RF-04: resultado do handshake: versão, cifra, grupo e ALPN negociados, retomada, tempo de handshake (`handshake_ms`, milissegundos em float, como as demais durações do contrato),
   alertas recebidos (nível e descrição).
 - RF-05: depois do handshake, o conteúdo segue para HTTP/1 ou h2 como se fosse em claro.
 - RF-06: o servidor TLS do espelho usa configuração fixa e documentada (versões 1.0–1.3 habilitadas para observar
