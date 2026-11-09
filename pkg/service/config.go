@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
 // Config reúne a configuração comum a todos os serviços.
@@ -18,6 +20,10 @@ type Config struct {
 	BufferMaxAge      time.Duration
 	BufferMaxBytes    int
 	HeartbeatInterval time.Duration
+	// EventInlineMax é o teto de bytes crus por campo inline dos eventos (FS_EVENT_INLINE_MAX, ADR 0018).
+	EventInlineMax int
+	// RawStreamMaxBytes é o teto do fluxo de aplicação por sentido e conexão (FS_RAW_STREAM_MAX_BYTES).
+	RawStreamMaxBytes int
 }
 
 // LoadConfig lê a configuração comum das variáveis FS_* (modelo em .env.example).
@@ -36,6 +42,19 @@ func LoadConfig() (Config, error) {
 	}
 	if c.HeartbeatInterval, err = EnvDuration("FS_HEARTBEAT_INTERVAL", 5*time.Second); err != nil {
 		return c, err
+	}
+	if c.EventInlineMax, err = EnvInt(event.EnvEventInlineMax, event.DefaultEventInlineMax); err != nil {
+		return c, err
+	}
+	// Em base64 o campo cresce 4/3; com o envelope ele precisa caber no teto de 900 KiB do evento.
+	if c.EventInlineMax <= 0 || c.EventInlineMax > event.MaxEventBytes/2 {
+		return c, fmt.Errorf("service: %s precisa estar entre 1 e %d", event.EnvEventInlineMax, event.MaxEventBytes/2)
+	}
+	if c.RawStreamMaxBytes, err = EnvInt(event.EnvRawStreamMaxBytes, event.DefaultRawStreamMaxBytes); err != nil {
+		return c, err
+	}
+	if c.RawStreamMaxBytes < 0 {
+		return c, fmt.Errorf("service: %s não pode ser negativo", event.EnvRawStreamMaxBytes)
 	}
 	return c, nil
 }

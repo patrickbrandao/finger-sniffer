@@ -13,7 +13,7 @@ import (
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
-	for _, k := range []string{"FS_NATS_URL", "FS_LOG_LEVEL", "FS_PRODUCER_BUFFER_MAX_AGE", "FS_PRODUCER_BUFFER_MAX_BYTES", "FS_HEARTBEAT_INTERVAL"} {
+	for _, k := range []string{"FS_NATS_URL", "FS_LOG_LEVEL", "FS_PRODUCER_BUFFER_MAX_AGE", "FS_PRODUCER_BUFFER_MAX_BYTES", "FS_HEARTBEAT_INTERVAL", event.EnvEventInlineMax, event.EnvRawStreamMaxBytes} {
 		t.Setenv(k, "")
 	}
 	c, err := LoadConfig()
@@ -21,7 +21,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.NATSURL != "nats://127.0.0.1:4222" || c.LogLevel != slog.LevelInfo || c.BufferMaxAge != 30*time.Second ||
-		c.BufferMaxBytes != 16<<20 || c.HeartbeatInterval != 5*time.Second {
+		c.BufferMaxBytes != 16<<20 || c.HeartbeatInterval != 5*time.Second || c.EventInlineMax != 128<<10 ||
+		c.RawStreamMaxBytes != 16<<20 {
 		t.Fatalf("%+v", c)
 	}
 }
@@ -32,9 +33,11 @@ func TestLoadConfigValues(t *testing.T) {
 	t.Setenv("FS_PRODUCER_BUFFER_MAX_AGE", "2s")
 	t.Setenv("FS_PRODUCER_BUFFER_MAX_BYTES", "100")
 	t.Setenv("FS_HEARTBEAT_INTERVAL", "1s")
+	t.Setenv(event.EnvEventInlineMax, "4096")
+	t.Setenv(event.EnvRawStreamMaxBytes, "0")
 	c, err := LoadConfig()
 	if err != nil || c.NATSURL != "nats://x:1" || c.LogLevel != slog.LevelDebug || c.BufferMaxAge != 2*time.Second ||
-		c.BufferMaxBytes != 100 || c.HeartbeatInterval != time.Second {
+		c.BufferMaxBytes != 100 || c.HeartbeatInterval != time.Second || c.EventInlineMax != 4096 || c.RawStreamMaxBytes != 0 {
 		t.Fatalf("%+v %v", c, err)
 	}
 }
@@ -42,6 +45,7 @@ func TestLoadConfigValues(t *testing.T) {
 func TestLoadConfigErrors(t *testing.T) {
 	for k, v := range map[string]string{
 		"FS_LOG_LEVEL": "loud", "FS_PRODUCER_BUFFER_MAX_AGE": "x", "FS_PRODUCER_BUFFER_MAX_BYTES": "x", "FS_HEARTBEAT_INTERVAL": "x",
+		event.EnvEventInlineMax: "500000", event.EnvRawStreamMaxBytes: "-1",
 	} {
 		t.Run(k, func(t *testing.T) {
 			t.Setenv(k, v)

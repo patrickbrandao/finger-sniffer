@@ -12,13 +12,6 @@ import (
 // SchemaVersion é a versão do envelope.
 const SchemaVersion = 1
 
-// Subjects do barramento (fs.v1.<origem>.<tipo>).
-const (
-	SubjectCapturePacket = "fs.v1.capture.packet"
-	SubjectHeartbeat     = "fs.v1.svc.heartbeat"
-	SubjectAll           = "fs.v1.>"
-)
-
 // Nomes dos serviços.
 const (
 	ServiceCapture = "capture"

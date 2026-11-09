@@ -126,6 +126,7 @@ type flowTable struct {
 	mu          sync.Mutex
 	conns       map[flowKey]*conn
 	byID        map[string]*conn
+	reserved    map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
 	newID       func(ts int64) string
 	grace       time.Duration
 	tcpIdle     time.Duration
@@ -150,7 +151,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 		db = &p0f.DB{} // sem banco: assinatura crua sem palpite de SO
 	}
 	return &flowTable{
-		conns: map[flowKey]*conn{}, byID: map[string]*conn{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
+		conns: map[flowKey]*conn{}, byID: map[string]*conn{}, reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
 	}
@@ -232,7 +233,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 			return result{stray: true, ended: res.ended}
 		}
 		c = &conn{
-			id: t.newID(ts),
+			id: t.takeReserved(k, ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
 			ana: newAnalysis(),
 		}
@@ -260,6 +261,7 @@ func (t *flowTable) overloaded(ts int64) bool {
 func (t *flowTable) due(now int64) []*conn {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.expireReservations(now)
 	var out []*conn
 	for k, c := range t.conns {
 		idle := t.tcpIdle
