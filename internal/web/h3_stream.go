@@ -223,6 +223,7 @@ func (st *h3Stream) writeSimple(resp response, head bool) {
 	if resp.head.Framing == h1.FramingContentLength {
 		fields = append(fields, h1.HeaderField{Name: "Content-Length", Value: strconv.FormatInt(resp.head.BodyLen, 10)})
 	}
+	fields = withDate(resp.head.Status, fields, resp.noDate, st.h.srv.now())
 	st.status = resp.head.Status
 	if err := st.writeHeaders(h3Fields(resp.head.Status, fields)); err != nil {
 		return
@@ -282,6 +283,7 @@ func (st *h3Stream) control(rawQuery string, head bool) {
 		fields = append(fields, h1.HeaderField{Name: "Trailer", Value: TrailerName})
 	}
 	fields = append(fields, ctl.Fields...)
+	fields = withDate(status, fields, ctl.NoDate, st.h.srv.now())
 	st.status = status
 	if st.writeHeaders(h3Fields(status, fields)) != nil {
 		return

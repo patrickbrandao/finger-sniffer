@@ -142,6 +142,8 @@ type Controls struct {
 	NoAltSvc bool
 	// Inline devolve o JSON da própria requisição no corpo (inline=1, RF-06).
 	Inline bool
+	// NoDate omite o Date automático (date=0, ADR 0021).
+	NoDate bool
 
 	// Record é o que vai no evento (controls: params, clamped, invalid).
 	Record h1.Controls
@@ -307,6 +309,12 @@ func (c *Controls) apply(k, v string, lim ControlLimits) {
 		}
 	case "inline":
 		c.Inline = v == "1"
+	case "date":
+		if v == "0" {
+			c.NoDate = true
+		} else {
+			c.invalid(k, v, "must be 0 (omit Date)")
+		}
 	}
 }
 

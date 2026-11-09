@@ -204,6 +204,7 @@ func (st *h2Stream) writeResponse(resp response) {
 	if resp.head.Framing == h1.FramingContentLength {
 		hdr.Set("Content-Length", strconv.FormatInt(resp.head.BodyLen, 10))
 	}
+	h2PrepareHeader(hdr, resp.head.Status, resp.noDate, st.h.c.srv.now())
 	st.status = resp.head.Status
 	st.w.WriteHeader(resp.head.Status)
 	if resp.body != nil && st.r.Method != http.MethodHead {
@@ -273,6 +274,7 @@ func (st *h2Stream) control(rawQuery string) {
 		status != http.StatusNotModified {
 		hdr.Set("Content-Length", strconv.FormatInt(size, 10))
 	}
+	h2PrepareHeader(hdr, status, ctl.NoDate, h.c.srv.now())
 	st.status = status
 	st.w.WriteHeader(status)
 	if noBody {

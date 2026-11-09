@@ -1,0 +1,1 @@
+- Web: `Date` (IMF-fixdate UTC) em toda resposta final de HTTP/1.x, h2 e h3, inclusive erros do espelho, como primeiro campo depois da linha de status/`:status` (no h2, contornando a ordem por chave do `x/net`); 1xx sem `Date`; `h=Date:<valor>` substitui o automático e o controle novo `date=0` o omite (ADR 0021, task 065).
