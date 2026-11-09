@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"time"
@@ -58,12 +59,24 @@ type wsFrameJSON struct {
 	ts         int64
 }
 
+// decodeObject decodifica um objeto JSON em map com UseNumber: números viram json.Number e voltam idênticos na
+// re-serialização (sem UseNumber, inteiros acima de 2^53, como SETTINGS h3 de 62 bits, seriam arredondados por
+// float64). nil se o payload não é um objeto válido.
+func decodeObject(b []byte) map[string]any {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	var m map[string]any
+	if d.Decode(&m) != nil {
+		return nil
+	}
+	return m
+}
+
 // addLayer incorpora um evento de aplicação às camadas.
 func (l *layers) addLayer(ev appEvent) {
 	switch ev.subject {
 	case event.SubjectWebTLSClientHello:
-		var m map[string]any
-		if json.Unmarshal(ev.env.Payload, &m) == nil && m != nil {
+		if m := decodeObject(ev.env.Payload); m != nil {
 			l.clientHello = m
 		}
 	case event.SubjectWebTLSHandshake:
@@ -90,8 +103,7 @@ func (l *layers) addLayer(ev appEvent) {
 		}
 		l.http1[h.Index] = ev.env.Payload
 	case event.SubjectWebHTTP2Connection:
-		var m map[string]any
-		if json.Unmarshal(ev.env.Payload, &m) == nil && m != nil {
+		if m := decodeObject(ev.env.Payload); m != nil {
 			l.http2 = m
 		}
 	case event.SubjectWebHTTP2Stream:
@@ -161,8 +173,8 @@ func (l *layers) addLayer(ev appEvent) {
 // addHTTP3Connection guarda o nível de conexão h3: a última versão vale (spec 004), sem as requisições, que vêm
 // por fs.v1.web.http3.request.
 func (l *layers) addHTTP3Connection(ev appEvent) {
-	var m map[string]any
-	if json.Unmarshal(ev.env.Payload, &m) != nil || m == nil {
+	m := decodeObject(ev.env.Payload)
+	if m == nil {
 		return
 	}
 	delete(m, "requests")

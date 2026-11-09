@@ -28,8 +28,10 @@ func (in *Ingestor) insertDNS(ctx context.Context, tx *sql.Tx, ev appEvent, conn
 		in.metrics.Add("store_bad_events_total", 1)
 		return nil
 	}
-	var rec map[string]any
-	_ = json.Unmarshal(ev.env.Payload, &rec)
+	rec := decodeObject(ev.env.Payload)
+	if rec == nil {
+		rec = map[string]any{}
+	}
 	probeID := h.ProbeID
 	if probeID == nil || *probeID == "" {
 		probeID = ev.env.ProbeID

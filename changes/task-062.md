@@ -1,0 +1,1 @@
+- store: inteiros acima de 2^53 (ex.: `h3_settings` 2^62-1) saem exatos no registro, em `/probes` e no DNS; fusão das camadas com `json.Decoder.UseNumber` (task 062).
