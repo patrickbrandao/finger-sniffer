@@ -263,9 +263,13 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		if c.degraded {
 			return nil
 		}
+		// a conexão pode ter saído do banco (retenção, DELETE): o tardio é descartado, sem derrubar o lote
+		if _, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), in.pcapFrame(c, fi, p.Frame)); err != nil {
+			in.metrics.Add("store_late_dropped_total", 1)
+			return nil //nolint:nilerr // descarte deliberado
+		}
 		in.late[c.id] = c
-		_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), in.pcapFrame(c, fi, p.Frame))
-		return err
+		return nil
 	}
 	if res.stray {
 		in.metrics.Add("store_stray_total", 1)
@@ -321,6 +325,16 @@ type readyEnd struct {
 // registro em memória não tem os eventos que chegaram depois da finalização.
 func (in *Ingestor) writeLate(ctx context.Context, tx *sql.Tx) error {
 	for id, c := range in.late {
+		var one int
+		switch err := tx.QueryRowContext(ctx, "SELECT 1 FROM connections WHERE conn_id = ?", id).Scan(&one); {
+		case errors.Is(err, sql.ErrNoRows):
+			if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", id); err != nil {
+				return err
+			}
+			continue
+		case err != nil:
+			return err
+		}
 		rows, err := tx.QueryContext(ctx, "SELECT ts_ns, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", id)
 		if err != nil {
 			return err

@@ -356,7 +356,8 @@ func (t *flowTable) due(now int64) []*conn {
 			delete(t.conns, k)
 			delete(t.byID, c.id)
 			t.finish(c)
-			if c.l4 == protoTCP && c.closing() {
+			// só a que vira conexão gravada (a que vira pacotes avulsos sai do banco: o tardio é avulso também)
+			if c.l4 == protoTCP && c.closing() && (!c.isStray() || c.app.events > 0) {
 				c.lingerUntil = c.lastSeen + lateLinger.Nanoseconds()
 				t.closed[k] = c
 			}
