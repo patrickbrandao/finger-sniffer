@@ -22,12 +22,14 @@ func NewRetention(db *sql.DB, maxAge time.Duration, maxBytes int64) *Retention {
 }
 
 // RunOnce expurga e devolve quantas conexões saíram. Só conexões já encerradas são apagadas: as abertas estão
-// na memória do ingest e ainda vão receber pacotes.
+// na memória do ingest e ainda vão receber pacotes. A idade conta a partir do fim (ended_ns): uma conexão longa
+// continua consultável por FS_RETENTION depois de fechar (spec 004 RF-06). Como ended_ns >= started_ns, o filtro
+// por started_ns usa o índice connections_started sem mudar o resultado.
 func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 	cut := now.Add(-r.maxAge).UnixNano()
 	var total int64
 	for {
-		n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE ended_ns IS NOT NULL AND started_ns < ? ORDER BY started_ns LIMIT ?)", cut, r.batch)
+		n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE started_ns < ? AND ended_ns IS NOT NULL AND ended_ns < ? ORDER BY started_ns LIMIT ?)", cut, cut, r.batch)
 		if err != nil {
 			return total, err
 		}

@@ -596,3 +596,33 @@ func TestIdleBeforeClosePcaps(t *testing.T) {
 		})
 	}
 }
+
+// TestRetentionCountsFromEnd: conexão de 11 min continua consultável por 10 min depois de fechar (task 080).
+func TestRetentionCountsFromEnd(t *testing.T) {
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.TCPIdle = time.Hour })
+	const closeMs = 11 * 60 * 1000
+	long := append([]pkt(nil), fullTCP[:6]...)
+	for _, p := range fullTCP[6:] {
+		p.ms += closeMs
+		long = append(long, p)
+	}
+	run(t, in, 1000, batch(client, mirror, protoTCP, long[:6]))
+	r := NewRetention(db, 10*time.Minute, 1<<30)
+	// Aberta há mais de 10 min: não sai.
+	if n, err := r.RunOnce(context.Background(), time.Unix(0, base).Add(10*time.Minute+30*time.Second)); err != nil || n != 0 {
+		t.Fatalf("open connection expunged: %d %v", n, err)
+	}
+	run(t, in, closeMs+5000, batch(client, mirror, protoTCP, long[6:]))
+	if _, rec := onlyConn(t, db); rec.Ended == nil {
+		t.Fatal("connection must be closed")
+	}
+	end := time.Unix(0, base).Add(closeMs * time.Millisecond)
+	for _, after := range []time.Duration{time.Second, 5 * time.Minute, 9*time.Minute + 50*time.Second} {
+		if n, err := r.RunOnce(context.Background(), end.Add(after)); err != nil || n != 0 {
+			t.Fatalf("expunged %s after close: %d %v", after, n, err)
+		}
+	}
+	if n, err := r.RunOnce(context.Background(), end.Add(10*time.Minute+5*time.Second)); err != nil || n != 1 {
+		t.Fatalf("must expire 10 min after close: %d %v", n, err)
+	}
+}

@@ -106,7 +106,7 @@ func LoadConfig() (Config, error) {
 	c.Ingest = IngestConfig{
 		PcapMax: int64(pcapMax), TCPIdle: idle + 30*time.Second, UDPIdle: 30 * time.Second,
 		CloseGrace: grace, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
-		SegmentsTracked: segs, RawStreamMax: rawMax,
+		SegmentsTracked: segs, RawStreamMax: rawMax, Retention: c.RetentionDur,
 	}
 	netstat := c.Host.ProcNetstat
 	c.Ingest.Syncookies = func() int64 { return readNetstat(netstat, "TcpExt", "SyncookiesSent") }

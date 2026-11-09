@@ -1,0 +1,1 @@
+- Store: retenção conta a partir do fim da conexão (`ended_ns`); conexões longas ficam consultáveis por `FS_RETENTION` depois de fechar e evento tardio mais antigo que a retenção não cria registro só de eventos (task 080).

@@ -35,6 +35,8 @@ type IngestConfig struct {
 	Syncookies func() int64
 	// RawStreamMax é FS_RAW_STREAM_MAX_BYTES (0 = padrão de 16 MiB).
 	RawStreamMax int
+	// Retention é FS_RETENTION: evento sem conexão mais antigo que isso é descartado (0 = não descarta).
+	Retention time.Duration
 }
 
 // Ingestor consome o stream e grava pacotes e conexões no SQLite.

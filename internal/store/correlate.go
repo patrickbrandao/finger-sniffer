@@ -215,6 +215,12 @@ func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx, force bool) er
 				in.pendingKeys[k]++
 				continue
 			}
+			// Evento mais antigo que a retenção: a conexão dele já foi expurgada (ou seria no próximo ciclo);
+			// não cria um registro só de eventos falso (task 080).
+			if in.cfg.Retention > 0 && p.ev.ts < now-in.cfg.Retention.Nanoseconds() {
+				in.log.Debug("app event older than retention dropped", "subject", p.ev.subject, "client", p.ev.client.String(), "server", p.ev.server.String())
+				continue
+			}
 			if tg, err = in.createEventOnly(ctx, tx, p.ev); err != nil {
 				return err
 			}
