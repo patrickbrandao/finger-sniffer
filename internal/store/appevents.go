@@ -12,15 +12,28 @@ import (
 
 // appEvent é um evento de aplicação (fs.v1.web.*, fs.v1.raw.*, fs.v1.dns.query) já decodificado.
 type appEvent struct {
-	subject        string
-	env            event.Envelope
-	data           []byte // mensagem original (envelope + payload), gravada em app_events
-	ts             int64
+	subject string
+	env     event.Envelope
+	data    []byte // mensagem original (envelope + payload), gravada em app_events
+	ts      int64
+	// published é quando o evento entrou no FS_EVENTS (metadado do JetStream) ou, sem ele, quando o lote foi
+	// recebido: é o ts do connection.updated que o evento gera no feed (ADR 0025); 0 = usar ts.
+	published      int64
 	l4             uint8
 	client, server netip.AddrPort
 }
 
 func (e appEvent) key() flowKey { return keyOf(e.l4, e.client, e.server) }
+
+// liveTs é o ts do connection.updated gerado pelo evento (ADR 0025): o instante em que o fato pôde ser emitido.
+// O resumo de uma sessão raw só é publicado no fim dela; o ts do envelope (accept) faria o feed parecer atrasado
+// pela vida inteira da conexão.
+func (e appEvent) liveTs() int64 {
+	if e.published > 0 {
+		return e.published
+	}
+	return e.ts
+}
 
 // isAppSubject informa se o subject é de evento de aplicação consumido pelo store.
 func isAppSubject(s string) bool {

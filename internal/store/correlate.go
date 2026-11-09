@@ -137,13 +137,15 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 }
 
 // appMessage trata uma mensagem de aplicação dentro da transação do lote.
-func (in *Ingestor) appMessage(ctx context.Context, tx *sql.Tx, subject string, data []byte) error {
+// published é o instante de publicação no stream (ver appEvent.published).
+func (in *Ingestor) appMessage(ctx context.Context, tx *sql.Tx, subject string, data []byte, published int64) error {
 	ev, err := parseAppEvent(subject, data)
 	if err != nil {
 		in.log.Warn("bad app event", "subject", subject, "err", err)
 		in.metrics.Add("store_bad_events_total", 1)
 		return nil
 	}
+	ev.published = published
 	in.appTs = append(in.appTs, ev.ts)
 	in.metrics.Add("store_app_events_total", 1)
 	// DNS por UDP (ou sem 5-tupla) não tem conexão: vai direto para dns_queries.
@@ -287,7 +289,7 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 		if ok && in.live != nil {
 			s, _ := in.flows.openSummary(tg.id)
 			in.liveApp(ev, tg.id, strOrEmpty(s.ProbeID))
-			in.liveConn(LiveConnUpdated, s, ev.ts)
+			in.liveConn(LiveConnUpdated, s, ev.liveTs())
 		}
 		if ok {
 			// As colunas usadas por /connections e /probes acompanham o estado em memória.
