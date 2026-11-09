@@ -15,6 +15,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/version"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
@@ -37,10 +38,11 @@ const (
 
 // Nomes das métricas do dns no heartbeat.
 const (
-	MetricQueriesUDP = "dns_queries_udp_total"
-	MetricQueriesTCP = "dns_queries_tcp_total"
-	MetricFormErr    = "dns_formerr_total"
-	MetricDropped    = "dns_dropped_total"
+	MetricQueriesUDP  = "dns_queries_udp_total"
+	MetricQueriesTCP  = "dns_queries_tcp_total"
+	MetricFormErr     = "dns_formerr_total"
+	MetricDropped     = "dns_dropped_total"
+	MetricRateLimited = "dns_rate_limited_total"
 )
 
 // Query é uma consulta atendida, entregue ao Observer (o evento fs.v1.dns.query chega na task 028).
@@ -51,7 +53,9 @@ type Query struct {
 	Dst   netip.AddrPort
 	Raw   []byte    // mensagem crua recebida (antes do unpack)
 	Req   *mdns.Msg // nil se não deu para decodificar
-	Resp  *mdns.Msg // nil se nada foi respondido
+	Resp  *mdns.Msg // mensagem enviada (nil se nada foi respondido)
+	// RateLimited: acima do RRL (UDP recebeu TC=1 sem dados; TCP foi descartado).
+	RateLimited bool
 }
 
 // Server é o autoritativo UDP/TCP.
@@ -60,6 +64,8 @@ type Server struct {
 	zone    *Zone
 	log     *slog.Logger
 	metrics *service.Metrics
+	// RRL limita as respostas por IP de origem (nil = sem limite).
+	RRL *RRL
 	// Observer, se definido, recebe cada consulta depois da resposta enviada.
 	Observer func(*Query)
 	// RetryEvery é o intervalo para tentar de novo um listener que não subiu.
@@ -84,7 +90,7 @@ func NewServer(cfg Config, zone *Zone, log *slog.Logger, metrics *service.Metric
 		metrics = service.NewMetrics()
 	}
 	return &Server{
-		cfg: cfg, zone: zone, log: log, metrics: metrics, RetryEvery: defaultRetry,
+		cfg: cfg, zone: zone, log: log, metrics: metrics, RetryEvery: defaultRetry, RRL: NewRRL(cfg.RRLPerIP, nil),
 		failed: map[string]string{}, conns: map[*net.TCPConn]struct{}{}, tcpSem: make(chan struct{}, tcpMaxConns),
 	}
 }
@@ -234,13 +240,13 @@ func (s *Server) serveUDP(c *net.UDPConn) {
 		at := time.Now()
 		raw := slices.Clone(buf[:n])
 		s.metrics.Add(MetricQueriesUDP, 1)
-		out, req, resp := s.handle(raw, false)
+		out, req, resp, limited := s.handle(raw, false, src.Addr().Unmap())
 		if out != nil {
 			_, _ = c.WriteToUDPAddrPort(out, src)
 		} else {
 			s.metrics.Add(MetricDropped, 1)
 		}
-		s.observe(&Query{At: at, Proto: "udp", Src: unmap(src), Dst: dst, Raw: raw, Req: req, Resp: resp})
+		s.observe(&Query{At: at, Proto: "udp", Src: unmap(src), Dst: dst, Raw: raw, Req: req, Resp: resp, RateLimited: limited})
 	}
 }
 
@@ -298,7 +304,7 @@ func (s *Server) serveTCPConn(c *net.TCPConn) {
 		}
 		at := time.Now()
 		s.metrics.Add(MetricQueriesTCP, 1)
-		out, req, resp := s.handle(raw, true)
+		out, req, resp, limited := s.handle(raw, true, src.Addr())
 		if out != nil {
 			frame := make([]byte, 2+len(out))
 			binary.BigEndian.PutUint16(frame, uint16(len(out))) //nolint:gosec // Pack limita a mdns.MaxMsgSize
@@ -310,7 +316,7 @@ func (s *Server) serveTCPConn(c *net.TCPConn) {
 		} else {
 			s.metrics.Add(MetricDropped, 1)
 		}
-		s.observe(&Query{At: at, Proto: "tcp", Src: src, Dst: dst, Raw: raw, Req: req, Resp: resp})
+		s.observe(&Query{At: at, Proto: "tcp", Src: src, Dst: dst, Raw: raw, Req: req, Resp: resp, RateLimited: limited})
 		if out == nil {
 			return
 		}
@@ -323,8 +329,33 @@ func (s *Server) observe(q *Query) {
 	}
 }
 
-// handle decodifica a mensagem crua, responde e devolve os bytes a enviar (nil = não responder).
-func (s *Server) handle(raw []byte, tcp bool) ([]byte, *mdns.Msg, *mdns.Msg) {
+// handle responde à mensagem crua aplicando o RRL; o último retorno indica limite atingido.
+func (s *Server) handle(raw []byte, tcp bool, src netip.Addr) ([]byte, *mdns.Msg, *mdns.Msg, bool) {
+	out, req, resp := s.answer(raw, tcp)
+	if out == nil || s.RRL.Allow(src) {
+		return out, req, resp, false
+	}
+	s.metrics.Add(MetricRateLimited, 1)
+	// Acima do limite: TCP descarta; UDP responde TC=1 sem dados, para o resolvedor legítimo repetir em TCP.
+	if tcp || resp == nil {
+		return nil, req, nil, true
+	}
+	tc := resp.Copy()
+	tc.Truncated = true
+	tc.Answer, tc.Ns = nil, nil
+	var extra []mdns.RR
+	if opt := tc.IsEdns0(); opt != nil {
+		extra = []mdns.RR{opt}
+	}
+	tc.Extra = extra
+	if out, err := tc.Pack(); err == nil {
+		return out, req, tc, true
+	}
+	return nil, req, nil, true
+}
+
+// answer decodifica a mensagem crua, responde e devolve os bytes a enviar (nil = não responder).
+func (s *Server) answer(raw []byte, tcp bool) ([]byte, *mdns.Msg, *mdns.Msg) {
 	req := new(mdns.Msg)
 	if err := req.Unpack(raw); err != nil {
 		// Com cabeçalho legível e sem QR, responde FORMERR com o mesmo ID; senão descarta.
@@ -395,6 +426,15 @@ func Run(svc *service.Service, cfg Config) error {
 	zone := NewZone(cfg, nil)
 	srv := NewServer(cfg, zone, svc.Log, svc.Metrics)
 	svc.SetStatus(srv.Status)
+	// Cada consulta vira um fs.v1.dns.query; o produtor nunca bloqueia o laço do listener.
+	srv.Observer = func(q *Query) {
+		msg, err := zone.QueryMessage(q, version.Version)
+		if err != nil {
+			svc.Log.Warn("dns event", "err", err)
+			return
+		}
+		svc.Producer.Publish(msg)
+	}
 	if _, err := SubscribeACME(svc.NC, zone, svc.Log.Info); err != nil {
 		return err
 	}

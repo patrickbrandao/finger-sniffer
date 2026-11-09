@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "service": "dns",
+  "service_version": "0.1.0",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "tcp",
+    "src_ip": "2001:db8::53",
+    "src_port": 51000,
+    "dst_ip": "172.233.24.85",
+    "dst_port": 53
+  },
+  "probe_id": "t1a2b3c4",
+  "payload": {
+    "ts": "2026-11-08T12:00:00.123456789Z",
+    "probe_id": "t1a2b3c4",
+    "resolver": {
+      "ip": "2001:db8::53",
+      "port": 51000
+    },
+    "proto": "tcp",
+    "conn_id": null,
+    "id": 7,
+    "opcode": 0,
+    "flags": {
+      "rd": true,
+      "cd": false,
+      "ad": false
+    },
+    "qname": "t1a2b3c4.v4.dns-monitor.tmsoft.com.br.",
+    "qtype": "HTTPS",
+    "qclass": "IN",
+    "edns": null,
+    "response": {
+      "rcode": "NOERROR",
+      "truncated": false,
+      "answers": [
+        {
+          "name": "t1a2b3c4.v4.dns-monitor.tmsoft.com.br.",
+          "type": "HTTPS",
+          "ttl": 5,
+          "data": "1 . alpn=\"h3,h2\" ipv4hint=\"172.233.24.85\""
+        }
+      ]
+    },
+    "rate_limited": false,
+    "raw_b64": "AAcBAAABAAAAAAAACHQxYTJiM2M0AnY0C2Rucy1tb25pdG9yBnRtc29mdANjb20CYnIAAEEAAQ=="
+  }
+}

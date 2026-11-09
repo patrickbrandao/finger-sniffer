@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "service": "dns",
+  "service_version": "0.1.0",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "udp",
+    "src_ip": "198.51.100.7",
+    "src_port": 40123,
+    "dst_ip": "172.233.24.85",
+    "dst_port": 53
+  },
+  "probe_id": "abcdefgh",
+  "payload": {
+    "ts": "2026-11-08T12:00:00.123456789Z",
+    "probe_id": "abcdefgh",
+    "resolver": {
+      "ip": "198.51.100.7",
+      "port": 40123
+    },
+    "proto": "udp",
+    "conn_id": null,
+    "id": 4660,
+    "opcode": 0,
+    "flags": {
+      "rd": true,
+      "cd": true,
+      "ad": true
+    },
+    "qname": "AbCdEfGh.dns-monitor.TMSOFT.com.br.",
+    "qtype": "A",
+    "qclass": "IN",
+    "edns": {
+      "version": 0,
+      "udp_size": 1232,
+      "do": true,
+      "cookie_hex": "0102030405060708",
+      "ecs": {
+        "family": 1,
+        "source_prefix": 24,
+        "scope_prefix": 0,
+        "address": "200.1.2.0"
+      },
+      "padding_len": 12,
+      "options": [
+        {
+          "code": 3,
+          "data_hex": ""
+        }
+      ]
+    },
+    "response": {
+      "rcode": "NOERROR",
+      "truncated": false,
+      "answers": [
+        {
+          "name": "AbCdEfGh.dns-monitor.TMSOFT.com.br.",
+          "type": "A",
+          "ttl": 5,
+          "data": "172.233.24.85"
+        }
+      ]
+    },
+    "rate_limited": false,
+    "raw_b64": "EjQBMAABAAAAAAABCEFiQ2RFZkdoC2Rucy1tb25pdG9yBlRNU09GVANjb20CYnIAAAEAAQAAKQTQAACAAAArAAgABwABGADIAQIACgAIAQIDBAUGBwgAAwAAAAwADAAAAAAAAAAAAAAAAA=="
+  }
+}

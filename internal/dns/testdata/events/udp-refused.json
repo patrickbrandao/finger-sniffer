@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "service": "dns",
+  "service_version": "0.1.0",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "udp",
+    "src_ip": "198.51.100.7",
+    "src_port": 40124,
+    "dst_ip": "172.233.24.85",
+    "dst_port": 53
+  },
+  "payload": {
+    "ts": "2026-11-08T12:00:00.123456789Z",
+    "probe_id": null,
+    "resolver": {
+      "ip": "198.51.100.7",
+      "port": 40124
+    },
+    "proto": "udp",
+    "conn_id": null,
+    "id": 8,
+    "opcode": 0,
+    "flags": {
+      "rd": true,
+      "cd": false,
+      "ad": false
+    },
+    "qname": "example.com.",
+    "qtype": "A",
+    "qclass": "IN",
+    "edns": null,
+    "response": {
+      "rcode": "REFUSED",
+      "truncated": false,
+      "answers": []
+    },
+    "rate_limited": false,
+    "raw_b64": "AAgBAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE="
+  }
+}

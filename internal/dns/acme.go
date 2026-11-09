@@ -6,12 +6,14 @@ import (
 	"fmt"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
 // Subjects do request/reply do DNS-01 (NATS core, fora do stream: ADR 0017).
 const (
-	SubjectACMESet   = "fs.v1.dns.acme.set"
-	SubjectACMEClear = "fs.v1.dns.acme.clear"
+	SubjectACMESet   = event.SubjectDNSACMESet
+	SubjectACMEClear = event.SubjectDNSACMEClear
 )
 
 // Erros das operações do TXT ACME (vão no campo error da resposta).
@@ -21,16 +23,10 @@ var (
 )
 
 // ACMERequest é o pedido de fs.v1.dns.acme.set|clear (asyncapi ACMERequest).
-type ACMERequest struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
+type ACMERequest = event.ACMERequest
 
 // ACMEReply é a resposta (asyncapi ACMEReply). Error é null quando ok.
-type ACMEReply struct {
-	OK    bool    `json:"ok"`
-	Error *string `json:"error"`
-}
+type ACMEReply = event.ACMEReply
 
 // HandleACME processa um pedido cru do subject dado e devolve a resposta JSON.
 func (z *Zone) HandleACME(subject string, data []byte) []byte {
