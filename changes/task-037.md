@@ -1,0 +1,1 @@
+- infra: smoke do deploy completo (deploy/smoke.sh): health :9001 com os 5 serviços, web :80/:443 (TLS estrito salvo autoassinado), dns A do probe e REFUSED fora da zona, raw eco 7 e banner 25, store :9000; `SVC=<svc>` roda só o passo do serviço + health (task 037).
