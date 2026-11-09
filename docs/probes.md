@@ -514,15 +514,17 @@ servidor responde com TC=1 (UDP) ou descarta (`rate_limited: true`).
 ```console
 $ for i in 1 2 3; do curl -s "http://$H/p/$id/" >/dev/null; sleep 1; done
 $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {ttl: .ip.ttl, hops: .ip.hops, ja4t: .tcp.ja4t, p0f: .tcp.p0f,
-    os: .tcp.os_guess, rtt: .tcp.rtt_handshake_ms}'
-{"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":21.239}
-{"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":19.195}
-{"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":20.196}
+    os: .tcp.os_guess, rtt: .tcp.rtt_handshake_ms, app: .tcp.rtt_app_ms}'
+{"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":21.239,"app":null}
+{"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":19.195,"app":null}
+{"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":20.196,"app":null}
 ```
 
 - **Procurar**: `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.df`, `ip.ip_id_pattern`, `tcp.syn` (janela, flags,
-  opções na ordem), `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.rtt_handshake_ms` × `tcp.rtt_app_ms` (este ainda sai sempre
-  nulo: o store não o calcula, tarefa 074), `tcp.ts_clock_hz`, `tcp.ts_initial`, `tcp.ts_clock_group`. O relógio só é estimado em conexões que duram alguns
+  opções na ordem), `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.rtt_handshake_ms` × `tcp.rtt_app_ms` (menor intervalo entre um
+  dado do espelho e o próximo dado do cliente que o confirma: Finished do TLS, próxima requisição na mesma
+  conexão; nulo quando o cliente não manda nada depois da resposta, como numa só requisição HTTP/1 em claro),
+  `tcp.ts_clock_hz`, `tcp.ts_initial`, `tcp.ts_clock_group`. O relógio só é estimado em conexões que duram alguns
   segundos com tráfego (`ts_clock_hz` nulo nas curtas); conexões com o mesmo `ts_clock_group` vêm do mesmo
   relógio (host), mesmo saindo por IPs diferentes.
 - **Estáveis**: a linha de IP e de TCP da [tabela](#campos-estáveis-e-o-que-sempre-varia). O RTT é estável só
@@ -530,7 +532,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {ttl: .ip.ttl, ho
   por isso o agrupamento por relógio usa a frequência e a evolução, não o valor inicial.
 - **Diferenças esperadas**: por proxy, todos esses campos são do proxy: o critério é consistência entre execuções
   e entre os IPs de saída do mesmo proxy (mesmo JA4T/p0f/TTL; mesmo `ts_clock_group` em saídas diferentes revela
-  o mesmo host). O RTT do handshake passa a ser o do proxy até o espelho; quando `rtt_app_ms` existir, um valor
+  o mesmo host). O RTT do handshake passa a ser o do proxy até o espelho; um `rtt_app_ms`
   bem maior que `rtt_handshake_ms` mostra espera no caminho de aplicação (o proxy esperando o cliente).
 
 ### Caso 12: HTTP/3 (só caminho direto)

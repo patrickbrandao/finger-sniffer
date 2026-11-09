@@ -140,10 +140,16 @@ type analysis struct {
 	clockGroup   *string
 	cookie       bool
 	cookieJudged bool
+
+	// RTT da aplicação (spec 013 RF-11): último dado novo do espelho ainda sem resposta e o menor intervalo
+	// até um dado do cliente que o confirma (o ACK cobre o fim desse dado, logo foi enviado depois de recebê-lo).
+	srvPendTs  int64
+	srvPendEnd uint32
+	rttApp     int64 // ns; -1 = sem amostra
 }
 
 func newAnalysis() *analysis {
-	return &analysis{cliWS: -1, srvWS: -1, lastWin: -1}
+	return &analysis{cliWS: -1, srvWS: -1, lastWin: -1, rttApp: -1}
 }
 
 // ms converte um instante absoluto em ms relativos ao início da conexão (resolução de µs).
@@ -214,6 +220,9 @@ func (c *conn) analyze(fi frameInfo, ts int64, cli bool, t *flowTable) {
 		d.ooo++
 	}
 	keepalive := res&segKeepAlive != 0
+	if payload > 0 && !syn && !rst && !keepalive && res&segRetransmission == 0 {
+		a.appRTT(cli, ts, seq+uint32(payload), ack, ackNum) //nolint:gosec // payload < 64 KiB
+	}
 	switch {
 	case keepalive && cli:
 		if len(a.keepalives) < maxKeepalives {
@@ -250,6 +259,25 @@ func (c *conn) analyze(fi frameInfo, ts int64, cli bool, t *flowTable) {
 	} else if payload > 0 && !syn {
 		a.srvDataSegs++
 	}
+}
+
+// appRTT acompanha o RTT da aplicação (spec 013 RF-11). Cada dado novo do espelho vira o pendente; o primeiro
+// dado novo do cliente cujo ACK cobre o fim do pendente depende dele (Finished do TLS depois do voo do
+// servidor, próxima requisição depois da resposta) e dá uma amostra. Dados do cliente que não confirmam o
+// pendente foram enviados em paralelo e não contam. Fica a menor amostra, a que menos inclui o tempo de
+// processamento do cliente.
+func (a *analysis) appRTT(cli bool, ts int64, end uint32, hasAck bool, ackNum uint32) {
+	if !cli {
+		a.srvPendTs, a.srvPendEnd = ts, end
+		return
+	}
+	if a.srvPendTs == 0 || !hasAck || !seqGE(ackNum, a.srvPendEnd) {
+		return
+	}
+	if d := ts - a.srvPendTs; d >= 0 && (a.rttApp < 0 || d < a.rttApp) {
+		a.rttApp = d
+	}
+	a.srvPendTs = 0
 }
 
 // ipPacket guarda o IP do primeiro pacote do cliente (o SYN, no TCP) e o IP ID de todos.
@@ -504,6 +532,10 @@ func (a *analysis) tcpJSON(c *conn) *tcpJSON {
 	if c.synAck != 0 && c.established != 0 {
 		v := math.Round(float64(c.established-c.synAck)/1e3) / 1e3
 		r.RTTHandshakeMs = &v
+	}
+	if a.rttApp >= 0 {
+		v := math.Round(float64(a.rttApp)/1e3) / 1e3
+		r.RTTAppMs = &v
 	}
 	return r
 }

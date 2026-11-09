@@ -104,3 +104,41 @@ func abs(x float64) float64 {
 	}
 	return x
 }
+
+// RTT da aplicação (spec 013 RF-11) nos pcaps reais. O esperado sai do tshark sobre o mesmo arquivo: o menor
+// intervalo entre o último segmento de dados do servidor e o próximo segmento de dados do cliente cujo
+// tcp.ack cobre o tcp.nxtseq dele. macos-https-keepalive e macos-http-keepalive são duas requisições HTTP/1.1
+// na mesma conexão (curl com TLS e em claro) contra a vps602; o IP do cliente foi trocado por 198.51.100.10.
+func TestAnalysisAppRTTPcaps(t *testing.T) {
+	cases := []struct {
+		file string
+		want float64 // 0 = nulo
+	}{
+		// voo do servidor → Finished do cliente (36,690), resposta 1 → requisição 2 (23,499), resposta 2 → close_notify
+		{"macos-https-keepalive.pcap", 22.632},
+		// resposta 1 (frame 8) → requisição 2 (frame 9)
+		{"macos-http-keepalive.pcap", 26.281},
+		// a captura é do lado cliente: o "cliente" responde em µs
+		{"linux-https-v4.pcap", 0.234},
+		{"linux-https-v6.pcap", 0.140},
+		// uma só requisição: nada do cliente depende da resposta
+		{"macos-http-finretx.pcap", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			in, db := newTestIngestor(t, nil)
+			run(t, in, 0, pcapBatch(t, filepath.Join("testdata", c.file)))
+			if err := in.Finalize(t.Context(), in.flows.due(1<<62)); err != nil {
+				t.Fatal(err)
+			}
+			_, rec := onlyConn(t, db)
+			got := rec.TCP.RTTAppMs
+			switch {
+			case c.want == 0 && got != nil:
+				t.Errorf("rtt_app_ms = %v, quer nulo", *got)
+			case c.want != 0 && (got == nil || abs(*got-c.want) > 0.0015):
+				t.Errorf("rtt_app_ms = %v, tshark = %.3f", got, c.want)
+			}
+		})
+	}
+}
