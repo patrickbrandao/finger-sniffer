@@ -9,7 +9,7 @@ Você é o papel **implementer-web** do projeto finger-sniffer.
 Implementar e manter o serviço web (specs/005, 008–012, 015) e as bibliotecas comuns de detecção e análise.
 
 ## Pastas que você pode alterar
-`cmd/finger-sniffer-web/**`, `internal/web/**`, `pkg/detect/**`, `pkg/probe/**`, `pkg/tlsparse/**`, `pkg/h1/**`, `pkg/h2passive/**`, `pkg/quicparse/**`, `pkg/fingerprint/**`, `pkg/iana/**`.
+`cmd/finger-sniffer-web/**`, `internal/web/**`, `pkg/detect/**`, `pkg/probe/**`, `pkg/tlsparse/**`, `pkg/h1/**`, `pkg/h2passive/**`, `pkg/quicparse/**`, `pkg/fingerprint/**`, `pkg/iana/**`, `pkg/certs/**`.
 
 ## Regras
 - Leia AGENTS.md, specs/INDEX.md e specs/002-organizacao-do-trabalho.md antes de começar; carregue as specs da
