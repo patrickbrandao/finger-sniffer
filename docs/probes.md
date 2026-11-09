@@ -156,8 +156,12 @@ que o espelho viu (spec 017, ADR 0028). Para cada caso e caminho:
    `/p/<id>/` (ou `/p/<id>/r?...`); nas portas cruas, `PROBE <id>` na primeira linha. Por proxy, use o **nome**
    (não o IP), para que a resolução feita pelo proxy também apareça no registro.
 3. **Fechar** a conexão do lado do cliente quando o caso terminar (o espelho não fecha antes de 120 s).
-4. **Coletar**: `GET https://vps602.tmsoft.com.br:9000/api/v1/probes/<id>?wait=10s`. A resposta vem quando há ao
-   menos uma conexão e todas fecharam, ou no fim do prazo (`all_closed: false` se o proxy ainda segura a conexão).
+4. **Coletar**: `GET https://vps602.tmsoft.com.br:9000/api/v1/probes/<id>?wait=30s&settle=1s`. A resposta vem quando há ao
+   menos uma conexão, todas fecharam e nada mudou no probe por 1 s (`settle`, que cobre a conexão que chega logo
+   depois e a que ainda não foi correlacionada), ou no fim do prazo. `wait_met: true` diz que o conjunto está
+   completo; `wait_met: false` diz que o prazo acabou antes (com `all_closed: false` se o proxy ainda segura a
+   conexão). Quando o caso abre um número conhecido de conexões, acrescente `&min_conns=N`
+   ([api.md](api.md#long-poll-wait)).
 5. **Comparar** com a execução direta os campos estáveis do caso, descontando as diferenças esperadas do caminho.
 6. Opcional: `DELETE /api/v1/probes/<id>` para não deixar o registro público até expirar.
 
@@ -168,8 +172,8 @@ curl -s "https://$id.dns-monitor.tmsoft.com.br/p/$id/" >/dev/null               
 # curl -s -x http://PROXY:PORTA  "http://$id.dns-monitor.tmsoft.com.br/p/$id/"           # proxy HTTP
 # curl -s -x http://PROXY:PORTA  "https://$id.dns-monitor.tmsoft.com.br/p/$id/"          # túnel CONNECT
 # curl -s -x https://PROXY:PORTA "https://$id.dns-monitor.tmsoft.com.br/p/$id/"          # HTTPS-proxy
-curl -s "$api/probes/$id?wait=10s" |
-  jq '{all_closed, conns: [.connections[] | {proto, src: .src.ip, ja4t: .tcp.ja4t, ja4: .tls.ja4, close}],
+curl -s "$api/probes/$id?wait=30s&settle=1s" |
+  jq '{all_closed, wait_met, conns: [.connections[] | {proto, src: .src.ip, ja4t: .tcp.ja4t, ja4: .tls.ja4, close}],
        resolvers: [.dns[].resolver.ip]}'
 ```
 
@@ -210,13 +214,13 @@ entre caminhos. A lista de cada caso diz quais importam ali; a tabela abaixo é 
 
 | Camada | Estáveis (mesmo cliente) | Sempre variam (ignorar) |
 | --- | --- | --- |
-| IP | `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.df`, `ip.ip_id_pattern`, `ip.tos`/`dscp`/`ecn`, `family` | `ip.ip_id_syn` (exceto padrão `zero`/`constant`) |
+| IP | `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.df`, `ip.ip_id_pattern`, `ip.tos`/`dscp`/`ecn`, `family`; em `ip.packets.{syn,ack,first_data}`: `ttl`, `df`, `tos`/`dscp`/`ecn`, `options_hex`, `fragmented` e quais pacotes existem | `ip.ip_id_syn` (exceto padrão `zero`/`constant`), `ip_id` e `flow_label` de cada pacote em `ip.packets`, `total_length` quando o tamanho da requisição muda |
 | TCP | `tcp.syn.window`, `tcp.syn.flags`, `tcp.syn.options` (tipos, ordem e valores, menos o TSval), `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.ts_clock_hz` (aproximado) | `src.port`, `tcp.syn.isn`, TSval, `tcp.ts_initial`, `tcp.ts_clock_group` (é um ID; compare igualdade só dentro da mesma execução), RTT e séries de tempo |
 | TLS | `tls.record_version`, `handshake_version`, `session_id_len`, `cipher_suites`, `compression_methods`, tipos e dados das extensões (menos as voláteis), `sni`, `alpn`, `supported_groups`, `signature_algorithms`, `supported_versions`, grupos e tamanhos de `key_share`, `ja3n`, `ja4`, `ja4_r`, `ja4_stable`, `negotiated` (versão, cifra, grupo, ALPN) | `random_hex`, bytes do session ID, chaves de `key_share`, binder/ticket de PSK, carga do ECH, `handshake_ms` |
 | TLS, cliente que embaralha extensões (Chrome) | os de cima; a **ordem** das extensões não | `ja3`, `ja3_md5`, `ja4_o` e a ordem de `extensions` |
-| HTTP/1 | `request_line` (método, forma, versão, terminador), `fields` (nome com caixa, separador, valor, terminador, ordem), `duplicates`, `field_count`, `head_size`, `obs_fold`, `ja4h`, `body` (enquadramento, tamanho, SHA-256, pedaços e extensões, trailers), `expect_continue.waited`, `pipelined`, `upgrade`, `proxy_signals` | `t_first_byte_ms`, `t_since_prev_response_ms`, `expect_continue.wait_ms`, valores com probe ID ou `conn_id` |
-| h2 | `http2.mode`, `settings` (ordem e valores), `window_update`, `priorities`, `akamai`, `streams[].pseudo_order`, ordem dos campos, `repr`/`huffman_*` do HPACK, `ja4h` | `t_ms` dos frames, índices da tabela dinâmica entre conexões diferentes |
-| h3 | `http3.version`, `initial_datagram_size`, `padded_to_1200`, `client_hello_datagrams`, ids e ordem de `transport_params` (e valores, menos os de CID), `client_hello.ja4` (prefixo `q`), `h3_control_stream_seen`, `h3_settings`, `requests[].pseudo_order` | `dcid_hex`, `scid_hex`, `token_*`, `initial_frames` (o curl/ngtcp2 fragmenta o CRYPTO de forma aleatória), valor de `initial_source_connection_id` |
+| HTTP/1 | `request_line` (método, forma, versão, terminador), `fields` (nome com caixa, separador, valor, terminador, ordem), `duplicates`, `field_count`, `head_size`, `obs_fold`, `ja4h`, `body` (enquadramento, tamanho, SHA-256, pedaços e extensões, trailers), `expect_continue.waited`, `pipelined`, `upgrade`, `proxy_signals` | `t_first_byte_ms`, `t_since_prev_response_ms`, `expect_continue.wait_ms`, os instantes `request_started_at`/`request_ended_at`/`response_started_at`/`response_ended_at` (compare só as diferenças entre eles), valores com probe ID ou `conn_id` |
+| h2 | `http2.mode`, `settings` (ordem e valores), `window_update`, `priorities`, `akamai`, `streams[].pseudo_order`, ordem dos campos, `repr`/`huffman_*` do HPACK, `ja4h` | `t_ms` dos frames, os instantes `request_*`/`response_*` de `streams[]`, índices da tabela dinâmica entre conexões diferentes |
+| h3 | `http3.version`, `initial_datagram_size`, `padded_to_1200`, `client_hello_datagrams`, ids e ordem de `transport_params` (e valores, menos os de CID), `client_hello.ja4` (prefixo `q`), `h3_control_stream_seen`, `h3_settings`, `requests[].pseudo_order` | `dcid_hex`, `scid_hex`, `token_*`, os instantes `request_*`/`response_*` de `requests[]`, `initial_frames` (o curl/ngtcp2 fragmenta o CRYPTO de forma aleatória), valor de `initial_source_connection_id` |
 | WebSocket | `websocket.over`, `extensions`, `subprotocol`, opcodes, FIN, RSV, `masked` e tamanhos dos frames, `close.code`/`reason` | `mask_key_hex`, `t_ms` |
 | DNS | sequência de `qtype`, `flags` (`rd`, `cd`, `ad`), `edns.udp_size`, `edns.do`, códigos de `edns.options`, presença de cookie, ECS (presença e `source_prefix`), uso de 0x20 | `id`, porta do resolvedor, a caixa de cada letra do `qname` (0x20 é aleatório), o IP do resolvedor num pool anycast |
 | raw | `raw.mode`, `banner`, `probe_line`, total de bytes lidos e escritos, `half_close.server_sent_after_client_fin` | quantidade e tamanho de cada leitura (segmentação), tempos |
@@ -261,7 +265,7 @@ e `$api` é `https://vps602.tmsoft.com.br:9000/api/v1`.
 ```console
 $ printf "GET /p/$id/ HTTP/1.1\r\nhost: $H\r\nX-lower-UPPER:   spaced  value  \r\nAccept: */*\r\nX-Dup: 1\r\nX-Dup: 2\r\nUser-Agent: case1\r\n\r\n" |
     nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[0].http[0] | {request_line, duplicates, field_count, ja4h, proxy_signals}, .fields[]'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[0].http[0] | {request_line, duplicates, field_count, ja4h, proxy_signals}, .fields[]'
 {"request_line":{"method":"GET","target":"/p/k3x9q2mz7a/","form":"origin","version":"HTTP/1.1","terminator":"crlf"},"duplicates":["x-dup"],"field_count":6,"ja4h":"ge11nn060000_09a43066ffd4_000000000000_000000000000","proxy_signals":[]}
 ["host",": ","k3x9q2mz7a.dns-monitor.tmsoft.com.br","crlf"]
 ["X-lower-UPPER",":   ","spaced  value  ","crlf"]
@@ -286,7 +290,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[0].http[0] | {request
 $ printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\n\r\n" | nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
 $ (printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\nConnection: keep-alive\r\n\r\n"; sleep 1
    printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\n\r\n"; sleep 1) | nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, requests, close: .close|{by,how},
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, requests, close: .close|{by,how},
     reqs: [.http[] | {v: .request_line.version, conn: [.fields[] | select(.[0] | ascii_downcase == "connection") | .[2]]}]}'
 {"proto":"http1.0","requests":1,"close":{"by":"client","how":"fin"},"reqs":[{"v":"HTTP/1.0","conn":[]}]}
 {"proto":"http1.0","requests":2,"close":{"by":"client","how":"fin"},"reqs":[{"v":"HTTP/1.0","conn":["keep-alive"]},{"v":"HTTP/1.0","conn":[]}]}
@@ -307,7 +311,7 @@ $ curl -s --http1.1 "https://$H/p/$id/" "https://$H/p/$id/" "https://$H/p/$id/" 
 $ curl -s --http1.1 -H 'Connection: close' "https://$H/p/$id/" >/dev/null
 $ printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\nGET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\nGET /p/$id/ HTTP/1.1\r\nHost: $H\r\nConnection: close\r\n\r\n" |
     nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, requests, close: .close|{by,how}, pipelined: [.http[].pipelined]}'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, requests, close: .close|{by,how}, pipelined: [.http[].pipelined]}'
 {"proto":"tls/http1.1","requests":5,"close":{"by":"server","how":"fin"},"pipelined":[false,false,false,false,false]}
 {"proto":"tls/http1.1","requests":1,"close":{"by":"server","how":"fin"},"pipelined":[false]}
 {"proto":"http1.1","requests":3,"close":{"by":"client","how":"fin"},"pipelined":[false,true,true]}
@@ -335,7 +339,7 @@ $ printf "POST /p/$id/ HTTP/1.1\r\nHost: $H\r\nTransfer-Encoding: chunked\r\nTra
 $ head -c 3000 /dev/urandom > body.bin
 $ curl -s --http1.1 -H 'Expect: 100-continue' --data-binary @body.bin "https://$H/p/$id/" >/dev/null
 $ curl -s --http1.1 -H 'Expect: 100-continue' --expect100-timeout 0.5 --data-binary @body.bin "https://$H/p/$id/r?continue=skip" >/dev/null
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[].http[] | {body: .body|{framing,size,chunks,trailers}, expect_continue}'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[].http[] | {body: .body|{framing,size,chunks,trailers}, expect_continue}'
 {"body":{"framing":"content-length","size":11,"chunks":null,"trailers":null},"expect_continue":null}
 {"body":{"framing":"chunked","size":11,"chunks":[{"size":5,"size_literal":"5","ext":";name=a"},{"size":6,"size_literal":"6","ext":null},{"size":0,"size_literal":"0","ext":null}],"trailers":[["X-Sum",": ","42","crlf"]]},"expect_continue":null}
 {"body":{"framing":"content-length","size":3000,"chunks":null,"trailers":null},"expect_continue":{"waited":true,"wait_ms":19.248859}}
@@ -366,7 +370,7 @@ $ curl -s "$B?rst=1&close=mid-body&size=50000" -o /dev/null -w '%{http_code} %{s
 200 12600 exit=56
 $ curl -s "$B?delay_head=300&delay_body=200" -o /dev/null -w '%{time_starttransfer} %{time_total}\n'
 0.345523 0.546787
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {close: .close|{by,how}, req: [.http[] | {status, controls, size: .response_sent_size}]}'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {close: .close|{by,how}, req: [.http[] | {status, controls, size: .response_sent_size}]}'
 {"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"h":"Link:</s.css>;rel=preload","status":"103"}},"size":266}]}
 {"close":{"by":"server","how":"fin"},"req":[{"status":200,"controls":{"params":{"frame":"close","size":"20"}},"size":141}]}
 {"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"conn":"close","ka":"5,10","ver":"1.0"}},"size":260}]}
@@ -384,7 +388,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {close: .close|{b
 
   ```console
   $ curl -s "$B?conn=close" -o /dev/null; curl -s "$B?close=after" -o /dev/null
-  $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {req: [.http[].controls.params], close: .close|{by,how,idle_before_close_ms}}'
+  $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {req: [.http[].controls.params], close: .close|{by,how,idle_before_close_ms}}'
   {"req":[{"conn":"close"}],"close":{"by":"client","how":"fin","idle_before_close_ms":21.32288}}
   {"req":[{"close":"after"}],"close":{"by":"server","how":"fin","idle_before_close_ms":0.129082}}
   ```
@@ -401,7 +405,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {close: .close|{b
 ```console
 $ (printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\n"; sleep 30) | nc vps602.tmsoft.com.br 80 >/dev/null
 $ (printf "GET /p/$id/r?idle=5 HTTP/1.1\r\nHost: $H\r\n\r\n"; sleep 30) | nc vps602.tmsoft.com.br 8080 >/dev/null
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {port: .dst.port, close}'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {port: .dst.port, close}'
 {"port":80,"close":{"by":"client","how":"fin","idle_before_close_ms":29975.008946,"half_close":false}}
 {"port":8080,"close":{"by":"server","how":"fin","idle_before_close_ms":5000.600455,"half_close":false}}
 ```
@@ -411,6 +415,9 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {port: .dst.port,
   aos 120 s (`by: server`, `idle_before_close_ms` ≈ 120000). `idle=5` mostra o espelho fechando aos 5 s.
 - **Estáveis**: `close.by` e `close.how`; `idle_before_close_ms` dentro de ±1 s do tempo pedido. Repita a
   execução direta para confirmar.
+- **Keepalive TCP**: o web e o raw **não mandam keepalive TCP** (o listener desliga o do Go); a conexão ociosa
+  fica em silêncio do lado do espelho até ele fechar. Todo `tcp.keepalive_probes` registrado é do cliente ou do
+  caminho (um proxy que mantém a conexão viva com o espelho), nunca do espelho.
 - **Diferenças esperadas**: este caso mede o proxy. Um proxy com ociosidade menor que a do cliente fecha antes
   (`by: client` do ponto de vista do espelho, com `idle_before_close_ms` igual ao timeout do proxy); um proxy
   que não repassa o fim do cliente deixa a conexão aberta até os 120 s do espelho. Ambos são achados; compare
@@ -423,7 +430,7 @@ $ curl -s --http2 "https://$H/p/$id/" >/dev/null
 $ printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\nConnection: close\r\n\r\n" |
     openssl s_client -connect vps602.tmsoft.com.br:443 -servername "$H" -alpn http/1.1 -quiet 2>/dev/null >/dev/null
 $ go run ./client.go "https://$H/p/$id/"      # http.Get da biblioteca padrão
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, ja3: .tls.ja3_md5, ja4: .tls.ja4, ja4_stable: .tls.ja4_stable, akamai: .http2.akamai}'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, ja3: .tls.ja3_md5, ja4: .tls.ja4, ja4_stable: .tls.ja4_stable, akamai: .http2.akamai}'
 {"proto":"tls/h2","ja3":"9ff5f7c88ab8372852860f487a8b1dc5","ja4":"t13d3012h2_1d37bd780c83_581742d1f3c4","ja4_stable":"t13d3012h2_1d37bd780c83_581742d1f3c4","akamai":"3:100;4:65536;2:0|1048510465|0|m,s,a,p"}
 {"proto":"tls/http1.1","ja3":"0dcde0fb73b656fd510af1874f13fb8b","ja4":"t13d4908h1_0d8feac7bc37_460f73f9cefb","ja4_stable":"t13d4907h1_0d8feac7bc37_7395dae3b2f3","akamai":null}
 {"proto":"tls/h2","ja3":"03117a8ed39ef02427ebbc39f121275c","ja4":"t13d1312h2_f57a46bbacb6_f50d94e863eb","ja4_stable":"t13d1312h2_f57a46bbacb6_f50d94e863eb","akamai":"2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s"}
@@ -440,7 +447,7 @@ Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperad
 
   ```console
   $ curl -s --http2 "http://$H/p/$id/" >/dev/null
-  $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, mode: .http2.mode, akamai: .http2.akamai}'
+  $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, mode: .http2.mode, akamai: .http2.akamai}'
   {"proto":"h2c","mode":"upgrade","akamai":"3:100;4:10485760;2:0|1048510465|0|"}
   ```
 
@@ -466,6 +473,23 @@ Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperad
   ClientHello cru é comparável byte a byte depois de mascarar `random`, os bytes do session ID, as chaves de
   `key_share`, binders de PSK e a carga do ECH. Para o Chrome (e imitadores), que embaralha a ordem das
   extensões a cada conexão, compare `ja4`, `ja3n` e o conjunto de extensões, não `ja3`, `ja4_o` nem a ordem.
+- **Alertas TLS** (`tls.alerts`, spec 008 RF-04): o web e o raw leem os registros de alerta (tipo `0x15`) **em
+  texto claro** nos bytes de cada sentido durante o handshake, com nível e descrição exatos (`dir: in` do
+  cliente, `dir: out` do espelho), na ordem; depois entra o alerta que o `crypto/tls` informar (cifrado,
+  invisível nos bytes), só se não houver um igual (mesma direção e descrição) vindo dos bytes, **sem duplicar**.
+  Um cliente que recusa o certificado aparece com o próprio alerta (`unknown_ca`, 48); no TLS 1.3, o espelho
+  ainda tenta decifrar esse alerta em claro e responde `bad_record_mac` (20) cifrado, que vem do `crypto/tls`:
+
+  ```console
+  $ for v in -tls1_2 -tls1_3; do openssl s_client $v -connect vps602.tmsoft.com.br:443 -servername "$H" \
+      -CAfile ca-qualquer.pem -no-CApath -no-CAstore -verify_return_error </dev/null >/dev/null 2>&1; done
+  $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | .tls.alerts'
+  [{"description":48,"dir":"in","level":2,"name":"unknown_ca"}]
+  [{"description":48,"dir":"in","level":2,"name":"unknown_ca"},{"description":20,"dir":"out","level":2,"name":"bad_record_mac"}]
+  ```
+
+  (OpenSSL 4.1; `ca-qualquer.pem` é qualquer certificado autoassinado.) Por túnel, os alertas do cliente chegam
+  intactos; por um proxy que refaz o TLS, os alertas são os do proxy.
 - **Diferenças esperadas**: nenhuma acima do TCP. Por túnel `CONNECT`, ClientHello, JA3/JA4, ALPN, SETTINGS h2 e
   Akamai têm de ser iguais aos do direto; qualquer diferença é TLS refeito pelo caminho (interceptação). Por
   4443 também: o TLS com o proxy é outro, e o do espelho continua sendo o do cliente. TCP e DNS são do proxy.
@@ -482,7 +506,7 @@ half-close test
 $ printf "PROBE $id mode=echo\r\nping\r\n" | openssl s_client -connect vps602.tmsoft.com.br:993 -quiet 2>/dev/null
 * OK finger-sniffer IMAP ready
 ping
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, port: .dst.port, raw: .raw|{mode,banner,half_close}, close: .close|{by,how,half_close}}'
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, port: .dst.port, raw: .raw|{mode,banner,half_close}, close: .close|{by,how,half_close}}'
 {"proto":"raw","port":7,"raw":{"mode":"echo","banner":null,"half_close":{"server_sent_after_client_fin":true,"bytes":17}},"close":{"by":"client","how":"fin","half_close":true}}
 {"proto":"raw","port":25,"raw":{"mode":"banner","banner":"220 finger-sniffer ESMTP ready\r\n","half_close":{"server_sent_after_client_fin":true,"bytes":17}},"close":{"by":"client","how":"fin","half_close":true}}
 {"proto":"tls/raw","port":993,"raw":{"mode":"echo","banner":"* OK finger-sniffer IMAP ready\r\n","half_close":null},"close":{"by":"server","how":"fin","half_close":true}}
@@ -513,7 +537,7 @@ $ for u in "ws://$H/p/$id/ws" "wss://$H/p/$id/r?upgrade=ws"; do
   done
 hello
 hello
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, over: .websocket.over, ext: .websocket.extensions,
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, over: .websocket.over, ext: .websocket.extensions,
     close: .websocket.close, frames: [.websocket.frames[] | [.dir, .opcode, .length, .masked]]}'
 {"proto":"http1.1/ws","over":"http1.1","ext":"permessage-deflate; client_no_context_takeover; server_no_context_takeover","close":{"by":"client","code":1000,"reason":"bye"},"frames":[["in",1,5,true],["out",1,5,false],["in",8,5,true],["out",8,5,false]]}
 {"proto":"tls/h2/ws","over":"h2","ext":"permessage-deflate; client_no_context_takeover; server_no_context_takeover","close":{"by":"client","code":1000,"reason":"bye"},"frames":[["in",1,5,true],["out",1,5,false],["in",8,5,true],["out",8,5,false]]}
@@ -530,7 +554,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, over: .we
   `close.by: server` com `websocket.close.by: client`, e isso é o esperado:
 
   ```console
-  $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, ws: .websocket.close, tcp: .close|{by,how}}'
+  $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, ws: .websocket.close, tcp: .close|{by,how}}'
   {"proto":"http1.1/ws","ws":{"by":"client","code":1000,"reason":"bye"},"tcp":{"by":"server","how":"fin"}}
   ```
 - **Estáveis**: a linha de WebSocket da [tabela](#campos-estáveis-e-o-que-sempre-varia), mais os campos do
@@ -589,7 +613,7 @@ servidor responde com TC=1 (UDP) ou descarta (`rate_limited: true`).
 
 ```console
 $ for i in 1 2 3; do curl -s "http://$H/p/$id/" >/dev/null; sleep 1; done
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {ttl: .ip.ttl, hops: .ip.hops, ja4t: .tcp.ja4t, p0f: .tcp.p0f,
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {ttl: .ip.ttl, hops: .ip.hops, ja4t: .tcp.ja4t, p0f: .tcp.p0f,
     os: .tcp.os_guess, rtt: .tcp.rtt_handshake_ms, app: .tcp.rtt_app_ms}'
 {"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":21.239,"app":null}
 {"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":19.195,"app":null}
@@ -615,6 +639,28 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {ttl: .ip.ttl, ho
   o mesmo host, mas grupos diferentes não provam hosts diferentes se o proxy roda Linux ou macOS). O RTT do handshake passa a ser o do proxy até o espelho; um `rtt_app_ms`
   bem maior que `rtt_handshake_ms` mostra espera no caminho de aplicação (o proxy esperando o cliente).
 
+#### TCP Fast Open
+
+Os listeners TCP do web e do raw concedem TFO (fila de 256; `tcp_fastopen=3` na vps602): o SYN-ACK traz o
+cookie quando o cliente o pede, e da conexão seguinte em diante o cliente manda dados já no SYN. Repita a
+conexão duas vezes:
+
+```console
+$ for i in 1 2; do curl -s -4 --tcp-fastopen "http://$H/p/$id/" >/dev/null; done
+$ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | {tfo: .tcp.syn.tfo,
+    syn_data: (.tcp.syn.payload_b64 // null | if . then (@base64d | split("\r\n")[0]) else null end),
+    syn_len: .ip.packets.syn.total_length, first_data_len: .ip.packets.first_data.total_length}'
+{"tfo":true,"syn_data":"GET /p/qob262bswh21/ HTTP/1.1","syn_len":188,"first_data_len":188}
+{"tfo":true,"syn_data":"GET /p/qob262bswh21/ HTTP/1.1","syn_len":188,"first_data_len":188}
+```
+
+- **Procurar**: a opção `tfo` em `tcp.syn.options`, `tcp.syn.tfo` e `tcp.syn.payload_b64` (os dados do SYN). Na
+  primeira conexão de um cliente sem cookie guardado, o SYN leva só o pedido de cookie (sem `payload_b64`); no 2º
+  SYN em diante os dados aparecem, e `ip.packets.first_data` é o próprio SYN (mesmo `total_length`). No exemplo
+  o macOS já tinha o cookie de uma execução anterior, por isso as duas conexões trazem dados.
+- **Diferenças esperadas**: por proxy, o TFO é do proxy (a maioria não usa); um caminho que remove a opção ou os
+  dados do SYN aparece como `tfo: false` ou sem `payload_b64` onde o direto tinha.
+
 ### Caso 12: HTTP/3 (só caminho direto)
 
 ```console
@@ -625,7 +671,7 @@ content-type: text/plain; charset=utf-8
 cache-control: no-store
 $ curl -s --http3-only "https://$H/p/$id/r?close=after" -o /dev/null -w '%{http_code}\n'
 400
-$ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {proto, close: .close|{by,how}, h3: .http3|{version, padded_to_1200,
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, close: .close|{by,how}, h3: .http3|{version, padded_to_1200,
     client_hello_datagrams, tp: [.transport_params[] | .[1]], ja4: .client_hello.ja4, h3_settings, close: .close|{by,how},
     reqs: [.requests[] | {stream_id, pseudo_order, status, controls}]}}'
 {"proto":"quic/h3","close":{"by":"client","how":"quic_close"},"h3":{"version":"00000001","padded_to_1200":true,"client_hello_datagrams":2,"tp":["initial_source_connection_id","initial_max_stream_data_bidi_local","initial_max_stream_data_bidi_remote","initial_max_stream_data_uni","initial_max_data","initial_max_streams_bidi","initial_max_streams_uni","version_information"],"ja4":"q13d0311h3_55b375c5d22e_df5ee7f3ca36","h3_settings":[[6,4611686018427387903],[1,0],[7,0]],"close":{"by":"client","how":"connection_close"},"reqs":[{"stream_id":0,"pseudo_order":[":method",":scheme",":authority",":path"],"status":200,"controls":null}]}}
