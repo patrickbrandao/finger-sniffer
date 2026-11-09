@@ -1,11 +1,18 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`; todos os subjects
-    `fs.v1.>` vão para o stream JetStream `FS_EVENTS` (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016), exceto os
-    request/reply `fs.v1.dns.acme.*`, que são NATS core.
+    Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
+    (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
+    `fs.v1.capture.>`, `fs.v1.web.>`, `fs.v1.raw.>`, `fs.v1.dns.query`, `fs.v1.svc.>` (ADR 0017). Os request/reply
+    `fs.v1.dns.acme.*` e `fs.v1.store.conn_id` são NATS core e ficam fora do stream (senão o JetStream responderia
+    um PubAck no inbox da requisição). Um subject de evento novo entra nessa lista no mesmo PR.
+
+    Tamanho (ADR 0018): nenhum evento JSON passa de 900 KiB; campos inline de bytes crus levam no máximo
+    `FS_EVENT_INLINE_MAX` (128 KiB) cada, marcados `*_truncated` quando cortados; os bytes completos de cada sentido
+    vão por `fs.v1.web.stream.bytes` / `fs.v1.raw.read` em pedaços de até 64 KiB, até `FS_RAW_STREAM_MAX_BYTES`
+    (16 MiB) por sentido e conexão.
 
     Dois formatos:
     - **Eventos de aplicação** (JSON, `application/json`): `Envelope` com `payload` tipado. Os payloads
@@ -61,6 +68,11 @@ channels:
     address: fs.v1.web.stream.bytes
     messages:
       streamBytes: { $ref: "#/components/messages/StreamBytes" }
+  webRawSession:
+    address: fs.v1.web.raw.session
+    description: Conexão de porta web sem protocolo reconhecido (`raw/unknown`, modo sink — spec 005).
+    messages:
+      rawSession: { $ref: "#/components/messages/RawSession" }
   rawSession:
     address: fs.v1.raw.session
     messages:
@@ -86,6 +98,16 @@ channels:
     description: Inbox de resposta do request/reply (NATS core).
     messages:
       acmeReply: { $ref: "#/components/messages/ACMEReply" }
+  storeConnID:
+    address: fs.v1.store.conn_id
+    description: Request/reply NATS core (ADR 0017), fora do stream.
+    messages:
+      connIDRequest: { $ref: "#/components/messages/ConnIDRequest" }
+  storeConnIDReply:
+    address: null
+    description: Inbox de resposta do `fs.v1.store.conn_id`.
+    messages:
+      connIDReply: { $ref: "#/components/messages/ConnIDReply" }
   svcHeartbeat:
     address: fs.v1.svc.heartbeat
     messages:
@@ -128,6 +150,10 @@ operations:
   publishRawSession:
     action: send
     channel: { $ref: "#/channels/rawSession" }
+  publishWebRawSession:
+    action: send
+    channel: { $ref: "#/channels/webRawSession" }
+    summary: web publica no fim de uma conexão tratada como TCP cru.
   publishRawRead:
     action: send
     channel: { $ref: "#/channels/rawRead" }
@@ -145,6 +171,12 @@ operations:
     channel: { $ref: "#/channels/dnsACMEClear" }
     reply:
       channel: { $ref: "#/channels/dnsACMEReply" }
+  requestConnID:
+    action: send
+    channel: { $ref: "#/channels/storeConnID" }
+    summary: web pede ao store o conn_id da 5-tupla (o store responde ou reserva um ULID por 30 s).
+    reply:
+      channel: { $ref: "#/channels/storeConnIDReply" }
   publishHeartbeat:
     action: send
     channel: { $ref: "#/channels/svcHeartbeat" }
@@ -175,11 +207,29 @@ components:
         probe_id: { type: [string, "null"], description: Probe já extraído pelo produtor, quando houver. }
     StreamBytesPayload:
       type: object
+      description: Pedaço de até 64 KiB de um sentido (ADR 0018).
       required: [dir, offset, data_b64]
       properties:
         dir: { type: string, enum: [in, out] }
         offset: { type: integer, description: Posição no fluxo de aplicação do sentido. }
         data_b64: { type: string, contentEncoding: base64 }
+        truncated:
+          type: boolean
+          description: |
+            true no último pedaço (vazio) quando o sentido passou de FS_RAW_STREAM_MAX_BYTES; nada mais é
+            publicado nesse sentido.
+    ConnIDRequestPayload:
+      type: object
+      required: [flow, ts]
+      properties:
+        flow: { $ref: "#/components/schemas/Flow" }
+        ts: { type: string, description: "Instante do accept (RFC 3339 UTC com nanossegundos)." }
+    ConnIDReplyPayload:
+      type: object
+      required: [conn_id]
+      properties:
+        conn_id: { type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{26}$" }
+        reserved: { type: boolean, description: "true se o ID foi reservado (a conexão ainda não existia no store)." }
     WebSocketFramePayload:
       type: object
       properties:
@@ -206,6 +256,7 @@ components:
             reason: { type: [string, "null"] }
     TLSHandshakePayload:
       type: object
+      description: Resultado do handshake; o store funde no `tls` do registro (spec 004).
       properties:
         negotiated:
           type: [object, "null"]
@@ -309,6 +360,9 @@ components:
       name: HTTP2Connection
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Nível de conexão h2 (prefácio, SETTINGS, PRIORITY, Akamai, frames); `streams` vazio.
+      description: |
+        Pode ser publicado mais de uma vez na mesma conexão (ex. depois do prefácio e no fim, com os frames);
+        o store fica com a última versão.
       payload:
         allOf:
           - $ref: "#/components/schemas/Envelope"
@@ -376,6 +430,9 @@ components:
     ACMERequest:
       name: ACMERequest
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      description: |
+        Cada nome guarda um conjunto de valores (spec 007): `set` acrescenta o valor (idempotente), `clear` remove só
+        aquele valor; cada valor expira 10 min após o `set`. Nome fora da zona → `ok: false`.
       payload:
         type: object
         required: [name, value]
@@ -391,6 +448,14 @@ components:
         properties:
           ok: { type: boolean }
           error: { type: [string, "null"] }
+    ConnIDRequest:
+      name: ConnIDRequest
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      payload: { $ref: "#/components/schemas/ConnIDRequestPayload" }
+    ConnIDReply:
+      name: ConnIDReply
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      payload: { $ref: "#/components/schemas/ConnIDReplyPayload" }
     Heartbeat:
       name: Heartbeat
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
