@@ -539,9 +539,11 @@ func (in *Ingestor) recoverOrphans(ctx context.Context) error {
 		_ = in.db.QueryRowContext(ctx, "SELECT max(ts_ns) FROM packets WHERE conn_id = ?", o.id).Scan(&last)
 		var r connectionJSON
 		_ = json.Unmarshal([]byte(o.rec), &r)
+		// updated_ns usa o relógio do store no reinício (settle do long-poll, ADR 0029), não o último pacote.
+		now := in.now().UnixNano()
 		end := last.Int64
 		if end == 0 {
-			end = in.now().UnixNano()
+			end = now
 		}
 		r.Ended, r.Close = tsPtr(end), closeJSON{By: "unknown", How: "timeout"}
 		rec, _ := json.Marshal(r)
@@ -565,7 +567,7 @@ func (in *Ingestor) recoverOrphans(ctx context.Context) error {
 		}{
 			{"INSERT OR REPLACE INTO pcaps (conn_id, data, truncated) VALUES (?, ?, 0)", []any{o.id, pcap}},
 			{"DELETE FROM packets WHERE conn_id = ?", []any{o.id}},
-			{"UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ? WHERE conn_id = ?", []any{end, string(rec), end, o.id}},
+			{"UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ? WHERE conn_id = ?", []any{end, string(rec), max(end, now), o.id}},
 		} {
 			if _, err := in.db.ExecContext(ctx, q.sql, q.args...); err != nil {
 				return err

@@ -1,5 +1,5 @@
 {
-  "summary": "Probe com uma conexão e uma consulta DNS",
+  "summary": "Probe com uma conexão e uma consulta DNS (long-poll com wait)",
   "value": {
     "all_closed": true,
     "connections": [
@@ -283,6 +283,7 @@
         "ts": "2026-11-07T11:59:59.900000000Z"
       }
     ],
-    "probe_id": "t1a2b3c4"
+    "probe_id": "t1a2b3c4",
+    "wait_met": true
   }
 }

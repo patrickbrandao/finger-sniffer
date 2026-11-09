@@ -287,7 +287,7 @@ func TestAPIExamples(t *testing.T) {
 		{"connection-example.json", "/api/v1/connections/" + f.closed, "Conexão tls/http1.1 encerrada pelo cliente"},
 		{"packets-example.json", "/api/v1/packets", "RST sem conexão"},
 		{"dns-list-example.json", "/api/v1/dns?probe=" + probeID, "Consulta A com ECS"},
-		{"probe-example.json", "/api/v1/probes/" + probeID, "Probe com uma conexão e uma consulta DNS"},
+		{"probe-example.json", "/api/v1/probes/" + probeID + "?wait=10s", "Probe com uma conexão e uma consulta DNS (long-poll com wait)"},
 	}
 	for _, ex := range examples {
 		code, body := f.get(t, ex.path)

@@ -358,6 +358,8 @@ type probeJSON struct {
 // ProbeWait é o critério do long-poll de /probes/{id} (spec 004, ADR 0029). Wait 0 responde na hora.
 type ProbeWait struct {
 	Wait time.Duration
+	// Given indica que o parâmetro wait veio na consulta (wait=0s também traz wait_met).
+	Given bool
 	// Settle é o silêncio exigido: nenhuma conexão do probe criada, correlacionada ou fechada nesse intervalo.
 	Settle time.Duration
 	// MinConns é o mínimo de conexões (0 vale 1).
@@ -397,7 +399,7 @@ func (q *Queries) Probe(ctx context.Context, id string, pw ProbeWait) (probeJSON
 			if len(p.Connections) == 0 && len(p.DNS) == 0 {
 				return p, ErrNotFound
 			}
-			if wait > 0 {
+			if pw.Given || wait > 0 {
 				p.WaitMet = &met
 			}
 			return p, nil

@@ -183,3 +183,15 @@ func TestProbeWaitParams400(t *testing.T) {
 		}
 	}
 }
+
+// TestProbeWaitZeroHasWaitMet: wait=0s é um wait válido e a resposta traz wait_met (auditoria v0.2.0, D3).
+func TestProbeWaitZeroHasWaitMet(t *testing.T) {
+	f := newAPIFixture(t)
+	code, body := f.get(t, "/api/v1/probes/"+probeID+"?wait=0s")
+	if p := probeResp(t, body); code != 200 || p.WaitMet == nil || !*p.WaitMet {
+		t.Fatalf("%d %s", code, body)
+	}
+	if pw, err := parseProbeWait(func(k string) string { return map[string]string{"wait": "0s"}[k] }); err != nil || !pw.Given || pw.Wait != 0 {
+		t.Fatalf("%+v %v", pw, err)
+	}
+}

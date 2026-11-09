@@ -626,3 +626,53 @@ func TestRetentionCountsFromEnd(t *testing.T) {
 		t.Fatalf("must expire 10 min after close: %d %v", n, err)
 	}
 }
+
+// TestUpdatedNsStoreClock: conexão só por eventos e órfã recuperada no reinício gravam updated_ns com o relógio
+// do store, não com o ts do evento nem com o último pacote (ADR 0029; auditoria v0.2.0, D4).
+func TestUpdatedNsStoreClock(t *testing.T) {
+	updated := func(t *testing.T, db *sql.DB) int64 {
+		t.Helper()
+		var u int64
+		if err := db.QueryRow("SELECT updated_ns FROM connections").Scan(&u); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	t.Run("event-only", func(t *testing.T) {
+		// createEventOnly direto: no fluxo normal o writeStored logo em seguida também grava o relógio do store.
+		in, db := newTestIngestor(t, nil)
+		msg := appMsg(t, event.SubjectWebWebSocketFrame, "tcp", client, mirror, 0, "", event.WebSocketFrame{Dir: "in", Opcode: 1, Fin: true, Length: 5})
+		ev, err := parseAppEvent(msg.Subject(), msg.Data())
+		if err != nil {
+			t.Fatal(err)
+		}
+		later := base + int64(5*time.Second)
+		in.now = func() time.Time { return time.Unix(0, later) }
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := in.createEventOnly(context.Background(), tx, ev); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		if u := updated(t, db); u != later {
+			t.Fatalf("updated_ns %d, quer %d", u, later)
+		}
+	})
+	t.Run("orphan", func(t *testing.T) {
+		in, db := newTestIngestor(t, nil)
+		run(t, in, 500, batch(client, mirror, protoTCP, fullTCP[:6]))
+		in2 := NewIngestor(db, in.cfg, in.log, service.NewMetrics())
+		later := base + int64(time.Hour)
+		in2.now = func() time.Time { return time.Unix(0, later) }
+		if err := in2.recoverOrphans(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if u := updated(t, db); u != later {
+			t.Fatalf("updated_ns %d, quer %d", u, later)
+		}
+	})
+}
