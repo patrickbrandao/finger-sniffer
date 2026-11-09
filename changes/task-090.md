@@ -1,0 +1,1 @@
+- Store: registro QUIC fecha na folga de `FS_TCP_CLOSE_GRACE` (100 ms) depois do `http3.connection` com close, em vez de 2 s (ADR 0019); datagramas tardios da mesma 5-tupla/DCID entram no pcap e nos totais do registro gravado, e um Initial com DCID novo continua abrindo conexão nova (task 090).

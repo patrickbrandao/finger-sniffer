@@ -191,24 +191,25 @@ func checkH3Record(t *testing.T, r connectionJSON, closeMs int) {
 	}
 }
 
-// TestHTTP3Record: pacotes UDP + 3 versões de http3.connection + 2 requisições → registro quic/h3 que fecha 2 s
-// depois do close do web, com close.how = quic_close.
+// TestHTTP3Record: pacotes UDP + 3 versões de http3.connection + 2 requisições → registro quic/h3 que fecha na
+// folga de produção (FS_TCP_CLOSE_GRACE, ≤ 500 ms, task 090) depois do close do web, com close.how = quic_close.
 func TestHTTP3Record(t *testing.T) {
-	in, db := newTestIngestor(t, nil)
+	grace := prodGrace(t)
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.CloseGrace = grace })
+	g := int(grace / time.Millisecond)
 	msgs := h3Session(t, 1000)
 	run(t, in, 900, msgs[:6]...)
 	id, _ := onlyConn(t, db)
 	if r := recordOf(t, in, id); r.Proto != "quic/h3" || r.Requests != 2 || r.Ended != nil || r.Close.How != "open" {
 		t.Fatalf("live record: proto=%s requests=%d close=%+v", r.Proto, r.Requests, r.Close)
 	}
-	run(t, in, 1100, msgs[6])
-	run(t, in, 2900) // ainda dentro da folga de 2 s
+	run(t, in, 1000+g-1, msgs[6]) // ainda dentro da folga
 	if count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NULL") != 1 {
-		t.Fatal("closed before the 2 s grace")
+		t.Fatal("closed before the grace")
 	}
-	run(t, in, 3001)
-	if count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NOT NULL AND proto = 'quic/h3'") != 1 {
-		t.Fatal("QUIC connection not closed 2 s after the web close")
+	run(t, in, 1000+g)
+	if g > 500 || count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NOT NULL AND proto = 'quic/h3'") != 1 {
+		t.Fatalf("QUIC connection not closed %d ms after the web close", g)
 	}
 	checkH3Record(t, recordOf(t, in, id), 1000)
 	if count(t, db, "SELECT count(*) FROM pcaps WHERE conn_id = ?", id) != 1 {
@@ -477,4 +478,41 @@ func shiftRecord(r connectionJSON, d int64) connectionJSON {
 		r.Times = &t
 	}
 	return r
+}
+
+// TestHTTP3LateDatagrams: datagramas da mesma conexão depois do registro gravado (ACK, CONNECTION_CLOSE do outro
+// lado, retransmissão do Initial) entram no pcap e nos totais dela, sem conexão nova nem avulso; um Initial do
+// cliente com DCID novo abre outra conexão.
+func TestHTTP3LateDatagrams(t *testing.T) {
+	grace := prodGrace(t)
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.CloseGrace = grace })
+	msgs := h3Session(t, 1000)
+	run(t, in, 900, msgs[:6]...)
+	run(t, in, 1000+int(grace/time.Millisecond), msgs[6])
+	id, r := onlyConn(t, db)
+	if r.Ended == nil {
+		t.Fatal("not closed")
+	}
+	in0, out0 := r.Totals.In.Segments, r.Totals.Out.Segments
+	run(t, in, 1500, udpBatch(quicClient, quicMirror, []udpPkt{
+		{1200, false, quicShort(30)}, {1300, true, quicShort(20)}, {1400, true, quicInitial(dcidA)},
+	}))
+	if n := count(t, db, "SELECT count(*) FROM connections"); n != 1 {
+		t.Fatalf("%d connections", n)
+	}
+	if n := count(t, db, "SELECT count(*) FROM stray_packets") + count(t, db, "SELECT count(*) FROM packets"); n != 0 {
+		t.Fatalf("%d stray/loose packets", n)
+	}
+	r = recordOf(t, in, id)
+	if r.Totals.In.Segments != in0+2 || r.Totals.Out.Segments != out0+1 || r.Close.How != "quic_close" || r.Proto != "quic/h3" {
+		t.Fatalf("in=%d out=%d close=%+v proto=%s", r.Totals.In.Segments, r.Totals.Out.Segments, r.Close, r.Proto)
+	}
+	checkH3Record(t, r, 1000)
+	if in.metrics.Get("store_late_packets_total") != 3 {
+		t.Fatalf("late=%v", in.metrics.Get("store_late_packets_total"))
+	}
+	run(t, in, 1700, udpBatch(quicClient, quicMirror, quicPackets(dcidB, 1600)))
+	if n := count(t, db, "SELECT count(*) FROM connections"); n != 2 {
+		t.Fatalf("new DCID must open a connection: %d", n)
+	}
 }

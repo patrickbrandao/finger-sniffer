@@ -21,9 +21,6 @@ const (
 	eventOnlyIdle = 30 * time.Second
 	// lateSlack é a folga depois do fim de uma conexão gravada para eventos publicados no fechamento.
 	lateSlack = 30 * time.Second
-	// quicCloseGrace é a folga entre o http3.connection com close e o fim do fluxo UDP, para os últimos pacotes
-	// do capture (ADR 0019).
-	quicCloseGrace = 2 * time.Second
 )
 
 // target é a conexão a que um evento pertence.
@@ -84,9 +81,10 @@ func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after
 	l4 := l4Name(c.l4)
 	before = c.app.proto(l4)
 	probeSet = c.app.add(ev)
-	// Fim da conexão QUIC visto pelo web: fecha o fluxo depois da folga (ADR 0019).
+	// Fim da conexão QUIC visto pelo web: fecha o fluxo depois da mesma folga do TCP (FS_TCP_CLOSE_GRACE, task
+	// 090); datagramas que chegarem depois vão para o registro gravado (flowTable.closed).
 	if c.l4 == protoUDP && c.closeAt == 0 && c.app.h3Close != nil {
-		c.closeAt = c.app.h3CloseTs + quicCloseGrace.Nanoseconds()
+		c.closeAt = c.app.h3CloseTs + t.grace.Nanoseconds()
 	}
 	return probeSet, before, c.app.proto(l4), true
 }

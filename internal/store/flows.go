@@ -12,7 +12,7 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
 )
 
-// lateLinger é quanto, depois do último pacote, uma conexão TCP fechada continua recebendo pacotes tardios (ACK
+// lateLinger é quanto, depois do último pacote, uma conexão TCP ou QUIC fechada continua recebendo pacotes tardios (ACK
 // final, RST depois do FIN), anexados ao pcap e ao registro já gravados em vez de virarem conexão nova ou pacote
 // avulso; lateKeep é a folga extra na memória para o atraso do ingest (a aceitação usa o instante de captura).
 const (
@@ -170,6 +170,14 @@ func (c *conn) observe(fi frameInfo, ts int64, grace time.Duration) {
 	}
 }
 
+// endTs é o fim da conexão: o último pacote ou, no QUIC encerrado pelo web, o evento de close se vier depois.
+func (c *conn) endTs() int64 {
+	if c.app != nil && c.app.h3CloseTs > c.lastSeen {
+		return c.app.h3CloseTs
+	}
+	return c.lastSeen
+}
+
 // closing informa se a conexão já viu o fechamento (FIN dos dois lados ou RST).
 func (c *conn) closing() bool { return c.closeAt != 0 }
 
@@ -186,7 +194,7 @@ func (c *conn) isStray() bool {
 type flowTable struct {
 	mu          sync.Mutex
 	conns       map[flowKey]*conn
-	closed      map[flowKey]*conn // TCP já finalizadas, à espera de pacotes tardios até lingerUntil
+	closed      map[flowKey]*conn // TCP e QUIC já finalizadas, à espera de pacotes tardios até lingerUntil
 	byID        map[string]*conn
 	reserved    map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
 	newID       func(ts int64) string
@@ -297,9 +305,11 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		t.finish(c)
 		res.ended, c = c, nil
 	}
-	if c == nil && fi.proto == protoTCP {
+	if c == nil {
 		if old := t.closed[k]; old != nil {
-			if !isSYN && ts <= old.lingerUntil {
+			// SYN, ou Initial do cliente com DCID novo, é conexão nova; o resto é tardio da gravada
+			fresh := isSYN || (isInitial && old.fromClient(fi) && dcid != old.quicDCID)
+			if !fresh && ts <= old.lingerUntil {
 				old.observe(fi, ts, t.grace)
 				old.analyze(fi, ts, old.fromClient(fi), t)
 				return result{conn: old, late: true}
@@ -358,8 +368,8 @@ func (t *flowTable) due(now int64) []*conn {
 			delete(t.byID, c.id)
 			t.finish(c)
 			// só a que vira conexão gravada (a que vira pacotes avulsos sai do banco: o tardio é avulso também)
-			if c.l4 == protoTCP && c.closing() && (!c.isStray() || c.app.events > 0) {
-				c.lingerUntil = c.lastSeen + lateLinger.Nanoseconds()
+			if c.closing() && (c.l4 == protoTCP || c.app.isQUIC()) && (!c.isStray() || c.app.events > 0) {
+				c.lingerUntil = c.endTs() + lateLinger.Nanoseconds()
 				t.closed[k] = c
 			}
 		}
