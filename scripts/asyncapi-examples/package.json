@@ -1,0 +1,12 @@
+{
+  "name": "finger-sniffer-asyncapi-examples",
+  "private": true,
+  "description": "Valida os examples das mensagens do asyncapi.yaml contra o payload (spec 017 RF-08).",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@apidevtools/json-schema-ref-parser": "11.9.3",
+    "ajv": "8.17.1"
+  }
+}

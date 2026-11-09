@@ -33,6 +33,8 @@ ASYNCAPI_FILE="eventbus/nats/asyncapi.yaml"
 # Validadores dos contratos (Node, via npx; versões fixadas)
 REDOCLY_CLI="@redocly/cli@2.76.0"
 ASYNCAPI_CLI="@asyncapi/cli@6.3.0"
+# Validador dos examples do asyncapi (Node; dependências fixadas no package-lock.json do diretório)
+ASYNCAPI_EXAMPLES_DIR="scripts/asyncapi-examples"
 FUZZ_TIME="${FS_FUZZ_TIME:-10s}"
 VPS_SSH="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
@@ -199,6 +201,42 @@ contracts_check() {
 	return $rc
 }
 
+# Instala as dependências do validador de examples (npm ci) só quando o package-lock.json muda.
+asyncapi_examples_deps() {
+	local dir="$ASYNCAPI_EXAMPLES_DIR" stamp want
+	stamp="$dir/node_modules/.fs-lock-hash"
+	want=$(git hash-object "$dir/package-lock.json") || return 1
+	if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ]; then
+		return 0
+	fi
+	npm_config_update_notifier=false npm ci --prefix "$dir" --ignore-scripts --no-audit --no-fund --loglevel=error ||
+		return 1
+	echo "$want" >"$stamp"
+}
+
+# Valida os examples das mensagens do asyncapi contra o payload (spec 017 RF-08): o documento e depois os testes
+# do próprio validador. Mensagem JSON sem exemplo só gera aviso.
+asyncapi_examples_check() {
+	if ! command -v node >/dev/null || ! command -v npm >/dev/null; then
+		echo "node/npm não encontrados (instale Node.js para validar os examples do asyncapi)"
+		return 1
+	fi
+	local rc=0
+	asyncapi_examples_deps || return 1
+	node "$ASYNCAPI_EXAMPLES_DIR/check.mjs" "$ASYNCAPI_FILE" || rc=1
+	node --test --test-reporter=dot "$ASYNCAPI_EXAMPLES_DIR/check.test.mjs" || rc=1
+	return $rc
+}
+
+# Pacotes Go que leem os contratos como texto (testes de contrato): os que citam openapi.yaml ou asyncapi.yaml.
+contract_reader_pkgs() {
+	local dirs
+	dirs=$(grep -rlE 'openapi\.yaml|asyncapi\.yaml' --include='*.go' cmd internal pkg htdocs 2>/dev/null |
+		xargs -n1 dirname 2>/dev/null | sort -u)
+	# shellcheck disable=SC2086
+	packages_of_dirs $dirs
+}
+
 # No CI o Pebble é obrigatório: sem ele os testes de ACME pulariam em silêncio.
 pebble_check() {
 	if [ -z "$FS_TEST_PEBBLE" ] || [ ! -x "$FS_TEST_PEBBLE" ]; then
@@ -240,6 +278,10 @@ verify_quick() {
 	migrations_changed=$(echo "$files" | grep -c "^$MIGRATIONS_DIR/" || true)
 	gomod_changed=$(echo "$files" | grep -cE '^go\.(mod|sum)$' || true)
 	contracts_changed=$(echo "$files" | grep -cE "^($OPENAPI_FILE|$ASYNCAPI_FILE)\$" || true)
+	# examples do asyncapi: contratos, goldens referenciados (testdata) ou o próprio validador
+	examples_changed=$(echo "$files" |
+		grep -cE "^($OPENAPI_FILE|$ASYNCAPI_FILE|internal/[^/]+/testdata/.*|pkg/[^/]+/testdata/events/.*|$ASYNCAPI_EXAMPLES_DIR/.*)\$" ||
+		true)
 
 	echo "== verify quick"
 	echo "arquivos alterados: $(echo "$files" | grep -c . || true); pacotes afetados: $(echo "$pkgs" | grep -c . || true)"
@@ -294,6 +336,11 @@ verify_quick() {
 	else
 		skip_step "contratos (alterados)" "openapi/asyncapi sem mudança"
 	fi
+	if [ "$examples_changed" -gt 0 ]; then
+		run_step "examples asyncapi" asyncapi_examples_check
+	else
+		skip_step "examples asyncapi" "contratos e goldens sem mudança"
+	fi
 
 	# 5. testes ligados ao que mudou (ou os explícitos)
 	if [ ${#explicit[@]} -gt 0 ]; then
@@ -307,6 +354,13 @@ verify_quick() {
 		# scripts de deploy alterados: testes deles (pacote deploy)
 		if echo "$files" | grep -qE '^(deploy/.*\.sh|\.env\.example)$' && ls deploy/*_test.go >/dev/null 2>&1; then
 			test_pkgs="$test_pkgs $MODULE/deploy"
+		fi
+		# contratos alterados: testes que leem openapi/asyncapi como texto (ex.: TestPayloadsMatchAsyncAPI)
+		if [ "$contracts_changed" -gt 0 ]; then
+			for p in $(contract_reader_pkgs); do
+				d=$(pkg_to_dir "$p")
+				ls "$d"/*_test.go >/dev/null 2>&1 && test_pkgs="$test_pkgs $p"
+			done
 		fi
 		# migrations alteradas: testes de quem depende delas (testes de banco)
 		if [ "$migrations_changed" -gt 0 ] && [ -f "$MIGRATIONS_DIR/embed.go" ]; then
@@ -439,6 +493,7 @@ verify_full() {
 	run_step "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
 	run_step "contratos" contracts_check
+	run_step "examples asyncapi" asyncapi_examples_check
 	run_step "testes -race + cobertura" full_tests
 
 	if has_fuzz; then
