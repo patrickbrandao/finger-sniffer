@@ -1,6 +1,6 @@
 # 0014 — Organização dos agentes
 
-Status: aceita
+Status: aceita (revisão no modo autônomo, delegação e donos: ver 0023)
 Data: 2026-11-07
 
 ## Contexto

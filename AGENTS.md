@@ -6,8 +6,8 @@ temporização) e devolve tudo, cru e analisado, por uma API em portas não capt
 Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com quais características ele alcança o
 servidor; o consumidor principal é o teste de não-interferência do go-xproxy.
 
-Roda em `vps602.tmsoft.com.br` (Debian 13, 1 vCPU, 967 MiB), em `/finger-sniffer`, como 6 units systemd
-(5 serviços + NATS). Zona dos probes: `<id>.dns-monitor.tmsoft.com.br`.
+Roda em `vps602.tmsoft.com.br` (Debian 13, 1 vCPU, 967 MiB), em `/finger-sniffer`, como 7 units systemd
+(rede + NATS + 5 serviços) agrupadas num target. Zona dos probes: `<id>.dns-monitor.tmsoft.com.br`.
 
 ## Fonte da verdade
 As especificações em ./specs/ são a fonte da verdade. Toda mudança de comportamento começa pela spec.

@@ -34,7 +34,8 @@ NATS para o store correlacionar e analisar. Não analisa nada além do necessár
 
 ## Interfaces e contratos
 - Publica: `fs.v1.capture.packet` (lote), `fs.v1.svc.heartbeat`. Ver [asyncapi.yaml](../eventbus/nats/asyncapi.yaml).
-- Métricas: `fs_capture_packets_total{dir}`, `fs_capture_kernel_drops_total`, `fs_dropped_events_total`.
+- Métricas (pelo heartbeat, sem rótulos): `fs_capture_packets_in_total`, `fs_capture_packets_out_total`,
+  `fs_capture_kernel_drops_total`, `fs_dropped_events_total` (ADR 0023).
 
 ## Dados
 Não persiste nada. Pacotes pertencem ao store após o ingest.

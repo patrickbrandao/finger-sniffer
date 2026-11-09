@@ -16,7 +16,9 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 - RF-03: passos: `golangci-lint run` só nos arquivos alterados; `go vet` + build (sem gerar binário) dos pacotes
   afetados e dos que dependem deles (`go list -deps`/reverse deps); `go test` dos pacotes afetados (arquivo de
   teste alterado ou `x.go` → `x_test.go` no mesmo pacote); testes de SQLite alterados.
-- RF-04: não roda build final, e2e, `-race` nem a suíte inteira.
+- RF-04: não roda build final, e2e, `-race` nem a suíte inteira. Exceção: quando `Makefile` ou
+  `scripts/release*`/`scripts/repro-check.sh` mudam, roda o `release-test` (build dos 5 binários e do pacote de
+  release, ~10 s), único teste desses arquivos (ADR 0023).
 - RF-05: aceita testes explícitos depois de `--`: `make verify-quick ARGS="-- ./pkg/h1 -run TestChunked"`.
 - RF-06: SQLite local: banco-modelo `tmp/testdb/template.sqlite` migrado pelo goose, refeito só quando o hash
   (sha256) de `database/sqlite/migrations/` muda (hash guardado em `PRAGMA user_version`/tabela `meta`); cada teste
@@ -30,7 +32,8 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
   porque o AsyncAPI CLI só confere exemplos de documentos 2.x — no quick, só quando um dos dois contratos ou um
   exemplo referenciado mudou), `go test -race -cover ./...` (banco isolado:
   arquivo SQLite temporário novo migrado do zero), metas de cobertura (≥ 80% em `pkg/{detect,probe,tlsparse,h1,
-  h2passive,quicparse,fingerprint}`, ≥ 60% total), fuzz curto (10 s por alvo), `govulncheck ./...`,
+  h2passive,quicparse,fingerprint}`, ≥ 60% total sem contar `cmd/`, cujas funções `main` o e2e cobre), fuzz curto (10 s por alvo; 60 s por alvo antes de cada release com `FS_FUZZ_TIME=60s`, registrado no PR de
+  release), `govulncheck ./...`,
   build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados na vps602 por ssh.
 - RF-09: `--e2e` acrescenta a matriz abaixo contra a vps602 (exige deploy da versão em teste).
 - RF-10: para na primeira falha.

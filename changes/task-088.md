@@ -1,1 +1,0 @@
-- Testes: golden pcap de cliente Windows (`windows-foxio`, do `latest.pcapng` público da FoxIO, BSD-3) no `TestGoldenPcaps`, com JA4T do `ja4` e assinatura/SO do `p0f -r` gerados na vps602; o teste exige os golden de Linux, macOS e Windows (spec 013 CA-1) e ignora erros ICMP que citam o TCP (task 088).

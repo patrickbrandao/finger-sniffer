@@ -1,1 +1,0 @@
-- Store: `close.idle_before_close_ms` mede do último dado antes do primeiro FIN/RST até ele, sem os registros curtos que quem fecha manda logo antes (close_notify, GOAWAY: até 128 B, até 1 RTT antes do FIN) e sem os dados depois do FIN; deixa de sair nulo em h2/TLS e no raw com meio-fechamento (task 075).

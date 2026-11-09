@@ -1,2 +1,0 @@
-- infra: build reproduzível (`-trimpath -buildvcs=false -mod=readonly`, `-buildid=`, toolchain `go1.27.3` fixada no go.mod; teste `make repro-check` no CI), `make release VERSION=vX.Y.Z` gera `dist/finger-sniffer-<v>-linux-amd64.tar.gz` com `SHA256SUMS` (sem tag nem publicação), workflow `release` na tag `v*` que refaz e confere os SHA-256 e checklist em `.github/release-checklist.md`.
-- infra: removido o binário Mach-O `finger-sniffer-raw` versionado na raiz; `/finger-sniffer-*` no `.gitignore` e `scripts/check-binaries.sh` no verify.
