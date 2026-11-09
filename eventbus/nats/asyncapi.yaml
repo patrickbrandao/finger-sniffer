@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.3.1
+  version: 0.3.3
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
@@ -21,6 +21,9 @@ info:
       corpo no formato FSPB v1.
 
     Compatibilidade (ADR 0001): `fs.v1.*` só recebe mudanças aditivas; campos desconhecidos são ignorados.
+
+    Versão: acompanha a do openapi sempre que um payload referenciado de lá muda (0.3.2 trouxe
+    `h3_control_stream_seen` no `HTTP3Info` de `fs.v1.web.http3.connection`; as duas voltam juntas em 0.3.3).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -263,6 +266,9 @@ components:
             subprotocol: { type: [string, "null"] }
         close:
           type: [object, "null"]
+          description: |
+            Só no primeiro frame close da conexão (de quem iniciou o fechamento, spec 012 RF-06); o close de
+            resposta sai como frame comum, sem este campo.
           properties:
             by: { type: string, enum: [client, server] }
             code: { type: [integer, "null"] }

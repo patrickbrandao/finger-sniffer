@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.3.2
+  version: 0.3.3
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -12,6 +12,11 @@ info:
     partir de `times.syn` (TCP) ou do primeiro datagrama (UDP), salvo quando indicado.
 
     Compatibilidade (ADR 0001): `/api/v1` só recebe mudanças aditivas.
+
+    Erros (corpo `Error`): `400` quando um parâmetro de consulta **ou de caminho** foge do formato declarado
+    (ex. `conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente); `404` quando o ID tem o
+    formato certo mas é desconhecido ou expirou, e para qualquer rota inexistente; `500` em erro interno das
+    rotas de consulta. `OPTIONS` em qualquer caminho responde `204` sem corpo (pré-voo CORS).
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -80,13 +85,16 @@ paths:
                 probe: { $ref: "./testdata/probe-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
     delete:
       tags: [probes]
       operationId: deleteProbe
       summary: Apaga o probe, suas conexões e consultas DNS
       responses:
         "204": { description: Apagado. }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/connections:
     get:
@@ -111,6 +119,7 @@ paths:
               examples:
                 two: { $ref: "./testdata/connections-list-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/connections/{conn_id}:
     parameters:
@@ -128,7 +137,9 @@ paths:
               examples:
                 closed_http: { $ref: "./testdata/connection-example.json" }
                 quic_h3: { $ref: "./testdata/connection-quic-example.json" }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/connections/{conn_id}/pcap:
     parameters:
@@ -143,7 +154,9 @@ paths:
           content:
             application/vnd.tcpdump.pcap:
               schema: { type: string, contentMediaType: application/vnd.tcpdump.pcap }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/connections/{conn_id}/raw:
     parameters:
@@ -165,6 +178,7 @@ paths:
               schema: { type: string, contentMediaType: application/octet-stream }
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/dns:
     get:
@@ -186,6 +200,7 @@ paths:
               examples:
                 with_ecs: { $ref: "./testdata/dns-list-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/packets:
     get:
@@ -208,6 +223,7 @@ paths:
               examples:
                 rst: { $ref: "./testdata/packets-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "500": { $ref: "#/components/responses/InternalError" }
 
   /api/v1/stream:
     get:
@@ -815,7 +831,13 @@ components:
               depends_on: { type: integer }
               weight: { type: integer }
         priority_frames_capped: { type: boolean }
-        akamai: { type: string }
+        akamai:
+          type: string
+          description: |
+            Fingerprint Akamai `S|WU|P|PS` (spec 010 RF-03); `PS` vem do primeiro HEADERS do cliente na conexão.
+            Em h2c por `Upgrade: h2c` o stream 1 é a própria requisição HTTP/1 que pediu o upgrade (sem HEADERS),
+            então, se o cliente não abrir outro stream, `PS` sai vazio (ex. `3:100;4:65536;2:0|1048510465|0|`).
+            `WU` = `00` sem WINDOW_UPDATE inicial; `P` = `0` sem frame PRIORITY antes do primeiro HEADERS.
         streams: { type: array, items: { $ref: "#/components/schemas/HTTP2Stream" } }
         frames: { type: array, items: { $ref: "#/components/schemas/H2Frame" } }
         frames_truncated: { type: boolean, description: "Lista cortada para caber no teto do evento (ADR 0018)." }
@@ -934,6 +956,11 @@ components:
         frames_truncated: { type: boolean, description: Frames além do teto não são listados (ADR 0018). }
         close:
           type: [object, "null"]
+          description: |
+            Close de **quem iniciou** o fechamento (spec 012 RF-06): `by`, código e razão do primeiro frame close
+            visto. O close de resposta do outro lado aparece só em `frames` (`opcode` 8, `dir`, `length`), sem
+            código nem razão. `code`/`reason` nulos quando o frame não tem corpo; `close` nulo quando não houve
+            frame close (o TCP caiu antes).
           properties:
             by: { type: string, enum: [client, server] }
             code: { type: [integer, "null"] }
