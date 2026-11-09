@@ -4,7 +4,8 @@
 #   SVC=""      todos os passos
 #   SVC=<svc>   só os passos daquele serviço + health (capture, store e nats só têm o health)
 #
-# Passos: health :9001 com os 5 serviços ok/degraded; web GET :80/ e GET :443/ (TLS estrito, salvo quando o
+# Passos: health :9001 com os 5 serviços ok/degraded e versions_match=true (sem SVC: falha; com SVC: AVISO em
+# vermelho, porque implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :80/ e GET :443/ (TLS estrito, salvo quando o
 # health do web aponta cert_self_signed: aí aceita com aviso); dns A de <probe>.<zona> com o IP do espelho e
 # example.com → REFUSED; raw eco na 7 e banner 220 na 25; store GET https://:9000/api/v1/health.
 # h3 (com o web): só quando o heartbeat do web anuncia h3_listening=1 (antes da task 057 o passo é pulado com aviso):
@@ -62,6 +63,14 @@ bad() {
 	printf "  %-28s FALHOU %s\n" "$1" "$2"
 	fail=1
 }
+# red_warn: AVISO em vermelho quando a saída é um terminal
+red_warn() {
+	if [ -t 1 ]; then
+		printf "  \033[1;31m%-28s AVISO %s\033[0m\n" "$1" "$2"
+	else
+		printf "  %-28s AVISO %s\n" "$1" "$2"
+	fi
+}
 
 # selected <svc>: o passo do serviço roda nesta seleção?
 selected() { [ -z "$SVC" ] || [ "$SVC" = "$1" ]; }
@@ -75,6 +84,12 @@ health_compact() {
 svc_block() { printf '%s' "$HEALTH" | grep -o "\"$1\":{\"status\":\"[a-z]*\"[^}]*" | head -n1; }
 
 svc_status() { svc_block "$1" | sed -E 's/^"[a-z]+":\{"status":"([a-z]*)".*/\1/'; }
+
+# svc_version <svc>: versão anunciada pelo serviço no heartbeat.
+svc_version() { svc_block "$1" | grep -o '"version":"[^"]*"' | head -n1 | cut -d'"' -f4; }
+
+# versions_match: o health diz que os 5 serviços e o store rodam a mesma versão?
+versions_match() { printf '%s' "$HEALTH" | grep -q '"versions_match":true'; }
 
 # self_signed <svc>: o health do serviço aponta certificado autoassinado?
 self_signed() { svc_block "$1" | grep -q '"cert_self_signed"'; }
@@ -103,17 +118,31 @@ step_health() {
 			*) bad_list="$bad_list $s=${st:-ausente}" ;;
 			esac
 		done
-		[ -n "$HEALTH" ] && [ -z "$bad_list" ] && break
+		# o heartbeat do serviço recém-reiniciado leva alguns segundos: espera também o versions_match
+		[ -n "$HEALTH" ] && [ -z "$bad_list" ] && versions_match && break
 		if [ "$SECONDS" -ge "$deadline" ]; then
 			[ -n "$HEALTH" ] || bad_list=" sem resposta"
-			bad "health :$API_HTTP_PORT" "$bad_list"
-			return
+			[ -z "$bad_list" ] || {
+				bad "health :$API_HTTP_PORT" "$bad_list"
+				return
+			}
+			break
 		fi
 		sleep 1
 	done
-	local summary=""
-	for s in capture web raw dns store; do summary="$summary $s=$(svc_status "$s")"; done
+	local summary="" versions=""
+	for s in capture web raw dns store; do
+		summary="$summary $s=$(svc_status "$s")"
+		versions="$versions $s=$(svc_version "$s")"
+	done
 	pass "health :$API_HTTP_PORT" "$summary"
+	if versions_match; then
+		pass "health versions_match" "$(svc_version store)"
+	elif [ -z "$SVC" ]; then
+		bad "health versions_match" "VERSÕES DESENCONTRADAS:$versions"
+	else
+		red_warn "health versions_match" "VERSÕES DESENCONTRADAS:$versions (rode make deploy completo)"
+	fi
 }
 
 # https_get <rótulo> <porta> <caminho> <svc dono do certificado>
