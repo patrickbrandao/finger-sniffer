@@ -1,5 +1,5 @@
-// Comando finger-sniffer-dns: stub do serviço dns. Na F1 só publica heartbeat (task 007); a função do
-// serviço chega nas fases seguintes do PLAN.
+// Comando finger-sniffer-dns: autoritativo de FS_DNS_ZONE em UDP e TCP 53 (spec 007), com o TXT do DNS-01
+// pedido pelo web por NATS (spec 015).
 package main
 
 import (
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/dns"
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -21,12 +22,18 @@ func main() {
 		fmt.Println(version.String(serviceName))
 		return
 	}
+	cfg, err := dns.LoadConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, serviceName+":", err)
+		os.Exit(1)
+	}
 	svc, err := service.New(event.ServiceDNS)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, serviceName+":", err)
 		os.Exit(1)
 	}
-	if err := svc.Run(nil); err != nil {
+	if err := dns.Run(svc, cfg); err != nil {
+		svc.Log.Error("dns stopped", "err", err)
 		os.Exit(1)
 	}
 }
