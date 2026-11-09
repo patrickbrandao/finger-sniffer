@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"net/netip"
 	"sync"
 	"time"
@@ -44,6 +46,7 @@ type conn struct {
 	truncated                                  bool
 	closeAt                                    int64
 	serverSeen                                 bool
+	quicDCID                                   string // DCID do primeiro Initial QUIC do cliente (hex)
 	ana                                        *analysis
 	app                                        *appState // eventos de aplicação associados (spec 004)
 }
@@ -222,7 +225,14 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 
 	isSYN := fi.proto == protoTCP && fi.tcpFlags&tcpSYN != 0 && fi.tcpFlags&tcpACK == 0
 	// Um SYN novo sobre uma conexão que já fechou abre outra conexão (reuso da 5-tupla).
-	if c != nil && isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))) {
+	// No QUIC, um Initial do cliente com DCID novo depois do close da conexão anterior abre outra (ADR 0019).
+	newQUIC := false
+	dcid, isInitial := "", false
+	if fi.proto == protoUDP {
+		dcid, isInitial = quicInitialDCID(fi.l4)
+		newQUIC = c != nil && isInitial && c.closing() && c.fromClient(fi) && dcid != c.quicDCID
+	}
+	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
 		delete(t.conns, k)
 		delete(t.byID, c.id)
 		t.finish(c)
@@ -242,6 +252,9 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		t.conns[k] = c
 		t.byID[c.id] = c
 		res.created = true
+	}
+	if isInitial && c.quicDCID == "" && c.fromClient(fi) {
+		c.quicDCID = dcid
 	}
 	c.observe(fi, ts, t.grace)
 	c.analyze(fi, ts, c.fromClient(fi), t)
@@ -266,7 +279,8 @@ func (t *flowTable) due(now int64) []*conn {
 	var out []*conn
 	for k, c := range t.conns {
 		idle := t.tcpIdle
-		if c.l4 == protoUDP {
+		// UDP com evento h3 e sem close (QUIC não tem FIN) usa a ociosidade do TCP (ADR 0019).
+		if c.l4 == protoUDP && !c.app.isQUIC() {
 			idle = t.udpIdle
 		}
 		if (c.closing() && now >= c.closeAt) || now-c.lastSeen > idle.Nanoseconds() {
@@ -277,6 +291,35 @@ func (t *flowTable) due(now int64) []*conn {
 		}
 	}
 	return out
+}
+
+// quicInitialDCID devolve o DCID (hex) de um pacote Initial QUIC de cabeçalho longo; udp é o cabeçalho UDP com
+// os dados. Versão 2 (RFC 9369) usa o tipo 1 para o Initial; v1 e versões desconhecidas, o tipo 0.
+func quicInitialDCID(udp []byte) (string, bool) {
+	if len(udp) < 8+7 {
+		return "", false
+	}
+	p := udp[8:]
+	if p[0]&0x80 == 0 {
+		return "", false // cabeçalho curto
+	}
+	version := binary.BigEndian.Uint32(p[1:5])
+	typ := (p[0] >> 4) & 0x03
+	switch {
+	case version == 0:
+		return "", false // negociação de versão
+	case version == 0x6b3343cf:
+		if typ != 1 {
+			return "", false
+		}
+	case typ != 0:
+		return "", false
+	}
+	n := int(p[5])
+	if n > 20 || len(p) < 6+n {
+		return "", false
+	}
+	return hex.EncodeToString(p[6 : 6+n]), true
 }
 
 // open devolve quantas conexões estão abertas.

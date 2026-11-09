@@ -5,8 +5,15 @@ import "strings"
 // proto deriva a pilha da conexão dos eventos (regra da spec 004): `tls/` como prefixo quando houve ClientHello;
 // depois http1.0/http1.1 (versão da primeira requisição), h2 (ALPN) ou h2c (prior knowledge/Upgrade), `/ws` quando
 // houve Upgrade para WebSocket; raw (serviço raw), raw/unknown (web sem protocolo reconhecido), dns (dns.query).
-// Sem evento de aplicação: tcp ou udp.
+// quic/h3 (ALPN h3 negociado) ou quic (Initial sem h3). Sem evento de aplicação: tcp ou udp.
 func (l *layers) proto(l4 string) string {
+	// QUIC: o ClientHello vem no Initial, mas o proto não ganha o prefixo tls/ (spec 004, ADR 0019).
+	if l.isQUIC() {
+		if l.h3ALPN() == "h3" || (l.http3 == nil && len(l.h3Requests) > 0) {
+			return "quic/h3"
+		}
+		return "quic"
+	}
 	var parts []string
 	if l.clientHello != nil {
 		parts = append(parts, "tls")
