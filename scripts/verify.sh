@@ -13,6 +13,8 @@
 #   FS_SKIP_LINUX_PRIV=1 pula os testes privilegiados na vps602 (usado no CI)
 #   FS_VPS_SSH           destino ssh (padrão root@vps602.tmsoft.com.br)
 #   FS_VPS_PORT          porta ssh (padrão 48022)
+#   FS_TEST_PEBBLE       binário do Pebble para os testes de ACME (padrão: o do PATH, instalado por make tools);
+#                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
 #
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
@@ -36,6 +38,12 @@ VPS_SSH="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
 
 export PATH="$(go env GOPATH)/bin:$PATH"
+
+# Pebble (servidor ACME de teste, spec 015): os testes pulam com aviso quando FS_TEST_PEBBLE está vazio.
+if [ -z "${FS_TEST_PEBBLE:-}" ] && command -v pebble >/dev/null 2>&1; then
+	FS_TEST_PEBBLE="$(command -v pebble)"
+fi
+export FS_TEST_PEBBLE="${FS_TEST_PEBBLE:-}"
 
 MODE="${1:-}"
 shift || true
@@ -191,6 +199,15 @@ contracts_check() {
 	return $rc
 }
 
+# No CI o Pebble é obrigatório: sem ele os testes de ACME pulariam em silêncio.
+pebble_check() {
+	if [ -z "$FS_TEST_PEBBLE" ] || [ ! -x "$FS_TEST_PEBBLE" ]; then
+		echo "Pebble não encontrado (rode make tools-ci ou defina FS_TEST_PEBBLE)"
+		return 1
+	fi
+	echo "FS_TEST_PEBBLE=$FS_TEST_PEBBLE"
+}
+
 gofumpt_check() {
 	local out
 	out=$(gofumpt -l "$@")
@@ -287,6 +304,10 @@ verify_quick() {
 			d=$(pkg_to_dir "$p")
 			ls "$d"/*_test.go >/dev/null 2>&1 && test_pkgs="$test_pkgs $p"
 		done
+		# scripts de deploy alterados: testes deles (pacote deploy)
+		if echo "$files" | grep -qE '^(deploy/.*\.sh|\.env\.example)$' && ls deploy/*_test.go >/dev/null 2>&1; then
+			test_pkgs="$test_pkgs $MODULE/deploy"
+		fi
 		# migrations alteradas: testes de quem depende delas (testes de banco)
 		if [ "$migrations_changed" -gt 0 ] && [ -f "$MIGRATIONS_DIR/embed.go" ]; then
 			mig_pkg="$MODULE/$MIGRATIONS_DIR"
@@ -411,6 +432,9 @@ verify_full() {
 	STOP_ON_FAIL=1
 	echo "== verify full"
 
+	if [ "${CI:-}" = true ]; then
+		run_step "pebble (CI)" pebble_check
+	fi
 	run_step "format" gofumpt_check .
 	run_step "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
