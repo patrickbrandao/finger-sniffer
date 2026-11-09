@@ -288,3 +288,30 @@ func TestH3Curl(t *testing.T) {
 		t.Fatalf("pseudo_order do curl %v", po)
 	}
 }
+
+// TestH3ResetInstants: stream que o servidor encerra por erro (RESET_STREAM sem HEADERS, aqui um stream
+// sem HEADERS com FIN) sai com response_started_at nulo e response_ended_at preenchido: cada instante é
+// independente (nulo = não observado), e o reset conta como fim da resposta.
+func TestH3ResetInstants(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	pc := startH3(t, h)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	qc, err := quic.DialAddr(ctx, pc.LocalAddr().String(),
+		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h3"}}, //nolint:gosec // autoassinado de teste
+		&quic.Config{MaxIdleTimeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = qc.CloseWithError(0, "") }()
+	str, err := qc.OpenStreamSync(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = str.Close()
+	reqs := h.events.wait(t, event.SubjectWebHTTP3Request, 0, 1)
+	in := instantsOf(t, reqs[0].Payload)
+	if !in.respStart.IsZero() || in.respEnd.IsZero() {
+		t.Fatalf("reset sem HEADERS: %+v", in)
+	}
+}

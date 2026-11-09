@@ -558,3 +558,32 @@ func TestH2Instants(t *testing.T) {
 		t.Fatalf("upgrade: %+v", up)
 	}
 }
+
+// TestH2ClientCancelInstants: o cliente cancela o stream (RST_STREAM) depois do HEADERS da resposta: o
+// http2.stream sai sem a espera de h2EndWait, com response_started_at preenchido e response_ended_at nulo
+// (o servidor não encerrou o stream).
+func TestH2ClientCancelInstants(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	r := newH2Raw(t, c, true)
+	if err := r.fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	r.headers(1, http.MethodGet, "/p/"+testProbe+"/r?size=10&delay_body=200", http2.PriorityParam{})
+	r.until(func(f http2.Frame) bool {
+		_, ok := f.(*http2.MetaHeadersFrame)
+		return ok && f.Header().StreamID == 1
+	})
+	if err := r.fr.WriteRSTStream(1, http2.ErrCodeCancel); err != nil {
+		t.Fatal(err)
+	}
+	rstAt := time.Now()
+	ev := h.events.wait(t, event.SubjectWebHTTP2Stream, srcPort(c), 1)[0]
+	if d := time.Since(rstAt); d >= 200*time.Millisecond+h2EndWait/2 {
+		t.Fatalf("evento atrasou %v depois do RST_STREAM", d)
+	}
+	in := instantsOf(t, ev.Payload)
+	if in.reqStart.IsZero() || in.respStart.IsZero() || !in.respEnd.IsZero() {
+		t.Fatalf("cancelado: %+v", in)
+	}
+}
