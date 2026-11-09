@@ -109,12 +109,14 @@ func contractBlocks(t *testing.T) map[string]string {
 		return b.String()
 	}
 	return map[string]string{
-		event.SubjectWebHTTP1Request:   join(openapi, "HTTP1Request", "ProxySignal", "Controls"),
-		event.SubjectWebTLSClientHello: join(openapi, "TLSInfo", "TLSExtension", "CodeName"),
-		event.SubjectWebRawSession:     join(openapi, "RawInfo"),
-		event.SubjectWebTLSHandshake:   join(async, "TLSHandshakePayload"),
-		event.SubjectWebStreamBytes:    join(async, "StreamBytesPayload"),
-		"envelope":                     join(async, "Envelope", "Flow"),
+		event.SubjectWebHTTP1Request:    join(openapi, "HTTP1Request", "ProxySignal", "Controls"),
+		event.SubjectWebTLSClientHello:  join(openapi, "TLSInfo", "TLSExtension", "CodeName"),
+		event.SubjectWebRawSession:      join(openapi, "RawInfo"),
+		event.SubjectWebTLSHandshake:    join(async, "TLSHandshakePayload"),
+		event.SubjectWebStreamBytes:     join(async, "StreamBytesPayload"),
+		event.SubjectWebHTTP2Connection: join(openapi, "HTTP2Info", "H2Frame"),
+		event.SubjectWebHTTP2Stream:     join(openapi, "HTTP2Stream", "HPACKField", "Controls"),
+		"envelope":                      join(async, "Envelope", "Flow"),
 	}
 }
 
@@ -201,34 +203,40 @@ func TestEventsContractAndGolden(t *testing.T) {
 		examples[subj] = evs[0]
 	}
 
-	dir := filepath.Join("testdata", "events")
 	for subj, e := range examples {
-		file := filepath.Join(dir, strings.TrimPrefix(subj, "fs.v1.web.")+".json")
-		var full map[string]any
-		_ = json.Unmarshal(mustJSON(t, e.Env), &full)
-		full["payload"] = e.Payload
-		if *update {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			out, _ := json.MarshalIndent(full, "", "  ")
-			if err := os.WriteFile(file, append(out, '\n'), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			continue
-		}
-		data, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("%v (rode go test -run TestEventsContractAndGolden -update)", err)
-		}
-		var golden map[string]any
-		if err := json.Unmarshal(data, &golden); err != nil {
+		checkGolden(t, subj, e)
+	}
+}
+
+// checkGolden compara a forma do evento com o exemplo em testdata/events/ (ou o regrava com -update).
+func checkGolden(t *testing.T, subj string, e decoded) {
+	t.Helper()
+	dir := filepath.Join("testdata", "events")
+	file := filepath.Join(dir, strings.TrimPrefix(subj, "fs.v1.web.")+".json")
+	var full map[string]any
+	_ = json.Unmarshal(mustJSON(t, e.Env), &full)
+	full["payload"] = e.Payload
+	if *update {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		g, f := mustJSON(t, shape(golden)), mustJSON(t, shape(full))
-		if !bytes.Equal(g, f) {
-			t.Errorf("%s: shape changed (rode -update)\n golden %s\n now    %s", subj, g, f)
+		out, _ := json.MarshalIndent(full, "", "  ")
+		if err := os.WriteFile(file, append(out, '\n'), 0o644); err != nil {
+			t.Fatal(err)
 		}
+		return
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("%v (rode go test -run %s -update)", err, t.Name())
+	}
+	var golden map[string]any
+	if err := json.Unmarshal(data, &golden); err != nil {
+		t.Fatal(err)
+	}
+	g, f := mustJSON(t, shape(golden)), mustJSON(t, shape(full))
+	if !bytes.Equal(g, f) {
+		t.Errorf("%s: shape changed (rode -update)\n golden %s\n now    %s", subj, g, f)
 	}
 }
 

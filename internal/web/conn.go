@@ -11,10 +11,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"github.com/patrickbrandao/finger-sniffer/pkg/detect"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja3"
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4"
+	"github.com/patrickbrandao/finger-sniffer/pkg/h2passive"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 	"github.com/patrickbrandao/finger-sniffer/pkg/tlsparse"
 )
@@ -22,9 +25,6 @@ import (
 // connIDWait é a espera máxima pelo conn_id contada a partir do accept (ADR 0017: 250 ms), com folga para
 // o agendamento da goroutine.
 const connIDWait = service.ConnIDTimeout + 20*time.Millisecond
-
-// h2cReadWindow é quanto o stub do h2c espera por mais bytes antes de fechar (o h2c chega na task 025).
-const h2cReadWindow = 500 * time.Millisecond
 
 // connIDFuture guarda o pedido assíncrono do conn_id feito logo após o accept.
 type connIDFuture struct {
@@ -129,7 +129,9 @@ func (s *Server) handle(ctx context.Context, raw net.Conn, at time.Time) {
 		c.serveHTTP1(t, ic, at)
 		t.flush()
 	case detect.H2CPriorKnowledge:
-		c.serveH2CStub(ic)
+		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream)
+		c.serveH2(t, ic, h2passive.ModePriorKnowledge, nil)
+		t.flush()
 	default:
 		c.serveRaw(ic, res)
 	}
@@ -154,7 +156,8 @@ func (s *Server) requestConnID(ctx context.Context, flow event.Flow, at time.Tim
 	return f
 }
 
-// serveTLS faz o handshake com o ClientHello capturado (spec 008) e segue para o HTTP/1 em texto claro.
+// serveTLS faz o handshake com o ClientHello capturado (spec 008) e segue, pelo ALPN, para o h2 (spec 010)
+// ou para o HTTP/1 em texto claro (spec 005 RF-03).
 func (c *conn) serveTLS(ic *idleConn) {
 	s := c.srv
 	start := s.now()
@@ -172,8 +175,7 @@ func (c *conn) serveTLS(ic *idleConn) {
 		c.publishClientHello(tc)
 	}
 	cfg := s.deps.TLS.Clone()
-	// Só http/1.1 até o h2 (task 025).
-	cfg.NextProtos = []string{"http/1.1"}
+	cfg.NextProtos = []string{http2.NextProtoTLS, "http/1.1"}
 	cfg.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
 		publishHello()
 		return nil, nil
@@ -193,7 +195,11 @@ func (c *conn) serveTLS(ic *idleConn) {
 	c.tlsOn = true
 	c.mu.Unlock()
 	t := newTap(ts, s.cfg.RawStreamMax, s.now, c.emitStream)
-	c.serveHTTP1(t, ic, end)
+	if ts.ConnectionState().NegotiatedProtocol == http2.NextProtoTLS {
+		c.serveH2(t, ic, h2passive.ModeALPN, nil)
+	} else {
+		c.serveHTTP1(t, ic, end)
+	}
 	t.flush()
 	if c.abrupt.Load() {
 		// Fechamento abrupto pedido pelos controles: só o TCP (FIN ou RST), sem close_notify.
@@ -293,25 +299,6 @@ func alertFromError(err error) (event.TLSAlert, bool) {
 		return event.TLSAlert{Dir: k.dir, Level: level, Description: code}, true
 	}
 	return event.TLSAlert{}, false
-}
-
-// serveH2CStub registra o prefácio h2c e fecha (o h2c chega na task 025).
-func (c *conn) serveH2CStub(ic *idleConn) {
-	t := newTap(ic, c.srv.cfg.RawStreamMax, c.srv.now, c.emitStream)
-	_ = ic.SetReadDeadline(time.Now().Add(h2cReadWindow))
-	buf := make([]byte, 16<<10)
-	for got := 0; got < event.StreamChunkBytes; {
-		// Lê direto do detect.Conn (sem o prazo de ociosidade do idleConn) para respeitar a janela curta.
-		n, err := ic.Conn.Read(buf)
-		if n > 0 {
-			t.in.add(buf[:n])
-			got += n
-		}
-		if err != nil {
-			break
-		}
-	}
-	t.flush()
 }
 
 // drain lê e descarta até o cliente fechar ou a ociosidade vencer.

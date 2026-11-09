@@ -16,6 +16,11 @@ type idleConn struct {
 	idle atomic.Int64 // time.Duration
 	last atomic.Int64 // UnixNano da última atividade
 	now  func() time.Time
+
+	// dmu serializa o cálculo do prazo de leitura com hold/release; active conta os streams h2 em
+	// atendimento: com algum ativo a conexão não está ociosa e a leitura fica sem prazo.
+	dmu    sync.Mutex
+	active int
 }
 
 func newIdleConn(c net.Conn, idle time.Duration, last time.Time, now func() time.Time) *idleConn {
@@ -32,8 +37,37 @@ func (c *idleConn) deadline() time.Time {
 	return time.Unix(0, c.last.Load()).Add(time.Duration(c.idle.Load()))
 }
 
+// hold marca um stream h2 em atendimento: enquanto houver algum, a ociosidade não corre (o leitor do h2
+// fica bloqueado na leitura durante um delay_head, por exemplo, e não pode vencer o prazo).
+func (c *idleConn) hold() {
+	c.dmu.Lock()
+	defer c.dmu.Unlock()
+	c.active++
+	if c.active == 1 {
+		_ = c.SetReadDeadline(time.Time{})
+	}
+}
+
+// release encerra um stream de hold; o último a sair recomeça a contagem da ociosidade.
+func (c *idleConn) release() {
+	c.dmu.Lock()
+	defer c.dmu.Unlock()
+	c.active--
+	if c.active == 0 {
+		c.last.Store(c.now().UnixNano())
+		_ = c.SetReadDeadline(c.deadline())
+	}
+}
+
 func (c *idleConn) Read(p []byte) (int, error) {
-	if err := c.SetReadDeadline(c.deadline()); err != nil {
+	c.dmu.Lock()
+	var dl time.Time
+	if c.active == 0 {
+		dl = c.deadline()
+	}
+	err := c.SetReadDeadline(dl)
+	c.dmu.Unlock()
+	if err != nil {
 		return 0, err
 	}
 	n, err := c.Conn.Read(p)
@@ -116,6 +150,9 @@ func (s *streamDir) flush() {
 type tap struct {
 	net.Conn
 	now func() time.Time
+	// observe, quando definido, recebe uma cópia de cada leitura (in) e escrita (out) com o instante, fora
+	// do mu (parser passivo do h2).
+	observe atomic.Pointer[func(dir string, at time.Time, p []byte)]
 
 	mu  sync.Mutex
 	in  streamDir
@@ -146,6 +183,9 @@ func (t *tap) Read(p []byte) (int, error) {
 			t.firstReadAt, t.marked = at, false
 		}
 		t.mu.Unlock()
+		if f := t.observe.Load(); f != nil {
+			(*f)(event.DirectionIn, at, p[:n])
+		}
 	}
 	return n, err
 }
@@ -156,8 +196,20 @@ func (t *tap) Write(p []byte) (int, error) {
 		t.mu.Lock()
 		t.out.add(p[:n])
 		t.mu.Unlock()
+		if f := t.observe.Load(); f != nil {
+			(*f)(event.DirectionOut, t.now(), p[:n])
+		}
 	}
 	return n, err
+}
+
+// setObserver liga (ou desliga, com nil) a cópia das leituras e escritas.
+func (t *tap) setObserver(f func(dir string, at time.Time, p []byte)) {
+	if f == nil {
+		t.observe.Store(nil)
+		return
+	}
+	t.observe.Store(&f)
 }
 
 // markRead começa a esperar a próxima leitura com bytes; o instante dela sai em firstRead.

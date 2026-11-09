@@ -12,6 +12,7 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/detect"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
+	"github.com/patrickbrandao/finger-sniffer/pkg/h2passive"
 	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
@@ -56,6 +57,8 @@ type Config struct {
 	MaxHeadBytes int
 	// ProxyRules é a lista de campos que indicam proxy (FS_WEB_PROXY_FIELDS; vazio = lista padrão).
 	ProxyRules []h1.ProxyRule
+	// H2Limits são os tetos do parser passivo do h2 (FS_MAX_H2_PRIORITY_FRAMES, spec 010 RF-03).
+	H2Limits h2passive.Limits
 	// Zones são as zonas dos probes no SNI e no Host.
 	Zones []string
 	// RetryListen é o intervalo entre tentativas de abrir um listener que falhou.
@@ -115,6 +118,9 @@ func LoadConfig(base service.Config) (Config, error) {
 		c.Warnings = append(c.Warnings, fmt.Sprintf("FS_RAW_BODY_MAX_BYTES=%d above FS_EVENT_INLINE_MAX; using %d",
 			c.RawBodyMax, c.EventInlineMax))
 		c.RawBodyMax = c.EventInlineMax
+	}
+	if c.H2Limits, err = h2passive.LimitsFromEnv(); err != nil {
+		return c, err
 	}
 	if list := service.Env("FS_WEB_PROXY_FIELDS", ""); list != "" {
 		if c.ProxyRules, err = h1.ParseProxyRules(list); err != nil {
