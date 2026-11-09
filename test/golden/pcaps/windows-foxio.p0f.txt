@@ -1,0 +1,12 @@
+[2023/06/23 21:25:45] mod=syn|cli=172.16.225.48/52936|srv=34.212.93.65/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:45] mod=syn+ack|cli=172.16.225.48/52936|srv=34.212.93.65/443|subj=srv|os=???|dist=28|params=none|raw_sig=4:227+28:0:1460:26883,8:mss,nop,nop,sok,nop,ws:df:0
+[2023/06/23 21:25:47] mod=syn|cli=172.16.225.48/52937|srv=13.33.165.101/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:47] mod=syn+ack|cli=172.16.225.48/52937|srv=13.33.165.101/443|subj=srv|os=???|dist=10|params=none|raw_sig=4:245+10:0:1440:65535,9:mss,nop,nop,sok,nop,ws:df:0
+[2023/06/23 21:25:47] mod=syn|cli=172.16.225.48/52938|srv=34.205.195.66/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:47] mod=syn+ack|cli=172.16.225.48/52938|srv=34.205.195.66/443|subj=srv|os=???|dist=21|params=none|raw_sig=4:43+21:0:1300:mss*25,12:mss,nop,nop,sok,nop,ws:df:0
+[2023/06/23 21:25:47] mod=syn|cli=172.16.225.48/52939|srv=23.43.242.57/80|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:47] mod=syn+ack|cli=172.16.225.48/52939|srv=23.43.242.57/80|subj=srv|os=???|dist=7|params=none|raw_sig=4:57+7:0:1460:mss*44,7:mss,nop,nop,sok,nop,ws:df:0
+[2023/06/23 21:25:48] mod=syn|cli=172.16.225.48/52940|srv=52.249.29.248/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:49] mod=syn+ack|cli=172.16.225.48/52940|srv=52.249.29.248/443|subj=srv|os=???|dist=19|params=none|raw_sig=4:109+19:0:1440:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:49] mod=syn|cli=172.16.225.48/52941|srv=52.249.29.248/443|subj=cli|os=Windows NT kernel|dist=0|params=generic|raw_sig=4:128+0:0:1460:mss*44,8:mss,nop,ws,nop,nop,sok:df,id+:0
+[2023/06/23 21:25:49] mod=syn+ack|cli=172.16.225.48/52941|srv=52.249.29.248/443|subj=srv|os=???|dist=19|params=none|raw_sig=4:109+19:0:1440:65535,8:mss,nop,ws,nop,nop,sok:df,id+:0

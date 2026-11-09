@@ -21,6 +21,17 @@ o registro de cada conexão:
 | `keepalive-macos` | socket com keepalive TCP de 1 s, parado ~4,5 s (`sock.py keepalive`) | sondas de keepalive |
 | `retransmit-macos` | curl com perda de 8% nos pacotes que saem da porta 7700 (`tc netem`) | retransmissões do espelho |
 | `rst-macos` | socket que fecha com `SO_LINGER 0` (`sock.py rst`) | fechamento por RST |
+| `windows-foxio` | cliente Windows 10/11 real (navegador e serviços do sistema), captura pública da FoxIO | pilha Windows (JA4T `64240_2-1-3-1-1-4_1460_8`, p0f `Windows NT kernel`), ICMP "fragmentation needed" no meio de um fluxo (task 088) |
+
+O `windows-foxio` não foi capturado contra a vps602: o projeto não tem máquina Windows. Ele vem do
+`latest.pcapng` dos pcaps de teste da FoxIO (`https://github.com/FoxIO-LLC/ja4`, pasta `pcap/`, commit
+`c6469a7b0dbf8fe963810162429fbfd9d1acc4d5`, licença BSD 3-Clause, cópia em
+`pkg/fingerprint/internal/pcaptest/testdata/syn/LICENSE-FoxIO-BSD3`), capturado no próprio cliente Windows
+(TTL 128, MSS 1460, wscale 8, sem timestamps). `foxio-windows.sh` deixa só os 6 fluxos TCP com SYN, converte
+para pcap e gera as três saídas de referência na vps602 (mesmos campos do `collect.sh`; `p0f -r` com o
+`p0f.fp` do deploy). Os IPs são o privado do cliente e os de servidores públicos da captura original, por
+isso não passam pelo `anon.py`. O teste ignora os erros ICMP que citam o cabeçalho TCP, que o tshark põe no
+fluxo mas não são segmentos da conexão.
 
 Cada `<nome>.pcap` vem com:
 - `<nome>.tshark.json`: `tshark -T json` com os campos IP e TCP e `tcp.analysis.*` (inclui `ack_rtt`).
@@ -34,6 +45,7 @@ Os IPs públicos da máquina de teste foram trocados por endereços de documenta
 
 ```bash
 test/golden/collect.sh
+test/golden/foxio-windows.sh   # windows-foxio, a partir do pcap da FoxIO
 ```
 
 O script roda no Mac e usa a vps602 sem aprovação, por ser o servidor de testes. Ele faz o seguinte:

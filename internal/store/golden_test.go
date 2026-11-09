@@ -71,6 +71,11 @@ func loadGolden(t *testing.T, name string) map[int]*goldenFlow {
 	streams := map[string]*st{}
 	flows := map[int]*goldenFlow{}
 	for _, p := range pkts {
+		if len(p.Source.Layers["ip.src"]) > 1 || len(p.Source.Layers["ipv6.src"]) > 1 {
+			// erro ICMP (ex.: fragmentation needed do PMTUD em windows-foxio) que cita o cabeçalho TCP: o
+			// tshark o põe no fluxo, mas não é segmento TCP da conexão
+			continue
+		}
 		s := streams[p.get("tcp.stream")]
 		flags, _ := strconv.ParseUint(strings.TrimPrefix(p.get("tcp.flags"), "0x"), 16, 16)
 		src, sport := p.srcAddr(), p.get("tcp.srcport")
@@ -147,6 +152,9 @@ func loadGolden(t *testing.T, name string) map[int]*goldenFlow {
 	return flows
 }
 
+// goldenRequiredOS são os pcaps que cobrem os três sistemas da spec 013 CA-1.
+var goldenRequiredOS = []string{"curl-linux-v4", "curl-macos-v4", "windows-foxio"}
+
 func TestGoldenPcaps(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(goldenDir, "*.pcap"))
 	if err != nil {
@@ -154,6 +162,12 @@ func TestGoldenPcaps(t *testing.T) {
 	}
 	if len(files) < 8 {
 		t.Fatalf("só %d golden pcaps em %s (task 013 pede >= 8)", len(files), goldenDir)
+	}
+	// spec 013 CA-1: JA4T e p0f conferidos para Linux, macOS e Windows (task 088: Windows vem da FoxIO)
+	for _, name := range goldenRequiredOS {
+		if _, err := os.Stat(filepath.Join(goldenDir, name+".pcap")); err != nil {
+			t.Errorf("golden obrigatório ausente: %s (%v)", name, err)
+		}
 	}
 	conns := 0
 	for _, file := range files {
