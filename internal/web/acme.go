@@ -130,7 +130,7 @@ type acmeSlot struct {
 // O certmagic gerencia um certificado por nome; a spec quer um certificado por grupo de nomes (A com o apex e o
 // curinga, B com os quatro nomes), com arquivos fixos. Por isso usamos dele a conta, o armazenamento, os solvers
 // e a emissão (ACMEIssuer.Issue com um CSR de vários nomes), e o ciclo de renovação é nosso: renova
-// RenewBefore antes de vencer (no máximo um terço da validade, para certificados curtos), mantém o anterior em
+// RenewBefore antes de vencer (no máximo metade da validade, para certificados curtos), mantém o anterior em
 // falha e tenta de novo com backoff até RetryMax.
 type ACMEManager struct {
 	cfg     ACMEConfig
@@ -317,9 +317,10 @@ func (m *ACMEManager) slot(name string) *acmeSlot {
 	return nil
 }
 
-// renewAt é NotAfter menos RenewBefore, limitado a um terço da validade (certificados curtos).
+// renewAt é NotAfter menos RenewBefore, limitado à metade da validade (certificados curtos: o staging do LE
+// já emite com 64 dias, e 30 dias continuam valendo; no Pebble dos testes, segundos).
 func (m *ACMEManager) renewAt(leaf *x509.Certificate) time.Time {
-	before := min(m.cfg.RenewBefore, leaf.NotAfter.Sub(leaf.NotBefore)/3)
+	before := min(m.cfg.RenewBefore, leaf.NotAfter.Sub(leaf.NotBefore)/2)
 	return leaf.NotAfter.Add(-before)
 }
 

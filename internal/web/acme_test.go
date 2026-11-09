@@ -89,7 +89,7 @@ func TestRenewAt(t *testing.T) {
 		t.Fatalf("90d: %s", got)
 	}
 	short := &x509.Certificate{NotBefore: nb, NotAfter: nb.Add(30 * time.Second)}
-	if got := m.renewAt(short); !got.Equal(nb.Add(20 * time.Second)) {
+	if got := m.renewAt(short); !got.Equal(nb.Add(15 * time.Second)) {
 		t.Fatalf("30s: %s", got)
 	}
 }
@@ -426,7 +426,7 @@ func TestACMEPebbleIssueAndRenew(t *testing.T) {
 		}
 	}
 
-	// Renovação: com validade de 30 s, renova a 1/3 do fim (10 s antes).
+	// Renovação: com validade de 30 s, renova na metade (15 s antes do fim).
 	waitFor(t, 60*time.Second, func() bool { return metrics.Get(MetricACMEIssued) >= 4 }, func() string {
 		return fmt.Sprintf("renewals: issued %v failures %v", metrics.Get(MetricACMEIssued), metrics.Get(MetricACMEFailures))
 	})
