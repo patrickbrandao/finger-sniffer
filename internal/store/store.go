@@ -162,6 +162,13 @@ func (s *Store) Run(ctx context.Context) error {
 	}
 	defer func() { _ = sub.Unsubscribe() }()
 
+	// Request/reply NATS core, fora do laço de ingest (ADR 0017); a tabela de fluxos tem trava própria.
+	cid, err := s.svc.NC.Subscribe(event.SubjectStoreConnID, s.handleConnID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cid.Unsubscribe() }()
+
 	// O stream é criado em segundo plano (o NATS pode ainda estar subindo); depois começa o ingest.
 	go func() {
 		cons := s.ensureStream(ctx)
