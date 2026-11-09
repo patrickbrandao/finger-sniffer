@@ -1,6 +1,6 @@
 # 0026 — Fechamento rápido do registro (TCP e QUIC) e ajustes da carga para a v0.1.0 (agrupados)
 
-Status: aceita
+Status: aceita (janela do excesso de simultâneas, item 4: ver 0027)
 Data: 2026-11-09
 Substitui: 0024. Altera: 0019 (folga de 2 s do fim do QUIC), 0022 (QUIC à parte), 0025 (`ts` do `packet.stray`).
 
@@ -53,6 +53,7 @@ Fatos novos desde a ADR 0024 (exceção provisória de p95 ≤ 3 s para o regist
    - A tolerância à reordenação de uma rajada que a task 108 vai implementar (aplicar os fechamentos do mesmo lote
      ou de uma janela ≤ 100 ms antes de decidir, ou exigir que o excesso persista por ≤ 100 ms) é compatível com
      o RF-11 e não precisa de nova ADR; uma janela maior que 100 ms precisa.
+     A task 108 precisou de 200 ms: ver ADR 0027.
 5. **`ts` do `packet.stray`** (complementa a ADR 0025): avulso emitido na hora em que o pacote chega (RST avulso,
    ICMP) mantém o `ts` do pacote; avulso que só é decidido depois (fluxo UDP sem resposta ou SYN sem resposta,
    decididos pelo fim por ociosidade) leva `ts` = instante em que o store decidiu, como o `connection.closed` por

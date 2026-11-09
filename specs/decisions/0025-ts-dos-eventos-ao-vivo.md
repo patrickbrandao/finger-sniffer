@@ -26,8 +26,10 @@ escrita no openapi; a ADR 0022 só dizia "`ts` do evento".
     registro já gravado continua com o instante do store (sem mudança).
   - `connection.closed`: FIN/RST/`quic_close`: o fim (`ts` do pacote ou do `http3.connection` com `close`, sem
     mudança); **ociosidade e órfãs do reinício: o instante em que o store decidiu o fechamento**.
-  - `http.request`, `dns.query`, `packet.stray`: `ts` do envelope ou do pacote (sem mudança: são publicados na
-    hora do fato).
+  - `http.request`, `dns.query`: `ts` do envelope (sem mudança: são publicados na hora do fato).
+  - `packet.stray`: avulso decidido na chegada do pacote (RST sem conexão, ICMP) usa o `ts` do pacote; avulso
+    decidido na saída da tabela (fluxo UDP ou SYN sem resposta, por ociosidade) usa **o instante em que o store
+    decidiu** (ADR 0026, item 5; task 108). Os instantes dos pacotes ficam no `data` e em `/api/v1/packets`.
   - `stream.dropped`: instante do envio.
 - O envelope NATS **não muda**: `ts` continua "quando o fato ocorreu" e o `raw.session` continua com `ts` = accept,
   usado na associação à conexão. Nenhum produtor muda.
