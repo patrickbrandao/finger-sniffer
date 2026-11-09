@@ -1,0 +1,2 @@
+- infra: passo `examples asyncapi` no verify (`scripts/asyncapi-examples`, Node com ajv 2020-12 e json-schema-ref-parser fixados no lockfile) valida os `examples` (inclusive de traits e goldens externos) contra o `payload` de cada mensagem JSON; sempre no full/CI, no quick quando contrato, golden em testdata ou o validador mudam.
+- infra: `verify-quick` passa a rodar os testes Go que leem `openapi.yaml`/`asyncapi.yaml` como texto quando um contrato muda.

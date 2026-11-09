@@ -44,3 +44,6 @@ coverage.*
 .idea/
 .vscode/
 *.swp
+
+# Dependências Node do validador de examples do asyncapi (scripts/asyncapi-examples)
+node_modules/
