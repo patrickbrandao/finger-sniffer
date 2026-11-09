@@ -39,8 +39,10 @@ type Config struct {
 	Htdocs string
 	// IdleDefault é a ociosidade mantida pelo servidor antes de fechar (FS_IDLE_DEFAULT, spec 005 RF-08).
 	IdleDefault time.Duration
-	// IdleMax é o teto do controle idle= (FS_IDLE_MAX, usado pela task 023).
+	// IdleMax é o teto do controle idle= (FS_IDLE_MAX).
 	IdleMax time.Duration
+	// Limits são os tetos dos controles de resposta (FS_SIZE_MAX, FS_DELAY_MAX, FS_HSIZE_MAX).
+	Limits ControlLimits
 	// DetectBytes e DetectTimeout limitam a detecção pelos primeiros bytes (spec 005: 24 bytes ou 2 s).
 	DetectBytes   int
 	DetectTimeout time.Duration
@@ -101,6 +103,9 @@ func LoadConfig(base service.Config) (Config, error) {
 	}
 	if c.IdleDefault <= 0 || c.IdleMax < c.IdleDefault {
 		return c, fmt.Errorf("web: need 0 < FS_IDLE_DEFAULT <= FS_IDLE_MAX")
+	}
+	if c.Limits, err = loadControlLimits(); err != nil {
+		return c, err
 	}
 	if c.RawBodyMax, err = service.EnvInt("FS_RAW_BODY_MAX_BYTES", h1.DefaultRawBodyMax); err != nil {
 		return c, err

@@ -187,3 +187,37 @@ func (p *partialWriter) Write(b []byte) (int, error) {
 	}
 	return len(b), nil
 }
+
+// TestWriterCutAfter: CutAfter para a escrita no ponto exato (inclusive no meio de um pedaço chunked),
+// devolve ErrCut e registra só o que saiu; Reset desfaz o corte.
+func TestWriterCutAfter(t *testing.T) {
+	var out bytes.Buffer
+	w := NewResponseWriter(&out, 1<<20)
+	r := &Response{Status: 200, Framing: FramingChunked, ChunkSize: 4}
+	if err := w.WriteHead(r); err != nil {
+		t.Fatal(err)
+	}
+	head := out.Len()
+	w.CutAfter(5)
+	err := w.WriteBody(r, strings.NewReader("abcdefgh"))
+	if !errors.Is(err, ErrCut) {
+		t.Fatalf("want ErrCut, got %v", err)
+	}
+	if got := out.String()[head:]; got != "4\r\nab" {
+		t.Fatalf("body %q", got)
+	}
+	if s := w.Sent(); int(s.Size) != out.Len() || !bytes.Equal(s.Bytes, out.Bytes()) {
+		t.Fatalf("sent %d %q", s.Size, s.Bytes)
+	}
+	// Corte zero: nada mais sai.
+	w.CutAfter(0)
+	if err := w.WriteHead(r); !errors.Is(err, ErrCut) || out.Len() != head+5 {
+		t.Fatalf("cut 0: %v %d", err, out.Len())
+	}
+	w.Reset()
+	out.Reset()
+	if err := w.WriteBody(&Response{Framing: FramingContentLength, BodyLen: 3}, strings.NewReader("xyz")); err != nil ||
+		out.String() != "xyz" {
+		t.Fatalf("after reset: %v %q", err, out.String())
+	}
+}

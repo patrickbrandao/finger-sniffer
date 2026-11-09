@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -17,7 +16,7 @@ type routeKind int
 const (
 	routeStatic    routeKind = iota // arquivo de FS_HTDOCS ou 404
 	routeMirror                     // /p/<id>/
-	routeControl                    // /r e /p/<id>/r (controles na task 023)
+	routeControl                    // /r e /p/<id>/r (controles, respond.go)
 	routeACME                       // /.well-known/acme-challenge/<token>
 	routeBadTarget                  // alvo que não é caminho (authority/asterisk)
 )
@@ -80,8 +79,10 @@ func (s *h1Session) route(req *h1.Request, probeID string) response {
 		kind = classify(path)
 	}
 	switch kind {
-	case routeMirror, routeControl:
+	case routeMirror:
 		return s.mirror(req, probeID, rawQuery)
+	case routeControl:
+		return s.control(req, probeID, rawQuery)
 	case routeACME:
 		return s.acme(req, strings.TrimPrefix(path, acmePrefix))
 	case routeStatic:
@@ -97,26 +98,13 @@ func (s *h1Session) route(req *h1.Request, probeID string) response {
 	}
 }
 
-// mirror é a resposta padrão de /p/<id>/ e /r (RF-06): conn_id e índice da requisição, ou o JSON da
+// mirror é a resposta padrão de /p/<id>/ (RF-06): conn_id e índice da requisição, ou o JSON da
 // própria requisição com ?inline=1.
 func (s *h1Session) mirror(req *h1.Request, probeID, rawQuery string) response {
 	q, _ := url.ParseQuery(rawQuery)
-	if q.Get("inline") == "1" {
-		req.LimitInline(s.c.srv.cfg.EventInlineMax)
-		data, err := json.Marshal(req)
-		if err == nil {
-			r := textResponse(http.StatusOK, string(data)+"\n")
-			r.head.Fields[0].Value = "application/json"
-			return r
-		}
-	}
-	id := s.c.connID.get()
-	var b strings.Builder
-	fmt.Fprintf(&b, "conn_id: %s\nrequest: %d\n", id, req.Index)
-	if probeID != "" {
-		fmt.Fprintf(&b, "probe_id: %s\n", probeID)
-	}
-	r := textResponse(http.StatusOK, b.String())
+	body, contentType := s.mirrorBody(req, probeID, q.Get("inline") == "1")
+	r := textResponse(http.StatusOK, body)
+	r.head.Fields[0].Value = contentType
 	if req.RequestLine.Method == http.MethodHead {
 		headOnly(r.head)
 	}

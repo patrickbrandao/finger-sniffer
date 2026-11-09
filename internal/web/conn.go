@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/detect"
@@ -50,7 +51,9 @@ func (f *connIDFuture) get() string {
 
 // conn é o estado de uma conexão aceita.
 type conn struct {
-	srv      *Server
+	srv *Server
+	// ctx acaba na parada do serviço (interrompe delay_head/delay_body).
+	ctx      context.Context
 	raw      net.Conn
 	flow     *event.Flow
 	acceptAt time.Time
@@ -60,6 +63,8 @@ type conn struct {
 	probeID string
 	sni     string
 	tlsOn   bool
+	// abrupt pede o fechamento sem close_notify no TLS (close=before-body|mid-body, rst=1).
+	abrupt atomic.Bool
 }
 
 // probe devolve o probe da conexão (o primeiro achado).
@@ -102,7 +107,7 @@ func (c *conn) emitStream(sb event.StreamBytes) {
 // handle atende uma conexão do accept ao fechamento.
 func (s *Server) handle(ctx context.Context, raw net.Conn, at time.Time) {
 	defer func() { _ = raw.Close() }()
-	c := &conn{srv: s, raw: raw, flow: flowOf(raw), acceptAt: at}
+	c := &conn{srv: s, ctx: ctx, raw: raw, flow: flowOf(raw), acceptAt: at}
 	c.connID = s.requestConnID(ctx, *c.flow, at)
 
 	dc, res, err := detect.Detect(raw, s.cfg.DetectBytes, s.cfg.DetectTimeout)
@@ -190,6 +195,11 @@ func (c *conn) serveTLS(ic *idleConn) {
 	t := newTap(ts, s.cfg.RawStreamMax, s.now, c.emitStream)
 	c.serveHTTP1(t, ic, end)
 	t.flush()
+	if c.abrupt.Load() {
+		// Fechamento abrupto pedido pelos controles: só o TCP (FIN ou RST), sem close_notify.
+		_ = c.raw.Close()
+		return
+	}
 	// close_notify em vez de só FIN, como um servidor TLS normal.
 	_ = ts.Close()
 }
