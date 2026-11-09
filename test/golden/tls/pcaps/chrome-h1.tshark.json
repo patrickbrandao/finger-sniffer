@@ -1,0 +1,768 @@
+[
+  {
+    "_index": "packets-2026-11-09",
+    "_type": "doc",
+    "_score": null,
+    "_source": {
+      "layers": {
+        "frame": {
+          "filtered": "frame"
+        },
+        "eth": {
+          "filtered": "eth"
+        },
+        "ip": {
+          "filtered": "ip"
+        },
+        "tcp": {
+          "tcp.srcport": "59862",
+          "tcp.dstport": "7702",
+          "tcp.port": [
+            "59862",
+            "7702"
+          ],
+          "tcp.stream": "0",
+          "tcp.stream.pnum": "5",
+          "tcp.completeness": "15",
+          "tcp.completeness_tree": {
+            "tcp.completeness.rst": "0",
+            "tcp.completeness.fin": "0",
+            "tcp.completeness.data": "1",
+            "tcp.completeness.ack": "1",
+            "tcp.completeness.syn-ack": "1",
+            "tcp.completeness.syn": "1",
+            "tcp.completeness.str": "··DASS"
+          },
+          "tcp.len": "612",
+          "tcp.seq": "1401",
+          "tcp.seq_raw": "998657975",
+          "tcp.nxtseq": "2013",
+          "tcp.ack": "1",
+          "tcp.ack_raw": "3659873152",
+          "tcp.hdr_len": "32",
+          "tcp.flags": "0x0018",
+          "tcp.flags_tree": {
+            "tcp.flags.res": "0",
+            "tcp.flags.ae": "0",
+            "tcp.flags.cwr": "0",
+            "tcp.flags.ece": "0",
+            "tcp.flags.urg": "0",
+            "tcp.flags.ack": "1",
+            "tcp.flags.push": "1",
+            "tcp.flags.reset": "0",
+            "tcp.flags.syn": "0",
+            "tcp.flags.fin": "0",
+            "tcp.flags.str": "·······AP···"
+          },
+          "tcp.window_size_value": "2057",
+          "tcp.window_size": "131648",
+          "tcp.window_size_scalefactor": "64",
+          "tcp.checksum": "0xb5dd",
+          "tcp.checksum.status": "2",
+          "tcp.urgent_pointer": "0",
+          "tcp.options": "01:01:08:0a:d3:56:b8:93:94:0d:77:68",
+          "tcp.options_tree": {
+            "tcp.options.nop": [
+              "01",
+              "01"
+            ],
+            "tcp.options.nop_tree": [
+              {
+                "tcp.option_kind": "1"
+              },
+              {
+                "tcp.option_kind": "1"
+              }
+            ],
+            "tcp.options.timestamp": "08:0a:d3:56:b8:93:94:0d:77:68",
+            "tcp.options.timestamp_tree": {
+              "tcp.option_kind": "8",
+              "tcp.option_len": "10",
+              "tcp.options.timestamp.tsval": "3545675923",
+              "tcp.options.timestamp.tsecr": "2483910504"
+            }
+          },
+          "Timestamps": {
+            "tcp.time_relative": "0.023169000",
+            "tcp.time_delta": "0.000001000"
+          },
+          "tcp.analysis": {
+            "tcp.analysis.initial_rtt": "0.020854000",
+            "tcp.analysis.bytes_in_flight": "2012",
+            "tcp.analysis.push_bytes_sent": "2012"
+          },
+          "tcp.payload": "10:7c:b0:25:61:50:91:0a:08:e6:11:c9:3d:38:7d:b2:50:cb:34:d3:51:10:34:1c:81:a1:24:b7:17:1d:ba:77:06:6e:28:b4:95:e0:63:1d:e1:ad:10:15:28:4d:ab:00:96:75:77:11:97:11:2a:44:cc:55:d3:52:c3:5c:1c:bc:53:51:e9:35:1c:5a:db:cc:d7:7b:62:53:01:ac:3b:ea:02:8c:85:6e:42:a9:66:30:66:0f:a3:62:c1:ab:ba:34:e4:08:a2:90:52:15:d4:59:4a:79:e8:42:c3:c4:43:58:cc:ac:9b:46:1c:1a:74:5f:c6:d4:2f:da:9c:bb:94:6b:1a:e5:10:7b:a3:76:34:0b:a2:61:e0:24:78:09:a2:b1:2e:cb:97:44:46:6e:85:63:31:23:91:50:e0:52:cd:e8:7a:ce:68:ea:65:04:a6:af:fd:e0:24:7e:38:3b:49:60:60:f6:13:21:ef:8a:61:d8:a0:83:91:e1:6b:6c:66:07:c1:a1:c0:0d:f0:7d:52:9a:b1:89:e9:9f:d5:56:b5:15:14:97:2b:b1:8f:d0:60:2c:29:41:a4:1b:b8:4e:79:26:16:ee:29:46:6d:fb:cc:bf:8b:c1:98:aa:bb:3d:12:59:16:a8:2a:18:67:c4:e1:da:42:c4:75:bf:1c:91:63:ad:95:16:db:0b:16:61:57:6d:88:81:4c:f5:94:92:b9:c9:24:c4:f6:09:05:f0:ae:8e:4a:2e:df:f2:41:17:e3:99:7b:6c:07:91:d4:27:7a:c3:18:03:ac:0e:7c:57:25:12:a6:c3:81:0b:47:a7:b5:63:22:a6:bd:8c:c1:75:13:75:95:1e:81:22:b3:d5:62:1a:e1:24:0d:e9:7e:c4:58:18:ec:02:1e:f4:c6:0e:28:70:bb:bc:2c:10:02:2b:22:cc:4c:61:95:a2:2e:25:cc:19:85:d3:99:53:a7:61:2c:c5:48:4b:16:81:4c:06:4b:71:b5:80:21:a9:36:d7:03:87:fb:86:7a:c2:3a:44:ae:7c:75:03:db:c0:ae:ca:ab:5d:80:cd:84:81:b2:d6:26:7e:c4:08:8a:2b:9c:79:3b:34:c2:0f:6a:33:ce:24:ce:78:fb:3e:31:d2:9a:d7:a4:9e:c7:59:37:21:54:a7:5e:eb:67:d8:48:2c:92:21:b8:03:98:07:61:58:3f:bd:99:95:47:a3:41:04:e9:3d:4c:02:a4:74:f0:49:9d:98:51:d5:05:84:89:a9:b1:a7:60:a4:de:f3:65:fe:17:95:21:e1:6b:79:73:4c:34:ac:1f:df:88:89:21:78:6a:b2:14:c3:b2:28:49:c8:d8:54:9e:58:b7:44:9d:8c:66:de:2a:f9:5f:95:04:88:1f:14:a5:51:f8:32:4b:62:73:6a:2e:f0:78:83:45:8e:31:4e:ee:ae:2e:23:7d:be:1d:f0:94:0e:c1:06:f6:dd:0f:d1:38:7c:a4:5b:13:99:43:6a:03:d7:b6:84:46:00:1d:00:20:7f:0e:0f:80:37:b8:ce:70:97:17:a2:20:db:62:e6:7a:fa:f8:b0:9e:7e:94:9d:5c:ae:4c:60:dd:de:9e:ff:22:ea:ea:00:01:00",
+          "tcp.segment_data": "10:7c:b0:25:61:50:91:0a:08:e6:11:c9:3d:38:7d:b2:50:cb:34:d3:51:10:34:1c:81:a1:24:b7:17:1d:ba:77:06:6e:28:b4:95:e0:63:1d:e1:ad:10:15:28:4d:ab:00:96:75:77:11:97:11:2a:44:cc:55:d3:52:c3:5c:1c:bc:53:51:e9:35:1c:5a:db:cc:d7:7b:62:53:01:ac:3b:ea:02:8c:85:6e:42:a9:66:30:66:0f:a3:62:c1:ab:ba:34:e4:08:a2:90:52:15:d4:59:4a:79:e8:42:c3:c4:43:58:cc:ac:9b:46:1c:1a:74:5f:c6:d4:2f:da:9c:bb:94:6b:1a:e5:10:7b:a3:76:34:0b:a2:61:e0:24:78:09:a2:b1:2e:cb:97:44:46:6e:85:63:31:23:91:50:e0:52:cd:e8:7a:ce:68:ea:65:04:a6:af:fd:e0:24:7e:38:3b:49:60:60:f6:13:21:ef:8a:61:d8:a0:83:91:e1:6b:6c:66:07:c1:a1:c0:0d:f0:7d:52:9a:b1:89:e9:9f:d5:56:b5:15:14:97:2b:b1:8f:d0:60:2c:29:41:a4:1b:b8:4e:79:26:16:ee:29:46:6d:fb:cc:bf:8b:c1:98:aa:bb:3d:12:59:16:a8:2a:18:67:c4:e1:da:42:c4:75:bf:1c:91:63:ad:95:16:db:0b:16:61:57:6d:88:81:4c:f5:94:92:b9:c9:24:c4:f6:09:05:f0:ae:8e:4a:2e:df:f2:41:17:e3:99:7b:6c:07:91:d4:27:7a:c3:18:03:ac:0e:7c:57:25:12:a6:c3:81:0b:47:a7:b5:63:22:a6:bd:8c:c1:75:13:75:95:1e:81:22:b3:d5:62:1a:e1:24:0d:e9:7e:c4:58:18:ec:02:1e:f4:c6:0e:28:70:bb:bc:2c:10:02:2b:22:cc:4c:61:95:a2:2e:25:cc:19:85:d3:99:53:a7:61:2c:c5:48:4b:16:81:4c:06:4b:71:b5:80:21:a9:36:d7:03:87:fb:86:7a:c2:3a:44:ae:7c:75:03:db:c0:ae:ca:ab:5d:80:cd:84:81:b2:d6:26:7e:c4:08:8a:2b:9c:79:3b:34:c2:0f:6a:33:ce:24:ce:78:fb:3e:31:d2:9a:d7:a4:9e:c7:59:37:21:54:a7:5e:eb:67:d8:48:2c:92:21:b8:03:98:07:61:58:3f:bd:99:95:47:a3:41:04:e9:3d:4c:02:a4:74:f0:49:9d:98:51:d5:05:84:89:a9:b1:a7:60:a4:de:f3:65:fe:17:95:21:e1:6b:79:73:4c:34:ac:1f:df:88:89:21:78:6a:b2:14:c3:b2:28:49:c8:d8:54:9e:58:b7:44:9d:8c:66:de:2a:f9:5f:95:04:88:1f:14:a5:51:f8:32:4b:62:73:6a:2e:f0:78:83:45:8e:31:4e:ee:ae:2e:23:7d:be:1d:f0:94:0e:c1:06:f6:dd:0f:d1:38:7c:a4:5b:13:99:43:6a:03:d7:b6:84:46:00:1d:00:20:7f:0e:0f:80:37:b8:ce:70:97:17:a2:20:db:62:e6:7a:fa:f8:b0:9e:7e:94:9d:5c:ae:4c:60:dd:de:9e:ff:22:ea:ea:00:01:00"
+        },
+        "tcp.segments": {
+          "filtered": "tcp.segments"
+        },
+        "tls": {
+          "tls.record": {
+            "tls.record.content_type": "22",
+            "tls.record.version": "0x0301",
+            "tls.record.length": "2007",
+            "tls.handshake": {
+              "tls.handshake.type": "1",
+              "tls.handshake.length": "2003",
+              "tls.handshake.version": "0x0303",
+              "tls.handshake.version_tree": {
+                "_ws.expert": {
+                  "tls.handshake.legacy_version": "",
+                  "_ws.expert.message": "This legacy_version field MUST be ignored. The supported_versions extension is present and MUST be used instead.",
+                  "_ws.expert.severity": "2097152",
+                  "_ws.expert.group": "234881024"
+                }
+              },
+              "tls.handshake.random": "35:7a:50:ae:47:6e:eb:35:2e:ff:cd:4f:c1:cd:73:d2:29:68:29:1c:37:91:85:34:db:dd:91:b3:85:0b:e8:43",
+              "tls.handshake.random_tree": {
+                "tls.handshake.random_time": "Jun  7, 1998 08:34:54.000000000 UTC",
+                "tls.handshake.random_bytes": "47:6e:eb:35:2e:ff:cd:4f:c1:cd:73:d2:29:68:29:1c:37:91:85:34:db:dd:91:b3:85:0b:e8:43"
+              },
+              "tls.handshake.session_id_length": "32",
+              "tls.handshake.session_id": "a2:06:f9:f7:a6:71:c9:35:87:a1:6c:de:06:34:3c:a5:24:15:40:53:94:07:28:ee:22:73:6c:5c:9a:b2:76:95",
+              "tls.handshake.cipher_suites_length": "32",
+              "tls.handshake.ciphersuites": {
+                "tls.handshake.ciphersuite": [
+                  "0x7a7a",
+                  "0x1301",
+                  "0x1302",
+                  "0x1303",
+                  "0xc02b",
+                  "0xc02f",
+                  "0xc02c",
+                  "0xc030",
+                  "0xcca9",
+                  "0xcca8",
+                  "0xc013",
+                  "0xc014",
+                  "0x009c",
+                  "0x009d",
+                  "0x002f",
+                  "0x0035"
+                ]
+              },
+              "tls.handshake.comp_methods_length": "1",
+              "tls.handshake.comp_methods": {
+                "tls.handshake.comp_method": "0"
+              },
+              "tls.handshake.extensions_length": "1898",
+              "tls.handshake.extension": [
+                {
+                  "tls.handshake.extension.type": "56026",
+                  "tls.handshake.extension.len": "0",
+                  "tls.handshake.extension.data": ""
+                },
+                {
+                  "tls.handshake.extension.type": "18",
+                  "tls.handshake.extension.len": "0"
+                },
+                {
+                  "tls.handshake.extension.type": "43",
+                  "tls.handshake.extension.len": "7",
+                  "tls.handshake.extensions.supported_versions_len": "6",
+                  "tls.handshake.extensions.supported_version": [
+                    "0xeaea",
+                    "0x0304",
+                    "0x0303"
+                  ]
+                },
+                {
+                  "tls.handshake.extension.type": "0",
+                  "tls.handshake.extension.len": "25",
+                  "Server Name Indication extension": {
+                    "tls.handshake.extensions_server_name_list_len": "23",
+                    "tls.handshake.extensions_server_name_type": "0",
+                    "tls.handshake.extensions_server_name_len": "20",
+                    "tls.handshake.extensions_server_name": "vps602.tmsoft.com.br"
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "51764",
+                  "tls.handshake.extension.len": "186",
+                  "tls.handshake.extension.data": "00:b8:05:82:df:13:02:01:05:82:df:13:02:06:05:82:df:13:02:0d:05:82:df:13:02:0e:05:82:df:13:02:0f:05:82:df:13:02:12:05:82:df:13:02:13:05:82:df:13:02:14:08:83:9a:64:8c:9b:2d:01:07:08:83:9a:64:8c:9b:2d:01:08:08:83:9a:64:8c:9b:2d:01:09:08:83:9a:64:8c:9b:2d:01:0a:08:83:9a:64:8c:9b:2d:01:0b:08:83:9a:64:8c:9b:2d:01:0c:08:83:9a:64:8c:9b:2d:01:0d:08:83:9a:64:8c:9b:2d:01:12:08:83:9a:64:8c:9b:2d:01:13:04:d6:79:09:01:04:d6:79:09:04:04:d6:79:09:05:04:d6:79:09:06:04:d6:79:09:07:04:d6:79:09:08:04:d6:79:09:0a:04:d6:79:09:0b:04:d6:79:09:0c:04:d6:79:09:0d:04:d6:79:09:0f"
+                },
+                {
+                  "tls.handshake.extension.type": "65037",
+                  "tls.handshake.extension.len": "282",
+                  "tls.ech.client_hello_type": "0",
+                  "tls.ech.hpke.keyconfig.cipher_suite": {
+                    "tls.ech.hpke.keyconfig.cipher_suite.kdf_id": "1",
+                    "tls.ech.hpke.keyconfig.cipher_suite.aead_id": "1"
+                  },
+                  "tls.ech.config_id": "210",
+                  "tls.ech.enc_length": "32",
+                  "tls.ech.enc": "e8:78:b8:5d:1e:20:f7:3d:3d:b9:9f:8a:87:5a:58:ec:6a:33:02:d4:5a:08:ed:88:c9:70:2c:f5:9b:33:df:26",
+                  "tls.ech.payload_length": "240",
+                  "tls.ech.payload": "5d:73:32:15:c2:7b:b5:d2:ea:99:41:0b:5a:30:f9:df:fd:4f:e7:6f:ce:8b:00:87:6c:16:f2:68:09:a5:cf:65:d9:20:fc:67:9e:c8:b0:11:42:63:b3:ef:74:f6:32:ce:b3:87:91:22:6a:10:b2:3a:77:40:8e:90:c7:90:5e:2d:47:d3:e5:b6:8e:6c:b9:4f:1c:c1:3c:39:04:96:c4:73:ba:ce:67:02:77:57:45:e0:f0:dd:d3:ed:6f:84:f2:c2:95:8c:2d:16:1a:06:05:8d:0c:cf:e0:48:af:c0:5a:98:16:44:e9:1a:a3:b9:0a:3d:35:11:b1:09:b4:4e:18:12:45:f3:47:2e:2a:af:2b:46:5e:87:0c:0c:35:e4:82:cd:ee:e2:18:cb:31:f6:ad:a6:11:c9:1d:fc:eb:9f:46:ad:cb:66:a0:ee:38:e3:53:dc:be:14:f4:81:3a:cf:11:74:74:69:a5:78:87:b5:ba:f2:7b:b0:cd:d0:8d:5c:4c:fb:6f:7c:42:c3:ac:f9:78:e5:a6:ce:3d:dd:95:e8:8f:52:72:3c:2e:53:9f:48:bc:6b:4a:67:53:6a:f8:f6:82:4f:9d:86:4c:a2:ed:e1:d5:b5:28:65:33:e9:39:b7:fc:a8"
+                },
+                {
+                  "tls.handshake.extension.type": "65281",
+                  "tls.handshake.extension.len": "1",
+                  "Renegotiation Info extension": {
+                    "tls.handshake.extensions_reneg_info_len": "0"
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "11",
+                  "tls.handshake.extension.len": "2",
+                  "tls.handshake.extensions_ec_point_formats_length": "1",
+                  "tls.handshake.extensions_ec_point_formats": {
+                    "tls.handshake.extensions_ec_point_format": "0"
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "23",
+                  "tls.handshake.extension.len": "0"
+                },
+                {
+                  "tls.handshake.extension.type": "27",
+                  "tls.handshake.extension.len": "3",
+                  "tls.compress_certificate.algorithms_length": "2",
+                  "tls.compress_certificate.algorithm": "2"
+                },
+                {
+                  "tls.handshake.extension.type": "45",
+                  "tls.handshake.extension.len": "2",
+                  "tls.extension.psk_ke_modes_length": "1",
+                  "tls.extension.psk_ke_mode": "1"
+                },
+                {
+                  "tls.handshake.extension.type": "5",
+                  "tls.handshake.extension.len": "5",
+                  "tls.handshake.extensions_status_request_type": "1",
+                  "tls.handshake.extensions_status_request_responder_ids_len": "0",
+                  "tls.handshake.extensions_status_request_exts_len": "0"
+                },
+                {
+                  "tls.handshake.extension.type": "10",
+                  "tls.handshake.extension.len": "12",
+                  "tls.handshake.extensions_supported_groups_length": "10",
+                  "tls.handshake.extensions_supported_groups": {
+                    "tls.handshake.extensions_supported_group": [
+                      "0xeaea",
+                      "0x11ec",
+                      "0x001d",
+                      "0x0017",
+                      "0x0018"
+                    ]
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "16",
+                  "tls.handshake.extension.len": "11",
+                  "tls.handshake.extensions_alpn_len": "9",
+                  "tls.handshake.extensions_alpn_list": {
+                    "tls.handshake.extensions_alpn_str_len": "8",
+                    "tls.handshake.extensions_alpn_str": "http/1.1"
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "35",
+                  "tls.handshake.extension.len": "0",
+                  "tls.handshake.extensions.session_ticket": ""
+                },
+                {
+                  "tls.handshake.extension.type": "13",
+                  "tls.handshake.extension.len": "26",
+                  "tls.handshake.sig_hash_alg_len": "24",
+                  "tls.handshake.sig_hash_algs": {
+                    "tls.handshake.sig_hash_alg": [
+                      "0xaaaa",
+                      "0x0904",
+                      "0x0905",
+                      "0x0906",
+                      "0x0403",
+                      "0x0804",
+                      "0x0401",
+                      "0x0503",
+                      "0x0805",
+                      "0x0501",
+                      "0x0806",
+                      "0x0601"
+                    ],
+                    "tls.handshake.sig_hash_alg_tree": [
+                      {
+                        "tls.handshake.sig_hash_hash": "170",
+                        "tls.handshake.sig_hash_sig": "170"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "9",
+                        "tls.handshake.sig_hash_sig": "4"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "9",
+                        "tls.handshake.sig_hash_sig": "5"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "9",
+                        "tls.handshake.sig_hash_sig": "6"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "4",
+                        "tls.handshake.sig_hash_sig": "3"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "8",
+                        "tls.handshake.sig_hash_sig": "4"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "4",
+                        "tls.handshake.sig_hash_sig": "1"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "5",
+                        "tls.handshake.sig_hash_sig": "3"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "8",
+                        "tls.handshake.sig_hash_sig": "5"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "5",
+                        "tls.handshake.sig_hash_sig": "1"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "8",
+                        "tls.handshake.sig_hash_sig": "6"
+                      },
+                      {
+                        "tls.handshake.sig_hash_hash": "6",
+                        "tls.handshake.sig_hash_sig": "1"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "51",
+                  "tls.handshake.extension.len": "1263",
+                  "Key Share extension": {
+                    "tls.handshake.extensions_key_share_client_length": "1261",
+                    "Key Share Entry: Group: Reserved (GREASE), Key Exchange length: 1": {
+                      "tls.handshake.extensions_key_share_group": "60138",
+                      "tls.handshake.extensions_key_share_key_exchange_length": "1",
+                      "tls.handshake.extensions_key_share_key_exchange": "00"
+                    },
+                    "Key Share Entry: Group: X25519MLKEM768, Key Exchange length: 1216": {
+                      "tls.handshake.extensions_key_share_group": "4588",
+                      "tls.handshake.extensions_key_share_key_exchange_length": "1216",
+                      "tls.handshake.extensions_key_share_key_exchange": "af:fc:4c:a3:38:be:db:a9:0c:61:f8:12:e3:e7:be:de:17:6c:a3:84:59:7d:f1:6e:a1:97:12:2c:91:ce:c1:80:c2:33:38:a5:ea:90:47:24:c1:07:18:96:b8:fc:95:aa:50:14:50:52:88:1b:f5:b0:7c:35:5b:59:0f:d8:36:8d:ec:00:c8:5a:4d:d6:da:96:8d:f2:65:55:92:28:92:67:72:6f:6a:6a:48:82:5b:b5:53:72:27:38:76:4c:44:80:e3:63:54:a3:79:35:3b:83:1a:1e:f7:60:2b:c2:9f:5b:56:c5:d8:8b:1e:f3:10:76:55:92:a2:11:15:88:b4:c2:b9:33:1a:9f:61:eb:63:96:30:67:6a:70:86:f1:70:a3:59:49:a2:47:43:89:2b:22:cd:6b:65:6a:e4:a4:7c:b5:5b:7d:ae:c2:b8:f4:ac:6d:16:11:89:26:30:a2:33:80:c0:f4:e0:9c:8d:86:59:eb:f4:38:e7:a0:0e:18:47:45:4d:6b:b0:09:44:86:21:f8:10:50:a9:bb:76:db:3d:74:ca:46:3f:c2:05:62:1b:8e:33:e1:99:ab:84:3a:0a:e6:cc:0c:11:52:c8:90:6d:38:04:b2:31:58:16:3d:05:84:b5:71:7e:dc:54:5a:dd:f0:45:ee:aa:8b:4d:f3:c7:64:7b:b2:37:f8:4d:ed:89:1c:91:96:83:64:77:56:8f:d3:5f:84:7a:94:c4:5b:c4:c8:61:b2:23:56:69:da:5c:c0:52:4b:5c:bc:14:a4:9c:1b:0e:94:b2:2a:68:5c:9f:d9:e9:ba:be:03:47:f1:10:1a:4a:47:86:5a:67:35:6d:58:93:b9:1b:22:60:dc:96:f3:a7:34:9b:42:64:2e:04:58:0b:48:19:75:99:24:5f:c5:a6:b1:e4:a6:d0:d2:3d:ec:06:3d:1b:f1:70:e7:87:a8:6e:0c:4d:82:33:cc:f3:2a:ce:14:66:b4:c7:c2:43:14:74:91:87:75:37:5c:8b:91:ee:c2:37:9d:db:c3:9d:d4:72:bb:36:c0:43:f3:1f:1d:59:49:86:41:a4:c2:ea:05:05:2b:47:52:1c:c4:47:84:7a:07:b8:76:bd:88:ae:0e:cc:61:de:36:02:91:23:35:b2:79:1d:ea:f5:64:e8:dc:57:25:c1:93:9e:f1:5e:b0:15:64:23:d8:41:b8:18:8d:a8:9b:b9:52:ca:0f:25:ea:1c:c0:a2:13:11:6c:7f:c6:13:47:6b:33:42:b8:a2:ad:f8:f7:34:47:94:8a:1f:67:9f:8c:56:6d:fc:5c:cf:d2:7c:aa:24:4a:3c:de:27:06:1d:68:7d:fa:fb:bd:3a:16:9d:17:6c:96:da:78:ba:0d:33:62:fa:84:ad:9d:4c:52:0f:ac:38:84:6b:b7:11:58:20:09:94:7a:90:12:82:36:00:5d:63:f5:1b:5e:42:a3:80:8a:24:03:35:2d:d1:71:2a:9a:41:6d:5f:22:90:5f:bb:9a:58:d3:c1:7f:02:5c:68:ec:9f:0f:65:bf:73:59:02:47:2a:a7:87:c9:cf:54:94:95:17:a5:1c:8f:02:55:e3:f0:94:18:8b:ce:79:f7:3c:f8:26:39:6d:a7:93:64:06:31:c4:56:09:62:0c:11:78:a2:6b:27:97:98:59:16:9b:23:d1:22:b3:1a:02:7d:db:c0:72:53:c9:10:7c:b0:25:61:50:91:0a:08:e6:11:c9:3d:38:7d:b2:50:cb:34:d3:51:10:34:1c:81:a1:24:b7:17:1d:ba:77:06:6e:28:b4:95:e0:63:1d:e1:ad:10:15:28:4d:ab:00:96:75:77:11:97:11:2a:44:cc:55:d3:52:c3:5c:1c:bc:53:51:e9:35:1c:5a:db:cc:d7:7b:62:53:01:ac:3b:ea:02:8c:85:6e:42:a9:66:30:66:0f:a3:62:c1:ab:ba:34:e4:08:a2:90:52:15:d4:59:4a:79:e8:42:c3:c4:43:58:cc:ac:9b:46:1c:1a:74:5f:c6:d4:2f:da:9c:bb:94:6b:1a:e5:10:7b:a3:76:34:0b:a2:61:e0:24:78:09:a2:b1:2e:cb:97:44:46:6e:85:63:31:23:91:50:e0:52:cd:e8:7a:ce:68:ea:65:04:a6:af:fd:e0:24:7e:38:3b:49:60:60:f6:13:21:ef:8a:61:d8:a0:83:91:e1:6b:6c:66:07:c1:a1:c0:0d:f0:7d:52:9a:b1:89:e9:9f:d5:56:b5:15:14:97:2b:b1:8f:d0:60:2c:29:41:a4:1b:b8:4e:79:26:16:ee:29:46:6d:fb:cc:bf:8b:c1:98:aa:bb:3d:12:59:16:a8:2a:18:67:c4:e1:da:42:c4:75:bf:1c:91:63:ad:95:16:db:0b:16:61:57:6d:88:81:4c:f5:94:92:b9:c9:24:c4:f6:09:05:f0:ae:8e:4a:2e:df:f2:41:17:e3:99:7b:6c:07:91:d4:27:7a:c3:18:03:ac:0e:7c:57:25:12:a6:c3:81:0b:47:a7:b5:63:22:a6:bd:8c:c1:75:13:75:95:1e:81:22:b3:d5:62:1a:e1:24:0d:e9:7e:c4:58:18:ec:02:1e:f4:c6:0e:28:70:bb:bc:2c:10:02:2b:22:cc:4c:61:95:a2:2e:25:cc:19:85:d3:99:53:a7:61:2c:c5:48:4b:16:81:4c:06:4b:71:b5:80:21:a9:36:d7:03:87:fb:86:7a:c2:3a:44:ae:7c:75:03:db:c0:ae:ca:ab:5d:80:cd:84:81:b2:d6:26:7e:c4:08:8a:2b:9c:79:3b:34:c2:0f:6a:33:ce:24:ce:78:fb:3e:31:d2:9a:d7:a4:9e:c7:59:37:21:54:a7:5e:eb:67:d8:48:2c:92:21:b8:03:98:07:61:58:3f:bd:99:95:47:a3:41:04:e9:3d:4c:02:a4:74:f0:49:9d:98:51:d5:05:84:89:a9:b1:a7:60:a4:de:f3:65:fe:17:95:21:e1:6b:79:73:4c:34:ac:1f:df:88:89:21:78:6a:b2:14:c3:b2:28:49:c8:d8:54:9e:58:b7:44:9d:8c:66:de:2a:f9:5f:95:04:88:1f:14:a5:51:f8:32:4b:62:73:6a:2e:f0:78:83:45:8e:31:4e:ee:ae:2e:23:7d:be:1d:f0:94:0e:c1:06:f6:dd:0f:d1:38:7c:a4:5b:13:99:43:6a:03:d7:b6:84:46"
+                    },
+                    "Key Share Entry: Group: x25519, Key Exchange length: 32": {
+                      "tls.handshake.extensions_key_share_group": "29",
+                      "tls.handshake.extensions_key_share_key_exchange_length": "32",
+                      "tls.handshake.extensions_key_share_key_exchange": "7f:0e:0f:80:37:b8:ce:70:97:17:a2:20:db:62:e6:7a:fa:f8:b0:9e:7e:94:9d:5c:ae:4c:60:dd:de:9e:ff:22"
+                    }
+                  }
+                },
+                {
+                  "tls.handshake.extension.type": "60138",
+                  "tls.handshake.extension.len": "1",
+                  "tls.handshake.extension.data": "00"
+                }
+              ],
+              "tls.handshake.ja4": "t13d1516h1_8daaf6152771_dc9dadf2db3a",
+              "tls.handshake.ja4_r": "t13d1516h1_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,ca34,fe0d,ff01_aaaa,0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+              "tls.handshake.ja3_full": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,18-43-0-51764-65037-65281-11-23-27-45-5-10-16-35-13-51,4588-29-23-24,0",
+              "tls.handshake.ja3": "edbecbe4e7261bbfe2f720652cdda341"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "_index": "packets-2026-11-09",
+    "_type": "doc",
+    "_score": null,
+    "_source": {
+      "layers": {
+        "frame": {
+          "filtered": "frame"
+        },
+        "eth": {
+          "filtered": "eth"
+        },
+        "ip": {
+          "filtered": "ip"
+        },
+        "tcp": {
+          "tcp.srcport": "59862",
+          "tcp.dstport": "7702",
+          "tcp.port": [
+            "59862",
+            "7702"
+          ],
+          "tcp.stream": "0",
+          "tcp.stream.pnum": "12",
+          "tcp.completeness": "15",
+          "tcp.completeness_tree": {
+            "tcp.completeness.rst": "0",
+            "tcp.completeness.fin": "0",
+            "tcp.completeness.data": "1",
+            "tcp.completeness.ack": "1",
+            "tcp.completeness.syn-ack": "1",
+            "tcp.completeness.syn": "1",
+            "tcp.completeness.str": "··DASS"
+          },
+          "tcp.len": "739",
+          "tcp.seq": "2077",
+          "tcp.seq_raw": "998658651",
+          "tcp.nxtseq": "2816",
+          "tcp.ack": "1938",
+          "tcp.ack_raw": "3659875089",
+          "tcp.hdr_len": "32",
+          "tcp.flags": "0x0018",
+          "tcp.flags_tree": {
+            "tcp.flags.res": "0",
+            "tcp.flags.ae": "0",
+            "tcp.flags.cwr": "0",
+            "tcp.flags.ece": "0",
+            "tcp.flags.urg": "0",
+            "tcp.flags.ack": "1",
+            "tcp.flags.push": "1",
+            "tcp.flags.reset": "0",
+            "tcp.flags.syn": "0",
+            "tcp.flags.fin": "0",
+            "tcp.flags.str": "·······AP···"
+          },
+          "tcp.window_size_value": "2048",
+          "tcp.window_size": "131072",
+          "tcp.window_size_scalefactor": "64",
+          "tcp.checksum": "0x03d8",
+          "tcp.checksum.status": "2",
+          "tcp.urgent_pointer": "0",
+          "tcp.options": "01:01:08:0a:d3:56:b8:ad:94:0d:77:80",
+          "tcp.options_tree": {
+            "tcp.options.nop": [
+              "01",
+              "01"
+            ],
+            "tcp.options.nop_tree": [
+              {
+                "tcp.option_kind": "1"
+              },
+              {
+                "tcp.option_kind": "1"
+              }
+            ],
+            "tcp.options.timestamp": "08:0a:d3:56:b8:ad:94:0d:77:80",
+            "tcp.options.timestamp_tree": {
+              "tcp.option_kind": "8",
+              "tcp.option_len": "10",
+              "tcp.options.timestamp.tsval": "3545675949",
+              "tcp.options.timestamp.tsecr": "2483910528"
+            }
+          },
+          "Timestamps": {
+            "tcp.time_relative": "0.050117000",
+            "tcp.time_delta": "0.001830000"
+          },
+          "tcp.analysis": {
+            "tcp.analysis.initial_rtt": "0.020854000",
+            "tcp.analysis.bytes_in_flight": "803",
+            "tcp.analysis.push_bytes_sent": "739"
+          },
+          "tcp.payload": "17:03:03:02:de:fe:0c:77:22:78:ef:09:ed:57:6a:da:5f:de:d5:ff:65:2c:5c:3b:27:89:d9:6f:e6:31:6d:8b:44:11:25:f5:ad:41:3f:e9:ab:df:a9:09:ec:ee:88:9e:21:78:db:d5:89:b6:19:4b:50:34:c9:bb:d7:07:64:a8:f8:ab:93:5a:e5:4e:d6:93:94:e6:89:1b:ff:e5:58:aa:38:34:be:50:5b:d2:6b:8d:3d:06:82:ed:98:d0:bb:ef:7d:10:e5:a0:1c:0a:62:67:7a:83:28:f9:6c:dc:74:b5:9b:d9:e7:0d:d4:10:67:2a:a4:3a:d4:76:c5:15:c4:99:73:7c:b9:06:3d:b5:9a:e4:8b:5c:64:42:2a:bd:bb:db:1d:10:73:74:18:ff:47:08:84:82:fc:7d:48:30:06:28:7c:55:77:7e:a6:9c:c5:29:f7:70:d0:6e:fa:17:e3:6d:e3:47:47:0a:cb:17:6f:20:55:3f:06:f8:7d:ea:fd:4b:b4:f2:65:9f:61:54:3d:6b:f5:b9:f6:5c:bd:41:df:c6:a8:e9:2b:88:7b:86:e2:c9:d9:74:7a:18:dc:c0:e8:f0:d6:34:12:23:c9:d1:96:46:37:58:1c:8e:ba:2f:b1:34:40:3b:11:57:aa:e2:5b:24:87:aa:80:39:dc:a9:e8:94:0f:b3:68:9b:39:4c:35:ef:d7:96:1a:a1:23:9b:6d:f9:da:1c:88:0a:f0:1a:2e:b0:fd:ba:75:be:0b:ff:32:b7:52:21:25:d1:16:ed:81:33:b7:03:14:4e:04:8b:65:7e:64:e3:fe:62:85:22:de:7b:21:17:42:b0:40:08:c7:b8:21:d8:e9:be:76:f8:d7:db:4c:61:a3:9f:96:d0:21:8b:1b:1a:da:a5:84:05:d8:76:5c:c7:a2:61:88:96:07:56:b8:46:6c:15:3a:10:f6:3d:d2:11:88:df:b0:fa:76:3d:76:63:65:cc:05:2c:07:04:91:e7:2d:b0:ae:79:b5:b4:8b:7f:a4:3c:33:2f:39:3d:2e:ba:45:22:e4:a3:96:e8:e6:13:e6:ae:e0:04:9a:e3:f3:5a:83:1a:dc:37:96:6f:e4:b3:22:68:d3:3c:bf:f5:b2:e2:6c:91:80:31:c8:90:ce:fc:a2:95:7b:e3:41:6c:ac:a6:70:34:12:2d:3f:a4:99:3b:3f:80:95:4d:86:34:e4:ff:b1:54:09:d9:eb:25:37:e5:ac:21:04:72:4d:99:1b:4b:24:69:21:2a:36:f6:c9:7a:77:08:f6:b4:49:f0:3b:a8:6b:35:c6:2c:30:39:e1:6c:48:87:35:be:6e:70:23:ba:da:49:86:d1:14:01:b6:04:a8:b5:d2:9d:69:32:3c:05:9b:55:40:4b:fb:78:01:ba:9b:72:12:f4:60:ff:24:b0:4d:4e:c3:57:d3:09:f9:7a:36:58:3a:ff:02:9d:1f:ab:c8:96:85:89:fc:a8:b9:fc:53:13:84:90:a1:d1:1d:d0:2c:dd:87:50:e9:4f:10:55:ef:f3:02:37:ca:8a:88:e9:af:6b:08:99:39:64:81:20:f5:c0:2b:fa:3b:54:25:63:09:41:4a:a0:7e:53:3b:4e:0b:56:de:93:54:96:35:60:c9:77:91:c4:a9:46:89:cf:ab:0f:bf:de:ec:27:da:24:49:7a:98:93:e2:b2:57:85:2d:e8:8b:05:74:ec:73:2e:11:bc:45:38:72:80:68:cc:ee:2b:39:2b:c0:16:5d:16:49:cd:a9:b5:2b:02:ef:4a:81:fe:bf:76:74:e2:96:e9:97:ff:fb:52:13:40:0f:b3:7a:31:1d:12:ad:75:47:5b:2c:5b:bd:53:c3:db:b8:f8:21:5e:5d:c9:06:f1:13:cc:8c:d3:9d:8f:34:92:90:50:62:7a:0a:2d:ea:4f:9f:a5:1a:4e:21:14:43:95:ea:17:c5"
+        },
+        "tls": {
+          "tls.record": {
+            "tls.record.opaque_type": "23",
+            "tls.record.version": "0x0303",
+            "tls.record.length": "734",
+            "tls.record.content_type": "23",
+            "tls.app_data": "fe:0c:77:22:78:ef:09:ed:57:6a:da:5f:de:d5:ff:65:2c:5c:3b:27:89:d9:6f:e6:31:6d:8b:44:11:25:f5:ad:41:3f:e9:ab:df:a9:09:ec:ee:88:9e:21:78:db:d5:89:b6:19:4b:50:34:c9:bb:d7:07:64:a8:f8:ab:93:5a:e5:4e:d6:93:94:e6:89:1b:ff:e5:58:aa:38:34:be:50:5b:d2:6b:8d:3d:06:82:ed:98:d0:bb:ef:7d:10:e5:a0:1c:0a:62:67:7a:83:28:f9:6c:dc:74:b5:9b:d9:e7:0d:d4:10:67:2a:a4:3a:d4:76:c5:15:c4:99:73:7c:b9:06:3d:b5:9a:e4:8b:5c:64:42:2a:bd:bb:db:1d:10:73:74:18:ff:47:08:84:82:fc:7d:48:30:06:28:7c:55:77:7e:a6:9c:c5:29:f7:70:d0:6e:fa:17:e3:6d:e3:47:47:0a:cb:17:6f:20:55:3f:06:f8:7d:ea:fd:4b:b4:f2:65:9f:61:54:3d:6b:f5:b9:f6:5c:bd:41:df:c6:a8:e9:2b:88:7b:86:e2:c9:d9:74:7a:18:dc:c0:e8:f0:d6:34:12:23:c9:d1:96:46:37:58:1c:8e:ba:2f:b1:34:40:3b:11:57:aa:e2:5b:24:87:aa:80:39:dc:a9:e8:94:0f:b3:68:9b:39:4c:35:ef:d7:96:1a:a1:23:9b:6d:f9:da:1c:88:0a:f0:1a:2e:b0:fd:ba:75:be:0b:ff:32:b7:52:21:25:d1:16:ed:81:33:b7:03:14:4e:04:8b:65:7e:64:e3:fe:62:85:22:de:7b:21:17:42:b0:40:08:c7:b8:21:d8:e9:be:76:f8:d7:db:4c:61:a3:9f:96:d0:21:8b:1b:1a:da:a5:84:05:d8:76:5c:c7:a2:61:88:96:07:56:b8:46:6c:15:3a:10:f6:3d:d2:11:88:df:b0:fa:76:3d:76:63:65:cc:05:2c:07:04:91:e7:2d:b0:ae:79:b5:b4:8b:7f:a4:3c:33:2f:39:3d:2e:ba:45:22:e4:a3:96:e8:e6:13:e6:ae:e0:04:9a:e3:f3:5a:83:1a:dc:37:96:6f:e4:b3:22:68:d3:3c:bf:f5:b2:e2:6c:91:80:31:c8:90:ce:fc:a2:95:7b:e3:41:6c:ac:a6:70:34:12:2d:3f:a4:99:3b:3f:80:95:4d:86:34:e4:ff:b1:54:09:d9:eb:25:37:e5:ac:21:04:72:4d:99:1b:4b:24:69:21:2a:36:f6:c9:7a:77:08:f6:b4:49:f0:3b:a8:6b:35:c6:2c:30:39:e1:6c:48:87:35:be:6e:70:23:ba:da:49:86:d1:14:01:b6:04:a8:b5:d2:9d:69:32:3c:05:9b:55:40:4b:fb:78:01:ba:9b:72:12:f4:60:ff:24:b0:4d:4e:c3:57:d3:09:f9:7a:36:58:3a:ff:02:9d:1f:ab:c8:96:85:89:fc:a8:b9:fc:53:13:84:90:a1:d1:1d:d0:2c:dd:87:50:e9:4f:10:55:ef:f3:02:37:ca:8a:88:e9:af:6b:08:99:39:64:81:20:f5:c0:2b:fa:3b:54:25:63:09:41:4a:a0:7e:53:3b:4e:0b:56:de:93:54:96:35:60:c9:77:91:c4:a9:46:89:cf:ab:0f:bf:de:ec:27:da:24:49:7a:98:93:e2:b2:57:85:2d:e8:8b:05:74:ec:73:2e:11:bc:45:38:72:80:68:cc:ee:2b:39:2b:c0:16:5d:16:49:cd:a9:b5:2b:02:ef:4a:81:fe:bf:76:74:e2:96:e9:97:ff:fb:52:13:40:0f:b3:7a:31:1d:12:ad:75:47:5b:2c:5b:bd:53:c3:db:b8:f8:21:5e:5d:c9:06:f1:13:cc:8c:d3:9d:8f:34:92:90:50:62:7a:0a:2d:ea:4f:9f:a5:1a:4e:21:14:43:95:ea:17:c5",
+            "tls.app_data_proto": "Hypertext Transfer Protocol"
+          }
+        },
+        "http": {
+          "GET / HTTP/1.1\\r\\n": {
+            "http.request.method": "GET",
+            "http.request.uri": "/",
+            "http.request.version": "HTTP/1.1"
+          },
+          "http.host": "vps602.tmsoft.com.br:7702",
+          "http.request.line": [
+            "Host: vps602.tmsoft.com.br:7702\r\n",
+            "Connection: keep-alive\r\n",
+            "sec-ch-ua: \"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"\r\n",
+            "sec-ch-ua-mobile: ?0\r\n",
+            "sec-ch-ua-platform: \"macOS\"\r\n",
+            "Upgrade-Insecure-Requests: 1\r\n",
+            "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36\r\n",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n",
+            "Sec-Fetch-Site: none\r\n",
+            "Sec-Fetch-Mode: navigate\r\n",
+            "Sec-Fetch-User: ?1\r\n",
+            "Sec-Fetch-Dest: document\r\n",
+            "Accept-Encoding: gzip, deflate, br, zstd\r\n",
+            "Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7\r\n"
+          ],
+          "http.connection": "keep-alive",
+          "http.user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+          "http.accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+          "http.accept_encoding": "gzip, deflate, br, zstd",
+          "http.accept_language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+          "\\r\\n": "",
+          "http.request": "1",
+          "http.request.full_uri": "https://vps602.tmsoft.com.br:7702/"
+        }
+      }
+    }
+  },
+  {
+    "_index": "packets-2026-11-09",
+    "_type": "doc",
+    "_score": null,
+    "_source": {
+      "layers": {
+        "frame": {
+          "filtered": "frame"
+        },
+        "eth": {
+          "filtered": "eth"
+        },
+        "ip": {
+          "filtered": "ip"
+        },
+        "tcp": {
+          "tcp.srcport": "7702",
+          "tcp.dstport": "59862",
+          "tcp.port": [
+            "7702",
+            "59862"
+          ],
+          "tcp.stream": "0",
+          "tcp.stream.pnum": "14",
+          "tcp.completeness": "15",
+          "tcp.completeness_tree": {
+            "tcp.completeness.rst": "0",
+            "tcp.completeness.fin": "0",
+            "tcp.completeness.data": "1",
+            "tcp.completeness.ack": "1",
+            "tcp.completeness.syn-ack": "1",
+            "tcp.completeness.syn": "1",
+            "tcp.completeness.str": "··DASS"
+          },
+          "tcp.len": "194",
+          "tcp.seq": "1938",
+          "tcp.seq_raw": "3659875089",
+          "tcp.nxtseq": "2132",
+          "tcp.ack": "2816",
+          "tcp.ack_raw": "998659390",
+          "tcp.hdr_len": "32",
+          "tcp.flags": "0x0018",
+          "tcp.flags_tree": {
+            "tcp.flags.res": "0",
+            "tcp.flags.ae": "0",
+            "tcp.flags.cwr": "0",
+            "tcp.flags.ece": "0",
+            "tcp.flags.urg": "0",
+            "tcp.flags.ack": "1",
+            "tcp.flags.push": "1",
+            "tcp.flags.reset": "0",
+            "tcp.flags.syn": "0",
+            "tcp.flags.fin": "0",
+            "tcp.flags.str": "·······AP···"
+          },
+          "tcp.window_size_value": "16",
+          "tcp.window_size": "65536",
+          "tcp.window_size_scalefactor": "4096",
+          "tcp.checksum": "0x7508",
+          "tcp.checksum.status": "2",
+          "tcp.urgent_pointer": "0",
+          "tcp.options": "01:01:08:0a:94:0d:77:9b:d3:56:b8:ad",
+          "tcp.options_tree": {
+            "tcp.options.nop": [
+              "01",
+              "01"
+            ],
+            "tcp.options.nop_tree": [
+              {
+                "tcp.option_kind": "1"
+              },
+              {
+                "tcp.option_kind": "1"
+              }
+            ],
+            "tcp.options.timestamp": "08:0a:94:0d:77:9b:d3:56:b8:ad",
+            "tcp.options.timestamp_tree": {
+              "tcp.option_kind": "8",
+              "tcp.option_len": "10",
+              "tcp.options.timestamp.tsval": "2483910555",
+              "tcp.options.timestamp.tsecr": "3545675949"
+            }
+          },
+          "Timestamps": {
+            "tcp.time_relative": "0.050352000",
+            "tcp.time_delta": "0.000208000"
+          },
+          "tcp.analysis": {
+            "tcp.analysis.initial_rtt": "0.020854000",
+            "tcp.analysis.bytes_in_flight": "194",
+            "tcp.analysis.push_bytes_sent": "194"
+          },
+          "tcp.payload": "17:03:03:00:bd:39:97:dd:80:80:d0:51:dc:78:d7:4a:25:75:02:7c:61:e9:97:a9:b1:f7:a5:54:59:20:62:e7:49:1a:59:db:d9:8a:e3:eb:36:f4:aa:2d:84:c6:3d:04:4a:e0:28:ec:09:e8:a0:31:31:4b:40:16:40:e4:58:6e:79:34:98:f3:cc:3c:19:ee:47:6c:27:50:7d:0a:17:41:f7:c1:4d:25:13:ef:69:bf:68:6a:4e:f2:be:60:4b:17:9e:90:ba:21:d5:93:b6:d0:e8:05:4a:b4:8d:47:3b:89:bc:1c:f1:cd:a2:f0:97:6a:fd:5e:9f:12:08:8b:6c:06:25:91:63:1d:b1:dc:16:a4:1f:12:c6:9d:2a:d0:26:79:17:36:58:51:2c:55:1a:1b:ac:e1:22:f0:e4:be:26:75:43:8f:f5:45:b7:01:d1:aa:fa:68:98:fa:58:8f:3e:3e:dc:e0:8f:a9:13:44:15:10:d3:ed:df:61:81:b9:8e:2c:39:af"
+        },
+        "tls": {
+          "tls.record": {
+            "tls.record.opaque_type": "23",
+            "tls.record.version": "0x0303",
+            "tls.record.length": "189",
+            "tls.record.content_type": "23",
+            "tls.app_data": "39:97:dd:80:80:d0:51:dc:78:d7:4a:25:75:02:7c:61:e9:97:a9:b1:f7:a5:54:59:20:62:e7:49:1a:59:db:d9:8a:e3:eb:36:f4:aa:2d:84:c6:3d:04:4a:e0:28:ec:09:e8:a0:31:31:4b:40:16:40:e4:58:6e:79:34:98:f3:cc:3c:19:ee:47:6c:27:50:7d:0a:17:41:f7:c1:4d:25:13:ef:69:bf:68:6a:4e:f2:be:60:4b:17:9e:90:ba:21:d5:93:b6:d0:e8:05:4a:b4:8d:47:3b:89:bc:1c:f1:cd:a2:f0:97:6a:fd:5e:9f:12:08:8b:6c:06:25:91:63:1d:b1:dc:16:a4:1f:12:c6:9d:2a:d0:26:79:17:36:58:51:2c:55:1a:1b:ac:e1:22:f0:e4:be:26:75:43:8f:f5:45:b7:01:d1:aa:fa:68:98:fa:58:8f:3e:3e:dc:e0:8f:a9:13:44:15:10:d3:ed:df:61:81:b9:8e:2c:39:af",
+            "tls.app_data_proto": "Hypertext Transfer Protocol"
+          }
+        },
+        "http": {
+          "HTTP/1.1 200 OK\\r\\n": {
+            "http.response.version": "HTTP/1.1",
+            "http.response.code": "200",
+            "http.response.code.desc": "OK",
+            "http.response.phrase": "OK"
+          },
+          "http.content_type": "text/html; charset=utf-8",
+          "http.response.line": [
+            "Content-Type: text/html; charset=utf-8\r\n",
+            "Date: Mon, 09 Nov 2026 03:02:54 GMT\r\n",
+            "Content-Length: 56\r\n"
+          ],
+          "http.date": "Mon, 09 Nov 2026 03:02:54 GMT",
+          "http.content_length_header": "56",
+          "http.content_length_header_tree": {
+            "http.content_length": "56"
+          },
+          "\\r\\n": "",
+          "http.response": "1",
+          "http.request_in": "12",
+          "http.time": "0.000235000",
+          "http.request.uri": "/",
+          "http.request.full_uri": "https://vps602.tmsoft.com.br:7702/",
+          "http.file_data": "3c:21:64:6f:63:74:79:70:65:20:68:74:6d:6c:3e:3c:74:69:74:6c:65:3e:67:6f:6c:64:65:6e:3c:2f:74:69:74:6c:65:3e:3c:70:3e:67:6f:6c:64:65:6e:20:48:54:54:50:2f:31:3c:2f:70:3e"
+        },
+        "data-text-lines": {
+          "filtered": "data-text-lines"
+        }
+      }
+    }
+  },
+  {
+    "_index": "packets-2026-11-09",
+    "_type": "doc",
+    "_score": null,
+    "_source": {
+      "layers": {
+        "frame": {
+          "filtered": "frame"
+        },
+        "eth": {
+          "filtered": "eth"
+        },
+        "ip": {
+          "filtered": "ip"
+        },
+        "tcp": {
+          "tcp.srcport": "7702",
+          "tcp.dstport": "59862",
+          "tcp.port": [
+            "7702",
+            "59862"
+          ],
+          "tcp.stream": "0",
+          "tcp.stream.pnum": "20",
+          "tcp.completeness": "31",
+          "tcp.completeness_tree": {
+            "tcp.completeness.rst": "0",
+            "tcp.completeness.fin": "1",
+            "tcp.completeness.data": "1",
+            "tcp.completeness.ack": "1",
+            "tcp.completeness.syn-ack": "1",
+            "tcp.completeness.syn": "1",
+            "tcp.completeness.str": "·FDASS"
+          },
+          "tcp.len": "86",
+          "tcp.seq": "2132",
+          "tcp.seq_raw": "3659875283",
+          "tcp.nxtseq": "2218",
+          "tcp.ack": "3494",
+          "tcp.ack_raw": "998660068",
+          "tcp.hdr_len": "32",
+          "tcp.flags": "0x0018",
+          "tcp.flags_tree": {
+            "tcp.flags.res": "0",
+            "tcp.flags.ae": "0",
+            "tcp.flags.cwr": "0",
+            "tcp.flags.ece": "0",
+            "tcp.flags.urg": "0",
+            "tcp.flags.ack": "1",
+            "tcp.flags.push": "1",
+            "tcp.flags.reset": "0",
+            "tcp.flags.syn": "0",
+            "tcp.flags.fin": "0",
+            "tcp.flags.str": "·······AP···"
+          },
+          "tcp.window_size_value": "16",
+          "tcp.window_size": "65536",
+          "tcp.window_size_scalefactor": "4096",
+          "tcp.checksum": "0x6f64",
+          "tcp.checksum.status": "2",
+          "tcp.urgent_pointer": "0",
+          "tcp.options": "01:01:08:0a:94:0d:78:0b:d3:56:b9:1c",
+          "tcp.options_tree": {
+            "tcp.options.nop": [
+              "01",
+              "01"
+            ],
+            "tcp.options.nop_tree": [
+              {
+                "tcp.option_kind": "1"
+              },
+              {
+                "tcp.option_kind": "1"
+              }
+            ],
+            "tcp.options.timestamp": "08:0a:94:0d:78:0b:d3:56:b9:1c",
+            "tcp.options.timestamp_tree": {
+              "tcp.option_kind": "8",
+              "tcp.option_len": "10",
+              "tcp.options.timestamp.tsval": "2483910667",
+              "tcp.options.timestamp.tsecr": "3545676060"
+            }
+          },
+          "Timestamps": {
+            "tcp.time_relative": "0.162873000",
+            "tcp.time_delta": "0.000139000"
+          },
+          "tcp.analysis": {
+            "tcp.analysis.initial_rtt": "0.020854000",
+            "tcp.analysis.bytes_in_flight": "86",
+            "tcp.analysis.push_bytes_sent": "86"
+          },
+          "tcp.payload": "17:03:03:00:51:b6:52:9f:6e:65:e2:f5:27:b1:20:ec:81:ee:a1:13:a0:6f:e7:10:24:27:76:cb:76:be:57:95:d7:32:f2:f4:2b:97:93:7b:a6:fb:28:da:d0:e7:63:44:ac:55:70:ad:36:cb:e0:12:4e:d1:7d:1d:31:57:6d:48:d3:79:14:e8:b1:9f:67:59:c3:6b:f4:b9:d7:0a:76:aa:1d:e1:ef:6f:19:44"
+        },
+        "tls": {
+          "tls.record": {
+            "tls.record.opaque_type": "23",
+            "tls.record.version": "0x0303",
+            "tls.record.length": "81",
+            "tls.record.content_type": "23",
+            "tls.app_data": "b6:52:9f:6e:65:e2:f5:27:b1:20:ec:81:ee:a1:13:a0:6f:e7:10:24:27:76:cb:76:be:57:95:d7:32:f2:f4:2b:97:93:7b:a6:fb:28:da:d0:e7:63:44:ac:55:70:ad:36:cb:e0:12:4e:d1:7d:1d:31:57:6d:48:d3:79:14:e8:b1:9f:67:59:c3:6b:f4:b9:d7:0a:76:aa:1d:e1:ef:6f:19:44",
+            "tls.app_data_proto": "Hypertext Transfer Protocol"
+          }
+        },
+        "http": {
+          "HTTP/1.1 204 No Content\\r\\n": {
+            "http.response.version": "HTTP/1.1",
+            "http.response.code": "204",
+            "http.response.code.desc": "No Content",
+            "http.response.phrase": "No Content"
+          },
+          "http.date": "Mon, 09 Nov 2026 03:02:54 GMT",
+          "http.response.line": "Date: Mon, 09 Nov 2026 03:02:54 GMT\r\n",
+          "\\r\\n": "",
+          "http.response": "1"
+        }
+      }
+    }
+  }
+]
