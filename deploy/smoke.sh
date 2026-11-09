@@ -7,12 +7,14 @@
 # Passos: health :9001 com os 5 serviços ok/degraded; web GET :80/ e GET :443/ (TLS estrito, salvo quando o
 # health do web aponta cert_self_signed: aí aceita com aviso); dns A de <probe>.<zona> com o IP do espelho e
 # example.com → REFUSED; raw eco na 7 e banner 220 na 25; store GET https://:9000/api/v1/health.
+# h3 (com o web): só quando o heartbeat do web anuncia h3_listening=1 (antes da task 057 o passo é pulado com aviso):
+# Alt-Svc h3 na resposta da 443, listener UDP 443 (ss -Hlun) e, se o curl local tiver HTTP3, um GET por h3.
 # Roda todos os passos selecionados e sai com 1 se algum falhar.
 #
 # Variáveis (os padrões vêm do env instalado; os testes de deploy/smoke_test.go apontam para servidores falsos):
 #   FS_ENV_FILE, SMOKE_HOST (IPv4), SMOKE_NAME (nome do certificado), SMOKE_ZONE, SMOKE_DNS_EXPECT,
 #   SMOKE_*_PORT, SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os
-#   passos selecionados, sem executar).
+#   passos selecionados, sem executar), SMOKE_H3_GET=0 (não tenta o GET por h3 mesmo com curl HTTP3).
 set -uo pipefail
 
 SVC="${SVC:-}"
@@ -77,6 +79,18 @@ svc_status() { svc_block "$1" | sed -E 's/^"[a-z]+":\{"status":"([a-z]*)".*/\1/'
 # self_signed <svc>: o health do serviço aponta certificado autoassinado?
 self_signed() { svc_block "$1" | grep -q '"cert_self_signed"'; }
 
+# h3_listening: o heartbeat do web anuncia o listener UDP 443 de pé (métrica h3_listening, task 057)?
+h3_listening() { svc_block web | grep -Eq '"(web_)?h3_listening":1([,}]|$)'; }
+
+# h3_down: o web reporta o listener h3 caído (spec 005 RF-04)?
+h3_down() { svc_block web | grep -q '"h3_listener_down"'; }
+
+# curl_tls_flags <svc dono do certificado>: -k só com certificado autoassinado apontado no health.
+curl_tls_flags() { if self_signed "$1"; then echo -k; fi; }
+
+# curl_has_http3: o curl local fala HTTP/3?
+curl_has_http3() { curl --version 2>/dev/null | grep -i '^features:' | grep -qw HTTP3; }
+
 step_health() {
 	local deadline=$((SECONDS + HEALTH_WAIT)) s st bad_list
 	while :; do
@@ -131,6 +145,51 @@ step_web() {
 	https_get "web GET https :$HTTPS_PORT/" "$HTTPS_PORT" / web
 }
 
+step_h3() {
+	local hdrs alt out tls
+	if h3_down; then
+		bad "h3" "web reporta h3_listener_down"
+		return
+	fi
+	if ! h3_listening; then
+		warn "h3" "web não anuncia h3_listening no heartbeat (antes da task 057): pulado"
+		return
+	fi
+	tls=$(curl_tls_flags web)
+	# shellcheck disable=SC2086
+	hdrs=$(curl -sS $tls -o /dev/null -D - -m "$TIMEOUT" \
+		--resolve "$NAME:$HTTPS_PORT:$HOST" "https://$NAME:$HTTPS_PORT/" 2>&1) || true
+	alt=$(printf '%s\n' "$hdrs" | tr -d '\r' | grep -i '^alt-svc:' | head -n1)
+	if printf '%s' "$alt" | grep -Eqi 'h3=":?[0-9]*"'; then
+		pass "h3 Alt-Svc :$HTTPS_PORT" "${alt#*: }"
+	else
+		bad "h3 Alt-Svc :$HTTPS_PORT" "sem Alt-Svc h3 na resposta"
+	fi
+	if command -v ss >/dev/null 2>&1; then
+		if [ -n "$(ss -Hlun "sport = :$HTTPS_PORT" 2>/dev/null)" ]; then
+			pass "h3 listener udp :$HTTPS_PORT" "ss -Hlun"
+		else
+			bad "h3 listener udp :$HTTPS_PORT" "nenhum socket UDP em :$HTTPS_PORT"
+		fi
+	else
+		warn "h3 listener udp :$HTTPS_PORT" "sem ss neste host: pulado"
+	fi
+	if [ "${SMOKE_H3_GET:-1}" = 0 ]; then
+		warn "h3 GET :$HTTPS_PORT/" "SMOKE_H3_GET=0: pulado"
+	elif ! curl_has_http3; then
+		warn "h3 GET :$HTTPS_PORT/" "curl local sem HTTP3: pulado"
+	else
+		# shellcheck disable=SC2086
+		out=$(curl --http3-only -sS $tls -o /dev/null -w '%{http_code} %{http_version}' -m "$TIMEOUT" \
+			--resolve "$NAME:$HTTPS_PORT:$HOST" "https://$NAME:$HTTPS_PORT/" 2>&1) || true
+		if [ "$out" = "200 3" ]; then
+			pass "h3 GET :$HTTPS_PORT/" "HTTP/3 200"
+		else
+			bad "h3 GET :$HTTPS_PORT/" "$out"
+		fi
+	fi
+}
+
 step_dns() {
 	local id qname got status
 	# probe ID válido ([a-z0-9]{8,32}) e único por execução
@@ -180,7 +239,7 @@ step_store() {
 }
 
 steps="health"
-selected web && steps="$steps web"
+selected web && steps="$steps web h3"
 selected dns && steps="$steps dns"
 selected raw && steps="$steps raw"
 selected store && steps="$steps store"

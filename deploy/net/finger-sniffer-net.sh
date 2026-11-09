@@ -6,10 +6,12 @@
 set -u
 
 IFACE="${FS_CAPTURE_IFACE:-eth0}"
-SYSCTL_FILE="/finger-sniffer/deploy/sysctl/90-finger-sniffer.conf"
-STATUS_DIR="/run/finger-sniffer"
-STATUS_FILE="$STATUS_DIR/net-status.json"
-OFFLOADS="gro rx-gro-hw lro tso gso tx-checksumming rx-udp-gro-forwarding"
+# Os caminhos aceitam override para o teste (deploy/net_test.go); a unit usa os padrões.
+SYSCTL_FILE="${FS_NET_SYSCTL_FILE:-/finger-sniffer/deploy/sysctl/90-finger-sniffer.conf}"
+STATUS_FILE="${FS_NET_STATUS_FILE:-/run/finger-sniffer/net-status.json}"
+STATUS_DIR="$(dirname "$STATUS_FILE")"
+# tx-udp-segmentation (GSO de UDP no driver) pela ADR 0019: o QUIC sai datagrama a datagrama, como no fio.
+OFFLOADS="gro rx-gro-hw lro tso gso tx-checksumming rx-udp-gro-forwarding tx-udp-segmentation"
 
 mkdir -p "$STATUS_DIR"
 
@@ -29,8 +31,9 @@ fi
 features=$(ethtool -k "$IFACE" 2>/dev/null)
 json_offloads=""
 for f in generic-receive-offload rx-gro-hw large-receive-offload tcp-segmentation-offload \
-	generic-segmentation-offload tx-checksumming rx-udp-gro-forwarding; do
-	v=$(echo "$features" | awk -F': ' -v k="$f" '$1==k {split($2,a," "); print a[1]}')
+	generic-segmentation-offload tx-checksumming rx-udp-gro-forwarding tx-udp-segmentation; do
+	# sub-features (tx-udp-segmentation, por exemplo) podem vir indentadas conforme o driver
+	v=$(echo "$features" | awk -F': ' -v k="$f" '{sub(/^[ \t]+/, "", $1)} $1==k {split($2,a," "); print a[1]; exit}')
 	[ -n "$json_offloads" ] && json_offloads="$json_offloads,"
 	json_offloads="$json_offloads\"$f\":\"${v:-unknown}\""
 done

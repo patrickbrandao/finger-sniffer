@@ -40,3 +40,23 @@ rsync -a --delete -e "ssh -p $PORT -o BatchMode=yes" \
 echo "== instalação remota (com trava)"
 "${SSH[@]}" "mkdir -p /run/finger-sniffer && flock -w 300 /run/finger-sniffer/deploy.lock \
 	env SVC='$SVC' FORCE='$FORCE' bash '$STAGING/deploy/remote-install.sh' '$STAGING'; rc=\$?; rm -rf '$STAGING'; exit \$rc"
+
+# GET por h3 a partir do Mac (spec 016 RF-10): só com o web anunciando h3 e um curl local com HTTP3.
+# O smoke remoto já confere Alt-Svc, o listener UDP 443 e um GET por h3 de dentro da vps602.
+if [ -z "$SVC" ] || [ "$SVC" = web ]; then
+	H3_NAME="${FS_SMOKE_NAME:-vps602.tmsoft.com.br}"
+	if ! curl -fsS -m 5 "http://$H3_NAME:9001/api/v1/health" 2>/dev/null | tr -d ' \t\r\n' |
+		grep -Eq '"(web_)?h3_listening":1([,}]|$)'; then
+		echo "== h3 do Mac: AVISO web sem h3_listening no heartbeat: pulado"
+	elif ! curl --version 2>/dev/null | grep -i '^features:' | grep -qw HTTP3; then
+		echo "== h3 do Mac: AVISO curl local sem HTTP3: pulado"
+	else
+		out=$(curl --http3-only -sS -o /dev/null -w '%{http_code} %{http_version}' -m 10 "https://$H3_NAME/" 2>&1) || true
+		if [ "$out" = "200 3" ]; then
+			echo "== h3 do Mac: ok HTTP/3 200"
+		else
+			echo "== h3 do Mac: FALHOU $out"
+			exit 1
+		fi
+	fi
+fi
