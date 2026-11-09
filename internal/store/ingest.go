@@ -460,11 +460,14 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 
 	// Com eventos de aplicação a conexão existe de fato (ex. capture reiniciado no meio dela): não vira avulso.
 	if c.isStray() && c.app.events == 0 {
-		// Sem resposta do outro lado: pacotes avulsos (spec 004 RF-03).
+		// Sem resposta do outro lado: pacotes avulsos (spec 004 RF-03). O fato "é avulso" só existe quando o
+		// store decide, na saída da tabela (ociosidade de 30 s no UDP, por exemplo): o ts do feed é esse instante
+		// (ADR 0025, task 108); o registro e /api/v1/packets continuam com o ts do pacote.
+		decided := in.now().UnixNano()
 		for _, p := range pkts {
 			fi := parseFrame(p.frame)
 			sr := strayRecord(fi, p.ts, p.dir, p.wireLen)
-			in.liveStray(fi, p.ts, sr)
+			in.liveStray(fi, max(decided, p.ts), sr)
 			rec, _ := json.Marshal(sr)
 			if _, err := tx.ExecContext(ctx, insStraySQL, p.ts, int(p.dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), p.frame); err != nil {
 				return err

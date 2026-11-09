@@ -158,3 +158,25 @@ func TestLiveTsOtherKinds(t *testing.T) {
 		t.Fatalf("packet.stray ts: %+v", s)
 	}
 }
+
+// TestLiveTsStrayOnExpiry: o fluxo UDP sem resposta só vira avulso na ociosidade de 30 s; o packet.stray sai com
+// ts = decisão do store (ADR 0025, task 108), e /api/v1/packets guarda o ts do pacote.
+func TestLiveTsStrayOnExpiry(t *testing.T) {
+	in, read := liveIngestor(t)
+	src := netip.MustParseAddrPort("192.0.2.88:6000")
+	dst := netip.AddrPortFrom(mirror.Addr(), 5353)
+	processSrc(t, in, 50, batch(src, dst, protoUDP, []pkt{{20, true, 0, 40}}))
+	decide := 31_000 // > UDPIdle (30 s) depois do pacote
+	in.now = func() time.Time { return time.Unix(0, at(decide)) }
+	if err := in.Finalize(t.Context(), in.flows.due(at(decide))); err != nil {
+		t.Fatal(err)
+	}
+	s := byKind(read())[LivePacketStray]
+	if len(s) != 1 || s[0].origin != at(decide) {
+		t.Fatalf("stray decided on expiry: %+v", s)
+	}
+	var ts int64
+	if err := in.db.QueryRowContext(t.Context(), "SELECT ts_ns FROM stray_packets").Scan(&ts); err != nil || ts != at(20) {
+		t.Fatalf("stored stray ts %d %v", ts, err)
+	}
+}

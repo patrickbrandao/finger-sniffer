@@ -207,6 +207,7 @@ type flowTable struct {
 	maxNewPerS int
 	newTokens  float64 // balde das novas/s (overloaded)
 	tokensAt   int64   // instante (captura) da última recarga; 0 = balde cheio
+	fullSince  int64   // instante (captura) em que as vivas chegaram a maxOpen; 0 = abaixo do limite
 	segTracked int
 	p0f        *p0f.DB
 	clocks     clockRegistry
@@ -369,9 +370,13 @@ func (t *flowTable) refund(c *conn) {
 //     de antes degradava no próprio perfil (a 51ª conexão com 5 ms de adiantamento já passava do limite).
 //   - Tentativas que viram pacote avulso (SYN recusado ou sem resposta) devolvem a ficha (refund): no perfil
 //     exato, ~0,7 varredura/s esvaziava o balde aos poucos e degradava as conexões da carga nos minutos finais.
+//   - O limite de simultâneas só degrada quando o excesso dura mais de fullHold no tempo de captura (task 108):
+//     depois de uma pausa da rede, os SYNs novos e os FINs das conexões que terminaram durante a pausa chegam
+//     juntos, os SYNs na frente, e a conta passa de 200 por alguns milissegundos sem haver 200 conexões de fato.
+//     O excesso dentro dessa janela continua limitado pelo balde das novas/s (no máximo ~maxNewPerS a mais).
 func (t *flowTable) overloaded(ts int64, limited bool) bool {
 	t.refill(ts)
-	full := t.liveLimited() >= t.maxOpen
+	full := t.full(ts)
 	if !limited {
 		return full || t.newTokens < 1
 	}
@@ -380,6 +385,25 @@ func (t *flowTable) overloaded(ts int64, limited bool) bool {
 	}
 	t.newTokens--
 	return full
+}
+
+// fullHold é quanto tempo (captura) as vivas precisam ficar em maxOpen ou acima antes de degradar.
+const fullHold = 200 * time.Millisecond
+
+// full diz se o limite de simultâneas vale para uma conexão nova em ts. As vivas só sobem quando uma conexão é
+// criada, e toda criação passa por aqui; por isso a primeira criação que vê a conta abaixo do limite zera a janela.
+func (t *flowTable) full(ts int64) bool {
+	if t.maxOpen <= 0 {
+		return true // limite zero: tudo degradado, sem janela
+	}
+	if t.liveLimited() < t.maxOpen {
+		t.fullSince = 0
+		return false
+	}
+	if t.fullSince == 0 {
+		t.fullSince = max(ts, 1)
+	}
+	return ts-t.fullSince > fullHold.Nanoseconds()
 }
 
 // refill recarrega o balde das novas/s até o instante ts (pacotes fora de ordem não recarregam).
