@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.2.0
+  version: 0.2.1
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
@@ -21,6 +21,12 @@ info:
       corpo no formato FSPB v1.
 
     Compatibilidade (ADR 0001): `fs.v1.*` só recebe mudanças aditivas; campos desconhecidos são ignorados.
+
+    Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
+    golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
+    com `-update`. O AsyncAPI CLI só confere exemplos de documentos 2.x; a validação dos exemplos contra os payloads
+    é um passo próprio do verify.
+    Exemplo escrito à mão é marcado `(à mão)` no `summary` e trocado pelo golden quando o produtor o gerar.
   license:
     name: Apache-2.0
 defaultContentType: application/json
@@ -291,6 +297,27 @@ components:
   messageTraits:
     JSONEvent:
       contentType: application/json
+    # Exemplos das mensagens ACME ficam em traits: os testes de contrato de pkg/event e internal/dns leem o bloco
+    # dessas mensagens como texto e tomariam as chaves dos exemplos por propriedades.
+    ACMERequestExamples:
+      examples:
+        - name: set_dns01
+          summary: (à mão) pedido do provedor libdns do web.
+          payload:
+            name: _acme-challenge.dns-monitor.tmsoft.com.br.
+            value: Qm9n9W2qkfQx1h4rM5fJb2u8yYxT0yQ8c0xYk7oHk1E
+    ACMEReplyExamples:
+      examples:
+        - name: ok
+          summary: (à mão)
+          payload:
+            ok: true
+            error: null
+        - name: out_of_zone
+          summary: (à mão) nome fora da zona.
+          payload:
+            ok: false
+            error: "name is not _acme-challenge.<name> inside the zone"
 
   messages:
     PacketBatch:
@@ -329,6 +356,10 @@ components:
 
     TLSClientHello:
       name: TLSClientHello
+      examples:
+        - name: web
+          payload:
+            $ref: "../../internal/web/testdata/events/tls.client_hello.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: ClientHello cru e analisado (spec 008), de web ou raw.
       payload:
@@ -339,6 +370,10 @@ components:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/TLSInfo" }
     TLSHandshake:
       name: TLSHandshake
+      examples:
+        - name: web
+          payload:
+            $ref: "../../internal/web/testdata/events/tls.handshake.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload:
         allOf:
@@ -348,6 +383,10 @@ components:
               payload: { $ref: "#/components/schemas/TLSHandshakePayload" }
     HTTP1Request:
       name: HTTP1Request
+      examples:
+        - name: web_chunked_100_continue
+          payload:
+            $ref: "../../internal/web/testdata/events/http1.request.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Uma requisição HTTP/1.x e a resposta enviada (spec 009).
       payload:
@@ -358,6 +397,10 @@ components:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP1Request" }
     HTTP2Connection:
       name: HTTP2Connection
+      examples:
+        - name: web
+          payload:
+            $ref: "../../internal/web/testdata/events/http2.connection.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Nível de conexão h2 (prefácio, SETTINGS, PRIORITY, Akamai, frames); `streams` vazio.
       description: |
@@ -371,6 +414,10 @@ components:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP2Info" }
     HTTP2Stream:
       name: HTTP2Stream
+      examples:
+        - name: web
+          payload:
+            $ref: "../../internal/web/testdata/events/http2.stream.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload:
         allOf:
@@ -382,6 +429,7 @@ components:
       name: HTTP3Connection
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Initial QUIC analisado e requisições h3 (spec 011).
+      description: Sem exemplo até o produtor h3 existir (F4); a tarefa do h3 acrescenta o golden.
       payload:
         allOf:
           - $ref: "#/components/schemas/Envelope"
@@ -390,6 +438,10 @@ components:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/HTTP3Info" }
     WebSocketFrame:
       name: WebSocketFrame
+      examples:
+        - name: web_first_frame
+          payload:
+            $ref: "../../internal/web/testdata/events/websocket.frame.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload:
         allOf:
@@ -399,6 +451,13 @@ components:
               payload: { $ref: "#/components/schemas/WebSocketFramePayload" }
     StreamBytes:
       name: StreamBytes
+      examples:
+        - name: web_in
+          payload:
+            $ref: "../../internal/web/testdata/events/stream.bytes.json"
+        - name: raw_in
+          payload:
+            $ref: "../../internal/raw/testdata/raw_read.golden.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Bytes de aplicação de um sentido (para /raw?dir=), em pedaços com offset.
       payload:
@@ -409,6 +468,16 @@ components:
               payload: { $ref: "#/components/schemas/StreamBytesPayload" }
     RawSession:
       name: RawSession
+      examples:
+        - name: web_sink
+          payload:
+            $ref: "../../internal/web/testdata/events/raw.session.json"
+        - name: raw_probe_source
+          payload:
+            $ref: "../../internal/raw/testdata/raw_session_probe.golden.json"
+        - name: raw_half_close
+          payload:
+            $ref: "../../internal/raw/testdata/raw_session_halfclose.golden.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Sessão TCP crua (spec 006), publicada no fim da sessão.
       payload:
@@ -419,6 +488,22 @@ components:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/RawInfo" }
     DNSQuery:
       name: DNSQuery
+      examples:
+        - name: udp_a_ecs
+          payload:
+            $ref: "../../internal/dns/testdata/events/udp-a-ecs.json"
+        - name: tcp_https_v4
+          payload:
+            $ref: "../../internal/dns/testdata/events/tcp-https-v4.json"
+        - name: udp_formerr
+          payload:
+            $ref: "../../internal/dns/testdata/events/udp-formerr.json"
+        - name: udp_rate_limited
+          payload:
+            $ref: "../../internal/dns/testdata/events/udp-rate-limited.json"
+        - name: udp_refused
+          payload:
+            $ref: "../../internal/dns/testdata/events/udp-refused.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Consulta e resposta DNS (spec 007 RF-06).
       payload:
@@ -429,7 +514,9 @@ components:
               payload: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/DNSQuery" }
     ACMERequest:
       name: ACMERequest
-      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      traits:
+        - $ref: "#/components/messageTraits/JSONEvent"
+        - $ref: "#/components/messageTraits/ACMERequestExamples"
       description: |
         Cada nome guarda um conjunto de valores (spec 007): `set` acrescenta o valor (idempotente), `clear` remove só
         aquele valor; cada valor expira 10 min após o `set`. Nome fora da zona → `ok: false`.
@@ -441,7 +528,9 @@ components:
           value: { type: string }
     ACMEReply:
       name: ACMEReply
-      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      traits:
+        - $ref: "#/components/messageTraits/JSONEvent"
+        - $ref: "#/components/messageTraits/ACMEReplyExamples"
       payload:
         type: object
         required: [ok]
@@ -450,14 +539,47 @@ components:
           error: { type: [string, "null"] }
     ConnIDRequest:
       name: ConnIDRequest
+      examples:
+        - name: accept
+          summary: (à mão) pedido do web no accept.
+          payload:
+            flow:
+              l4: tcp
+              src_ip: 203.0.113.7
+              src_port: 51000
+              dst_ip: 198.51.100.1
+              dst_port: 443
+            ts: "2026-11-09T12:00:00.123456789Z"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload: { $ref: "#/components/schemas/ConnIDRequestPayload" }
     ConnIDReply:
       name: ConnIDReply
+      examples:
+        - name: reserved
+          summary: (à mão) a conexão ainda não existia no store.
+          payload:
+            conn_id: 01JC5Q8T0M3J9V7K2N4P6R8S0W
+            reserved: true
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload: { $ref: "#/components/schemas/ConnIDReplyPayload" }
     Heartbeat:
       name: Heartbeat
+      examples:
+        - name: web_ok
+          summary: (à mão)
+          payload:
+            schema_version: 1
+            service: web
+            service_version: 0.1.0
+            ts: "2026-11-09T12:00:00.123456789Z"
+            payload:
+              status: ok
+              reasons: []
+              commit: 768c24f
+              started_at: "2026-11-09T11:00:00.000000000Z"
+              metrics:
+                published_events_total: 1532
+                dropped_events_total: 0
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: A cada 5 s; o store marca `down` após 15 s sem heartbeat.
       payload:

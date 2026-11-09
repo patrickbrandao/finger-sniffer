@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.2.0
+  version: 0.2.1
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -710,6 +710,9 @@ components:
                   size: { type: integer }
                   size_literal: { type: string }
                   ext: { type: [string, "null"] }
+            chunks_truncated:
+              type: boolean
+              description: "Só os primeiros 4096 pedaços estão em `chunks` (teto do parser; tamanho e SHA-256 seguem do corpo inteiro)."
             trailers: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
         expect_continue:
           type: [object, "null"]
@@ -753,6 +756,10 @@ components:
         stream_id: { type: integer }
         pseudo_order: { type: array, items: { type: string } }
         fields: { type: array, items: { $ref: "#/components/schemas/HPACKField" } }
+        fields_truncated: { type: boolean, description: "Lista de campos cortada para caber no teto do evento (ADR 0018)." }
+        values_truncated:
+          type: boolean
+          description: "Algum `value` foi cortado (no máximo FS_EVENT_INLINE_MAX, menos se preciso) para caber no teto do evento (ADR 0018)."
         priority:
           type: [object, "null"]
           properties:
@@ -878,6 +885,8 @@ components:
         probe_line: { type: [string, "null"] }
         reads_in: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
         writes_out: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
+        reads_in_truncated: { type: boolean, description: "Só as primeiras 8192 leituras estão em `reads_in` (ADR 0018); os bytes seguem no fluxo `in`." }
+        writes_out_truncated: { type: boolean, description: "Só as primeiras 8192 escritas estão em `writes_out` (ADR 0018); os bytes seguem no fluxo `out`." }
         half_close:
           type: [object, "null"]
           properties:

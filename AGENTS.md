@@ -26,6 +26,8 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - Marque a tarefa como "em-andamento" e preencha `responsavel` antes de começar.
 - Trabalhe no seu próprio git worktree, branch `task/nnn-slug` a partir da `main`.
 - Altere apenas os arquivos listados na tarefa e as pastas do seu papel (specs/002).
+- Não edite o `CHANGELOG.md`: escreva o resumo da entrega (1–3 linhas) em `changes/task-NNN.md`; o architect junta
+  os fragmentos no CHANGELOG no fim de cada fase (specs/002, "Git e PR").
 - Ao concluir, atenda a Definition of Done (specs/002), remova o arquivo da tarefa e faça o commit da entrega
   citando o ID, por exemplo `feat(web): parser HTTP/1 (task 012)`.
 
@@ -64,6 +66,7 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - ./specs/: especificações (fonte da verdade)
 - ./specs/decisions/: registro de decisões (ADRs) e HISTORY.md
 - ./tasks/: fila de trabalho (fora do Git)
+- ./changes/: fragmentos do CHANGELOG, um por tarefa (`task-NNN.md`), juntados pelo architect no fim da fase
 - ./tmp/: arquivos temporários (fora do Git)
 - ./docs/: documentação derivada
 - ./cmd/finger-sniffer-<svc>/: binário de cada serviço (capture, web, raw, dns, store)

@@ -28,6 +28,8 @@ Regras de propriedade:
 - **Migrations**: implementer-store escreve; o architect aprova no PR antes do merge.
 - `go.mod`/`go.sum`: infra; outro papel que precise de dependência da lista da ADR 0009 pede na tarefa; fora da
   lista, escala ao humano.
+- `changes/task-NNN.md`: cada papel escreve o fragmento da sua tarefa (ver "Git e PR"); o architect os junta.
+- `.gitattributes`: infra.
 - Arquivos fora da tabela: pedir ao architect.
 
 ## Git e PR
@@ -38,6 +40,11 @@ Regras de propriedade:
 - PR com `verify-quick` verde informado na descrição, `verify-full` verde no CI e revisão do reviewer;
   **squash merge**.
 - Conflito: quem chegou depois faz rebase na `main`. Conflito em contrato ou spec: escala ao architect.
+- **CHANGELOG por fragmentos**: o GitHub ignora `merge=union` e marca como conflitante todo PR que mexe no
+  `CHANGELOG.md` depois de outro merge. Por isso a entrega **não edita o `CHANGELOG.md`**: escreve o resumo em
+  `changes/task-NNN.md` (um arquivo por tarefa, sem conflito). O architect junta os fragmentos na seção certa do
+  `CHANGELOG.md` e apaga os arquivos no fim de cada fase (no máximo no PR que cria as tarefas da fase seguinte) e
+  antes de cada release.
 - Deploy concorrente: `make deploy` pega uma trava remota (`flock /run/finger-sniffer/deploy.lock`); após cada
   merge a `main` é reimplantada.
 
@@ -58,7 +65,7 @@ Uma tarefa está concluída quando todos os itens forem verdadeiros:
 - a spec e os contratos estão atualizados, se mudaram (pelo architect);
 - a documentação em `./docs/` está atualizada, quando aplicável;
 - quando muda comportamento em runtime: `make deploy` na vps602 e smoke test ok;
-- o `CHANGELOG.md` recebeu o resumo compactado da entrega;
+- o resumo compactado da entrega (1–3 linhas, no estilo do `CHANGELOG.md`) está em `changes/task-NNN.md`;
 - o arquivo da tarefa foi removido.
 
 ## Escalonamento para o humano
