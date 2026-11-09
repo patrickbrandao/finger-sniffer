@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -189,14 +188,10 @@ func TestNeedVacuum(t *testing.T) {
 }
 
 // TestRetentionVacuumAfterShrink: depois de expurgar quase tudo, as rodadas devolvem o espaço livre em passos
-// limitados até ficar abaixo do limiar. Usa um banco criado pelo OpenDB, como o de produção: o banco-modelo do
-// verify-quick (scripts/testdb) nasce sem auto_vacuum=INCREMENTAL, e nele o incremental_vacuum não faz nada.
+// limitados até ficar abaixo do limiar. O banco-modelo do verify-quick nasce com auto_vacuum=INCREMENTAL, como o
+// de produção (task 107).
 func TestRetentionVacuumAfterShrink(t *testing.T) {
-	db, err := OpenDB(context.Background(), filepath.Join(t.TempDir(), "store.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := testDB(t)
 	fillConns(t, db, "old", 1500, time.Now().Add(-time.Hour).UnixNano())
 	r := NewRetention(db, 10*time.Minute, 2<<30)
 	ctx := context.Background()

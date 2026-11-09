@@ -1,6 +1,6 @@
 // Comando testdb mantém o banco-modelo SQLite usado pelos testes do nível rápido (spec 017 RF-06).
 //
-// O modelo é refeito só quando o hash (sha256) da pasta de migrations muda. O hash fica gravado
+// O modelo é refeito só quando o hash (sha256) da pasta de migrations ou das pragmas de criação muda. O hash fica gravado
 // dentro do próprio banco, na tabela fs_template_meta, para que um modelo copiado ou restaurado
 // continue verificável. Cada teste copia o modelo para um arquivo temporário e começa limpo.
 //
@@ -39,6 +39,12 @@ const (
 // metaTable guarda o hash das migrations usado para gerar o modelo.
 const metaTable = "fs_template_meta"
 
+// createPragmas são as pragmas persistentes que o store aplica antes das migrations (internal/store OpenDB).
+// auto_vacuum só vale se definido antes da primeira tabela, por isso vem antes do goose (task 107). WAL é
+// aplicado como no store e desfeito no fim, para que o modelo seja um arquivo único copiável.
+// Mudar esta lista muda o hash e refaz o modelo.
+var createPragmas = []string{"PRAGMA auto_vacuum=INCREMENTAL", "PRAGMA journal_mode=WAL"}
+
 func main() {
 	migrations := flag.String("migrations", "database/sqlite/migrations", "migrations directory")
 	out := flag.String("out", "tmp/testdb/template.sqlite", "template database path")
@@ -72,7 +78,7 @@ func ensureTemplate(ctx context.Context, migrationsDir, out string) (string, err
 	return resultRebuilt, nil
 }
 
-// hashMigrations calcula o sha256 dos arquivos .sql (nome + conteúdo, em ordem).
+// hashMigrations calcula o sha256 das pragmas de criação e dos arquivos .sql (nome + conteúdo, em ordem).
 func hashMigrations(dir string) (string, int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -91,6 +97,9 @@ func hashMigrations(dir string) (string, int, error) {
 	sort.Strings(names)
 
 	h := sha256.New()
+	for _, p := range createPragmas {
+		_, _ = io.WriteString(h, "pragma:"+p+"\x00")
+	}
 	fsys := os.DirFS(dir)
 	for _, name := range names {
 		f, err := fsys.Open(name)
@@ -132,9 +141,20 @@ func buildTemplate(ctx context.Context, migrationsDir, out, hash string) error {
 	tmp := out + ".building"
 	_ = os.Remove(tmp)
 
+	_ = os.Remove(tmp + "-wal")
+	_ = os.Remove(tmp + "-shm")
+
 	db, err := sql.Open("sqlite", "file:"+tmp)
 	if err != nil {
 		return err
+	}
+	// Uma conexão só: as pragmas valem para a mesma conexão que roda as migrations.
+	db.SetMaxOpenConns(1)
+	for _, p := range createPragmas {
+		if _, err := db.ExecContext(ctx, p); err != nil {
+			_ = db.Close()
+			return fmt.Errorf("%s: %w", p, err)
+		}
 	}
 
 	provider, err := goose.NewProvider(goose.DialectSQLite3, db, os.DirFS(migrationsDir))
@@ -152,6 +172,12 @@ func buildTemplate(ctx context.Context, migrationsDir, out, hash string) error {
 		return err
 	}
 	if _, err := db.ExecContext(ctx, "INSERT INTO "+metaTable+" (key, value) VALUES ('migrations_sha256', ?)", hash); err != nil {
+		_ = db.Close()
+		return err
+	}
+	// Volta ao journal de rollback: faz o checkpoint e apaga o -wal, deixando tudo no arquivo principal. O store
+	// religa o WAL ao abrir a cópia.
+	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode=DELETE"); err != nil {
 		_ = db.Close()
 		return err
 	}
