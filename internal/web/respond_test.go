@@ -384,12 +384,16 @@ func TestControlContinue(t *testing.T) {
 	})
 }
 
+// TestControlUpgradeWS: upgrade=ws sem o handshake do WebSocket recebe 426 com Upgrade/Connection (o eco
+// com handshake está em ws_test.go).
 func TestControlUpgradeWS(t *testing.T) {
 	h := ctlHarness(t)
 	cl := ctlDo(t, h, "/r?upgrade=ws")
-	body := "upgrade=ws is not available yet\n"
-	cl.expect("HTTP/1.1 501 Not Implemented\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
-		"Content-Length: 32\r\n\r\n" + body)
+	resp, body := cl.response("GET")
+	if resp.StatusCode != 426 || resp.Header.Get("Upgrade") != "websocket" ||
+		resp.Header.Get("Connection") != "Upgrade" || !strings.Contains(body, "Connection header") {
+		t.Fatalf("resp %d %v %q", resp.StatusCode, resp.Header, body)
+	}
 }
 
 func TestControlAltSvc(t *testing.T) {

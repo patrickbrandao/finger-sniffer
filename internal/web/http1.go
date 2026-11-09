@@ -134,6 +134,11 @@ func (s *h1Session) serveOne(idx int) bool {
 		return s.bodyError(req, probeID, outOffset, berr)
 	}
 
+	if path, rawQuery, ok := target(req.RequestLine); ok {
+		if isWS, _ := wsRoute(path, rawQuery, srv.controlLimits()); isWS {
+			return s.serveWS(req, probeID, outOffset, path)
+		}
+	}
 	if up := s.h2cUpgrade(req); up != nil {
 		return s.switchToH2(req, probeID, outOffset, up)
 	}

@@ -7,6 +7,7 @@ godebug tlssha1=1
 
 require (
 	github.com/caddyserver/certmagic v0.25.6
+	github.com/coder/websocket v1.8.15
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gopacket/gopacket v1.7.7
 	github.com/libdns/libdns v1.1.1

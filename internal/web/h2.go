@@ -15,6 +15,8 @@ import (
 
 	"golang.org/x/net/http2"
 
+	// Liga o CONNECT estendido do h2 (RFC 8441) antes do init do net/http.
+	_ "github.com/patrickbrandao/finger-sniffer/internal/web/xconnect"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h2passive"

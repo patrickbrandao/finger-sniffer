@@ -77,8 +77,12 @@ func (st *h2Stream) finish() {
 func (st *h2Stream) serve() {
 	r := st.r
 	st.probeID = st.probeOf()
+	if r.Method == http.MethodConnect && strings.EqualFold(r.Header.Get(":protocol"), "websocket") {
+		st.websocket()
+		return
+	}
 	if r.Method == http.MethodConnect {
-		// O espelho não é proxy (o CONNECT estendido do WebSocket chega na task 026).
+		// O espelho não é proxy.
 		st.writeResponse(func() response {
 			resp := textResponse(http.StatusMethodNotAllowed, "this server is not a proxy\n")
 			resp.head.Fields = append(resp.head.Fields, h1.HeaderField{Name: "Allow", Value: "GET, HEAD"})
@@ -220,7 +224,8 @@ func (st *h2Stream) control(rawQuery string) {
 		return
 	}
 	if ctl.Upgrade == "ws" {
-		st.writeResponse(textResponse(http.StatusNotImplemented, "upgrade=ws is not available over h2 yet\n"))
+		// Em h2 o WebSocket é pelo CONNECT estendido (RFC 8441), não por GET.
+		st.writeResponse(textResponse(http.StatusBadRequest, "websocket over h2 needs an extended CONNECT (RFC 8441)\n"))
 		return
 	}
 	if ctl.Idle > 0 {

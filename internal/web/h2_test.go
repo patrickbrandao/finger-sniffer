@@ -375,7 +375,9 @@ func TestH2CUpgrade(t *testing.T) {
 	if num(t, streams[0].Payload["stream_id"]) != 1 || streams[0].Payload["ja4h"] != reqs[0].Payload["ja4h"] {
 		t.Fatalf("stream %v", streams[0].Payload)
 	}
-	p := h.events.lastConn(t, port, anyConn)
+	// O stream 1 pode terminar antes do SETTINGS do cliente: espera o fim da conexão, que traz tudo.
+	_ = c.Close()
+	p := h.events.lastConn(t, port, func(p map[string]any) bool { return len(p["settings"].([]any)) > 0 })
 	if p["mode"] != h2passive.ModeUpgrade || p["preface_ok"] != true {
 		t.Fatalf("conn %v", p)
 	}
