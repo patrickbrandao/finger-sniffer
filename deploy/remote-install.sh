@@ -9,6 +9,7 @@ SVC="${SVC:-}"
 FORCE="${FORCE:-0}"
 UNITS="finger-sniffer-nats finger-sniffer-store finger-sniffer-capture finger-sniffer-web finger-sniffer-raw finger-sniffer-dns"
 CHANGED_CONFIG=0
+ENV_CHANGED=0
 
 log() { echo "[deploy] $*"; }
 
@@ -46,11 +47,19 @@ conf_before=$(sha256sum "$DEST/eventbus/nats/nats.conf" 2>/dev/null | cut -d' ' 
 # 3. Repositório → /finger-sniffer (preserva var/, etc/ e o nats-server instalado)
 rsync -a --delete --chown=root:root --exclude='/var/' --exclude='/etc/' --exclude='/bin/nats-server' "$STAGING/" "$DEST/"
 chmod 0755 "$DEST/deploy/net/finger-sniffer-net.sh"
+# htdocs: leitura pelo usuário finger-sniffer (web), qualquer que seja o umask de quem fez o checkout
+[ -d "$DEST/htdocs" ] && chmod -R a+rX "$DEST/htdocs"
 
-# 4. Configuração: env só se ausente (nunca sobrescreve)
+# 4. Configuração: env instalado só se ausente (nunca sobrescreve); depois, acrescenta as chaves novas do
+#    .env.example sem mudar as existentes e avisa dos valores que diferem do padrão novo.
 if [ ! -f "$DEST/etc/finger-sniffer.env" ]; then
 	install -m 0640 -g finger-sniffer "$DEST/.env.example" "$DEST/etc/finger-sniffer.env"
 	log "criado $DEST/etc/finger-sniffer.env a partir de .env.example"
+else
+	env_before=$(sha256sum "$DEST/etc/finger-sniffer.env" | cut -d' ' -f1)
+	bash "$DEST/deploy/env-merge.sh" "$DEST/.env.example" "$DEST/etc/finger-sniffer.env"
+	# chave nova muda o ambiente das units com EnvironmentFile (todas menos o NATS): reinicia essas
+	[ "$env_before" = "$(sha256sum "$DEST/etc/finger-sniffer.env" | cut -d' ' -f1)" ] || ENV_CHANGED=1
 fi
 
 # 5. NATS fixado (download com checksum)
@@ -103,6 +112,7 @@ for u in $UNITS; do
 	if [ -n "$SVC" ]; then
 		[ "$short" = "$SVC" ] && restart="$restart $u"
 	elif [ "$FORCE" = 1 ] || [ "$CHANGED_CONFIG" = 1 ] || [ "${before[$u]}" != "$after" ] ||
+		{ [ "$ENV_CHANGED" = 1 ] && [ "$u" != finger-sniffer-nats ]; } ||
 		{ [ "$u" = finger-sniffer-nats ] && [ "$conf_before" != "$conf_after" ]; } ||
 		! systemctl is-active --quiet "$u"; then
 		restart="$restart $u"
