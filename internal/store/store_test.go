@@ -192,7 +192,7 @@ func exampleStore(t *testing.T) *Store {
 	db, path := testDB(t)
 	s := &Store{
 		cfg: Config{DBPath: path, Retention: "10m", MaxBytes: 2 << 30, DownAfter: 15 * time.Second, Host: hostFixture(t, false)},
-		db:  db, tracker: NewTracker(event.Services, 15*time.Second),
+		db:  db, rdb: db, tracker: NewTracker(event.Services, 15*time.Second),
 	}
 	for _, svc := range event.Services {
 		_ = s.tracker.Observe(heartbeat(t, svc, version.Version, event.StatusOK), t0)
