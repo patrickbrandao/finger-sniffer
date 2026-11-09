@@ -42,37 +42,43 @@ test('o asyncapi do repositório passa', async () => {
 });
 
 test('cópia do asyncapi com exemplo inline inválido falha', async () => {
-  const { file, cleanup } = tempCopy((t) => {
-    const out = t.replace('ok: true\n', 'ok: "yes"\n');
-    assert.ok(out !== t, 'exemplo ACMEReply "ok: true" não encontrado no asyncapi');
-    return out;
-  });
+  // Não depende de um exemplo específico do asyncapi real: injeta um exemplo inválido (payload que não é objeto)
+  // na primeira mensagem JSON com payload de uma cópia temporária já derreferenciada.
+  const doc = await loadDocument(ASYNCAPI);
+  const entry = Object.entries(doc.components.messages).find(
+    ([, m]) => m.payload && ((m.examples || []).length > 0 || (m.traits || []).some((t) => (t.examples || []).length > 0)),
+  );
+  assert.ok(entry, 'nenhuma mensagem JSON com exemplos no asyncapi');
+  const [id, msg] = entry;
+  msg.examples = [...(msg.examples || []), { name: 'injected_invalid', payload: 12345 }];
+  const dir = mkdtempSync(join(tmpdir(), 'fs-asyncapi-'));
+  const file = join(dir, 'asyncapi.json');
+  writeFileSync(file, JSON.stringify(doc));
   try {
     const lines = [];
     assert.equal(await run(file, (l) => lines.push(l)), 1);
-    assert.ok(lines.some((l) => l.startsWith('FALHA ACMEReply/ok:')), lines.join('\n'));
+    assert.ok(lines.some((l) => l.startsWith(`FALHA ${id}/injected_invalid:`)), lines.join('\n'));
   } finally {
-    cleanup();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test('cópia do asyncapi com golden externo inválido falha', async () => {
-  // Troca a ref de um golden por uma cópia temporária com flow.src_port de tipo errado.
-  const golden = join(ROOT, 'internal/web/testdata/events/tls.client_hello.json');
-  const bad = JSON.parse(readFileSync(golden, 'utf8'));
-  bad.flow.src_port = 'not-a-port';
+  // Troca a ref do primeiro golden com envelope por uma cópia temporária com schema_version inválido.
+  const text = readFileSync(ASYNCAPI, 'utf8');
+  const refs = [...text.matchAll(/\$ref: "\.\.\/\.\.\/([^"#]+\.json)"/g)].map((m) => m[1]);
+  const rel = refs.find((r) => 'schema_version' in JSON.parse(readFileSync(join(ROOT, r), 'utf8')));
+  assert.ok(rel, 'nenhum golden com envelope referenciado no asyncapi');
+  const bad = JSON.parse(readFileSync(join(ROOT, rel), 'utf8'));
+  bad.schema_version = 'not-a-version';
   const dir = mkdtempSync(join(tmpdir(), 'fs-golden-'));
   const badFile = join(dir, 'bad.json');
   writeFileSync(badFile, JSON.stringify(bad));
-  const { file, cleanup } = tempCopy((t) => {
-    const out = t.replace(`${ROOT}/internal/web/testdata/events/tls.client_hello.json`, badFile);
-    assert.ok(out !== t, 'ref do golden tls.client_hello.json não encontrada no asyncapi');
-    return out;
-  });
+  const { file, cleanup } = tempCopy((t) => t.replace(`$ref: "${ROOT}/${rel}"`, `$ref: "${badFile}"`));
   try {
     const r = checkExamples(await loadDocument(file));
-    const hit = r.failures.filter((f) => f.message === 'TLSClientHello' && /src_port/.test(f.errors));
-    assert.equal(hit.length, 1, JSON.stringify(r.failures));
+    const hit = r.failures.filter((f) => /schema_version/.test(f.errors));
+    assert.equal(hit.length, 1, `${rel}: ${JSON.stringify(r.failures)}`);
   } finally {
     cleanup();
     rmSync(dir, { recursive: true, force: true });
