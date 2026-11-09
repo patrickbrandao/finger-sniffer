@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -92,6 +94,13 @@ func (a *API) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer a.Live.leave(c)
+	// Handshake inválido sai como 400 com corpo Error (contrato); a biblioteca responderia 426/400 em text/plain.
+	// Fica depois do filtro e do limite de clientes, na ordem dos erros do SSE (400 de filtro, 503 cheio).
+	if err := checkWSUpgrade(r); err != nil {
+		w.Header().Set("Sec-WebSocket-Version", "13")
+		writeErr(w, err)
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{"*"}, CompressionMode: websocket.CompressionDisabled,
 	})
@@ -153,4 +162,34 @@ func (a *API) ws(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// checkWSUpgrade confere o pedido de upgrade WebSocket da RFC 6455 §4.2.1 (Connection, Upgrade, versão e chave).
+func checkWSUpgrade(r *http.Request) error {
+	if !headerHasToken(r.Header, "Connection", "upgrade") {
+		return bad("websocket upgrade required: Connection header must contain Upgrade")
+	}
+	if !headerHasToken(r.Header, "Upgrade", "websocket") {
+		return bad("websocket upgrade required: Upgrade header must be websocket")
+	}
+	if v := r.Header.Get("Sec-WebSocket-Version"); v != "13" {
+		return bad("unsupported Sec-WebSocket-Version %q (want 13)", v)
+	}
+	key := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key"))
+	if raw, err := base64.StdEncoding.DecodeString(key); err != nil || len(raw) != 16 {
+		return bad("invalid or missing Sec-WebSocket-Key")
+	}
+	return nil
+}
+
+// headerHasToken informa se algum valor do cabeçalho (lista separada por vírgulas) tem o token, sem caixa.
+func headerHasToken(h http.Header, name, token string) bool {
+	for _, v := range h.Values(name) {
+		for _, t := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(t), token) {
+				return true
+			}
+		}
+	}
+	return false
 }
