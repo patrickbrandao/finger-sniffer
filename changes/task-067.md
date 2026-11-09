@@ -1,0 +1,1 @@
+- e2e da conferência FoxIO/tshark (item 2 de sucesso da spec 000): JA3/JA3N/JA4/JA4_r/JA4_o/JA4T/p0f/Akamai/JA4H de curl, Go, Chrome e Firefox e JA4 `q` de curl, quic-go, Chrome e Firefox iguais ao `ja4` 0.18.6, ao tshark 4.4 e ao `p0f -r` sobre o pcap da própria conexão; tabela em `test/e2e/testdata/fingerprints-f5.md` (task 067).
