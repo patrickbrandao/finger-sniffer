@@ -1,0 +1,107 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 64167,
+    "l4": "tcp",
+    "src_ip": "127.0.0.1",
+    "src_port": 64168
+  },
+  "payload": {
+    "body": {
+      "chunks": [
+        {
+          "ext": ";e=1",
+          "size": 3,
+          "size_literal": "3"
+        },
+        {
+          "ext": null,
+          "size": 0,
+          "size_literal": "0"
+        }
+      ],
+      "framing": "chunked",
+      "raw_b64": "MztlPTENCmFiYw0KMA0KWC1UOiAxDQoNCg==",
+      "raw_truncated": false,
+      "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "size": 3,
+      "trailers": [
+        [
+          "X-T",
+          ": ",
+          "1",
+          "crlf"
+        ]
+      ]
+    },
+    "duplicates": [],
+    "expect_continue": {
+      "wait_ms": 0.095,
+      "waited": true
+    },
+    "field_count": 4,
+    "fields": [
+      [
+        "Host",
+        ": ",
+        "abcdefgh.dns-monitor.tmsoft.com.br",
+        "crlf"
+      ],
+      [
+        "Via",
+        ": ",
+        "1.1 p",
+        "crlf"
+      ],
+      [
+        "Expect",
+        ": ",
+        "100-continue",
+        "crlf"
+      ],
+      [
+        "Transfer-Encoding",
+        ": ",
+        "chunked",
+        "crlf"
+      ]
+    ],
+    "fields_truncated": false,
+    "head_size": 134,
+    "head_too_large": false,
+    "in_offset": 0,
+    "index": 0,
+    "ja4h": null,
+    "obs_fold": false,
+    "out_offset": 0,
+    "pipelined": false,
+    "proxy_signals": [
+      {
+        "detail": "1.1 p",
+        "field": "Via",
+        "kind": "via"
+      }
+    ],
+    "raw_head_b64": "UE9TVCAvcC9hYmNkZWZnaC8gSFRUUC8xLjENCkhvc3Q6IGFiY2RlZmdoLmRucy1tb25pdG9yLnRtc29mdC5jb20uYnINClZpYTogMS4xIHANCkV4cGVjdDogMTAwLWNvbnRpbnVlDQpUcmFuc2Zlci1FbmNvZGluZzogY2h1bmtlZA0KDQo=",
+    "raw_head_truncated": false,
+    "request_line": {
+      "form": "origin",
+      "method": "POST",
+      "target": "/p/abcdefgh/",
+      "terminator": "crlf",
+      "version": "HTTP/1.1"
+    },
+    "response_sent_b64": "SFRUUC8xLjEgMTAwIENvbnRpbnVlDQoNCkhUVFAvMS4xIDIwMCBPSw0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluOyBjaGFyc2V0PXV0Zi04DQpDYWNoZS1Db250cm9sOiBuby1zdG9yZQ0KQ29udGVudC1MZW5ndGg6IDY2DQoNCmNvbm5faWQ6IDAxTTZaNzFYQ1JINEgxRkFCMjg4QjFTTVFLCnJlcXVlc3Q6IDAKcHJvYmVfaWQ6IGFiY2RlZmdoCg==",
+    "response_sent_size": 196,
+    "response_sent_truncated": false,
+    "status": 200,
+    "t_first_byte_ms": 0.105875,
+    "t_since_prev_response_ms": null,
+    "upgrade": null
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T03:53:56.574234000Z"
+}

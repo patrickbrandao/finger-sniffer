@@ -1,0 +1,288 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 64167,
+    "l4": "tcp",
+    "src_ip": "127.0.0.1",
+    "src_port": 64168
+  },
+  "payload": {
+    "alerts": [],
+    "alpn": [
+      "http/1.1"
+    ],
+    "alps": [],
+    "cipher_suites": [
+      {
+        "code": 49195,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+      },
+      {
+        "code": 49199,
+        "name": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+      },
+      {
+        "code": 49196,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+      },
+      {
+        "code": 49200,
+        "name": "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+      },
+      {
+        "code": 52393,
+        "name": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+      },
+      {
+        "code": 52392,
+        "name": "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+      },
+      {
+        "code": 49161,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA"
+      },
+      {
+        "code": 49171,
+        "name": "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA"
+      },
+      {
+        "code": 49162,
+        "name": "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA"
+      },
+      {
+        "code": 49172,
+        "name": "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA"
+      },
+      {
+        "code": 4865,
+        "name": "TLS_AES_128_GCM_SHA256"
+      },
+      {
+        "code": 4866,
+        "name": "TLS_AES_256_GCM_SHA384"
+      },
+      {
+        "code": 4867,
+        "name": "TLS_CHACHA20_POLY1305_SHA256"
+      }
+    ],
+    "client_hello_b64": "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",
+    "client_hello_records": 1,
+    "compress_certificate": [],
+    "compression_methods": [
+      0
+    ],
+    "delegated_credentials": [],
+    "early_data": false,
+    "ec_point_formats": [
+      0
+    ],
+    "encrypted_client_hello": false,
+    "extensions": [
+      {
+        "data_hex": "002500002261626364656667682e646e732d6d6f6e69746f722e746d736f66742e636f6d2e6272",
+        "name": "server_name",
+        "type": 0
+      },
+      {
+        "data_hex": "0100",
+        "name": "ec_point_formats",
+        "type": 11
+      },
+      {
+        "data_hex": "00",
+        "name": "renegotiation_info",
+        "type": 65281
+      },
+      {
+        "data_hex": "",
+        "name": "extended_main_secret",
+        "type": 23
+      },
+      {
+        "data_hex": "",
+        "name": "signed_certificate_timestamp",
+        "type": 18
+      },
+      {
+        "data_hex": "0100000000",
+        "name": "status_request",
+        "type": 5
+      },
+      {
+        "data_hex": "000e11ec11eb11ed001d001700180019",
+        "name": "supported_groups",
+        "type": 10
+      },
+      {
+        "data_hex": "001e090409050906080404030807080508060401050106010503060302010203",
+        "name": "signature_algorithms",
+        "type": 13
+      },
+      {
+        "data_hex": "001e090409050906080404030807080508060401050106010503060302010203",
+        "name": "signature_algorithms_cert",
+        "type": 50
+      },
+      {
+        "data_hex": "000908687474702f312e31",
+        "name": "application_layer_protocol_negotiation",
+        "type": 16
+      },
+      {
+        "data_hex": "0403040303",
+        "name": "supported_versions",
+        "type": 43
+      },
+      {
+        "data_hex": "04e811ec04c0d7ec91e30acf10eb771c307601714dc0621c952b863e32259eb8820b9a8e1925484d0736224237f143bce2e3c8f2219dee16145eb218088357a879663ba86b6f2a6267d7659f6b3e08525a5a7391dd3a2219859eb894befc708d42a5aa0cc74881fb8479d16259bc30a211bdaa933afea4abf7375ca4808eb86060891c71fcba1646eccc542b8aa69cb07760b7689484c60027101bbc06a80d7f2668e150b5dc2477aadab358c0bc4c1262b1b685b6acb35d9665bd79010376262a330e227b2756dc5f824048d89b85105a7c4c37bfb29a80a4a820f918930474ccbacb0814d7cac7c1b247d88607603f396b0bc76343f462a731631c79a47b69c9ced385c4a8e1a713898940d23f7658b9adbbc299a0a4dcec230c7945b70b93b3a48f85eb1880068d8b5858a47b0df6939ad28160bf2528d4634d668291b5486f93195c7dd45de0e368a0a80aab248e18334fafe83c3541c839a0267ff4287ddb6ac6805ae5d69a7ea20e3c1a3a42c0add1fc7d9f9c4200ac8065e96a4ad27c163a7257a9974fb13372bb4cc55c24c9e6618a011e6bacce9f5590e372af1dd8724e323577a4689c11566ed03be5155cb706900c02707e42ce8335a0cd84193f0ac38a662c3cbb49e6903fe3ca1308c9515bf605b4ba38bd8a30cf0a2d0839425c071dc5892c5005611b7691237c3d4b824d216190bfc33fa5b378ca158a51b20d0914b5d8c851c34303971028e848c272f3afb98c28078668e0203787548ef841ad50b5766e7354d1661e51ea86b497905da34015a674527a6964685239a95e8d89c63e2bbf07151eb085a96b991343b1bff7c63bcba51553f71489b36a86ca6d62ec5bf43414bde6c9ac23641450a483490d4edb7552c16b4380963fbaabc4846ea4c50ca3c503563698ba43a7d0c7986b9b9113600d1d0c7f07e89b3db98d24843d649381ba93b45293ba27d8b766d90fc863cdfba36d3266ab61ca941c5a4bc4fa69da7b799d7bc271b4bdcdb65291405defdca94e2bbb05391fba0487c86a64b5103e9bfa6c3a313e3d45b2256c53c8b731dd9cc21c80b883b90082659a90e017be4c1d6bb1349e66906b05c43105a1da031b28db0862635cf7c1194b71a144b0c4cd13cb45d10c0fa27621b43a2e6b4cf924545d363eb1aa5631202186c82b78bb5e6027650d832f8af2c95bb519e58b7f93c5a53e1762bcc686a2d79939785c02103034026fb51c1ebb8a3584f91d4dfa5e10325aace04d34a32ecab2538762768c0953208240521cc1eb375c1e5c2c6189c1512cc475dc1d53d5a4f6173e3e5a50dc3a875b5b31f562a5e3da5155c68d679997a16a5beb07bee973a30f3897aaa478a0aa02d8d8844d5490cfcbc23c48362a8543403554cdf46991c9725d94927e1036005099744b5337c69911597ab5450e09b98544a294503ca624981fa199853441819601b2d128268bf8b166430652da7ecceb40af18abbb1a126565a6d7b9aa4c60a72e3a73fb206c6e697e560451ab304872ca2999444c6ad76057b7bb6161259612cc22380fc39b436ee223aaf0c8b6fb14dc31197c983d5b38071707a890e505338c3e1f5737146412c755315075902de79013765f20e470355a8d9b85bad023f014dd10a10329203c056261020a5f5a7cdc17825440524e8a7d9892d0e03b1a9153ce9a4be922b89fc8ca766a1f869522bd1effa2afed5b824132d8870a001d00203b1a9153ce9a4be922b89fc8ca766a1f869522bd1effa2afed5b824132d8870a",
+        "name": "key_share",
+        "type": 51
+      }
+    ],
+    "handshake_ms": null,
+    "handshake_version": 771,
+    "ja3": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+    "ja3_md5": "03117a8ed39ef02427ebbc39f121275c",
+    "ja3n": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-5-10-11-13-16-18-23-43-50-51-65281,4588-4587-4589-29-23-24-25,0",
+    "ja3n_md5": "71cf1fa4fbf38beb19085420f04107f7",
+    "ja4": "t13d1312h1_f57a46bbacb6_a089bac06eae",
+    "ja4_o": "t13d1312h1_45672f90a73c_d0dea502ed1f",
+    "ja4_r": "t13d1312h1_1301,1302,1303,c009,c00a,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,002b,0032,0033,ff01_0904,0905,0906,0804,0403,0807,0805,0806,0401,0501,0601,0503,0603,0201,0203",
+    "ja4_stable": "t13d1312h1_f57a46bbacb6_a089bac06eae",
+    "key_share": [
+      {
+        "group": {
+          "code": 4588,
+          "name": "X25519MLKEM768"
+        },
+        "length": 1216
+      },
+      {
+        "group": {
+          "code": 29,
+          "name": "x25519"
+        },
+        "length": 32
+      }
+    ],
+    "negotiated": null,
+    "padding_len": null,
+    "pre_shared_key": false,
+    "psk_key_exchange_modes": [],
+    "random_hex": "143724e808e07f97c0ef7ab9e55f1a688f524ba9fe422e74b9986551a850770f",
+    "record_size_limit": null,
+    "record_version": 769,
+    "session_id_len": 32,
+    "session_ticket": false,
+    "signature_algorithms": [
+      {
+        "code": 2308,
+        "name": "mldsa44"
+      },
+      {
+        "code": 2309,
+        "name": "mldsa65"
+      },
+      {
+        "code": 2310,
+        "name": "mldsa87"
+      },
+      {
+        "code": 2052,
+        "name": "rsa_pss_rsae_sha256"
+      },
+      {
+        "code": 1027,
+        "name": "ecdsa_secp256r1_sha256"
+      },
+      {
+        "code": 2055,
+        "name": "ed25519"
+      },
+      {
+        "code": 2053,
+        "name": "rsa_pss_rsae_sha384"
+      },
+      {
+        "code": 2054,
+        "name": "rsa_pss_rsae_sha512"
+      },
+      {
+        "code": 1025,
+        "name": "rsa_pkcs1_sha256"
+      },
+      {
+        "code": 1281,
+        "name": "rsa_pkcs1_sha384"
+      },
+      {
+        "code": 1537,
+        "name": "rsa_pkcs1_sha512"
+      },
+      {
+        "code": 1283,
+        "name": "ecdsa_secp384r1_sha384"
+      },
+      {
+        "code": 1539,
+        "name": "ecdsa_secp521r1_sha512"
+      },
+      {
+        "code": 513,
+        "name": "rsa_pkcs1_sha1"
+      },
+      {
+        "code": 515,
+        "name": "ecdsa_sha1"
+      }
+    ],
+    "sni": "abcdefgh.dns-monitor.tmsoft.com.br",
+    "status_request": true,
+    "supported_groups": [
+      {
+        "code": 4588,
+        "name": "X25519MLKEM768"
+      },
+      {
+        "code": 4587,
+        "name": "SecP256r1MLKEM768"
+      },
+      {
+        "code": 4589,
+        "name": "SecP384r1MLKEM1024"
+      },
+      {
+        "code": 29,
+        "name": "x25519"
+      },
+      {
+        "code": 23,
+        "name": "secp256r1"
+      },
+      {
+        "code": 24,
+        "name": "secp384r1"
+      },
+      {
+        "code": 25,
+        "name": "secp521r1"
+      }
+    ],
+    "supported_versions": [
+      {
+        "code": 772,
+        "name": "TLS 1.3"
+      },
+      {
+        "code": 771,
+        "name": "TLS 1.2"
+      }
+    ]
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T03:53:56.569084000Z"
+}

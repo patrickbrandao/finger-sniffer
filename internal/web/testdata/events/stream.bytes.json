@@ -1,0 +1,19 @@
+{
+  "flow": {
+    "dst_ip": "127.0.0.1",
+    "dst_port": 64167,
+    "l4": "tcp",
+    "src_ip": "127.0.0.1",
+    "src_port": 64168
+  },
+  "payload": {
+    "data_b64": "UE9TVCAvcC9hYmNkZWZnaC8gSFRUUC8xLjENCkhvc3Q6IGFiY2RlZmdoLmRucy1tb25pdG9yLnRtc29mdC5jb20uYnINClZpYTogMS4xIHANCkV4cGVjdDogMTAwLWNvbnRpbnVlDQpUcmFuc2Zlci1FbmNvZGluZzogY2h1bmtlZA0KDQozO2U9MQ0KYWJjDQowDQpYLVQ6IDENCg0K",
+    "dir": "in",
+    "offset": 0
+  },
+  "probe_id": "abcdefgh",
+  "schema_version": 1,
+  "service": "web",
+  "service_version": "0.0.0-dev",
+  "ts": "2026-11-09T03:53:56.574194000Z"
+}
