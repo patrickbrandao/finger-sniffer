@@ -1,0 +1,1 @@
+- Relatório da auditoria F5 (spec × implementação) publicado em `docs/dev/auditoria-f5.md`; divergências viraram as tarefas 077–088 (task 071).
