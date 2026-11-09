@@ -46,6 +46,7 @@ type conn struct {
 	started  int64
 	lastSeen int64
 	degraded bool
+	limited  bool // conta nos limites do modo degradado: TCP e QUIC (overloaded)
 
 	syn, synAck, established, firstData        int64
 	clientFin, serverFin, clientRst, serverRst int64
@@ -192,23 +193,23 @@ func (c *conn) isStray() bool {
 
 // flowTable guarda as conexões abertas. É usada pelo ingest e consultada pela API (registro ao vivo).
 type flowTable struct {
-	mu          sync.Mutex
-	conns       map[flowKey]*conn
-	closed      map[flowKey]*conn // TCP e QUIC já finalizadas, à espera de pacotes tardios até lingerUntil
-	byID        map[string]*conn
-	reserved    map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
-	newID       func(ts int64) string
-	grace       time.Duration
-	tcpIdle     time.Duration
-	udpIdle     time.Duration
-	maxOpen     int
-	maxNewPerS  int
-	newInSecond int
-	secondStart int64
-	segTracked  int
-	p0f         *p0f.DB
-	clocks      clockRegistry
-	cookies     cookieHistory
+	mu         sync.Mutex
+	conns      map[flowKey]*conn
+	closed     map[flowKey]*conn // TCP e QUIC já finalizadas, à espera de pacotes tardios até lingerUntil
+	byID       map[string]*conn
+	reserved   map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
+	newID      func(ts int64) string
+	grace      time.Duration
+	tcpIdle    time.Duration
+	udpIdle    time.Duration
+	maxOpen    int
+	maxNewPerS int
+	newTokens  float64 // balde das novas/s (overloaded)
+	tokensAt   int64   // instante (captura) da última recarga; 0 = balde cheio
+	segTracked int
+	p0f        *p0f.DB
+	clocks     clockRegistry
+	cookies    cookieHistory
 }
 
 func newFlowTable(cfg IngestConfig) *flowTable {
@@ -327,7 +328,8 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
 			ana: newAnalysis(), app: newAppState(),
 		}
-		c.degraded = t.overloaded(ts)
+		c.limited = fi.proto == protoTCP || isInitial
+		c.degraded = t.overloaded(ts, c.limited)
 		t.conns[k] = c
 		t.byID[c.id] = c
 		res.created = true
@@ -341,13 +343,51 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	return res
 }
 
-// overloaded aplica o modo degradado (spec 004 RF-11): acima de maxOpen abertas ou maxNewPerS novas/s.
-func (t *flowTable) overloaded(ts int64) bool {
-	if ts-t.secondStart >= int64(time.Second) {
-		t.secondStart, t.newInSecond = ts, 0
+// overloaded aplica o modo degradado (spec 004 RF-11): acima de maxOpen conexões simultâneas ou de maxNewPerS
+// novas/s (task 103). Decisões:
+//   - Contam só conexões TCP e QUIC (limited) ainda vivas: as que já fecharam (FIN dos dois lados ou RST) e só
+//     esperam a folga de fechamento saem da conta, e fluxos UDP que não são QUIC (consultas DNS, que ficam 30 s
+//     na tabela por ociosidade) não ocupam vaga. Eles ainda saem degradados quando o limite já foi passado.
+//   - As novas/s vêm de um balde de maxNewPerS fichas recarregado a maxNewPerS/s, no instante de captura: o
+//     perfil exato (50/s em intervalos de 20 ms) com jitter de rede não degrada, uma rajada de até maxNewPerS
+//     passa e uma taxa sustentada acima do limite esvazia o balde e degrada o excedente. A janela fixa de 1 s
+//     de antes degradava no próprio perfil (a 51ª conexão com 5 ms de adiantamento já passava do limite).
+func (t *flowTable) overloaded(ts int64, limited bool) bool {
+	t.refill(ts)
+	full := t.liveLimited() >= t.maxOpen
+	if !limited {
+		return full || t.newTokens < 1
 	}
-	t.newInSecond++
-	return len(t.conns) >= t.maxOpen || t.newInSecond > t.maxNewPerS
+	if t.newTokens < 1 {
+		return true
+	}
+	t.newTokens--
+	return full
+}
+
+// refill recarrega o balde das novas/s até o instante ts (pacotes fora de ordem não recarregam).
+func (t *flowTable) refill(ts int64) {
+	capacity := float64(t.maxNewPerS)
+	switch {
+	case t.tokensAt == 0:
+		t.newTokens = capacity
+	case ts > t.tokensAt:
+		t.newTokens = min(capacity, t.newTokens+float64(ts-t.tokensAt)*capacity/float64(time.Second))
+	default:
+		return
+	}
+	t.tokensAt = ts
+}
+
+// liveLimited conta as conexões TCP e QUIC abertas que ainda não fecharam (ver overloaded).
+func (t *flowTable) liveLimited() int {
+	n := 0
+	for _, c := range t.conns {
+		if c.limited && !c.closing() {
+			n++
+		}
+	}
+	return n
 }
 
 // due tira da tabela e devolve as conexões que terminaram (fechamento + folga, ou ociosidade).
