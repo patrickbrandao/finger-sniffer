@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -53,8 +54,7 @@ func New(cfg Config, pub Publisher, log *slog.Logger, metrics *service.Metrics) 
 
 // Listen abre todas as portas. Falha em qualquer uma fecha as já abertas.
 func (s *Server) Listen(ctx context.Context) error {
-	// Sem keepalive do lado do servidor: ele mudaria os pacotes analisados da conexão (spec 013).
-	lc := net.ListenConfig{KeepAlive: -1}
+	lc := s.listenConfig()
 	if len(s.cfg.ListenIPs) == 0 {
 		return errors.New("raw: no listen address (FS_LISTEN_IPV4/FS_LISTEN_IPV6)")
 	}
@@ -75,6 +75,21 @@ func (s *Server) Listen(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// tfoQueue é a fila de pedidos TFO pendentes dos listeners (ADR 0029).
+const tfoQueue = 256
+
+// listenConfig devolve a configuração dos listeners: sem keepalive do lado do servidor (ele mudaria os
+// pacotes analisados da conexão, spec 013) e com TCP_FASTOPEN ligado antes do listen (spec 006 RF-01).
+// Falha no setsockopt só registra aviso e o listener segue sem TFO.
+func (s *Server) listenConfig() net.ListenConfig {
+	return net.ListenConfig{KeepAlive: -1, Control: func(_, address string, c syscall.RawConn) error {
+		if err := enableTFO(c, tfoQueue); err != nil {
+			s.log.Warn("raw tcp fastopen", "addr", address, "err", err)
+		}
+		return nil
+	}}
 }
 
 // Addrs devolve os endereços abertos, na ordem de Config.Ports e, dentro de cada porta, de Config.ListenIPs

@@ -282,3 +282,83 @@ func TestAlertFromError(t *testing.T) {
 		}
 	}
 }
+
+// clientHelloBytes devolve o registro do ClientHello de um cliente Go (TLS ≤ 1.2), capturado por um pipe.
+func clientHelloBytes(t *testing.T) []byte {
+	t.Helper()
+	cli, srv := net.Pipe()
+	defer func() { _ = srv.Close() }()
+	go func() {
+		c := tls.Client(cli, &tls.Config{ServerName: "vps602.tmsoft.com.br", MaxVersion: tls.VersionTLS12}) //nolint:gosec // só o ClientHello
+		_ = c.Handshake()
+		_ = cli.Close()
+	}()
+	hdr := make([]byte, 5)
+	if _, err := io.ReadFull(srv, hdr); err != nil {
+		t.Fatal(err)
+	}
+	body := make([]byte, int(hdr[3])<<8|int(hdr[4]))
+	if _, err := io.ReadFull(srv, body); err != nil {
+		t.Fatal(err)
+	}
+	return append(hdr, body...)
+}
+
+func TestTLSAlertFromBytes(t *testing.T) {
+	// Cliente TLS cru manda o ClientHello e, depois da resposta do servidor, um alerta em texto claro: o
+	// alerta sai dos bytes com a descrição exata; o mesmo alerta no erro do crypto/tls não duplica.
+	for _, c := range []struct {
+		name string
+		desc byte
+	}{
+		{"unknown_ca", 48},
+		{"not_in_go_map", 200},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo", TLS: true}}, withTLS(t))
+			conn := dial(t, env.addr[0])
+			if _, err := conn.Write(clientHelloBytes(t)); err != nil {
+				t.Fatal(err)
+			}
+			// Espera o primeiro registro do servidor (ServerHello) antes de mandar o alerta.
+			if _, err := io.ReadFull(conn, make([]byte, 5)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := conn.Write([]byte{0x15, 0x03, 0x03, 0x00, 0x02, 0x02, c.desc}); err != nil {
+				t.Fatal(err)
+			}
+			_ = conn.CloseWrite()
+			_, _ = io.Copy(io.Discard, conn)
+			_ = conn.Close()
+			r := env.waitSession(t)
+			if r.handshake == nil {
+				t.Fatal("no handshake event")
+			}
+			var hs event.TLSHandshake
+			_ = json.Unmarshal(r.handshake.Payload, &hs)
+			if hs.Negotiated != nil || len(hs.Alerts) != 1 {
+				t.Fatalf("handshake = %+v", hs)
+			}
+			if a := hs.Alerts[0]; a.Dir != event.DirectionIn || a.Level != 2 || a.Description != int(c.desc) {
+				t.Errorf("alert = %+v", a)
+			}
+		})
+	}
+}
+
+func TestMergeAlerts(t *testing.T) {
+	seen := []event.TLSAlert{{Dir: event.DirectionIn, Level: 2, Description: 42}}
+	// Igual (direção e descrição): não duplica.
+	if got := mergeAlerts(seen, errors.New("remote error: tls: bad certificate")); len(got) != 1 {
+		t.Errorf("dup = %+v", got)
+	}
+	// Diferente: entra depois dos dos bytes.
+	got := mergeAlerts(seen, errors.New("local error: tls: bad record MAC"))
+	if len(got) != 2 || got[1].Dir != event.DirectionOut || got[1].Description != 20 {
+		t.Errorf("merge = %+v", got)
+	}
+	// Erro sem alerta: só os dos bytes.
+	if got := mergeAlerts(nil, errors.New("EOF")); len(got) != 0 {
+		t.Errorf("eof = %+v", got)
+	}
+}
