@@ -1,0 +1,106 @@
+{
+ "akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s",
+ "case": "go-h2",
+ "client_h2_bytes": 131,
+ "client_h2_tcp_stream": 0,
+ "http2": [
+  {
+   "akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s",
+   "frames": [
+    {
+     "flags": "0x00",
+     "length": 24,
+     "settings": [
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       4194304
+      ],
+      [
+       5,
+       1048576
+      ],
+      [
+       6,
+       10485760
+      ]
+     ],
+     "stream": 0,
+     "type": 4
+    },
+    {
+     "flags": "0x00",
+     "increment": 1073741824,
+     "length": 4,
+     "stream": 0,
+     "type": 8
+    },
+    {
+     "flags": "0x05",
+     "headers": [
+      {
+       "index": 1,
+       "name": ":authority",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "vps602.tmsoft.com.br:7702"
+      },
+      {
+       "index": 2,
+       "name": ":method",
+       "repr": "Indexed Header Field",
+       "value": "GET"
+      },
+      {
+       "index": 4,
+       "name": ":path",
+       "repr": "Indexed Header Field",
+       "value": "/"
+      },
+      {
+       "index": 7,
+       "name": ":scheme",
+       "repr": "Indexed Header Field",
+       "value": "https"
+      },
+      {
+       "index": 16,
+       "name": "accept-encoding",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "gzip"
+      },
+      {
+       "index": 58,
+       "name": "user-agent",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "Go-http-client/2.0"
+      }
+     ],
+     "length": 43,
+     "stream": 1,
+     "type": 1
+    },
+    {
+     "flags": "0x01",
+     "length": 0,
+     "settings": [],
+     "stream": 0,
+     "type": 4
+    }
+   ],
+   "tcp_stream": 0
+  }
+ ],
+ "ja3": "03117a8ed39ef02427ebbc39f121275c",
+ "ja4": "t13d1312h2_f57a46bbacb6_f50d94e863eb",
+ "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
+   "ja4h_r": "ge20nn020000_accept-encoding,user-agent__",
+   "tcp_stream": 0
+  }
+ ]
+}

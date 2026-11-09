@@ -1,0 +1,30 @@
+{
+ "case": "chrome-h1",
+ "client_hellos": [
+  {
+   "ja3": "edbecbe4e7261bbfe2f720652cdda341",
+   "ja3_full": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,18-43-0-51764-65037-65281-11-23-27-45-5-10-16-35-13-51,4588-29-23-24,0",
+   "ja4": "t13d1516h1_8daaf6152771_dc9dadf2db3a",
+   "ja4_r": "t13d1516h1_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,ca34,fe0d,ff01_aaaa,0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "http/1.1"
+   ],
+   "tcp_stream": 0,
+   "ja4_tool": "t13d1516h1_8daaf6152771_5b37b36a67c0",
+   "ja4_r_tool": "t13d1516h1_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601"
+  }
+ ],
+ "http2": [],
+ "akamai": null,
+ "ja3": "edbecbe4e7261bbfe2f720652cdda341",
+ "ja4": "t13d1516h1_8daaf6152771_5b37b36a67c0",
+ "ja4h": "ge11nn14ptbr_d9d4fb46dcb1_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "tcp_stream": 0,
+   "ja4h": "ge11nn14ptbr_d9d4fb46dcb1_000000000000_000000000000",
+   "ja4h_r": "ge11nn14ptbr_Host,Connection,sec-ch-ua,sec-ch-ua-mobile,sec-ch-ua-platform,Upgrade-Insecure-Requests,User-Agent,Accept,Sec-Fetch-Site,Sec-Fetch-Mode,Sec-Fetch-User,Sec-Fetch-Dest,Accept-Encoding,Accept-Language__"
+  }
+ ]
+}

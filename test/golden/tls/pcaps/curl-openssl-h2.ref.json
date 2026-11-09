@@ -1,0 +1,119 @@
+{
+ "case": "curl-openssl-h2",
+ "client_hellos": [
+  {
+   "ja3": "9ff5f7c88ab8372852860f487a8b1dc5",
+   "ja3_full": "771,4866-4867-4865-49196-49200-159-52393-52392-52394-49195-49199-158-49188-49192-107-49187-49191-103-49162-49172-57-49161-49171-51-157-156-61-60-53-47,65281-11-10-22-23-49-13-43-45-51-0-16,4588-4587-4590-29-23-30-24-25-41-256-257,0",
+   "ja4": "t13d3012h2_1d37bd780c83_581742d1f3c4",
+   "ja4_r": "t13d3012h2_002f,0033,0035,0039,003c,003d,0067,006b,009c,009d,009e,009f,1301,1302,1303,c009,c00a,c013,c014,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9,ccaa_000a,000b,000d,0016,0017,002b,002d,0031,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602,0911,0912,0913,0914,0915,0916,0917,0918,0919,091a,091b,091c,0708",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "h2",
+    "http/1.1"
+   ],
+   "tcp_stream": 0,
+   "ja4_tool": "t13d3012h2_1d37bd780c83_581742d1f3c4",
+   "ja4_r_tool": "t13d3012h2_002f,0033,0035,0039,003c,003d,0067,006b,009c,009d,009e,009f,1301,1302,1303,c009,c00a,c013,c014,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9,ccaa_000a,000b,000d,0016,0017,002b,002d,0031,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602,0911,0912,0913,0914,0915,0916,0917,0918,0919,091a,091b,091c,0708"
+  }
+ ],
+ "http2": [
+  {
+   "tcp_stream": 0,
+   "akamai": "3:100;4:65536;2:0|1048510465|0|m,s,a,p",
+   "frames": [
+    {
+     "type": 4,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 18,
+     "settings": [
+      [
+       3,
+       100
+      ],
+      [
+       4,
+       65536
+      ],
+      [
+       2,
+       0
+      ]
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 4,
+     "increment": 1048510465
+    },
+    {
+     "type": 1,
+     "flags": "0x05",
+     "stream": 1,
+     "length": 38,
+     "headers": [
+      {
+       "name": ":method",
+       "value": "GET",
+       "repr": "Indexed Header Field",
+       "index": 2
+      },
+      {
+       "name": ":scheme",
+       "value": "https",
+       "repr": "Indexed Header Field",
+       "index": 7
+      },
+      {
+       "name": ":authority",
+       "value": "vps602.tmsoft.com.br:7702",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 1
+      },
+      {
+       "name": ":path",
+       "value": "/",
+       "repr": "Indexed Header Field",
+       "index": 4
+      },
+      {
+       "name": "user-agent",
+       "value": "curl/8.23.0",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 58
+      },
+      {
+       "name": "accept",
+       "value": "*/*",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 19
+      }
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 1,
+     "length": 4,
+     "increment": 10420225
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 1,
+     "length": 4,
+     "increment": 10420225
+    }
+   ]
+  }
+ ],
+ "akamai": "3:100;4:65536;2:0|1048510465|0|m,s,a,p",
+ "ja3": "9ff5f7c88ab8372852860f487a8b1dc5",
+ "ja4": "t13d3012h2_1d37bd780c83_581742d1f3c4",
+ "ja4h": null,
+ "ja4h_all": [],
+ "client_h2_tcp_stream": 0,
+ "client_h2_bytes": 137
+}

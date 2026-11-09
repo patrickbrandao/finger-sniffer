@@ -1,0 +1,318 @@
+{
+ "case": "chrome-h2",
+ "client_hellos": [
+  {
+   "ja3": "26f87593bb92874818103f1bc6624d34",
+   "ja3_full": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-51-43-18-51764-35-11-45-5-17613-65037-16-27-13-65281-23-10,4588-29-23-24,0",
+   "ja4": "t13d1517h2_8daaf6152771_63ff51340b64",
+   "ja4_r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_9a9a,0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "h2",
+    "http/1.1"
+   ],
+   "tcp_stream": 1,
+   "ja4_tool": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+   "ja4_r_tool": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601"
+  },
+  {
+   "ja3": "ee9e0970caad800121c5b2c57dd8b519",
+   "ja3_full": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,18-0-5-10-13-27-23-11-65281-17613-51764-51-43-65037-35-45-16,4588-29-23-24,0",
+   "ja4": "t13d1517h2_8daaf6152771_43736b97bd57",
+   "ja4_r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_caca,0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "h2",
+    "http/1.1"
+   ],
+   "tcp_stream": 0,
+   "ja4_tool": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+   "ja4_r_tool": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601"
+  }
+ ],
+ "http2": [
+  {
+   "tcp_stream": 1,
+   "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+   "frames": [
+    {
+     "type": 4,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 24,
+     "settings": [
+      [
+       1,
+       65536
+      ],
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       6291456
+      ],
+      [
+       6,
+       262144
+      ]
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 4,
+     "increment": 15663105
+    },
+    {
+     "type": 1,
+     "flags": "0x25",
+     "stream": 1,
+     "length": 493,
+     "priority": {
+      "exclusive": 1,
+      "depends_on": 0,
+      "weight": 256
+     },
+     "headers": [
+      {
+       "name": ":method",
+       "value": "GET",
+       "repr": "Indexed Header Field",
+       "index": 2
+      },
+      {
+       "name": ":authority",
+       "value": "vps602.tmsoft.com.br:7702",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 1
+      },
+      {
+       "name": ":scheme",
+       "value": "https",
+       "repr": "Indexed Header Field",
+       "index": 7
+      },
+      {
+       "name": ":path",
+       "value": "/",
+       "repr": "Indexed Header Field",
+       "index": 4
+      },
+      {
+       "name": "sec-ch-ua",
+       "value": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-ch-ua-mobile",
+       "value": "?0",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-ch-ua-platform",
+       "value": "\"macOS\"",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "upgrade-insecure-requests",
+       "value": "1",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "user-agent",
+       "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 58
+      },
+      {
+       "name": "accept",
+       "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 19
+      },
+      {
+       "name": "sec-fetch-site",
+       "value": "none",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-fetch-mode",
+       "value": "navigate",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-fetch-user",
+       "value": "?1",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-fetch-dest",
+       "value": "document",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "accept-encoding",
+       "value": "gzip, deflate, br, zstd",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 16
+      },
+      {
+       "name": "accept-language",
+       "value": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 17
+      },
+      {
+       "name": "priority",
+       "value": "u=0, i",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      }
+     ]
+    },
+    {
+     "type": 4,
+     "flags": "0x01",
+     "stream": 0,
+     "length": 0,
+     "settings": []
+    },
+    {
+     "type": 1,
+     "flags": "0x25",
+     "stream": 3,
+     "length": 145,
+     "priority": {
+      "exclusive": 1,
+      "depends_on": 0,
+      "weight": 220
+     },
+     "headers": [
+      {
+       "name": ":method",
+       "value": "GET",
+       "repr": "Indexed Header Field",
+       "index": 2
+      },
+      {
+       "name": ":authority",
+       "value": "vps602.tmsoft.com.br:7702",
+       "repr": "Indexed Header Field",
+       "index": 75
+      },
+      {
+       "name": ":scheme",
+       "value": "https",
+       "repr": "Indexed Header Field",
+       "index": 7
+      },
+      {
+       "name": ":path",
+       "value": "/favicon.ico",
+       "repr": "Literal Header Field without Indexing - Indexed Name",
+       "index": 4
+      },
+      {
+       "name": "sec-ch-ua-platform",
+       "value": "\"macOS\"",
+       "repr": "Indexed Header Field",
+       "index": 72
+      },
+      {
+       "name": "user-agent",
+       "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36",
+       "repr": "Indexed Header Field",
+       "index": 70
+      },
+      {
+       "name": "sec-ch-ua",
+       "value": "\"Not:A-Brand\";v=\"8\", \"Chromium\";v=\"156\", \"Google Chrome\";v=\"156\"",
+       "repr": "Indexed Header Field",
+       "index": 74
+      },
+      {
+       "name": "sec-ch-ua-mobile",
+       "value": "?0",
+       "repr": "Indexed Header Field",
+       "index": 73
+      },
+      {
+       "name": "accept",
+       "value": "image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 19
+      },
+      {
+       "name": "sec-fetch-site",
+       "value": "same-origin",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 69
+      },
+      {
+       "name": "sec-fetch-mode",
+       "value": "no-cors",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 69
+      },
+      {
+       "name": "sec-fetch-dest",
+       "value": "image",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 68
+      },
+      {
+       "name": "referer",
+       "value": "https://vps602.tmsoft.com.br:7702/",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 51
+      },
+      {
+       "name": "accept-encoding",
+       "value": "gzip, deflate, br, zstd",
+       "repr": "Indexed Header Field",
+       "index": 69
+      },
+      {
+       "name": "accept-language",
+       "value": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+       "repr": "Indexed Header Field",
+       "index": 68
+      },
+      {
+       "name": "priority",
+       "value": "u=1, i",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 67
+      }
+     ]
+    },
+    {
+     "type": 3,
+     "flags": "0x00",
+     "stream": 3,
+     "length": 4
+    }
+   ]
+  }
+ ],
+ "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+ "ja3": "26f87593bb92874818103f1bc6624d34",
+ "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+ "ja4h": "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "tcp_stream": 1,
+   "ja4h": "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+   "ja4h_r": "ge20nn13ptbr_sec-ch-ua,sec-ch-ua-mobile,sec-ch-ua-platform,upgrade-insecure-requests,user-agent,accept,sec-fetch-site,sec-fetch-mode,sec-fetch-user,sec-fetch-dest,accept-encoding,accept-language,priority__"
+  },
+  {
+   "tcp_stream": 1,
+   "ja4h": "ge20nr11ptbr_33778c32ea55_000000000000_000000000000",
+   "ja4h_r": "ge20nr11ptbr_sec-ch-ua-platform,user-agent,sec-ch-ua,sec-ch-ua-mobile,accept,sec-fetch-site,sec-fetch-mode,sec-fetch-dest,accept-encoding,accept-language,priority__"
+  }
+ ],
+ "client_h2_tcp_stream": 1,
+ "client_h2_bytes": 748
+}

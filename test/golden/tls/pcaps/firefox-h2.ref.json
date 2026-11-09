@@ -1,0 +1,233 @@
+{
+ "case": "firefox-h2",
+ "client_hellos": [
+  {
+   "ja3": "9d42e90b0225e779f03141ddcd699df2",
+   "ja3_full": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25,0",
+   "ja4": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+   "ja4_r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,001c,0022,0023,002b,002d,0033,fe0d,ff01_0403,0503,0603,0804,0805,0806,0401,0501,0601,0203,0201",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "h2",
+    "http/1.1"
+   ],
+   "tcp_stream": 0,
+   "ja4_tool": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+   "ja4_r_tool": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,001c,0022,0023,002b,002d,0033,fe0d,ff01_0403,0503,0603,0804,0805,0806,0401,0501,0601,0203,0201"
+  },
+  {
+   "ja3": "9d42e90b0225e779f03141ddcd699df2",
+   "ja3_full": "771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-18-51-43-13-45-28-27-65037,4588-29-23-24-25,0",
+   "ja4": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+   "ja4_r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,001c,0022,0023,002b,002d,0033,fe0d,ff01_0403,0503,0603,0804,0805,0806,0401,0501,0601,0203,0201",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "h2",
+    "http/1.1"
+   ],
+   "tcp_stream": 1,
+   "ja4_tool": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+   "ja4_r_tool": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,001c,0022,0023,002b,002d,0033,fe0d,ff01_0403,0503,0603,0804,0805,0806,0401,0501,0601,0203,0201"
+  }
+ ],
+ "http2": [
+  {
+   "tcp_stream": 0,
+   "akamai": null,
+   "frames": [
+    {
+     "type": 4,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 24,
+     "settings": [
+      [
+       1,
+       65536
+      ],
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       131072
+      ],
+      [
+       5,
+       16384
+      ]
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 4,
+     "increment": 12517377
+    },
+    {
+     "type": 7,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 8
+    }
+   ]
+  },
+  {
+   "tcp_stream": 1,
+   "akamai": "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s",
+   "frames": [
+    {
+     "type": 4,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 24,
+     "settings": [
+      [
+       1,
+       65536
+      ],
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       131072
+      ],
+      [
+       5,
+       16384
+      ]
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 4,
+     "increment": 12517377
+    },
+    {
+     "type": 1,
+     "flags": "0x25",
+     "stream": 3,
+     "length": 295,
+     "priority": {
+      "exclusive": 0,
+      "depends_on": 0,
+      "weight": 42
+     },
+     "headers": [
+      {
+       "name": ":method",
+       "value": "GET",
+       "repr": "Indexed Header Field",
+       "index": 2
+      },
+      {
+       "name": ":path",
+       "value": "/",
+       "repr": "Literal Header Field without Indexing - Indexed Name",
+       "index": 4
+      },
+      {
+       "name": ":authority",
+       "value": "vps602.tmsoft.com.br:7702",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 1
+      },
+      {
+       "name": ":scheme",
+       "value": "https",
+       "repr": "Indexed Header Field",
+       "index": 7
+      },
+      {
+       "name": "user-agent",
+       "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:159.0) Gecko/20100101 Firefox/159.0",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 58
+      },
+      {
+       "name": "accept",
+       "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 19
+      },
+      {
+       "name": "accept-language",
+       "value": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 17
+      },
+      {
+       "name": "accept-encoding",
+       "value": "gzip, deflate, br, zstd",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 16
+      },
+      {
+       "name": "upgrade-insecure-requests",
+       "value": "1",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-fetch-dest",
+       "value": "document",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-fetch-mode",
+       "value": "navigate",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "sec-fetch-site",
+       "value": "none",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "priority",
+       "value": "u=0, i",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      },
+      {
+       "name": "te",
+       "value": "trailers",
+       "repr": "Literal Header Field with Incremental Indexing - New Name"
+      }
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 3,
+     "length": 4,
+     "increment": 12451840
+    },
+    {
+     "type": 4,
+     "flags": "0x01",
+     "stream": 0,
+     "length": 0,
+     "settings": []
+    }
+   ]
+  }
+ ],
+ "akamai": "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s",
+ "ja3": "9d42e90b0225e779f03141ddcd699df2",
+ "ja4": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+ "ja4h": "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "tcp_stream": 1,
+   "ja4h": "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000",
+   "ja4h_r": "ge20nn10ptbr_user-agent,accept,accept-language,accept-encoding,upgrade-insecure-requests,sec-fetch-dest,sec-fetch-mode,sec-fetch-site,priority,te__"
+  }
+ ],
+ "client_h2_tcp_stream": 1,
+ "client_h2_bytes": 396
+}

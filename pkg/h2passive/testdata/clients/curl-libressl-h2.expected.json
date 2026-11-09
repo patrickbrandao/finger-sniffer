@@ -1,0 +1,95 @@
+{
+ "akamai": "3:100;4:10485760;2:0|1048510465|0|m,s,a,p",
+ "case": "curl-libressl-h2",
+ "client_h2_bytes": 111,
+ "client_h2_tcp_stream": 0,
+ "http2": [
+  {
+   "akamai": "3:100;4:10485760;2:0|1048510465|0|m,s,a,p",
+   "frames": [
+    {
+     "flags": "0x00",
+     "length": 18,
+     "settings": [
+      [
+       3,
+       100
+      ],
+      [
+       4,
+       10485760
+      ],
+      [
+       2,
+       0
+      ]
+     ],
+     "stream": 0,
+     "type": 4
+    },
+    {
+     "flags": "0x00",
+     "increment": 1048510465,
+     "length": 4,
+     "stream": 0,
+     "type": 8
+    },
+    {
+     "flags": "0x05",
+     "headers": [
+      {
+       "index": 2,
+       "name": ":method",
+       "repr": "Indexed Header Field",
+       "value": "GET"
+      },
+      {
+       "index": 7,
+       "name": ":scheme",
+       "repr": "Indexed Header Field",
+       "value": "https"
+      },
+      {
+       "index": 1,
+       "name": ":authority",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "vps602.tmsoft.com.br:7702"
+      },
+      {
+       "index": 4,
+       "name": ":path",
+       "repr": "Indexed Header Field",
+       "value": "/"
+      },
+      {
+       "index": 58,
+       "name": "user-agent",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "curl/8.7.1"
+      },
+      {
+       "index": 19,
+       "name": "accept",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "*/*"
+      }
+     ],
+     "length": 38,
+     "stream": 1,
+     "type": 1
+    }
+   ],
+   "tcp_stream": 0
+  }
+ ],
+ "ja3": "375c6162a492dfbf2795909110ce8424",
+ "ja4": "t13d4907h2_0d8feac7bc37_7395dae3b2f3",
+ "ja4h": "ge20nn020000_5594a17e7e7e_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "ja4h": "ge20nn020000_5594a17e7e7e_000000000000_000000000000",
+   "ja4h_r": "ge20nn020000_user-agent,accept__",
+   "tcp_stream": 0
+  }
+ ]
+}

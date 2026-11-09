@@ -1,0 +1,121 @@
+{
+ "case": "go-h2",
+ "client_hellos": [
+  {
+   "ja3": "03117a8ed39ef02427ebbc39f121275c",
+   "ja3_full": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+   "ja4": "t13d1312h2_f57a46bbacb6_f50d94e863eb",
+   "ja4_r": "t13d1312h2_1301,1302,1303,c009,c00a,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,002b,0032,0033,ff01_0904,0905,0906,0804,0403,0807,0805,0806,0401,0501,0601,0503,0603",
+   "sni": "vps602.tmsoft.com.br",
+   "alpn": [
+    "h2"
+   ],
+   "tcp_stream": 0,
+   "ja4_tool": "t13d1312h2_f57a46bbacb6_f50d94e863eb",
+   "ja4_r_tool": "t13d1312h2_1301,1302,1303,c009,c00a,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,002b,0032,0033,ff01_0904,0905,0906,0804,0403,0807,0805,0806,0401,0501,0601,0503,0603"
+  }
+ ],
+ "http2": [
+  {
+   "tcp_stream": 0,
+   "akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s",
+   "frames": [
+    {
+     "type": 4,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 24,
+     "settings": [
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       4194304
+      ],
+      [
+       5,
+       1048576
+      ],
+      [
+       6,
+       10485760
+      ]
+     ]
+    },
+    {
+     "type": 8,
+     "flags": "0x00",
+     "stream": 0,
+     "length": 4,
+     "increment": 1073741824
+    },
+    {
+     "type": 1,
+     "flags": "0x05",
+     "stream": 1,
+     "length": 43,
+     "headers": [
+      {
+       "name": ":authority",
+       "value": "vps602.tmsoft.com.br:7702",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 1
+      },
+      {
+       "name": ":method",
+       "value": "GET",
+       "repr": "Indexed Header Field",
+       "index": 2
+      },
+      {
+       "name": ":path",
+       "value": "/",
+       "repr": "Indexed Header Field",
+       "index": 4
+      },
+      {
+       "name": ":scheme",
+       "value": "https",
+       "repr": "Indexed Header Field",
+       "index": 7
+      },
+      {
+       "name": "accept-encoding",
+       "value": "gzip",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 16
+      },
+      {
+       "name": "user-agent",
+       "value": "Go-http-client/2.0",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "index": 58
+      }
+     ]
+    },
+    {
+     "type": 4,
+     "flags": "0x01",
+     "stream": 0,
+     "length": 0,
+     "settings": []
+    }
+   ]
+  }
+ ],
+ "akamai": "2:0;4:4194304;5:1048576;6:10485760|1073741824|0|a,m,p,s",
+ "ja3": "03117a8ed39ef02427ebbc39f121275c",
+ "ja4": "t13d1312h2_f57a46bbacb6_f50d94e863eb",
+ "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "tcp_stream": 0,
+   "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
+   "ja4h_r": "ge20nn020000_accept-encoding,user-agent__"
+  }
+ ],
+ "client_h2_tcp_stream": 0,
+ "client_h2_bytes": 131
+}

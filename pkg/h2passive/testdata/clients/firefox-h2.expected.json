@@ -1,0 +1,203 @@
+{
+ "akamai": "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s",
+ "case": "firefox-h2",
+ "client_h2_bytes": 396,
+ "client_h2_tcp_stream": 1,
+ "http2": [
+  {
+   "akamai": null,
+   "frames": [
+    {
+     "flags": "0x00",
+     "length": 24,
+     "settings": [
+      [
+       1,
+       65536
+      ],
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       131072
+      ],
+      [
+       5,
+       16384
+      ]
+     ],
+     "stream": 0,
+     "type": 4
+    },
+    {
+     "flags": "0x00",
+     "increment": 12517377,
+     "length": 4,
+     "stream": 0,
+     "type": 8
+    },
+    {
+     "flags": "0x00",
+     "length": 8,
+     "stream": 0,
+     "type": 7
+    }
+   ],
+   "tcp_stream": 0
+  },
+  {
+   "akamai": "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s",
+   "frames": [
+    {
+     "flags": "0x00",
+     "length": 24,
+     "settings": [
+      [
+       1,
+       65536
+      ],
+      [
+       2,
+       0
+      ],
+      [
+       4,
+       131072
+      ],
+      [
+       5,
+       16384
+      ]
+     ],
+     "stream": 0,
+     "type": 4
+    },
+    {
+     "flags": "0x00",
+     "increment": 12517377,
+     "length": 4,
+     "stream": 0,
+     "type": 8
+    },
+    {
+     "flags": "0x25",
+     "headers": [
+      {
+       "index": 2,
+       "name": ":method",
+       "repr": "Indexed Header Field",
+       "value": "GET"
+      },
+      {
+       "index": 4,
+       "name": ":path",
+       "repr": "Literal Header Field without Indexing - Indexed Name",
+       "value": "/"
+      },
+      {
+       "index": 1,
+       "name": ":authority",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "vps602.tmsoft.com.br:7702"
+      },
+      {
+       "index": 7,
+       "name": ":scheme",
+       "repr": "Indexed Header Field",
+       "value": "https"
+      },
+      {
+       "index": 58,
+       "name": "user-agent",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:159.0) Gecko/20100101 Firefox/159.0"
+      },
+      {
+       "index": 19,
+       "name": "accept",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      },
+      {
+       "index": 17,
+       "name": "accept-language",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+      },
+      {
+       "index": 16,
+       "name": "accept-encoding",
+       "repr": "Literal Header Field with Incremental Indexing - Indexed Name",
+       "value": "gzip, deflate, br, zstd"
+      },
+      {
+       "name": "upgrade-insecure-requests",
+       "repr": "Literal Header Field with Incremental Indexing - New Name",
+       "value": "1"
+      },
+      {
+       "name": "sec-fetch-dest",
+       "repr": "Literal Header Field with Incremental Indexing - New Name",
+       "value": "document"
+      },
+      {
+       "name": "sec-fetch-mode",
+       "repr": "Literal Header Field with Incremental Indexing - New Name",
+       "value": "navigate"
+      },
+      {
+       "name": "sec-fetch-site",
+       "repr": "Literal Header Field with Incremental Indexing - New Name",
+       "value": "none"
+      },
+      {
+       "name": "priority",
+       "repr": "Literal Header Field with Incremental Indexing - New Name",
+       "value": "u=0, i"
+      },
+      {
+       "name": "te",
+       "repr": "Literal Header Field with Incremental Indexing - New Name",
+       "value": "trailers"
+      }
+     ],
+     "length": 295,
+     "priority": {
+      "depends_on": 0,
+      "exclusive": 0,
+      "weight": 42
+     },
+     "stream": 3,
+     "type": 1
+    },
+    {
+     "flags": "0x00",
+     "increment": 12451840,
+     "length": 4,
+     "stream": 3,
+     "type": 8
+    },
+    {
+     "flags": "0x01",
+     "length": 0,
+     "settings": [],
+     "stream": 0,
+     "type": 4
+    }
+   ],
+   "tcp_stream": 1
+  }
+ ],
+ "ja3": "9d42e90b0225e779f03141ddcd699df2",
+ "ja4": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+ "ja4h": "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000",
+ "ja4h_all": [
+  {
+   "ja4h": "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000",
+   "ja4h_r": "ge20nn10ptbr_user-agent,accept,accept-language,accept-encoding,upgrade-insecure-requests,sec-fetch-dest,sec-fetch-mode,sec-fetch-site,priority,te__",
+   "tcp_stream": 1
+  }
+ ]
+}
