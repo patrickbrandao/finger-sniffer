@@ -1,0 +1,1 @@
+- test(e2e): casos 6 e 11 sem os t.Skip das tasks 074/075; `idle_before_close_ms` e `rtt_app_ms` conferidos em h1, h2 e raw; o h2 ocioso fecha só o TCP, sem close_notify tardio (task 100)

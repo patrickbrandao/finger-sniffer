@@ -224,8 +224,8 @@ func checkCase11(t *testing.T, runs []tcpRun) {
 	t.Run("rtt_app", func(t *testing.T) {
 		for i, r := range runs {
 			if r.rttApp == nil {
-				t.Skipf("execução %d: tcp.rtt_app_ms = null — o store nunca calcula o RTT da aplicação (spec 013 RF-11); "+
-					"defeito aberto para o implementer-store na task 074", i+1)
+				t.Errorf("execução %d: tcp.rtt_app_ms = null (spec 013 RF-11)", i+1)
+				continue
 			}
 			if *r.rttApp <= 0 || *r.rttApp > 3*r.rttHS+20 {
 				t.Errorf("execução %d: rtt_app_ms %.3f × rtt_handshake_ms %.3f (caminho direto)", i+1, *r.rttApp, r.rttHS)

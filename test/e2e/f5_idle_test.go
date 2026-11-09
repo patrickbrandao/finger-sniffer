@@ -192,19 +192,11 @@ func checkIdle6(t *testing.T, tc idleCase6, res idleResult6) {
 	t.Logf("%s %s: close=%s/%s idle_before_close_ms=%v client_fin=%v server_fin=%v", rc.ConnID, rc.Proto, rc.Close.By,
 		rc.Close.How, idleV, times["client_fin"], times["server_fin"])
 
-	// tempo ocioso entre a última resposta e o fechamento (spec 013 RF-02); por último, porque em h2 e raw
-	// depende da task 075
+	// tempo ocioso entre a última troca com dados e o fechamento (spec 013 RF-02, task 075)
 	d := time.Duration(idleMs * float64(time.Millisecond))
-	if d >= wantIdle-time.Second && d <= wantIdle+5*time.Second {
-		return
+	if idleV == nil || d < wantIdle-time.Second || d > wantIdle+5*time.Second {
+		t.Errorf("close.idle_before_close_ms = %v, esperado ~%d", idleV, wantIdle.Milliseconds())
 	}
-	if tc.proto != "h1" && (idleV == nil || d < time.Second) {
-		t.Skipf("close.idle_before_close_ms = %v, esperado ~%d: o store mede a partir do último segmento com dados de "+
-			"qualquer sentido, inclusive os do próprio fechamento e os de depois do primeiro FIN (GOAWAY/close_notify do h2, "+
-			"\"half-close test\" do raw) — "+
-			"defeito aberto para o implementer-store na task 075", idleV, wantIdle.Milliseconds())
-	}
-	t.Errorf("close.idle_before_close_ms = %v, esperado ~%d", idleV, wantIdle.Milliseconds())
 }
 
 func tsOf(v any) time.Time {
@@ -447,4 +439,7 @@ func (c *idleH2) closeClient() error {
 	return err
 }
 
-func (c *idleH2) close() { _ = c.tc.Close() }
+// close fecha só o TCP: o tls.Conn.Close mandaria close_notify, e esses dados chegando depois do close() do
+// servidor (quando é ele quem fecha) provocam um RST dele antes do FIN do cliente, e o registro diria, com razão
+// (spec 013 RF-02), server/rst
+func (c *idleH2) close() { _ = c.tc.NetConn().Close() }
