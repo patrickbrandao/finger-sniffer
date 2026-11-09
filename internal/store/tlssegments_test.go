@@ -29,9 +29,6 @@ func TestClientHelloLen(t *testing.T) {
 	if clientHelloSegments(ch, nil) != 0 || clientHelloSegments(map[string]any{}, tcp) != 0 {
 		t.Fatal("no data → 0")
 	}
-	if alertName(40) != "handshake_failure" || alertName(255) != "unknown" {
-		t.Fatal("alert names")
-	}
 }
 
 // TestClientHelloSplitInTwoSegments: ClientHello de 100 bytes em dois segmentos TCP (60 + 40) → 2.
@@ -54,5 +51,19 @@ func TestClientHelloSplitInTwoSegments(t *testing.T) {
 	var tls map[string]any
 	if err := json.Unmarshal(r.TLS, &tls); err != nil || tls["client_hello_segments"] != 2.0 {
 		t.Fatalf("%v %v", tls["client_hello_segments"], err)
+	}
+}
+
+// TestAlertNameFromIANA: o nome vem do pkg/iana (sem tabela própria no store).
+func TestAlertNameFromIANA(t *testing.T) {
+	cases := map[int]string{
+		0: "close_notify", 40: "handshake_failure", 121: "ech_required", // conhecidos
+		21:  "decryption_failed_RESERVED",                           // reservado: nome do registro IANA
+		255: "unknown", 7: "unknown", -1: "unknown", 300: "unknown", // desconhecidos e fora de uint8
+	}
+	for code, want := range cases {
+		if got := alertName(code); got != want {
+			t.Errorf("alertName(%d) = %q, want %q", code, got, want)
+		}
 	}
 }

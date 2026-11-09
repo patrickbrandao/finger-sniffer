@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/base64"
 	"encoding/binary"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/iana"
 )
 
 // clientHelloLen soma os registros TLS de handshake (5 bytes de cabeçalho + corpo) que levam o ClientHello, a
@@ -58,22 +60,13 @@ func clientHelloSegments(ch map[string]any, tcp *tcpJSON) int {
 	return segs
 }
 
-// alertName dá o nome do alerta TLS (RFC 8446 seção 6 e registro da IANA).
+// alertName dá o nome IANA do alerta TLS (registro "TLS Alerts", via pkg/iana); "unknown" fora do registro.
 func alertName(code int) string {
-	if n, ok := tlsAlertNames[code]; ok {
+	if code < 0 || code > 255 {
+		return "unknown"
+	}
+	if n := iana.Alert(uint8(code)); n != "" {
 		return n
 	}
 	return "unknown"
-}
-
-var tlsAlertNames = map[int]string{
-	0: "close_notify", 10: "unexpected_message", 20: "bad_record_mac", 21: "decryption_failed", 22: "record_overflow",
-	30: "decompression_failure", 40: "handshake_failure", 41: "no_certificate", 42: "bad_certificate",
-	43: "unsupported_certificate", 44: "certificate_revoked", 45: "certificate_expired", 46: "certificate_unknown",
-	47: "illegal_parameter", 48: "unknown_ca", 49: "access_denied", 50: "decode_error", 51: "decrypt_error",
-	52: "too_many_cids_requested", 60: "export_restriction", 70: "protocol_version", 71: "insufficient_security",
-	80: "internal_error", 86: "inappropriate_fallback", 90: "user_canceled", 100: "no_renegotiation",
-	109: "missing_extension", 110: "unsupported_extension", 111: "certificate_unobtainable", 112: "unrecognized_name",
-	113: "bad_certificate_status_response", 114: "bad_certificate_hash_value", 115: "unknown_psk_identity",
-	116: "certificate_required", 120: "no_application_protocol", 121: "ech_required",
 }
