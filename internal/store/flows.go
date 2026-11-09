@@ -21,7 +21,7 @@ const (
 )
 
 // DefaultCloseGrace é a folga depois do FIN dos dois lados quando o ACK final não aparece (FS_TCP_CLOSE_GRACE).
-const DefaultCloseGrace = 200 * time.Millisecond
+const DefaultCloseGrace = 100 * time.Millisecond
 
 // flowKey identifica um fluxo independente do sentido (pontas em ordem canônica).
 type flowKey struct {
