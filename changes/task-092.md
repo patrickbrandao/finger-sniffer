@@ -1,0 +1,1 @@
+- Store: `?wait` de `/probes/{id}` só aceita `^[0-9]+(ms|s)$` (fora disso, `400`) e `/api/v1/ws` com pedido de upgrade inválido (sem Upgrade, versão ≠ 13, sem `Sec-WebSocket-Key`) responde `400` com corpo `Error` em vez de `426`/`text/plain` (task 092).

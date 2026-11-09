@@ -40,8 +40,8 @@
     {"name": "probe id 33 chars", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/abcdefghijklmnopqrstuvwxyz0123456", "want": 400},
     {"name": "probe wait not a duration", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=x", "want": 400},
     {"name": "probe wait without unit", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=10", "want": 400},
-    {"name": "probe wait with fraction", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1.5s", "want": 400, "issue": "task 092: wait fora de ^[0-9]+(ms|s)$ é aceito (só o sufixo é conferido)"},
-    {"name": "probe wait in microseconds", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1us", "want": 400, "issue": "task 092: wait fora de ^[0-9]+(ms|s)$ é aceito (só o sufixo é conferido)"},
+    {"name": "probe wait with fraction", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1.5s", "want": 400},
+    {"name": "probe wait in microseconds", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1us", "want": 400},
     {"name": "probe unknown", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 404},
     {"name": "probe unknown after wait", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=200ms", "want": 404},
     {"name": "probe db error", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
@@ -59,8 +59,8 @@
 
     {"name": "ws kind invalid", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws?kind=nope", "want": 400},
     {"name": "ws dst_port invalid", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws?dst_port=x", "want": 400},
-    {"name": "ws without upgrade", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "want": 400, "issue": "task 092: GET /ws sem Upgrade responde 426 text/plain (coder/websocket), código e corpo fora do contrato"},
-    {"name": "ws upgrade without key", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "headers": {"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13"}, "want": 400, "issue": "task 092: handshake WS inválido responde 400 text/plain, corpo fora de Error"},
+    {"name": "ws without upgrade", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "want": 400},
+    {"name": "ws upgrade without key", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "headers": {"Connection": "Upgrade", "Upgrade": "websocket", "Sec-WebSocket-Version": "13"}, "want": 400},
     {"name": "ws too many clients", "op": "websocketEvents", "method": "GET", "path": "/api/v1/ws", "want": 503, "fault": "live_full"},
 
     {"name": "unknown route", "op": "", "method": "GET", "path": "/api/v1/nope", "want": 404},

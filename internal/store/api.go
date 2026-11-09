@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -186,11 +187,15 @@ func (a *API) listDNS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// waitRe é o formato de ?wait em /probes/{id} (openapi).
+var waitRe = regexp.MustCompile(`^[0-9]+(ms|s)$`)
+
 func (a *API) getProbe(w http.ResponseWriter, r *http.Request) {
 	var wait time.Duration
 	if v := r.URL.Query().Get("wait"); v != "" {
+		// Formato do contrato: ^[0-9]+(ms|s)$ (sem fração, sem outras unidades).
 		d, err := time.ParseDuration(v)
-		if err != nil || d < 0 || (!strings.HasSuffix(v, "s") && !strings.HasSuffix(v, "ms")) {
+		if err != nil || !waitRe.MatchString(v) {
 			writeErr(w, bad("invalid wait %q (ex.: 10s)", v))
 			return
 		}
