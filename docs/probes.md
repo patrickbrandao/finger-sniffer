@@ -78,11 +78,22 @@ HTTP/1, o primeiro campo depois da linha de status; no h2 e no h3, o primeiro ca
 ```console
 $ curl -si --http1.1 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/' | head -3
 HTTP/1.1 200 OK
-Date: Mon, 09 Nov 2026 09:30:12 GMT
+Date: Mon, 09 Nov 2026 09:03:32 GMT
 Content-Type: text/plain; charset=utf-8
 $ curl -si --http1.1 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?date=0' | grep -ci '^date:'
 0
+$ curl -si --http1.1 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?h=Date:x' | head -4
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=utf-8
+Cache-Control: no-store
+Date: x
+$ curl -si 'http://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?date=1' | head -2
+HTTP/1.1 400 Bad Request
+Date: Mon, 09 Nov 2026 09:03:33 GMT
 ```
+
+O mesmo vale para h2 (`date` logo depois de `:status`) e h3 (`--http3-only`, com e sem `?date=0`), conferidos na
+vps602.
 
 ### Controles de resposta: `/p/<id>/r?...`
 
@@ -330,11 +341,11 @@ $ curl -s "$B?rst=1&close=mid-body&size=50000" -o /dev/null -w '%{http_code} %{s
 $ curl -s "$B?delay_head=300&delay_body=200" -o /dev/null -w '%{time_starttransfer} %{time_total}\n'
 0.345523 0.546787
 $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {close: .close|{by,how}, req: [.http[] | {status, controls, size: .response_sent_size}]}'
-{"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"h":"Link:</s.css>;rel=preload","status":"103"}},"size":231}]}
-{"close":{"by":"server","how":"fin"},"req":[{"status":200,"controls":{"params":{"frame":"close","size":"20"}},"size":104}]}
-{"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"conn":"close","ka":"5,10","ver":"1.0"}},"size":225}]}
-{"close":{"by":"server","how":"rst"},"req":[{"status":200,"controls":{"params":{"close":"mid-body","rst":"1","size":"50000"}},"size":25107}]}
-{"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"delay_body":"200","delay_head":"300"}},"size":175}]}
+{"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"h":"Link:</s.css>;rel=preload","status":"103"}},"size":266}]}
+{"close":{"by":"server","how":"fin"},"req":[{"status":200,"controls":{"params":{"frame":"close","size":"20"}},"size":141}]}
+{"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"conn":"close","ka":"5,10","ver":"1.0"}},"size":260}]}
+{"close":{"by":"server","how":"rst"},"req":[{"status":200,"controls":{"params":{"close":"mid-body","rst":"1","size":"50000"}},"size":25144}]}
+{"close":{"by":"client","how":"fin"},"req":[{"status":200,"controls":{"params":{"delay_body":"200","delay_head":"300"}},"size":210}]}
 ```
 
 - **Procurar**: `controls.params` de cada requisição, `status`, `response_sent_b64`/`response_sent_size` (bytes
@@ -527,7 +538,7 @@ $ curl -s "$api/probes/$id?wait=10s" | jq -c '.connections[] | {ttl: .ip.ttl, ho
 ```console
 $ curl -si --http3-only "https://$H/p/$id/" | head -4
 HTTP/3 200
-date: Mon, 09 Nov 2026 09:30:15 GMT
+date: Mon, 09 Nov 2026 09:03:32 GMT
 content-type: text/plain; charset=utf-8
 cache-control: no-store
 $ curl -s --http3-only "https://$H/p/$id/r?close=after" -o /dev/null -w '%{http_code}\n'

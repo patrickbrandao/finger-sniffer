@@ -28,6 +28,7 @@ Saída real (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use 
 ```console
 $ curl -si --http3-only https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/
 HTTP/3 200
+date: Mon, 09 Nov 2026 09:03:32 GMT
 content-type: text/plain; charset=utf-8
 cache-control: no-store
 content-length: 81

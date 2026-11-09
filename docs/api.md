@@ -216,6 +216,7 @@ Accept: */*
 
 $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=out'
 HTTP/1.1 200 OK
+Date: Mon, 09 Nov 2026 06:54:40 GMT
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 Content-Length: 69
