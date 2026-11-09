@@ -131,6 +131,11 @@ func (t *Tracker) Services(now time.Time, storeVersion string) (map[string]Servi
 		}
 		if s.version != storeVersion {
 			match = false
+			// Versão desencontrada é motivo visível de degradação (ADR 0002, "alerta no health").
+			h.Reasons = append(h.Reasons[:len(h.Reasons):len(h.Reasons)], "version "+s.version+" differs from store "+storeVersion)
+			if h.Status == event.StatusOK {
+				h.Status = event.StatusDegraded
+			}
 		}
 		out[n] = h
 	}
@@ -153,6 +158,7 @@ type HostPaths struct {
 	ProcSys     string // /proc/sys
 	ProcNetstat string // /proc/net/netstat
 	TimesyncOK  string // /run/systemd/timesync/synchronized
+	ProcModules string // /proc/modules ("" = não confere ao vivo)
 }
 
 // DefaultHostPaths são os caminhos reais na vps602.
@@ -162,6 +168,7 @@ var DefaultHostPaths = HostPaths{
 	ProcSys:     "/proc/sys",
 	ProcNetstat: "/proc/net/netstat",
 	TimesyncOK:  "/run/systemd/timesync/synchronized",
+	ProcModules: "/proc/modules",
 }
 
 // netStatus é o JSON gravado por deploy/net/finger-sniffer-net.sh.
@@ -201,7 +208,14 @@ func ReadHost(p HostPaths) (*HostHealth, []string) {
 		}
 	}
 
-	h.Sysctls = readSysctls(p.SysctlFile, p.ProcSys)
+	var sysReasons []string
+	h.Sysctls, sysReasons = readSysctls(p.SysctlFile, p.ProcSys)
+	reasons = append(reasons, sysReasons...)
+	// conntrack ao vivo (/proc/modules): o net-status é foto do boot e não vê um módulo carregado depois.
+	if !h.ConntrackLoaded && p.ProcModules != "" && moduleLoaded(p.ProcModules, "nf_conntrack") {
+		h.ConntrackLoaded = true
+		reasons = append(reasons, "conntrack loaded")
+	}
 	h.SyncookiesSent = readNetstat(p.ProcNetstat, "TcpExt", "SyncookiesSent")
 	if _, err := os.Stat(p.TimesyncOK); err == nil {
 		h.NTPSynchronized = true
@@ -211,21 +225,24 @@ func ReadHost(p HostPaths) (*HostHealth, []string) {
 	return h, reasons
 }
 
-// readSysctls lê as chaves do arquivo de sysctl do projeto e devolve os valores efetivos do kernel.
-func readSysctls(file, procSys string) map[string]string {
+// readSysctls lê as chaves do arquivo de sysctl do projeto e devolve os valores efetivos do kernel e um motivo
+// de degradação para cada valor efetivo diferente do arquivo (spec 016 CA-2). Chave que o kernel não expõe fica
+// de fora, sem motivo.
+func readSysctls(file, procSys string) (map[string]string, []string) {
 	f, err := os.Open(file) //nolint:gosec // caminho da configuração
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer func() { _ = f.Close() }()
 	out := map[string]string{}
+	var reasons []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
-		key, _, ok := strings.Cut(line, "=")
+		key, want, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
@@ -234,9 +251,27 @@ func readSysctls(file, procSys string) map[string]string {
 		if err != nil {
 			continue
 		}
-		out[key] = strings.Join(strings.Fields(string(raw)), " ")
+		got := strings.Join(strings.Fields(string(raw)), " ")
+		out[key] = got
+		if want = strings.Join(strings.Fields(want), " "); got != want {
+			reasons = append(reasons, "sysctl "+key+" is "+got+", want "+want)
+		}
 	}
-	return out
+	return out, reasons
+}
+
+// moduleLoaded informa se o módulo aparece em /proc/modules.
+func moduleLoaded(path, name string) bool {
+	raw, err := os.ReadFile(path) //nolint:gosec // /proc
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if mod, _, _ := strings.Cut(line, " "); mod == name {
+			return true
+		}
+	}
+	return false
 }
 
 // readNetstat lê um contador de /proc/net/netstat (linhas pareadas cabeçalho/valores por prefixo).

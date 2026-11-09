@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"net"
 	"net/http"
 	"time"
@@ -42,21 +41,22 @@ func httpsTLSConfig(cs *certs.Store) *tls.Config {
 }
 
 // serveHTTPS atende a API em HTTPS (spec 004 RF-07) até ctx terminar. /metrics fica só na 9001.
-func (s *Store) serveHTTPS(ctx context.Context, api *API) (*http.Server, <-chan error) {
+func (s *Store) serveHTTPS(ctx context.Context, api *API) (*http.Server, <-chan error, error) {
 	srv := &http.Server{
-		Addr: s.cfg.HTTPSAddr, Handler: api.HTTPSHandler(), TLSConfig: httpsTLSConfig(s.certs),
+		Handler: api.HTTPSHandler(), TLSConfig: httpsTLSConfig(s.certs),
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
-	errc := make(chan error, 1)
-	go func() {
-		// Certificados vêm do GetCertificate; os argumentos ficam vazios.
-		err := srv.ListenAndServeTLS("", "")
-		if errors.Is(err, http.ErrServerClosed) {
-			err = nil
-		}
-		errc <- err
-	}()
-	s.svc.Log.Info("api listening (https)", "addr", s.cfg.HTTPSAddr)
-	return srv, errc
+	addrs, err := s.cfg.apiAddrs(s.cfg.HTTPSAddr)
+	if err != nil {
+		return nil, nil, err
+	}
+	ls, err := listenAll(addrs)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Certificados vêm do GetCertificate; os argumentos ficam vazios.
+	errc := serveAll(ls, func(l net.Listener) error { return srv.ServeTLS(l, "", "") })
+	s.svc.Log.Info("api listening (https)", "addr", addrsString(ls))
+	return srv, errc, nil
 }
