@@ -1,12 +1,15 @@
 package dns
 
 import (
+	"net"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	mdns "github.com/miekg/dns"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 )
 
 // Parâmetros do SOA. O TTL negativo (minttl) é o FS_DNS_TTL, para que um NODATA não fique em cache além
@@ -27,6 +30,8 @@ type Zone struct {
 	now    func() time.Time
 	serial uint32
 
+	probes *probe.Extractor
+
 	mu   sync.Mutex
 	acme map[string]map[string]time.Time // nome canônico → valor → expiração
 }
@@ -38,7 +43,7 @@ func NewZone(cfg Config, now func() time.Time) *Zone {
 	}
 	cfg.Zone = mdns.CanonicalName(cfg.Zone)
 	cfg.NS = mdns.Fqdn(cfg.NS)
-	return &Zone{cfg: cfg, now: now, serial: clampU32(now().Unix()), acme: map[string]map[string]time.Time{}}
+	return &Zone{cfg: cfg, now: now, probes: probe.NewExtractor(strings.TrimSuffix(cfg.Zone, ".")), serial: clampU32(now().Unix()), acme: map[string]map[string]time.Time{}}
 }
 
 // InZone informa se o nome (qualquer caixa, com ou sem ponto final) pertence à zona.
@@ -179,26 +184,15 @@ func (z *Zone) Answer(req *mdns.Msg) *mdns.Msg {
 
 	name := mdns.CanonicalName(q.Name)
 	apex := name == z.cfg.Zone
-	// Os RRs respondem com o nome como veio na pergunta (preserva a caixa 0x20 do resolvedor).
-	owner := func(rr mdns.RR) mdns.RR {
-		rr.Header().Name = q.Name
-		return rr
+	info, _ := z.probes.Host(name)
+	// Rótulos de controle (spec 007 RF-03).
+	if info.Has(probe.ControlNX) {
+		resp.Rcode = mdns.RcodeNameError
+		resp.Ns = append(resp.Ns, z.SOA())
+		return resp
 	}
-
-	switch {
-	case apex && q.Qtype == mdns.TypeSOA:
-		resp.Answer = append(resp.Answer, owner(z.SOA()))
-	case apex && q.Qtype == mdns.TypeNS:
-		resp.Answer = append(resp.Answer, owner(z.ns()))
-	case apex && q.Qtype == mdns.TypeANY:
-		resp.Answer = append(resp.Answer, owner(z.SOA()), owner(z.ns()))
-	case q.Qtype == mdns.TypeTXT || q.Qtype == mdns.TypeANY:
-		for _, v := range z.ACMEValues(name) {
-			resp.Answer = append(resp.Answer, &mdns.TXT{
-				Hdr: mdns.RR_Header{Name: q.Name, Rrtype: mdns.TypeTXT, Class: mdns.ClassINET, Ttl: z.cfg.ttlSeconds()},
-				Txt: []string{v},
-			})
-		}
+	if !info.Has(probe.ControlNoData) {
+		resp.Answer = z.records(q, name, apex, info)
 	}
 	// Todo nome da zona existe: sem resposta é NOERROR/NODATA com o SOA na autoridade (o Let's Encrypt
 	// consulta CAA e precisa disso, nunca REFUSED ou SERVFAIL).
@@ -206,4 +200,55 @@ func (z *Zone) Answer(req *mdns.Msg) *mdns.Msg {
 		resp.Ns = append(resp.Ns, z.SOA())
 	}
 	return resp
+}
+
+// ProbeID devolve o probe ID do qname ("" se não houver).
+func (z *Zone) ProbeID(qname string) string {
+	info, _ := z.probes.Host(qname)
+	return info.ID
+}
+
+// records devolve os RRs da resposta para a pergunta, já com o dono na caixa da pergunta (0x20).
+func (z *Zone) records(q mdns.Question, name string, apex bool, info probe.HostInfo) []mdns.RR {
+	ttl := z.cfg.ttlSeconds()
+	hdr := func(t uint16) mdns.RR_Header {
+		return mdns.RR_Header{Name: q.Name, Rrtype: t, Class: mdns.ClassINET, Ttl: ttl}
+	}
+	v4 := z.cfg.IPv4.IsValid() && !info.Has(probe.ControlV6)
+	v6 := z.cfg.IPv6.IsValid() && !info.Has(probe.ControlV4)
+	all := q.Qtype == mdns.TypeANY
+	var out []mdns.RR
+	if apex && (all || q.Qtype == mdns.TypeSOA) {
+		soa := z.SOA()
+		soa.Hdr.Name = q.Name
+		out = append(out, soa)
+	}
+	if apex && (all || q.Qtype == mdns.TypeNS) {
+		ns := z.ns()
+		ns.Hdr.Name = q.Name
+		out = append(out, ns)
+	}
+	if v4 && (all || q.Qtype == mdns.TypeA) {
+		out = append(out, &mdns.A{Hdr: hdr(mdns.TypeA), A: z.cfg.IPv4.AsSlice()})
+	}
+	if v6 && (all || q.Qtype == mdns.TypeAAAA) {
+		out = append(out, &mdns.AAAA{Hdr: hdr(mdns.TypeAAAA), AAAA: z.cfg.IPv6.AsSlice()})
+	}
+	if (all || q.Qtype == mdns.TypeHTTPS) && !info.Has(probe.ControlNoH3) && (v4 || v6) {
+		rr := &mdns.HTTPS{SVCB: mdns.SVCB{Hdr: hdr(mdns.TypeHTTPS), Priority: 1, Target: "."}}
+		rr.Value = append(rr.Value, &mdns.SVCBAlpn{Alpn: []string{"h3", "h2"}})
+		if v4 {
+			rr.Value = append(rr.Value, &mdns.SVCBIPv4Hint{Hint: []net.IP{z.cfg.IPv4.AsSlice()}})
+		}
+		if v6 {
+			rr.Value = append(rr.Value, &mdns.SVCBIPv6Hint{Hint: []net.IP{z.cfg.IPv6.AsSlice()}})
+		}
+		out = append(out, rr)
+	}
+	if all || q.Qtype == mdns.TypeTXT {
+		for _, v := range z.ACMEValues(name) {
+			out = append(out, &mdns.TXT{Hdr: hdr(mdns.TypeTXT), Txt: []string{v}})
+		}
+	}
+	return out
 }

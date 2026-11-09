@@ -3,6 +3,7 @@ package dns
 import (
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -74,7 +75,8 @@ func TestZoneApexSOAandNS(t *testing.T) {
 	}
 
 	r = z.Answer(query("dns-monitor.tmsoft.com.br.", mdns.TypeANY))
-	if len(r.Answer) != 2 {
+	// SOA, NS, A e HTTPS (a zona de teste não tem IPv6).
+	if len(r.Answer) != 4 {
 		t.Fatalf("ANY apex: %v", r)
 	}
 }
@@ -263,4 +265,86 @@ func TestLoadConfig(t *testing.T) {
 			t.Fatal("sem IP devia falhar")
 		}
 	})
+}
+
+func newDualZone() *Zone {
+	cfg := testConfig()
+	cfg.IPv4 = netip.MustParseAddr("172.233.24.85")
+	cfg.IPv6 = netip.MustParseAddr("2600:3c0d::f03c:93ff:fe26:8fd9")
+	return NewZone(cfg, nil)
+}
+
+// rrTypes devolve "TIPO dados" de cada RR da resposta, para comparar.
+func rrTypes(rrs []mdns.RR) []string {
+	var out []string
+	for _, rr := range rrs {
+		h := rr.Header()
+		out = append(out, mdns.TypeToString[h.Rrtype]+" "+strings.TrimPrefix(rr.String(), h.String()))
+	}
+	return out
+}
+
+func TestZoneAddressRecords(t *testing.T) {
+	z := newDualZone()
+	const v4, v6 = "172.233.24.85", "2600:3c0d::f03c:93ff:fe26:8fd9"
+	const https = `1 . alpn="h3,h2" ipv4hint="` + v4 + `" ipv6hint="` + v6 + `"`
+	cases := []struct {
+		name  string
+		qtype uint16
+		want  []string
+		rcode int
+	}{
+		{"dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"AbCdEfGh.dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"x.y.z.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, []string{"AAAA " + v6}, mdns.RcodeSuccess},
+		{"abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, []string{"HTTPS " + https}, mdns.RcodeSuccess},
+		{"dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, []string{"HTTPS " + https}, mdns.RcodeSuccess},
+		// Rótulos de controle à direita do probe, em qualquer posição.
+		{"abcdefgh.noh3.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"abcdefgh.noh3.dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"abcdefgh.v4.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, nil, mdns.RcodeSuccess},
+		{"abcdefgh.x.V4.dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"abcdefgh.v4.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, []string{`HTTPS 1 . alpn="h3,h2" ipv4hint="` + v4 + `"`}, mdns.RcodeSuccess},
+		{"abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeA, nil, mdns.RcodeSuccess},
+		{"abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, []string{"AAAA " + v6}, mdns.RcodeSuccess},
+		{"abcdefgh.nodata.dns-monitor.tmsoft.com.br.", mdns.TypeA, nil, mdns.RcodeSuccess},
+		{"abcdefgh.nx.dns-monitor.tmsoft.com.br.", mdns.TypeA, nil, mdns.RcodeNameError},
+		{"nx.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, nil, mdns.RcodeNameError},
+		{"abcdefgh.noh3.v6.dns-monitor.tmsoft.com.br.", mdns.TypeANY, []string{"AAAA " + v6}, mdns.RcodeSuccess},
+	}
+	for _, c := range cases {
+		r := z.Answer(query(c.name, c.qtype))
+		got := rrTypes(r.Answer)
+		if r.Rcode != c.rcode || !r.Authoritative || !slices.Equal(got, c.want) {
+			t.Errorf("%s %s: rcode %d %v, want %d %v", c.name, mdns.TypeToString[c.qtype], r.Rcode, got, c.rcode, c.want)
+			continue
+		}
+		for _, rr := range r.Answer {
+			if rr.Header().Ttl != 5 || rr.Header().Name != c.name {
+				t.Errorf("%s: header %v", c.name, rr.Header())
+			}
+		}
+		if len(r.Answer) == 0 && (len(r.Ns) != 1 || r.Ns[0].Header().Rrtype != mdns.TypeSOA) {
+			t.Errorf("%s: sem SOA na autoridade", c.name)
+		}
+	}
+	if z.ProbeID("AbCdEfGh.v4.dns-monitor.tmsoft.com.br.") != "abcdefgh" || z.ProbeID("dns-monitor.tmsoft.com.br.") != "" {
+		t.Fatal("ProbeID")
+	}
+}
+
+// TestZoneNoIPv6: sem FS_LISTEN_IPV6 o AAAA é NODATA e o HTTPS não leva ipv6hint.
+func TestZoneNoIPv6(t *testing.T) {
+	z, _ := newTestZone()
+	if r := z.Answer(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA)); len(r.Answer) != 0 {
+		t.Fatal(r)
+	}
+	r := z.Answer(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS))
+	if got := rrTypes(r.Answer); !slices.Equal(got, []string{`HTTPS 1 . alpn="h3,h2" ipv4hint="127.0.0.1"`}) {
+		t.Fatal(got)
+	}
+	// v6 sem IPv6 configurado: nada de endereço, nem HTTPS.
+	if r := z.Answer(query("abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS)); len(r.Answer) != 0 {
+		t.Fatal(r)
+	}
 }

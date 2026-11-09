@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "service": "dns",
+  "service_version": "0.1.0",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "udp",
+    "src_ip": "198.51.100.8",
+    "src_port": 5353,
+    "dst_ip": "172.233.24.85",
+    "dst_port": 53
+  },
+  "probe_id": "abcdefgh",
+  "payload": {
+    "ts": "2026-11-08T12:00:00.123456789Z",
+    "probe_id": "abcdefgh",
+    "resolver": {
+      "ip": "198.51.100.8",
+      "port": 5353
+    },
+    "proto": "udp",
+    "conn_id": null,
+    "id": 9,
+    "opcode": 0,
+    "flags": {
+      "rd": true,
+      "cd": false,
+      "ad": false
+    },
+    "qname": "abcdefgh.dns-monitor.tmsoft.com.br.",
+    "qtype": "AAAA",
+    "qclass": "IN",
+    "edns": null,
+    "response": {
+      "rcode": "NOERROR",
+      "truncated": true,
+      "answers": []
+    },
+    "rate_limited": true,
+    "raw_b64": "AAkBAAABAAAAAAAACGFiY2RlZmdoC2Rucy1tb25pdG9yBnRtc29mdANjb20CYnIAABwAAQ=="
+  }
+}
