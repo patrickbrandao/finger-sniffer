@@ -299,9 +299,9 @@ func (q *Queries) Packets(ctx context.Context, f ListFilter) ([]json.RawMessage,
 		if err := rows.Scan(&rec, &frame); err != nil {
 			return nil, err
 		}
-		var m map[string]any
-		if err := json.Unmarshal([]byte(rec), &m); err != nil {
-			return nil, err
+		m := decodeObject([]byte(rec))
+		if m == nil {
+			return nil, fmt.Errorf("bad record_json")
 		}
 		m["frame_b64"] = base64.StdEncoding.EncodeToString(frame)
 		b, _ := json.Marshal(m)

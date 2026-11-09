@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/iana"
 )
@@ -38,7 +39,12 @@ func clientHelloSegments(ch map[string]any, tcp *tcpJSON) int {
 		return 0
 	}
 	records := 0
-	if v, ok := ch["client_hello_records"].(float64); ok {
+	switch v := ch["client_hello_records"].(type) {
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			records = int(n)
+		}
+	case float64:
 		records = int(v)
 	}
 	need := clientHelloLen(raw, records)
