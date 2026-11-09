@@ -65,7 +65,7 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
 
 ### Long-poll `wait`
 
-`wait` é uma duração Go em `ms` ou `s` (por exemplo `500ms`, `10s`), no máximo 60 s:
+`wait` é uma duração em `ms` ou `s` (por exemplo `500ms`, `10s`); acima de 60 s vale 60 s:
 
 - responde assim que o probe tem **ao menos uma conexão** e **todas estão fechadas** (`all_closed: true`);
 - só consultas DNS (ou nada) ainda não bastam: a espera continua até a primeira conexão chegar e fechar — é o caso
@@ -73,6 +73,22 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
 - no fim do prazo: 200 com o estado atual (`all_closed` diz se ainda há conexão aberta) ou 404 se o probe não tem
   nada;
 - sem `wait`: responde na hora.
+
+Só DNS, sem conexão no prazo, e probe sem nada:
+
+```console
+$ dig +short @vps602.tmsoft.com.br k3x9q2mz7a.dns-monitor.tmsoft.com.br A
+172.233.24.85
+$ time curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=3s' | jq -c '{all_closed,
+    connections: (.connections | length), dns: (.dns | length)}'
+{"all_closed":true,"connections":0,"dns":1}
+real    0m3.114s
+$ curl -s -w ' %{http_code}\n' 'https://vps602.tmsoft.com.br:9000/api/v1/probes/nadaaquinada?wait=2s'
+{
+  "error": "not found or expired"
+}
+ 404
+```
 
 Conexões mantidas abertas pelo cliente (keep-alive de navegador, h2 e h3 ociosos) só fecham por iniciativa dele: o
 espelho nunca fecha antes de `FS_IDLE_DEFAULT` (120 s). Nesses casos o `wait` volta no fim do prazo com
@@ -244,7 +260,7 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/packets?limit=1'
     "dir": "in",
     "dst": { "ip": "172.233.24.85", "port": 55121 },
     "family": 4,
-    "frame_b64": "8jyTJo/Z/v//////CABFQAAo6GcAAOsGNMJo7YQ6rOkYVbhs11GBsCdjAAAAAFAEBLC/+AAA",
+    "frame_b64": "8jyTJo/Z/v//////CABFQAAo…",
     "l4": "tcp",
     "length": 54,
     "src": { "ip": "198.51.100.58", "port": 47212 },
@@ -259,8 +275,24 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/packets?limit=1'
 
 ```console
 $ curl -s http://vps602.tmsoft.com.br:9001/api/v1/health | jq '{ok, version, versions_match,
-    services: (.services | map_values(.status))}'
+    services: (.services | map_values(.status)), store: .host.store}'
+{
+  "ok": true,
+  "version": "b82ead7",
+  "versions_match": false,
+  "services": { "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
+  "store": {
+    "db_bytes": 9748272,
+    "max_bytes": 2147483648,
+    "retention": "10m",
+    "connections": 175,
+    "oldest": "2026-11-09T07:09:16.712379952Z"
+  }
+}
 ```
+
+`versions_match: false` aparece quando um serviço foi reimplantado sozinho (`make deploy SVC=…`) e os demais
+rodam outro commit.
 
 `ok` é `false` se algum serviço estiver `down` (sem heartbeat há 15 s). `host` traz kernel, offloads e sysctls
 efetivos, certificados (emissor e validade), NTP e o uso do banco (`db_bytes`, `retention`, `oldest`).
