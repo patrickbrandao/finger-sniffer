@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -118,9 +119,10 @@ func ParsePorts(s string) ([]PortSpec, error) {
 
 // Config é a configuração do serviço raw.
 type Config struct {
-	// ListenHost é o endereço de escuta ("" = todos).
-	ListenHost string
-	Ports      []PortSpec
+	// ListenIPs são os IPs de escuta: os públicos da eth0 (FS_LISTEN_IPV4/FS_LISTEN_IPV6, ADR 0001); cada
+	// porta abre um socket por IP. Nunca escuta em todos os endereços.
+	ListenIPs []netip.Addr
+	Ports     []PortSpec
 	// Idle é a ociosidade máxima sem atividade (FS_IDLE_DEFAULT, spec 006 RF-07).
 	Idle time.Duration
 	// SourceBytes é o padrão de bytes do modo source (n= da linha PROBE muda).
@@ -139,11 +141,13 @@ type Config struct {
 // LoadConfig lê a configuração das variáveis FS_*.
 func LoadConfig() (Config, error) {
 	c := Config{
-		ListenHost:  service.Env("FS_RAW_LISTEN_HOST", ""),
 		SourceBytes: DefaultSourceBytes,
 		ProbeWait:   time.Second,
 	}
 	var err error
+	if c.ListenIPs, err = listenIPs(); err != nil {
+		return c, err
+	}
 	if c.Ports, err = ParsePorts(service.Env("FS_RAW_PORTS", DefaultPorts)); err != nil {
 		return c, err
 	}
@@ -162,4 +166,28 @@ func LoadConfig() (Config, error) {
 	}
 	c.StreamMax = int64(streamMax)
 	return c, nil
+}
+
+// listenIPs lê FS_LISTEN_IPV4 e FS_LISTEN_IPV6 (como o web e o dns); vazio desliga a família, as duas vazias
+// é erro (ADR 0001: listeners só nos IPs públicos).
+func listenIPs() ([]netip.Addr, error) {
+	var out []netip.Addr
+	for _, k := range []struct {
+		key string
+		v4  bool
+	}{{"FS_LISTEN_IPV4", true}, {"FS_LISTEN_IPV6", false}} {
+		s := strings.TrimSpace(service.Env(k.key, ""))
+		if s == "" {
+			continue
+		}
+		a, err := netip.ParseAddr(s)
+		if err != nil || a.Is4() != k.v4 || a.Zone() != "" || a.IsUnspecified() {
+			return nil, fmt.Errorf("raw: %s invalid: %q", k.key, s)
+		}
+		out = append(out, a)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("raw: FS_LISTEN_IPV4 and FS_LISTEN_IPV6 are both empty")
+	}
+	return out, nil
 }

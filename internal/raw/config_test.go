@@ -66,12 +66,17 @@ func TestParsePortsErrors(t *testing.T) {
 }
 
 func TestLoadConfig(t *testing.T) {
+	t.Setenv("FS_LISTEN_IPV4", "192.0.2.10")
+	t.Setenv("FS_LISTEN_IPV6", "")
 	t.Setenv("FS_RAW_PORTS", "")
 	t.Setenv("FS_IDLE_DEFAULT", "")
 	t.Setenv("FS_RAW_STREAM_MAX_BYTES", "")
 	c, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(c.ListenIPs) != 1 || c.ListenIPs[0].String() != "192.0.2.10" {
+		t.Errorf("ListenIPs = %v", c.ListenIPs)
 	}
 	if len(c.Ports) != 8 || c.Idle != DefaultIdle || c.StreamMax != DefaultStreamMax || c.SourceBytes != DefaultSourceBytes {
 		t.Errorf("defaults = %+v", c)
@@ -106,5 +111,34 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_RAW_STREAM_MAX_BYTES", "x")
 	if _, err := LoadConfig(); err == nil {
 		t.Error("bad int: nil error")
+	}
+}
+
+func TestLoadConfigListenIPs(t *testing.T) {
+	// ADR 0001: o raw escuta só nos IPs públicos, nunca em todos os endereços.
+	t.Setenv("FS_RAW_PORTS", "")
+	t.Setenv("FS_IDLE_DEFAULT", "")
+	t.Setenv("FS_RAW_STREAM_MAX_BYTES", "")
+	t.Setenv("FS_LISTEN_IPV4", " 192.0.2.10 ")
+	t.Setenv("FS_LISTEN_IPV6", "2001:db8::10")
+	c, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.ListenIPs) != 2 || c.ListenIPs[0].String() != "192.0.2.10" || c.ListenIPs[1].String() != "2001:db8::10" {
+		t.Errorf("ListenIPs = %v", c.ListenIPs)
+	}
+	t.Setenv("FS_LISTEN_IPV4", "")
+	if c, err = LoadConfig(); err != nil || len(c.ListenIPs) != 1 || !c.ListenIPs[0].Is6() {
+		t.Errorf("v6 only: %v %v", c.ListenIPs, err)
+	}
+	for _, tc := range []struct{ v4, v6 string }{
+		{"", ""}, {"0.0.0.0", ""}, {"", "::"}, {"2001:db8::1", ""}, {"", "192.0.2.1"}, {"x", ""}, {"", "fe80::1%eth0"},
+	} {
+		t.Setenv("FS_LISTEN_IPV4", tc.v4)
+		t.Setenv("FS_LISTEN_IPV6", tc.v6)
+		if _, err := LoadConfig(); err == nil {
+			t.Errorf("v4=%q v6=%q: nil error", tc.v4, tc.v6)
+		}
 	}
 }

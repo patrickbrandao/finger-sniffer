@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,9 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
+
+// loopback é o IP de escuta dos testes (no lugar de FS_LISTEN_IPV4).
+var loopback = []netip.Addr{netip.MustParseAddr("127.0.0.1")}
 
 // testEnv é um NATS embutido, o produtor real e o servidor raw em portas efêmeras.
 type testEnv struct {
@@ -49,7 +53,7 @@ func startEnv(t *testing.T, ports []PortSpec, mutate func(*Config)) *testEnv {
 	}
 
 	cfg := Config{
-		ListenHost: "127.0.0.1", Ports: ports, Idle: 5 * time.Second,
+		ListenIPs: loopback, Ports: ports, Idle: 5 * time.Second,
 		SourceBytes: DefaultSourceBytes, StreamMax: DefaultStreamMax, ProbeWait: time.Second,
 	}
 	if mutate != nil {
@@ -153,6 +157,35 @@ func (e *testEnv) waitSession(t *testing.T) sessionResult {
 		case <-timeout:
 			t.Fatal("no fs.v1.raw.session")
 		}
+	}
+}
+
+func TestHalfCloseNotDelivered(t *testing.T) {
+	// RF-05: cliente que chama close() sem shutdown manda FIN e responde RST ao half-close; a escrita foi
+	// aceita pelo kernel, mas o registro diz que a mensagem não chegou.
+	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo", Banner: GenericBanner}}, nil)
+	c := dial(t, env.addr[0])
+	if _, err := c.Write([]byte("PROBE abcdefgh\r\nx\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readN(t, c, 2); got != "x\n" {
+		t.Fatalf("echo = %q", got)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := env.waitSession(t)
+	if r.info.HalfClose == nil || r.info.HalfClose.ServerSentAfterClientFIN || r.info.HalfClose.Bytes != len(HalfCloseMessage) {
+		t.Errorf("half_close = %+v", r.info.HalfClose)
+	}
+}
+
+func TestWaitDeliveredWithoutSocket(t *testing.T) {
+	a, b := net.Pipe()
+	defer func() { _ = a.Close() }()
+	defer func() { _ = b.Close() }()
+	if !waitDelivered(a, time.Millisecond) {
+		t.Error("pipe: want true (escrita aceita)")
 	}
 }
 
@@ -382,7 +415,7 @@ func TestTLSModeWithoutConfigServesPlain(t *testing.T) {
 func TestShutdownClosesSessions(t *testing.T) {
 	pub := &fakePub{}
 	srv := New(Config{
-		ListenHost: "127.0.0.1", Ports: []PortSpec{{Port: 0, Mode: "sink"}, {Port: 0, Mode: "echo"}},
+		ListenIPs: loopback, Ports: []PortSpec{{Port: 0, Mode: "sink"}, {Port: 0, Mode: "echo"}},
 		Idle: time.Minute, StreamMax: DefaultStreamMax, SourceBytes: 1, ProbeWait: time.Second,
 	}, pub, quietLog(), nil)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -427,12 +460,40 @@ func TestListenError(t *testing.T) {
 	}
 	defer func() { _ = busy.Close() }()
 	port := busy.Addr().(*net.TCPAddr).Port
-	srv := New(Config{ListenHost: "127.0.0.1", Ports: []PortSpec{{Port: 0, Mode: "echo"}, {Port: port, Mode: "echo"}}}, &fakePub{}, quietLog(), nil)
+	srv := New(Config{ListenIPs: loopback, Ports: []PortSpec{{Port: 0, Mode: "echo"}, {Port: port, Mode: "echo"}}}, &fakePub{}, quietLog(), nil)
 	if err := srv.Run(context.Background()); err == nil {
 		t.Fatal("Run with busy port: nil error")
 	}
 	if len(srv.Addrs()) != 0 {
 		t.Error("listeners left open")
+	}
+}
+
+func TestListenOnlyConfiguredIPs(t *testing.T) {
+	// ADR 0001: um socket por IP configurado e porta; nenhum em todos os endereços.
+	ips := []netip.Addr{netip.MustParseAddr("127.0.0.1")}
+	if ln, err := net.Listen("tcp", "[::1]:0"); err == nil {
+		_ = ln.Close()
+		ips = append(ips, netip.MustParseAddr("::1"))
+	}
+	srv := New(Config{ListenIPs: ips, Ports: []PortSpec{{Port: 0, Mode: "echo"}, {Port: 0, Mode: "sink"}}}, &fakePub{}, quietLog(), nil)
+	if err := srv.Listen(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.closeListeners()
+	addrs := srv.Addrs()
+	if len(addrs) != 2*len(ips) {
+		t.Fatalf("addrs = %v", addrs)
+	}
+	for i, a := range addrs {
+		ip := a.(*net.TCPAddr).AddrPort().Addr()
+		if ip.IsUnspecified() || ip != ips[i%len(ips)] {
+			t.Errorf("addr %d = %v", i, a)
+		}
+	}
+
+	if err := New(Config{Ports: []PortSpec{{Port: 0, Mode: "echo"}}}, &fakePub{}, quietLog(), nil).Listen(context.Background()); err == nil {
+		t.Error("Listen without ListenIPs: nil error")
 	}
 }
 
