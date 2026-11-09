@@ -329,6 +329,10 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		pcap = appendPcapRecord(pcap, p.ts, p.wireLen, p.frame)
 	}
 	end := c.lastSeen
+	// QUIC encerrado pelo web: o fim é o do evento, se vier depois do último pacote.
+	if c.app != nil && c.app.h3CloseTs > end {
+		end = c.app.h3CloseTs
+	}
 	how := "timeout"
 	if c.closing() {
 		how = "" // closeInfo decide (fin/rst)

@@ -1,0 +1,215 @@
+{
+  "summary": "Conexão quic/h3 com duas requisições, encerrada pelo cliente",
+  "value": {
+    "close": {
+      "by": "client",
+      "half_close": false,
+      "how": "quic_close",
+      "idle_before_close_ms": null
+    },
+    "conn_id": "01M6TY2FG00000000000000001",
+    "degraded": false,
+    "dst": {
+      "ip": "172.233.24.85",
+      "port": 443
+    },
+    "ended": "2026-11-07T12:00:01.000000000Z",
+    "family": 4,
+    "http3": {
+      "client_hello": {
+        "handshake_ms": 12.5,
+        "ja4": "q13d0312h3_55b375c5d22e_06cda9e17597",
+        "negotiated": {
+          "alpn": "h3",
+          "cipher": "TLS_AES_128_GCM_SHA256",
+          "group": "X25519",
+          "resumed": false,
+          "version": "TLS 1.3"
+        },
+        "sni": "t1a2b3c4.dns-monitor.tmsoft.com.br"
+      },
+      "client_hello_datagrams": 1,
+      "close": {
+        "by": "client",
+        "error_code": 256,
+        "how": "application_close",
+        "reason": ""
+      },
+      "coalesced_packets": 1,
+      "dcid_hex": "a1a2a3a4a5a6a7a8",
+      "h3_settings": [
+        [
+          1,
+          0
+        ],
+        [
+          6,
+          16384
+        ],
+        [
+          7,
+          0
+        ]
+      ],
+      "initial_datagram_size": 1200,
+      "initial_frames": [
+        "CRYPTO",
+        "PADDING"
+      ],
+      "initial_frames_truncated": false,
+      "initial_length": 1182,
+      "initial_packet_number": 0,
+      "padded_to_1200": true,
+      "requests": [
+        {
+          "body_len": 0,
+          "fields": [
+            {
+              "huffman_name": null,
+              "huffman_value": null,
+              "index": 17,
+              "name": ":method",
+              "never_indexed": null,
+              "repr": "indexed",
+              "static": true,
+              "value": "GET"
+            },
+            {
+              "huffman_name": null,
+              "huffman_value": false,
+              "index": 1,
+              "name": ":path",
+              "never_indexed": false,
+              "repr": "literal-name-ref",
+              "static": true,
+              "value": "/"
+            }
+          ],
+          "fields_truncated": false,
+          "ja4h": null,
+          "pseudo_order": [
+            ":method",
+            ":scheme",
+            ":authority",
+            ":path"
+          ],
+          "status": 200,
+          "stream_id": 0,
+          "values_truncated": false
+        },
+        {
+          "body_len": 0,
+          "fields": [
+            {
+              "huffman_name": null,
+              "huffman_value": null,
+              "index": 17,
+              "name": ":method",
+              "never_indexed": null,
+              "repr": "indexed",
+              "static": true,
+              "value": "GET"
+            },
+            {
+              "huffman_name": null,
+              "huffman_value": false,
+              "index": 1,
+              "name": ":path",
+              "never_indexed": false,
+              "repr": "literal-name-ref",
+              "static": true,
+              "value": "/favicon.ico"
+            }
+          ],
+          "fields_truncated": false,
+          "ja4h": null,
+          "pseudo_order": [
+            ":method",
+            ":scheme",
+            ":authority",
+            ":path"
+          ],
+          "status": 404,
+          "stream_id": 4,
+          "values_truncated": false
+        }
+      ],
+      "scid_hex": "",
+      "token_hex": "",
+      "token_len": 0,
+      "transport_params": [
+        [
+          1,
+          "max_idle_timeout",
+          "8000ea60"
+        ]
+      ],
+      "version": "00000001"
+    },
+    "ip": {
+      "df": false,
+      "dscp": 0,
+      "ecn": "not-ect",
+      "flow_label": null,
+      "fragmented": false,
+      "hops": 0,
+      "ip_id_pattern": "zero",
+      "ip_id_syn": 0,
+      "options_hex": "",
+      "tos": 0,
+      "traffic_class": null,
+      "ttl": 64,
+      "ttl_initial": 64
+    },
+    "l4": "udp",
+    "pcap_truncated": false,
+    "probe_id": "t1a2b3c4",
+    "proto": "quic/h3",
+    "requests": 2,
+    "src": {
+      "ip": "192.0.2.10",
+      "port": 52000
+    },
+    "started": "2026-11-07T12:00:00.000000000Z",
+    "times": {
+      "client_fin": null,
+      "client_rst": null,
+      "end": "2026-11-07T12:00:01.000000000Z",
+      "established": null,
+      "first_data": null,
+      "server_fin": null,
+      "server_rst": null,
+      "syn": null,
+      "syn_ack": null,
+      "tls_done": "2026-11-07T12:00:00.030000000Z"
+    },
+    "tls": {
+      "handshake_ms": 12.5,
+      "ja4": "q13d0312h3_55b375c5d22e_06cda9e17597",
+      "negotiated": {
+        "alpn": "h3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "group": "X25519",
+        "resumed": false,
+        "version": "TLS 1.3"
+      },
+      "sni": "t1a2b3c4.dns-monitor.tmsoft.com.br"
+    },
+    "totals": {
+      "in": {
+        "app_bytes": 1292,
+        "data_segments": 3,
+        "out_of_order": 0,
+        "retransmits": 0,
+        "segments": 3
+      },
+      "out": {
+        "app_bytes": 2101,
+        "data_segments": 2,
+        "out_of_order": 0,
+        "retransmits": 0,
+        "segments": 2
+      }
+    }
+  }
+}

@@ -18,6 +18,16 @@ func asyncAPI(t *testing.T) string {
 	return string(raw)
 }
 
+// openAPI lê o openapi.yaml, onde ficam os schemas de payload que o asyncapi referencia (ex. HTTP3Info).
+func openAPI(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile("../../cmd/finger-sniffer-store/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 // schemaBlock devolve o trecho de um esquema/mensagem com o indent de 4 espaços (até o próximo irmão).
 func schemaBlock(t *testing.T, doc, name string) string {
 	t.Helper()
@@ -68,8 +78,8 @@ func jsonKeys(t *testing.T, v any) []string {
 // TestPayloadsMatchAsyncAPI: toda chave serializada existe no esquema do contrato, e toda propriedade do
 // contrato aparece na serialização de um valor completo (teste de contrato, nos dois sentidos).
 func TestPayloadsMatchAsyncAPI(t *testing.T) {
-	doc := asyncAPI(t)
-	s, n, f := "x", 1, 1.5
+	async, openapi := asyncAPI(t), openAPI(t)
+	s, n, f, u, yes := "x", 1, 1.5, uint64(7), true
 	cases := []struct {
 		schema string
 		value  any
@@ -87,6 +97,14 @@ func TestPayloadsMatchAsyncAPI(t *testing.T) {
 		}},
 		{"ACMERequest", ACMERequest{Name: "n", Value: "v"}},
 		{"ACMEReply", ACMEReply{OK: false, Error: &s}},
+		// Payloads h3 (ADR 0019): os schemas estão no openapi, referenciados pelas mensagens do asyncapi.
+		{"HTTP3Info", HTTP3Info{
+			InitialFrames: []string{"CRYPTO"}, TransportParams: []TransportParam{{ID: 1, Name: "max_idle_timeout", ValueHex: "00"}},
+			ClientHello: json.RawMessage(`{}`), H3Settings: [][2]uint64{{1, 0}},
+			Close: &HTTP3Close{By: "client", How: QUICCloseConnection, ErrorCode: &u, Reason: &s}, Requests: []HTTP3Request{},
+		}},
+		{"HTTP3Request", HTTP3Request{PseudoOrder: []string{":method"}, Fields: []QPACKField{}, JA4H: &s, Controls: json.RawMessage(`{}`)}},
+		{"QPACKField", QPACKField{Repr: "indexed", Static: &yes, Index: &n, NeverIndexed: &yes, HuffmanName: &yes, HuffmanValue: &yes}},
 	}
 	propRe := regexp.MustCompile(`(?m)^\s+([a-z_0-9]+):`)
 	nonProps := map[string]bool{
@@ -96,6 +114,10 @@ func TestPayloadsMatchAsyncAPI(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.schema, func(t *testing.T) {
+			doc := async
+			if strings.HasPrefix(c.schema, "HTTP3") || c.schema == "QPACKField" {
+				doc = openapi // schemas de payload do openapi, referenciados pelo asyncapi
+			}
 			block := schemaBlock(t, doc, c.schema)
 			keys := jsonKeys(t, c.value)
 			for _, k := range keys {
@@ -172,6 +194,24 @@ func TestSubjectsMatchAsyncAPI(t *testing.T) {
 	}
 	if !matchSubject("fs.v1.web.>", "fs.v1.web.tls.handshake") || matchSubject("fs.v1.web.>", "fs.v1.web") {
 		t.Fatal("matchSubject")
+	}
+}
+
+// TestTransportParamJSON: o transport parameter vai como `[id, nome, valor_hex]` e volta igual.
+func TestTransportParamJSON(t *testing.T) {
+	data, _ := json.Marshal(HTTP3Info{TransportParams: []TransportParam{{ID: 0x0a0a, Name: "GREASE", ValueHex: "beef"}}})
+	if !strings.Contains(string(data), `"transport_params":[[2570,"GREASE","beef"]]`) {
+		t.Fatalf("%s", data)
+	}
+	var back HTTP3Info
+	if err := json.Unmarshal(data, &back); err != nil || back.TransportParams[0] != (TransportParam{ID: 2570, Name: "GREASE", ValueHex: "beef"}) {
+		t.Fatalf("%+v %v", back, err)
+	}
+	for _, bad := range []string{`[1,"x"]`, `{}`, `["a","x","y"]`, `[1,2,"y"]`, `[1,"x",3]`} {
+		var p TransportParam
+		if err := json.Unmarshal([]byte(bad), &p); err == nil {
+			t.Errorf("%s: expected error", bad)
+		}
 	}
 }
 

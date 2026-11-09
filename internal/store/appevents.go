@@ -64,6 +64,14 @@ func parseAppEvent(subject string, data []byte) (appEvent, error) {
 	return ev, nil
 }
 
+// quicDCID devolve o flow.quic_dcid_hex do envelope ("" fora do QUIC).
+func (e appEvent) quicDCID() string {
+	if e.env.Flow == nil || e.l4 != protoUDP {
+		return ""
+	}
+	return strings.ToLower(e.env.Flow.QUICDCIDHex)
+}
+
 // hasFlow informa se o evento traz a 5-tupla.
 func (e appEvent) hasFlow() bool { return e.l4 != 0 }
 

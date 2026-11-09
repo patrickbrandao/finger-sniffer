@@ -21,6 +21,9 @@ const (
 	eventOnlyIdle = 30 * time.Second
 	// lateSlack é a folga depois do fim de uma conexão gravada para eventos publicados no fechamento.
 	lateSlack = 30 * time.Second
+	// quicCloseGrace é a folga entre o http3.connection com close e o fim do fluxo UDP, para os últimos pacotes
+	// do capture (ADR 0019).
+	quicCloseGrace = 2 * time.Second
 )
 
 // target é a conexão a que um evento pertence.
@@ -54,11 +57,16 @@ type dirtyConn struct {
 }
 
 // openFor devolve a conexão aberta da 5-tupla que contém ts (com folga antes do início).
-func (t *flowTable) openFor(k flowKey, ts int64) (target, bool) {
+func (t *flowTable) openFor(k flowKey, ts int64, dcid string) (target, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	c := t.conns[k]
 	if c == nil || ts < c.started-eventSlack.Nanoseconds() {
+		return target{}, false
+	}
+	// Evento atrasado da conexão QUIC anterior na mesma 5-tupla (DCID diferente, anterior ao início desta):
+	// pertence à conexão já gravada.
+	if dcid != "" && c.quicDCID != "" && dcid != c.quicDCID && ts < c.started {
 		return target{}, false
 	}
 	return target{id: c.id, open: true, degraded: c.degraded}, true
@@ -76,6 +84,10 @@ func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after
 	l4 := l4Name(c.l4)
 	before = c.app.proto(l4)
 	probeSet = c.app.add(ev)
+	// Fim da conexão QUIC visto pelo web: fecha o fluxo depois da folga (ADR 0019).
+	if c.l4 == protoUDP && c.closeAt == 0 && c.app.h3Close != nil {
+		c.closeAt = c.app.h3CloseTs + quicCloseGrace.Nanoseconds()
+	}
 	return probeSet, before, c.app.proto(l4), true
 }
 
@@ -103,7 +115,7 @@ func (t *flowTable) reserveFor(k flowKey, id string, now int64) {
 // locate acha a conexão de um evento: aberta na tabela, criada só por eventos, ou já gravada (até a retenção).
 func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target, bool, error) {
 	k := ev.key()
-	if tg, ok := in.flows.openFor(k, ev.ts); ok {
+	if tg, ok := in.flows.openFor(k, ev.ts, ev.quicDCID()); ok {
 		return tg, true, nil
 	}
 	if eo := in.eventOnly[k]; eo != nil && ev.ts >= eo.started-eventSlack.Nanoseconds() && ev.ts <= eo.last+eventOnlyIdle.Nanoseconds() {

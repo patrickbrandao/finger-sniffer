@@ -22,7 +22,13 @@ type layers struct {
 	http1Index   int
 	http2        map[string]any // nível de conexão (última versão)
 	h2Streams    []json.RawMessage
-	h2StreamIdx  map[int]int // stream_id → posição em h2Streams
+	h2StreamIdx  map[int]int    // stream_id → posição em h2Streams
+	http3        map[string]any // nível de conexão QUIC/h3 (última versão, sem requests)
+	h3Requests   []json.RawMessage
+	h3RequestIdx map[int64]int     // stream_id → posição em h3Requests
+	h3Close      *event.HTTP3Close // fim da conexão QUIC visto pelo web (ADR 0019)
+	h3CloseTs    int64             // ts do http3.connection com close
+	h3TLSDone    int64             // ts do primeiro http3.connection com negotiated
 	ws           *wsJSON
 	raw          json.RawMessage
 	rawFromWeb   bool // web.raw.session (raw/unknown)
@@ -104,6 +110,24 @@ func (l *layers) addLayer(ev appEvent) {
 			l.h2StreamIdx[h.StreamID] = len(l.h2Streams)
 			l.h2Streams = append(l.h2Streams, ev.env.Payload)
 		}
+	case event.SubjectWebHTTP3Connection:
+		l.addHTTP3Connection(ev)
+	case event.SubjectWebHTTP3Request:
+		var h struct {
+			StreamID int64 `json:"stream_id"`
+		}
+		if json.Unmarshal(ev.env.Payload, &h) != nil {
+			return
+		}
+		if l.h3RequestIdx == nil {
+			l.h3RequestIdx = map[int64]int{}
+		}
+		if i, ok := l.h3RequestIdx[h.StreamID]; ok {
+			l.h3Requests[i] = ev.env.Payload
+		} else {
+			l.h3RequestIdx[h.StreamID] = len(l.h3Requests)
+			l.h3Requests = append(l.h3Requests, ev.env.Payload)
+		}
 	case event.SubjectWebWebSocketFrame:
 		var f event.WebSocketFrame
 		if json.Unmarshal(ev.env.Payload, &f) != nil {
@@ -132,6 +156,41 @@ func (l *layers) addLayer(ev appEvent) {
 	case event.SubjectDNSQuery:
 		l.dns = true
 	}
+}
+
+// addHTTP3Connection guarda o nível de conexão h3: a última versão vale (spec 004), sem as requisições, que vêm
+// por fs.v1.web.http3.request.
+func (l *layers) addHTTP3Connection(ev appEvent) {
+	var m map[string]any
+	if json.Unmarshal(ev.env.Payload, &m) != nil || m == nil {
+		return
+	}
+	delete(m, "requests")
+	l.http3 = m
+	var h struct {
+		ClientHello *struct {
+			Negotiated *event.TLSNegotiated `json:"negotiated"`
+		} `json:"client_hello"`
+		Close *event.HTTP3Close `json:"close"`
+	}
+	_ = json.Unmarshal(ev.env.Payload, &h)
+	if h.ClientHello != nil && h.ClientHello.Negotiated != nil && l.h3TLSDone == 0 {
+		l.h3TLSDone = ev.ts
+	}
+	if h.Close != nil && l.h3Close == nil {
+		l.h3Close, l.h3CloseTs = h.Close, ev.ts
+	}
+}
+
+// isQUIC informa se a conexão teve evento h3 (Initial analisado ou requisição).
+func (l *layers) isQUIC() bool { return l.http3 != nil || len(l.h3Requests) > 0 }
+
+// h3ALPN devolve o ALPN negociado no handshake QUIC ("" se não houve).
+func (l *layers) h3ALPN() string {
+	ch, _ := l.http3["client_hello"].(map[string]any)
+	neg, _ := ch["negotiated"].(map[string]any)
+	alpn, _ := neg["alpn"].(string)
+	return alpn
 }
 
 // applyLayers escreve as camadas no registro (aberto ou gravado).
@@ -187,6 +246,9 @@ func (l *layers) applyLayers(r *connectionJSON) {
 		r.HTTP2, _ = json.Marshal(h2)
 		requests += len(l.h2Streams)
 	}
+	if l.isQUIC() {
+		requests += l.applyHTTP3(r)
+	}
 	r.Requests = requests
 	if l.ws != nil {
 		ws := *l.ws
@@ -203,6 +265,45 @@ func (l *layers) applyLayers(r *connectionJSON) {
 		r.Raw = l.raw
 	}
 	r.Proto = l.proto(r.L4)
+}
+
+// applyHTTP3 escreve o http3 do registro (spec 004, ADR 0019): o nível de conexão com as requisições, o tls (=
+// client_hello do Initial, quando não houve ClientHello por TCP), times.tls_done e, com a conexão encerrada pelo
+// web, o close (quic_close, ou timeout no idle_timeout). Devolve quantas requisições h3 houve.
+func (l *layers) applyHTTP3(r *connectionJSON) int {
+	h3 := map[string]any{}
+	for k, v := range l.http3 {
+		h3[k] = v
+	}
+	reqs := l.h3Requests
+	if reqs == nil {
+		reqs = []json.RawMessage{}
+	}
+	h3["requests"] = reqs
+	r.HTTP3, _ = json.Marshal(h3)
+	if ch, ok := l.http3["client_hello"].(map[string]any); ok && l.clientHello == nil && l.handshake == nil {
+		r.TLS, _ = json.Marshal(ch)
+	}
+	if l.h3TLSDone != 0 || r.Ended != nil {
+		if r.Times == nil {
+			r.Times = &timesJSON{End: r.Ended}
+		}
+		if l.h3TLSDone != 0 {
+			r.Times.TLSDone = tsPtr(l.h3TLSDone)
+		}
+	}
+	if c := l.h3Close; c != nil && r.Ended != nil {
+		how := "quic_close"
+		if c.How == event.QUICCloseIdleTimeout {
+			how = "timeout"
+		}
+		by := c.By
+		if by != "client" && by != "server" {
+			by = "unknown"
+		}
+		r.Close = closeJSON{By: by, How: how, IdleBeforeCloseMs: r.Close.IdleBeforeCloseMs}
+	}
+	return len(l.h3Requests)
 }
 
 func parseTs(s string) int64 {
