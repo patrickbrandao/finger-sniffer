@@ -38,7 +38,8 @@ type conn struct {
 
 	syn, synAck, established, firstData        int64
 	clientFin, serverFin, clientRst, serverRst int64
-	lastData                                   int64
+	recentData                                 [closeRing]dataSeg // últimos dados antes do 1º FIN/RST
+	recentN                                    int
 	dataAfterFin                               bool
 	inSegs, outSegs, inData, outData           int
 	inBytes, outBytes                          int64
@@ -49,6 +50,13 @@ type conn struct {
 	quicDCID                                   string // DCID do primeiro Initial QUIC do cliente (hex)
 	ana                                        *analysis
 	app                                        *appState // eventos de aplicação associados (spec 004)
+}
+
+// dataSeg é um segmento com dados, guardado para medir a ociosidade antes do fechamento.
+type dataSeg struct {
+	ts  int64
+	cli bool
+	n   int
 }
 
 // fromClient informa se o pacote foi enviado pelo cliente da conexão.
@@ -65,7 +73,12 @@ func (c *conn) observe(fi frameInfo, ts int64, grace time.Duration) {
 		c.serverSeen = true
 	}
 	if fi.payload > 0 {
-		c.lastData = ts
+		// só os dados até o primeiro FIN/RST contam para a ociosidade antes do fechamento (spec 013 RF-02):
+		// o que vem depois (close_notify/GOAWAY do outro lado, "half-close test" do raw) já é o fechamento
+		if c.clientFin == 0 && c.serverFin == 0 && c.clientRst == 0 && c.serverRst == 0 {
+			c.recentData[c.recentN%closeRing] = dataSeg{ts: ts, cli: cli, n: fi.payload}
+			c.recentN++
+		}
 		if cli {
 			c.inData++
 			c.inBytes += int64(fi.payload)
