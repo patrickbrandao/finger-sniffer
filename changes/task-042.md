@@ -1,1 +1,0 @@
-- Web: marcas de corte do contrato 0.2.1 sempre serializadas: `body.chunks_truncated` no HTTP/1 (teto de 4096 pedaços ou corte pelo teto do evento), `values_truncated`/`fields_truncated` no stream h2, `reads_in_truncated`/`writes_out_truncated` no `raw.session` do sink; golden `dns.acme.set.json` do `ACMERequest` real do provedor libdns, referenciado no asyncapi (task 042).

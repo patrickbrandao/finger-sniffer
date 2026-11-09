@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.2.1
+  version: 0.3.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -64,8 +64,11 @@ paths:
         - name: wait
           in: query
           description: |
-            Long-poll: espera até todas as conexões do probe estarem fechadas ou o prazo acabar
-            (duração Go, máx. 60s). Sem `wait`, responde na hora.
+            Long-poll (duração Go, máx. 60s): responde quando o probe tem **ao menos uma conexão** e todas
+            estão fechadas, ou quando o prazo acaba. Só consultas DNS (ou nada) ainda não bastam: a espera
+            continua até a primeira conexão chegar e fechar. No fim do prazo devolve o estado atual (200, com
+            `all_closed` refletindo as conexões existentes) ou 404 se o probe ainda não tem nada. Sem `wait`,
+            responde na hora.
           schema: { type: string, pattern: "^[0-9]+(ms|s)$", examples: ["10s"] }
       responses:
         "200":
@@ -212,6 +215,8 @@ paths:
       summary: Tempo real por Server-Sent Events
       description: |
         Cada evento SSE tem `event: <kind>` e `data: <LiveEvent em JSON>`. Sem filtros = feed global.
+        Só eventos novos (sem replay nem `Last-Event-ID`); comentário `: ping` a cada 15 s. Cliente lento
+        perde eventos e recebe um `stream.dropped` com a contagem (spec 004, ADR 0020).
       parameters:
         - $ref: "#/components/parameters/LiveProbe"
         - $ref: "#/components/parameters/LiveSrcIP"
@@ -224,13 +229,16 @@ paths:
             text/event-stream:
               schema: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/TooManyLiveClients" }
 
   /api/v1/ws:
     get:
       tags: [realtime]
       operationId: websocketEvents
       summary: Tempo real por WebSocket
-      description: Mesmos filtros do `/stream`; cada mensagem de texto é um LiveEvent em JSON.
+      description: |
+        Mesmos filtros e regras do `/stream`; cada mensagem de texto é um LiveEvent em JSON. O servidor manda
+        ping a cada 30 s e ignora mensagens do cliente.
       parameters:
         - $ref: "#/components/parameters/LiveProbe"
         - $ref: "#/components/parameters/LiveSrcIP"
@@ -239,6 +247,7 @@ paths:
       responses:
         "101": { description: Switching Protocols. }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/TooManyLiveClients" }
 
   /api/v1/openapi.yaml:
     get:
@@ -282,6 +291,11 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: Desconhecido ou expirado (retenção de 10 min).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyLiveClients:
+      description: Acima de `FS_LIVE_MAX_CLIENTS` clientes de tempo real simultâneos (SSE + WS).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -427,7 +441,8 @@ components:
           type: string
           description: |
             Pilha detectada (regra na spec 004), ex. `tcp`, `udp`, `http1.1`, `h2c`, `tls/http1.1`, `tls/h2`,
-            `tls/http1.1/ws`, `quic/h3`, `tls/raw`, `raw`, `raw/unknown`, `dns`.
+            `tls/http1.1/ws`, `quic` (Initial sem h3 negociado), `quic/h3`, `tls/raw`, `raw`, `raw/unknown`,
+            `dns`.
         l4: { type: string, enum: [tcp, udp] }
         family: { type: integer, enum: [4, 6] }
         src: { $ref: "#/components/schemas/Endpoint" }
@@ -482,7 +497,11 @@ components:
       description: Spec 013 RF-02.
       properties:
         by: { type: string, enum: [client, server, unknown] }
-        how: { type: string, enum: [fin, rst, timeout, open] }
+        how:
+          type: string
+          enum: [fin, rst, timeout, open, quic_close]
+          description: "`quic_close`: CONNECTION_CLOSE (ou reset sem estado) visto pelo web (spec 011); `timeout`: ociosidade."
+
         idle_before_close_ms: { type: [number, "null"] }
         half_close: { type: boolean }
 
@@ -803,48 +822,85 @@ components:
     # ------------------------------------------------------------------ HTTP/3 e QUIC
     HTTP3Info:
       type: object
-      description: Spec 011.
+      description: |
+        Spec 011. Montado pelo store a partir de `fs.v1.web.http3.connection` (a última versão vale, preservando
+        `requests`) e de `fs.v1.web.http3.request` (acrescenta ou substitui por `stream_id`).
       properties:
-        version: { type: string, description: Versão QUIC em hex. }
+        version: { type: string, description: "Versão QUIC do primeiro Initial do cliente, em hex (ex. `00000001`)." }
         dcid_hex: { $ref: "#/components/schemas/Hex" }
         scid_hex: { $ref: "#/components/schemas/Hex" }
         token_len: { type: integer }
+        token_hex: { $ref: "#/components/schemas/Hex" }
+        initial_length: { type: integer, description: Campo Length do primeiro pacote Initial. }
+        initial_packet_number: { type: integer }
         initial_datagram_size: { type: integer }
         padded_to_1200: { type: boolean }
-        coalesced_packets: { type: integer }
+        coalesced_packets: { type: integer, description: Pacotes QUIC no primeiro datagrama. }
+        client_hello_datagrams:
+          type: integer
+          description: Datagramas Initial do cliente necessários para remontar o ClientHello (ex. 2 com ML-KEM).
+        initial_frames:
+          type: array
+          description: Tipos de frame dos Initials do cliente até o ClientHello completo, na ordem (ex. `CRYPTO`, `PADDING`, `PING`).
+          items: { type: string }
+        initial_frames_truncated: { type: boolean, description: "Lista cortada em 256 itens." }
         transport_params:
           type: array
-          description: "`[id, nome, valor_hex]` na ordem recebida."
+          description: "`[id, nome, valor_hex]` na ordem recebida (GREASE incluído, nome `GREASE`)."
           items:
             type: array
             prefixItems: [{ type: integer }, { type: string }, { type: string }]
             minItems: 3
             maxItems: 3
-        client_hello: { $ref: "#/components/schemas/TLSInfo" }
+        client_hello:
+          $ref: "#/components/schemas/TLSInfo"
+          description: ClientHello decifrado do Initial; `ja4` com prefixo `q`; `negotiated`/`handshake_ms` do handshake QUIC.
         h3_settings:
           type: array
+          description: "`[id, valor]` do SETTINGS do cliente, na ordem."
           items:
             type: array
             prefixItems: [{ type: integer }, { type: integer }]
             minItems: 2
             maxItems: 2
+        close:
+          type: [object, "null"]
+          description: Fim da conexão QUIC visto pelo web; nulo enquanto aberta.
+          properties:
+            by: { type: string, enum: [client, server, unknown] }
+            how: { type: string, enum: [connection_close, application_close, idle_timeout, stateless_reset, handshake_failed] }
+            error_code: { type: [integer, "null"] }
+            reason: { type: [string, "null"] }
         requests:
           type: array
-          items:
-            type: object
-            properties:
-              stream_id: { type: integer }
-              pseudo_order: { type: array, items: { type: string } }
-              fields:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    name: { type: string }
-                    value: { type: string }
-                    repr: { type: string }
-              status: { type: integer }
-              controls: { $ref: "#/components/schemas/Controls" }
+          items: { $ref: "#/components/schemas/HTTP3Request" }
+    HTTP3Request:
+      type: object
+      description: Uma requisição h3 (spec 011 RF-03).
+      properties:
+        stream_id: { type: integer }
+        pseudo_order: { type: array, items: { type: string } }
+        fields: { type: array, items: { $ref: "#/components/schemas/QPACKField" } }
+        fields_truncated: { type: boolean, description: "Lista de campos cortada para caber no teto do evento (ADR 0018)." }
+        values_truncated: { type: boolean, description: "Algum `value` foi cortado (ADR 0018)." }
+        ja4h: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
+        body_len: { type: integer, description: Bytes de DATA recebidos no stream. }
+        status: { type: integer }
+        controls: { $ref: "#/components/schemas/Controls" }
+    QPACKField:
+      type: object
+      properties:
+        name: { type: string }
+        value: { type: string }
+        repr:
+          type: string
+          enum: [indexed, indexed-post-base, literal-name-ref, literal-post-base-name-ref, literal]
+          description: Representação QPACK da linha do campo (RFC 9204 4.5).
+        static: { type: [boolean, "null"], description: Referência à tabela estática (true) ou dinâmica (false). }
+        index: { type: [integer, "null"] }
+        never_indexed: { type: [boolean, "null"], description: Bit N das representações literais. }
+        huffman_name: { type: [boolean, "null"] }
+        huffman_value: { type: [boolean, "null"] }
 
     # ------------------------------------------------------------------ WebSocket e raw
     WebSocketInfo:
@@ -975,12 +1031,12 @@ components:
       required: [kind, ts]
       description: |
         Evento do `/stream` e do `/ws`. `data` depende de `kind`: ConnectionSummary (connection.*),
-        HTTP1Request, HTTP2Stream ou requisição h3 (http.request), DNSQuery (dns.query),
-        StrayPacket (packet.stray).
+        HTTP1Request, HTTP2Stream ou HTTP3Request (http.request), DNSQuery (dns.query),
+        StrayPacket (packet.stray), LiveDropped (stream.dropped, só para o cliente que perdeu eventos).
       properties:
         kind:
           type: string
-          enum: [connection.opened, connection.updated, connection.closed, http.request, dns.query, packet.stray]
+          enum: [connection.opened, connection.updated, connection.closed, http.request, dns.query, packet.stray, stream.dropped]
         ts: { $ref: "#/components/schemas/Timestamp" }
         conn_id: { type: [string, "null"] }
         probe_id: { type: [string, "null"] }
@@ -989,5 +1045,13 @@ components:
             - $ref: "#/components/schemas/ConnectionSummary"
             - $ref: "#/components/schemas/HTTP1Request"
             - $ref: "#/components/schemas/HTTP2Stream"
+            - $ref: "#/components/schemas/HTTP3Request"
             - $ref: "#/components/schemas/DNSQuery"
             - $ref: "#/components/schemas/StrayPacket"
+            - $ref: "#/components/schemas/LiveDropped"
+    LiveDropped:
+      type: object
+      required: [dropped]
+      description: Eventos descartados para este cliente desde o último `stream.dropped` (fila cheia, ADR 0020).
+      properties:
+        dropped: { type: integer, minimum: 1 }

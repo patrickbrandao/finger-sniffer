@@ -1,1 +1,0 @@
-- Raw: `reads_in_truncated` e `writes_out_truncated` em `fs.v1.raw.session` (sempre serializados) quando as listas de tempos passam de 8192 itens; os bytes seguem completos em `fs.v1.raw.read` (task 043).

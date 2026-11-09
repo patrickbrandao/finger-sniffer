@@ -9,12 +9,14 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 
 ## Requisitos
 ### Rede (unit `finger-sniffer-net.service`, oneshot, antes de todas)
-- RF-01: desliga na `eth0`: `gro`, `rx-gro-hw`, `lro`, `tso`, `gso`, `tx-checksumming`, `rx-udp-gro-forwarding`
-  (`ethtool -K`). Falha em algum → registra e segue; o capture reporta `degraded`.
+- RF-01: desliga na `eth0`: `gro`, `rx-gro-hw`, `lro`, `tso`, `gso`, `tx-checksumming`, `rx-udp-gro-forwarding`,
+  `tx-udp-segmentation` (`ethtool -K`; o último pela ADR 0019). Falha em algum → registra e segue; o capture
+  reporta `degraded`.
 - RF-02: aplica `deploy/sysctl/90-finger-sniffer.conf` (versionado): `tcp_syncookies=1`, `somaxconn=4096`,
   `tcp_max_syn_backlog=4096`, `tcp_timestamps=1`, `tcp_ecn=2`, `tcp_sack=1`, `tcp_window_scaling=1`,
   `tcp_congestion_control=htcp`, `default_qdisc=fq_codel`, `tcp_fastopen=3` (para observar TFO do cliente),
-  `ip_local_port_range`; o arquivo é a documentação oficial da resposta TCP do espelho.
+  `ip_local_port_range`, `net.core.rmem_max=7340032` e `net.core.wmem_max=7340032` (buffer UDP do quic-go,
+  ADR 0019); o arquivo é a documentação oficial da resposta TCP do espelho.
 - RF-03: sem firewall com estado, sem conntrack/NAT: o deploy confere que `nft list ruleset` está vazio e que
   `nf_conntrack` não está carregado; se estiver, avisa no health.
 - RF-04: NTP: systemd-timesyncd ativo; health `degraded` se não sincronizado.
@@ -25,7 +27,8 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 - RF-06: hardening: usuário de sistema `finger-sniffer`; `ProtectSystem=strict`, `ReadWritePaths=/finger-sniffer/var`,
   `NoNewPrivileges`, `AmbientCapabilities` mínimas (NET_BIND_SERVICE para web/raw/dns; NET_RAW para capture;
   nenhuma para store/nats), `EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env`.
-- RF-07: `MemoryMax` (ADR 0005, ADR 0016): store 384M, nats 192M, demais 96M; `LimitNOFILE=65536`.
+- RF-07: `MemoryMax` (ADR 0005, ADR 0016): store 384M, nats 192M, demais 96M; `LimitNOFILE=65536`. Web com
+  `Environment=QUIC_GO_DISABLE_GSO=true QUIC_GO_DISABLE_ECN=true` (ADR 0019).
 - RF-08: journald drop-in: `MaxRetentionSec=24h`, `SystemMaxUse=200M`.
 
 ### NATS
@@ -47,7 +50,8 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
   `root@vps602.tmsoft.com.br:/finger-sniffer` (porta 48022), excluindo `.git/`, `tasks/`, `tmp/`, `var/`, `.grill/`,
   `etc/*.env` → instala usuário, units, sysctl, journald, NATS → aplica rede → `systemctl daemon-reload` →
   reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 5 serviços `ok`, `GET :80/`,
-  `GET :443/` com TLS válido).
+  `GET :443/` com TLS válido, `Alt-Svc: h3` na resposta da 443 e listener UDP 443 do web de pé — `ss -Hlun` na
+  vps602; com um cliente h3 disponível no Mac, também um `GET` por h3).
 - RF-11: idempotente; trava remota `flock /run/finger-sniffer/deploy.lock` (espera até 5 min).
 - RF-12: sem aprovação (servidor de testes).
 
