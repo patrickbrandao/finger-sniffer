@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="referrer" content="no-referrer" />
+<title>finger-sniffer: connection mirror</title>
+<style>
+:root { color-scheme: light dark; --fg: #1a1a1a; --bg: #ffffff; --muted: #4a4a4a; --code-bg: #f2f2f2; --accent: #0b57d0; --warn-bg: #fff4d6; --warn-fg: #4d3800; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #e8e8e8; --bg: #121212; --muted: #b8b8b8; --code-bg: #242424; --accent: #8ab4f8; --warn-bg: #3a2e00; --warn-fg: #ffe9a8; }
+}
+body { margin: 0 auto; max-width: 52rem; padding: 1.5rem 1rem 3rem; font: 1rem/1.55 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
+h2 { font-size: 1.25rem; margin-top: 2rem; }
+p.lead { color: var(--muted); margin-top: 0; }
+a { color: var(--accent); }
+a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+pre { background: var(--code-bg); padding: 0.75rem 1rem; overflow-x: auto; border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--code-bg); vertical-align: top; }
+.notice { background: var(--warn-bg); color: var(--warn-fg); padding: 0.75rem 1rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+<h1>finger-sniffer</h1>
+<p class="lead">A connection mirror: it shows how your packets and connections reach this server.</p>
+</header>
+
+<main>
+<section aria-labelledby="what">
+<h2 id="what">What it is</h2>
+<p>finger-sniffer accepts connections on a set of captured ports and records <strong>how</strong> they arrived:
+IP and TCP details (TTL, SYN options, JA4T, p0f guess, RTT, retransmissions, how the connection was closed),
+the TLS ClientHello and its fingerprints, the exact HTTP bytes, DNS queries and timing. Everything is returned,
+raw and analysed, through an API on ports that are <strong>not</strong> captured.</p>
+<p>Use it to find out whether your traffic is intercepted on the way (proxies, middleboxes, TLS inspection)
+and which characteristics it has when it reaches the server.</p>
+</section>
+
+<section aria-labelledby="notice">
+<h2 id="notice">Before you start</h2>
+<p class="notice"><strong>All traffic is public.</strong> Anything you send to the captured ports, including
+headers, cookies and request bodies, can be read by anyone through the API. Do not send secrets. Records are
+kept for about <strong>10 minutes</strong> and then deleted.</p>
+</section>
+
+<section aria-labelledby="ports">
+<h2 id="ports">Captured ports</h2>
+<table>
+<thead>
+<tr><th scope="col">Port</th><th scope="col">Service</th></tr>
+</thead>
+<tbody>
+<tr><td>TCP 80, 443, 8080, 8443</td><td>Web mirror: HTTP/1.x, h2, h2c, WebSocket, TLS on any of these ports (the protocol is detected from the first bytes, not from the port)</td></tr>
+<tr><td>UDP 443</td><td>QUIC / HTTP/3</td></tr>
+<tr><td>TCP 7</td><td>Echo</td></tr>
+<tr><td>TCP 21, 22, 25, 587, 110, 143</td><td>Banner (the server speaks first), then sink</td></tr>
+<tr><td>TCP 993</td><td>TLS, then banner</td></tr>
+<tr><td>UDP and TCP 53</td><td>Authoritative DNS for <code>dns-monitor.tmsoft.com.br</code></td></tr>
+</tbody>
+</table>
+<p>Ports 9000 (HTTPS) and 9001 (HTTP) serve the API and are not captured.</p>
+</section>
+
+<section aria-labelledby="probe">
+<h2 id="probe">How to probe</h2>
+<p>Pick a random probe ID of 8 to 32 lowercase letters and digits (for example <code>k3x9q2mz7a</code>) and use
+it both as the leftmost DNS label and in the path. The DNS lookup, the TCP and TLS handshakes and the HTTP
+request are then all tied to the same probe:</p>
+<pre><code>curl https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/</code></pre>
+<p>The response is a short text with the <code>conn_id</code> of your connection. The response can be
+controlled through <code>/p/&lt;id&gt;/r?...</code>, for example:</p>
+<pre><code>curl 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?status=204&amp;conn=close'
+curl 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?size=100000&amp;frame=chunked'
+curl 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?delay_head=500&amp;h=X-Test:1'</code></pre>
+<p>On the raw TCP ports, send a <code>PROBE &lt;id&gt;</code> line first (optionally with <code>mode=echo|banner|sink|source</code> and <code>n=N</code>):</p>
+<pre><code>printf 'PROBE k3x9q2mz7a\r\nhello\r\n' | nc vps602.tmsoft.com.br 7</code></pre>
+</section>
+
+<section aria-labelledby="result">
+<h2 id="result">Where to see the result</h2>
+<p>Ask the API for everything recorded under your probe ID. <code>wait</code> holds the answer until all
+connections of the probe are closed (up to 60 s):</p>
+<pre><code>curl 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s'</code></pre>
+<p>The same API is available over plain HTTP on port 9001
+(<code>http://vps602.tmsoft.com.br:9001/api/v1/probes/&lt;id&gt;</code>). Each connection also has its own
+record, raw bytes and a pcap: <code>/api/v1/connections/&lt;conn_id&gt;</code>,
+<code>/api/v1/connections/&lt;conn_id&gt;/raw</code> and <code>/api/v1/connections/&lt;conn_id&gt;/pcap</code>.
+When you are done, <code>DELETE /api/v1/probes/&lt;id&gt;</code> removes your records before the 10 minutes.</p>
+</section>
+
+<section aria-labelledby="api">
+<h2 id="api">API reference</h2>
+<p>The full contract (OpenAPI 3.1) is at
+<a href="https://vps602.tmsoft.com.br:9000/api/v1/openapi.yaml">https://vps602.tmsoft.com.br:9000/api/v1/openapi.yaml</a>
+(also over HTTP on port 9001). It covers connections, raw bytes, pcaps, DNS queries, stray packets, health and
+the live event stream.</p>
+</section>
+</main>
+
+<footer>
+<p>No cookies, no scripts, no third-party resources on this page.</p>
+</footer>
+</body>
+</html>
