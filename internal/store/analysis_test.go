@@ -609,3 +609,162 @@ func TestAppRTTNeedsAck(t *testing.T) {
 		t.Fatalf("rttApp = %d, quer 5 ms", a.rttApp)
 	}
 }
+
+// pktStr resume um IPPacket para comparar nos testes.
+func pktStr(p *ipPacketJSON) string {
+	if p == nil {
+		return "null"
+	}
+	opt := func(v *int) string {
+		if v == nil {
+			return "null"
+		}
+		return itoa64(int64(*v))
+	}
+	df := "null"
+	if p.DF != nil {
+		df = map[bool]string{true: "df", false: "nodf"}[*p.DF]
+	}
+	return "ttl=" + itoa64(int64(p.TTL)) + " " + df + " id=" + opt(p.IPID) + " tos=" + itoa64(int64(p.TOS)) +
+		" dscp=" + itoa64(int64(p.DSCP)) + " " + p.ECN + " flow=" + opt(p.FlowLabel) + " len=" + itoa64(int64(p.TotalLength)) +
+		" opts=" + p.OptionsHex + " frag=" + map[bool]string{true: "1", false: "0"}[p.Fragmented]
+}
+
+// TestIPPackets: ip.packets traz o cabeçalho IP do SYN, do ACK do handshake e do primeiro com dados (ADR 0029).
+func TestIPPackets(t *testing.T) {
+	// IPv4: SYN retransmitido (o primeiro fica), ACK sem dados, dados depois; opções e fragmento só no SYN.
+	s := newSession(1, 2, 3)
+	s.handshake(120)
+	s.segs[0].mf, s.segs[0].tos, s.segs[0].ipOpts = true, 0x2b, []byte{0x94, 0x04, 0, 0}
+	retx := s.segs[0]
+	retx.ms, retx.id, retx.mf, retx.tos, retx.ipOpts = 20, 99, false, 0, nil
+	s.segs = append(s.segs[:1], append([]seg{retx}, s.segs[1:]...)...)
+	s.cliData(200, 100, 120, 102)
+	s.segs[len(s.segs)-1].tos = 0x02
+	s.srvData(250, 50)
+	s.fin(300, 120, 103)
+	rec := ingestSession(t, nil, client, s.segs)
+	pk := rec.IP.Packets
+	if pk == nil {
+		t.Fatal("sem ip.packets")
+	}
+	// opções de 4 bytes + TCP com 20 de opções (linuxSYN) = 24 + 40
+	for name, c := range map[string]struct {
+		got  *ipPacketJSON
+		want string
+	}{
+		"syn":        {pk.Syn, "ttl=120 df id=100 tos=43 dscp=10 ce flow=null len=64 opts=94040000 frag=1"},
+		"ack":        {pk.Ack, "ttl=120 df id=101 tos=0 dscp=0 not-ect flow=null len=52 opts= frag=0"},
+		"first_data": {pk.FirstData, "ttl=120 df id=102 tos=2 dscp=0 ect0 flow=null len=152 opts= frag=0"},
+	} {
+		if got := pktStr(c.got); got != c.want {
+			t.Errorf("%s = %s, quer %s", name, got, c.want)
+		}
+	}
+	// os campos planos de ip não mudam
+	if rec.IP.TTL != 120 || rec.IP.IPIDSyn == nil || *rec.IP.IPIDSyn != 100 || rec.IP.ECN != "ect0" {
+		t.Errorf("ip = %+v", rec.IP)
+	}
+
+	// IPv6: o ACK do handshake leva os dados, então first_data = ack.
+	cli6 := netip.MustParseAddrPort("[2001:db8::7]:40000")
+	s = newSession(1, 2, 3)
+	s.handshake(250)
+	for i := range s.segs {
+		s.segs[i].flow, s.segs[i].tos = 0x12345, 0x01
+	}
+	s.segs[2].payload, s.segs[2].flags = 30, tcpACK|tcpPSH
+	s.cliNext += 30
+	s.fin(300, 250, 0)
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 60_000, segBatch(cli6, netip.MustParseAddrPort("[2600:3c0d::1]:443"), s.segs))
+	_, rec = onlyConn(t, db)
+	pk = rec.IP.Packets
+	want := "ttl=250 null id=null tos=1 dscp=0 ect1 flow=74565 len=102 opts= frag=0"
+	if got := pktStr(pk.Ack); got != want || pktStr(pk.FirstData) != want {
+		t.Errorf("ack/first_data v6 = %s / %s, quer %s", got, pktStr(pk.FirstData), want)
+	}
+	if got := pktStr(pk.Syn); got != "ttl=250 null id=null tos=1 dscp=0 ect1 flow=74565 len=80 opts= frag=0" {
+		t.Errorf("syn v6 = %s", got)
+	}
+}
+
+// TestIPPacketsUDP: em UDP só first_data, o primeiro datagrama do cliente.
+func TestIPPacketsUDP(t *testing.T) {
+	in, _ := newTestIngestor(t, nil)
+	msgs := h3Session(t, 1000)
+	run(t, in, 900, msgs[:6]...)
+	run(t, in, 1100, msgs[6])
+	run(t, in, 3100)
+	_, rec := onlyConn(t, in.db)
+	pk := rec.IP.Packets
+	first := udpFrame(quicClient, quicMirror, quicInitial(dcidA))
+	if pk == nil || pk.Syn != nil || pk.Ack != nil || pk.FirstData == nil || pk.FirstData.TotalLength != len(first)-14 {
+		t.Fatalf("udp = %+v (quer len %d)", pk, len(first)-14)
+	}
+}
+
+// TestIPPacketsRealPcaps confere ip.packets com o tshark nos pcaps reais (ip.ttl/ipv6.hlim, ip.flags.df, ip.id,
+// ip.dsfield/ipv6.tclass, ipv6.flow, ip.len/40+ipv6.plen dos frames 1, 3 e 4).
+func TestIPPacketsRealPcaps(t *testing.T) {
+	for file, want := range map[string][3]string{
+		"linux-https-v4.pcap": {
+			"ttl=128 df id=38926 tos=0 dscp=0 not-ect flow=null len=60 opts= frag=0",
+			"ttl=128 df id=38927 tos=0 dscp=0 not-ect flow=null len=52 opts= frag=0",
+			"ttl=128 df id=38928 tos=0 dscp=0 not-ect flow=null len=1500 opts= frag=0",
+		},
+		"linux-https-v6.pcap": {
+			"ttl=64 null id=null tos=0 dscp=0 not-ect flow=851383 len=80 opts= frag=0",
+			"ttl=64 null id=null tos=0 dscp=0 not-ect flow=851383 len=72 opts= frag=0",
+			"ttl=64 null id=null tos=0 dscp=0 not-ect flow=851383 len=1420 opts= frag=0",
+		},
+	} {
+		t.Run(file, func(t *testing.T) {
+			in, db := newTestIngestor(t, nil)
+			run(t, in, 0, pcapBatch(t, "testdata/"+file))
+			if err := in.Finalize(t.Context(), in.flows.due(1<<62)); err != nil {
+				t.Fatal(err)
+			}
+			_, rec := onlyConn(t, db)
+			pk := rec.IP.Packets
+			for i, got := range []string{pktStr(pk.Syn), pktStr(pk.Ack), pktStr(pk.FirstData)} {
+				if got != want[i] {
+					t.Errorf("pacote %d = %s, tshark %s", i, got, want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestTFOSynWithData: SYN com cookie TFO e dados, SYN-ACK do espelho com a opção TFO (kind 34) e o ACK
+// confirmando os dados do SYN (ADR 0029 item 3).
+func TestTFOSynWithData(t *testing.T) {
+	s := newSession(1, 2, 3)
+	s.handshake(64)
+	s.segs[0].opts = append(linuxSYN(3), 1, 1, 34, 10, 1, 2, 3, 4, 5, 6, 7, 8)
+	s.segs[0].payload = 7
+	s.cliNext += 7
+	s.segs[1].opts = append(linuxSYN(777), 1, 1, 34, 10, 8, 7, 6, 5, 4, 3, 2, 1)
+	s.segs[1].ack = s.cliNext
+	s.segs[2].seq = s.cliNext
+	s.srvData(150, 40)
+	s.fin(300, 64, 1)
+	rec := ingestSession(t, nil, client, s.segs)
+	syn := rec.TCP.Syn
+	if !syn.TFO || syn.PayloadB64 == nil || *syn.PayloadB64 != "AAAAAAAAAA==" {
+		t.Fatalf("syn = %+v", syn)
+	}
+	if rec.Times.FirstData == nil || rec.Times.Syn == nil || *rec.Times.FirstData != *rec.Times.Syn {
+		t.Fatalf("first_data %v syn %v", rec.Times.FirstData, rec.Times.Syn)
+	}
+	pk := rec.IP.Packets
+	if pktStr(pk.FirstData) != pktStr(pk.Syn) || pk.Syn == nil || *pk.Syn.IPID != 100 || pk.Ack == nil || *pk.Ack.IPID != 101 {
+		t.Fatalf("packets = %s / %s / %s", pktStr(pk.Syn), pktStr(pk.Ack), pktStr(pk.FirstData))
+	}
+	if rec.TCP.SynCookieServer {
+		t.Fatal("TFO não é SYN cookie")
+	}
+	if rec.Totals.In.AppBytes != 7 {
+		t.Fatalf("bytes in = %d", rec.Totals.In.AppBytes)
+	}
+}

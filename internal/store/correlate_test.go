@@ -78,7 +78,7 @@ func TestEventWithoutPackets(t *testing.T) {
 	if _, r := onlyConn(t, db); *r.Ended != event.FormatTime(time.Unix(0, base+2900e6)) {
 		t.Fatalf("ended %v", *r.Ended)
 	}
-	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", 0)
+	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", ProbeWait{})
 	if err != nil || len(p.Connections) != 1 || !p.AllClosed {
 		t.Fatalf("probe %+v %v", p, err)
 	}

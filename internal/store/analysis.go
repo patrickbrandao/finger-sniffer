@@ -52,6 +52,30 @@ type ipJSON struct {
 	Fragmented   bool   `json:"fragmented"`
 	FlowLabel    *int   `json:"flow_label"`
 	TrafficClass *int   `json:"traffic_class"`
+	// Packets é o cabeçalho IP de cada pacote do handshake e do primeiro com dados (ADR 0029); nil só nos
+	// registros anteriores ao 0.4.0, relidos do banco.
+	Packets *ipPacketsJSON `json:"packets,omitempty"`
+}
+
+// ipPacketJSON é o schema IPPacket do openapi (ADR 0029).
+type ipPacketJSON struct {
+	TTL         int    `json:"ttl"`
+	DF          *bool  `json:"df"`
+	IPID        *int   `json:"ip_id"`
+	TOS         int    `json:"tos"`
+	DSCP        int    `json:"dscp"`
+	ECN         string `json:"ecn"`
+	FlowLabel   *int   `json:"flow_label"`
+	TotalLength int    `json:"total_length"`
+	OptionsHex  string `json:"options_hex"`
+	Fragmented  bool   `json:"fragmented"`
+}
+
+// ipPacketsJSON é o IPInfo.packets: nulo o pacote que não existiu.
+type ipPacketsJSON struct {
+	Syn       *ipPacketJSON `json:"syn"`
+	Ack       *ipPacketJSON `json:"ack"`
+	FirstData *ipPacketJSON `json:"first_data"`
 }
 
 type tcpSynJSON struct {
@@ -110,6 +134,7 @@ type analysis struct {
 	ip         ipJSON
 	ipIDs      []uint16
 	fragmented bool
+	packets    ipPacketsJSON
 
 	syn        *tcpSynJSON
 	ja4t       *string
@@ -293,6 +318,7 @@ func (a *analysis) ipPacket(fi frameInfo) {
 	if fi.family == 4 && len(a.ipIDs) < maxIPIDs {
 		a.ipIDs = append(a.ipIDs, binary.BigEndian.Uint16(ip[4:6]))
 	}
+	a.packetHeaders(fi)
 	if a.ipSet {
 		// TOS/DSCP/ECN do primeiro segmento TCP com dados (openapi IPInfo: SYN e primeiro segmento com dados): o
 		// SYN nunca leva ECT (RFC 3168 6.1.1), então o ECN negociado só aparece nos dados.
@@ -323,6 +349,62 @@ func (a *analysis) ipPacket(fi frameInfo) {
 	r.Hops = r.TTLInitial - r.TTL
 }
 
+// packetHeaders guarda o cabeçalho IP dos pacotes do cliente de ip.packets (ADR 0029): o primeiro SYN, o primeiro
+// segmento com ACK e sem SYN depois do SYN-ACK e o primeiro com dados (TCP); em UDP, só o primeiro datagrama.
+func (a *analysis) packetHeaders(fi frameInfo) {
+	p := &a.packets
+	if fi.proto != protoTCP {
+		if p.FirstData == nil {
+			p.FirstData = ipPacketHeader(fi)
+		}
+		return
+	}
+	if !fi.ports {
+		return // fragmento sem o cabeçalho TCP: não dá para saber que pacote é
+	}
+	syn, ack := fi.tcpFlags&tcpSYN != 0, fi.tcpFlags&tcpACK != 0
+	if syn && !ack && p.Syn == nil {
+		p.Syn = ipPacketHeader(fi)
+	}
+	if ack && !syn && a.synAckSeen && p.Ack == nil {
+		p.Ack = ipPacketHeader(fi)
+	}
+	if fi.payload > 0 && p.FirstData == nil {
+		p.FirstData = ipPacketHeader(fi)
+	}
+}
+
+// ipPacketHeader lê o cabeçalho IP de um pacote no formato IPPacket.
+func ipPacketHeader(fi frameInfo) *ipPacketJSON {
+	ip := fi.l3
+	r := &ipPacketJSON{Fragmented: fi.frag}
+	var tos int
+	if fi.family == 4 {
+		df := binary.BigEndian.Uint16(ip[6:8])&0x4000 != 0
+		id := int(binary.BigEndian.Uint16(ip[4:6]))
+		r.TTL, r.DF, r.IPID = int(ip[8]), &df, &id
+		r.TotalLength = int(binary.BigEndian.Uint16(ip[2:4]))
+		if ihl := int(ip[0]&0x0f) * 4; ihl > 20 && ihl <= len(ip) {
+			r.OptionsHex = hex.EncodeToString(ip[20:ihl])
+		}
+		tos = int(ip[1])
+	} else {
+		if len(ip) < 40 {
+			return nil
+		}
+		fl := int(binary.BigEndian.Uint32(ip[0:4]) & 0xfffff)
+		r.TTL, r.FlowLabel = int(ip[7]), &fl
+		r.TotalLength = 40 + int(binary.BigEndian.Uint16(ip[4:6]))
+		tos = int(binary.BigEndian.Uint32(ip[0:4])>>20) & 0xff
+	}
+	r.TOS, r.DSCP, r.ECN = tos, tos>>2, ecnName(tos)
+	return r
+}
+
+func ecnName(tos int) string {
+	return [...]string{"not-ect", "ect1", "ect0", "ce"}[tos&0x03]
+}
+
 // setTOS preenche TOS/DSCP/ECN (e o traffic class do IPv6) a partir do cabeçalho IP.
 func (a *analysis) setTOS(family int, ip []byte) {
 	r := &a.ip
@@ -335,7 +417,7 @@ func (a *analysis) setTOS(family int, ip []byte) {
 		r.TrafficClass = &tc
 	}
 	r.TOS, r.DSCP = tos, tos>>2
-	r.ECN = [...]string{"not-ect", "ect1", "ect0", "ce"}[tos&0x03]
+	r.ECN = ecnName(tos)
 }
 
 func initialTTL(ttl int) int {
@@ -564,6 +646,8 @@ func (a *analysis) ipJSON() *ipJSON {
 	}
 	r := a.ip
 	r.Fragmented = a.fragmented
+	pk := a.packets
+	r.Packets = &pk
 	if len(a.ipIDs) > 0 {
 		r.IPIDPattern = ipIDPattern(a.ipIDs)
 	} else {

@@ -68,7 +68,7 @@ func TestBigIntHTTP3Settings(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("stored /connections", stored)
-	p, err := q.Probe(context.Background(), probeID, 0)
+	p, err := q.Probe(context.Background(), probeID, ProbeWait{})
 	if err != nil || len(p.Connections) != 1 {
 		t.Fatalf("probe %+v %v", p, err)
 	}

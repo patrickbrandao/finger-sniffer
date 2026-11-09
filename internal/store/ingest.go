@@ -501,8 +501,10 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", c.id); err != nil {
 		return err
 	}
+	// updated_ns é o relógio do store no instante em que ele registrou o fechamento (settle do long-poll, ADR 0029):
+	// no fim por ociosidade, bem depois do último pacote.
 	if _, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ? WHERE conn_id = ?",
-		end, boolInt(c.truncated), string(rec), r.Proto, end, c.id); err != nil {
+		end, boolInt(c.truncated), string(rec), r.Proto, max(end, in.now().UnixNano()), c.id); err != nil {
 		return err
 	}
 	// Por ociosidade, o fato "fechou" só existe quando o store decide (ADR 0025): o ts do feed é esse instante;

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -187,21 +188,60 @@ func (a *API) listDNS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
-// waitRe é o formato de ?wait em /probes/{id} (openapi).
-var waitRe = regexp.MustCompile(`^[0-9]+(ms|s)$`)
+// waitRe é o formato de ?wait e ?settle em /probes/{id} (openapi); minConnsRe, o de ?min_conns.
+var (
+	waitRe     = regexp.MustCompile(`^[0-9]+(ms|s)$`)
+	minConnsRe = regexp.MustCompile(`^[0-9]{1,4}$`)
+)
 
-func (a *API) getProbe(w http.ResponseWriter, r *http.Request) {
-	var wait time.Duration
-	if v := r.URL.Query().Get("wait"); v != "" {
+// parseProbeWait lê wait, settle e min_conns (spec 004, ADR 0029): settle e min_conns só valem com wait.
+func parseProbeWait(get func(string) string) (ProbeWait, error) {
+	var pw ProbeWait
+	dur := func(name, v string) (time.Duration, error) {
 		// Formato do contrato: ^[0-9]+(ms|s)$ (sem fração, sem outras unidades).
 		d, err := time.ParseDuration(v)
 		if err != nil || !waitRe.MatchString(v) {
-			writeErr(w, bad("invalid wait %q (ex.: 10s)", v))
-			return
+			return 0, bad("invalid %s %q (ex.: 10s)", name, v)
 		}
-		wait = d
+		return d, nil
 	}
-	p, err := a.Q.Probe(r.Context(), r.PathValue("id"), wait)
+	wait, settle, minConns := get("wait"), get("settle"), get("min_conns")
+	if wait == "" {
+		if settle != "" || minConns != "" {
+			return pw, bad("settle and min_conns require wait")
+		}
+		return pw, nil
+	}
+	var err error
+	if pw.Wait, err = dur("wait", wait); err != nil {
+		return pw, err
+	}
+	if settle != "" {
+		if pw.Settle, err = dur("settle", settle); err != nil {
+			return pw, err
+		}
+		if pw.Settle > 10*time.Second {
+			return pw, bad("invalid settle %q (0s to 10s)", settle)
+		}
+	}
+	pw.MinConns = 1
+	if minConns != "" {
+		n, err := strconv.Atoi(minConns)
+		if err != nil || !minConnsRe.MatchString(minConns) || n < 1 || n > 1000 {
+			return pw, bad("invalid min_conns %q (1 to 1000)", minConns)
+		}
+		pw.MinConns = n
+	}
+	return pw, nil
+}
+
+func (a *API) getProbe(w http.ResponseWriter, r *http.Request) {
+	pw, err := parseProbeWait(r.URL.Query().Get)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	p, err := a.Q.Probe(r.Context(), r.PathValue("id"), pw)
 	if err != nil {
 		writeErr(w, err)
 		return
