@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.3.3, servido também em
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.4.x, ADR 0029, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação
@@ -77,6 +77,50 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
 - no fim do prazo: 200 com o estado atual (`all_closed` diz se ainda há conexão aberta) ou 404 se o probe não tem
   nada;
 - sem `wait`: responde na hora.
+
+Dois parâmetros deixam o critério mais estrito (ADR 0029); os dois **só valem com `wait`**:
+
+| Parâmetro | Formato | Padrão | Efeito |
+| --- | --- | --- | --- |
+| `settle` | duração `ms`/`s`, de `0s` a `10s` | `0s` | além do critério acima, nenhuma conexão do probe foi criada, correlacionada ao probe ou fechada nos últimos `settle` (relógio do store, a partir do instante em que ele registrou a mudança) |
+| `min_conns` | inteiro de 1 a 1000 | `1` | exige ao menos essa quantidade de conexões no probe |
+
+O `settle` cobre a conexão que chega logo depois das outras e a que ainda não foi correlacionada ao probe (até
+500 ms, RNF-04). Para coletar o **conjunto completo** use `wait=30s&settle=1s`; quando se sabe quantas conexões
+o caso abre, acrescente `min_conns=N`.
+
+Toda resposta com `wait` (inclusive `wait=0s`) traz `wait_met`: `true` quando saiu porque o critério foi
+atendido (`min_conns` conexões, todas fechadas, `settle` de silêncio), `false` quando saiu pelo fim do prazo.
+Sem `wait` o campo não aparece. Com `wait=0s` a resposta é imediata e `wait_met` diz se o critério já valia
+naquele instante.
+
+```console
+$ api=https://vps602.tmsoft.com.br:9000/api/v1
+$ time curl -s "$api/probes/tm57zb8tv8dh?wait=30s&settle=1s" | jq -c '{all_closed, wait_met, conns: (.connections|length)}'
+{"all_closed":true,"wait_met":true,"conns":2}
+real    0m1.202s
+$ time curl -s "$api/probes/bsfoxfbgi5if?wait=2s&min_conns=3" | jq -c '{all_closed, wait_met, conns: (.connections|length)}'
+{"all_closed":true,"wait_met":false,"conns":2}
+real    0m2.103s
+```
+
+Fora do formato, `settle` ou `min_conns` sem `wait`, `settle` acima de `10s` e `min_conns` fora de 1–1000 dão
+**400**:
+
+```console
+$ curl -s "$api/probes/bsfoxfbgi5if?settle=1s"
+{
+  "error": "settle and min_conns require wait"
+}
+$ curl -s "$api/probes/bsfoxfbgi5if?wait=5s&settle=11s"
+{
+  "error": "invalid settle \"11s\" (0s to 10s)"
+}
+$ curl -s "$api/probes/bsfoxfbgi5if?wait=5s&min_conns=0"
+{
+  "error": "invalid min_conns \"0\" (1 to 1000)"
+}
+```
 
 O registro de uma conexão fica pronto pouco depois do fim dela, e é isso que o `wait` espera (números em
 [metrics.md](metrics.md#tempo-até-o-registro)):
@@ -205,6 +249,59 @@ Os campos HTTP/1 vêm **sem normalização**: `[nome na caixa original, separado
 ordem em que chegaram. `raw_head_b64` traz o cabeçalho exato e `response_sent_b64` os bytes exatos que o espelho
 mandou. Campos `*_truncated` indicam cortes por teto de tamanho (ADR 0018); os bytes completos ficam em `/raw`.
 
+### Instantes de cada requisição e resposta
+
+Cada item de `http[]` (HTTP/1), `http2.streams[]` e `http3.requests[]` traz quatro instantes (RFC 3339 UTC com
+nanossegundos, relógio do web; ADR 0029). São instantes da **aplicação**: em TLS e QUIC, depois de decifrar e
+antes de cifrar; o instante no fio fica no pcap. Os controles `delay_*` aparecem neles.
+
+| Campo | HTTP/1 | h2 | h3 |
+| --- | --- | --- | --- |
+| `request_started_at` | primeiro byte da linha de requisição lido (em pipeline: a leitura que o trouxe) | HEADERS do cliente lido | HEADERS do cliente lido no stream |
+| `request_ended_at` | último byte da requisição lido (corpo, trailers ou fim do cabeçalho sem corpo) | END_STREAM do cliente lido | FIN do stream do cliente lido |
+| `response_started_at` | primeiro byte da resposta escrito (1xx incluídas) | primeiro HEADERS do servidor no stream | primeiro HEADERS do servidor |
+| `response_ended_at` | último byte da resposta escrito | END_STREAM ou RST_STREAM do servidor | FIN ou reset do stream pelo servidor |
+
+Cada instante é **independente**: nulo quer dizer "não observado", sem implicar nada sobre os outros. Exemplos:
+requisição que não terminou (`request_ended_at` nulo); nada enviado (`response_*` nulos); no h2, cliente que
+cancela o stream com RST_STREAM numa conexão que continua aberta (o servidor não escreve o fim, e
+`response_ended_at` fica nulo com `response_started_at` preenchido); no stream 1 de h2c por `Upgrade`, os
+`request_*` nulos (a requisição está em `http[]`) e os `response_*` preenchidos. Registros anteriores ao 0.4.0
+não têm os campos. Os instantes **sempre variam** entre execuções: compare diferenças entre eles, não os valores.
+
+```console
+$ id=tm57zb8tv8dh
+$ curl -s --http1.1 "https://$id.dns-monitor.tmsoft.com.br/p/$id/r?delay_head=200" >/dev/null
+$ curl -s --http2 "https://$id.dns-monitor.tmsoft.com.br/p/$id/r?delay_body=300" >/dev/null
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
+    i: [(.http[]?, .http2.streams[]?) | {request_started_at, request_ended_at, response_started_at, response_ended_at}]}'
+{"proto":"tls/http1.1","i":[{"request_started_at":"2026-11-09T21:43:06.692370800Z","request_ended_at":"2026-11-09T21:43:06.692370800Z","response_started_at":"2026-11-09T21:43:06.893383256Z","response_ended_at":"2026-11-09T21:43:06.893481217Z"}]}
+{"proto":"tls/h2","i":[{"request_started_at":"2026-11-09T21:43:06.956966392Z","request_ended_at":"2026-11-09T21:43:06.956966392Z","response_started_at":"2026-11-09T21:43:06.957729685Z","response_ended_at":"2026-11-09T21:43:07.258638589Z"}]}
+```
+
+No HTTP/1, o `delay_head=200` aparece entre `request_ended_at` e `response_started_at` (≈ 201 ms); no h2, o
+`delay_body=300` entre `response_started_at` e `response_ended_at` (≈ 301 ms).
+
+### IP de cada pacote: `ip.packets`
+
+`ip` mantém os campos resumidos (TTL e DF do SYN, TOS/ECN do primeiro segmento com dados) e traz `ip.packets`
+com o cabeçalho IP de três pacotes do cliente, cada um um objeto ou nulo se o pacote não existiu:
+
+- `syn`: o primeiro SYN (retransmissão não substitui);
+- `ack`: o primeiro segmento com ACK e sem SYN depois do SYN-ACK, com ou sem dados;
+- `first_data`: o primeiro segmento com dados (pode ser o próprio SYN, com TFO, ou o próprio `ack`).
+
+Em UDP (QUIC), `syn` e `ack` são nulos e `first_data` é o primeiro datagrama. Cada pacote traz `ttl` (hop limit
+no IPv6), `df` e `ip_id` (nulos no IPv6), `tos` (traffic class no IPv6), `dscp`, `ecn`, `flow_label` (nulo no
+IPv4), `total_length` (no IPv6, 40 + Payload Length), `options_hex` e `fragmented`. Os instantes desses pacotes
+estão em `times.syn`, `times.established` e `times.first_data`. No exemplo (IPv6, macOS), o ECN muda do SYN
+(`not-ect`) para os dados (`ect0`):
+
+```console
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[0].ip.packets | map_values({ttl, tos, ecn, flow_label, total_length})'
+{"syn":{"ttl":49,"tos":0,"ecn":"not-ect","flow_label":512,"total_length":84},"ack":{"ttl":49,"tos":0,"ecn":"not-ect","flow_label":512,"total_length":72},"first_data":{"ttl":49,"tos":2,"ecn":"ect0","flow_label":512,"total_length":417}}
+```
+
 ### pcap
 
 ```console
@@ -322,11 +419,11 @@ ou quando o `nf_conntrack` foi carregado depois do boot (`conntrack loaded`).
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.3.3):
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.4.x):
 
 | Código | Quando |
 | --- | --- |
-| 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, filtro de tempo real inválido |
+| 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, `settle` ou `min_conns` sem `wait`, `settle` fora de `0s`–`10s` ou mal formado, `min_conns` fora de 1–1000, filtro de tempo real inválido |
 | 404 | ID no formato certo mas desconhecido ou expirado (retenção), e qualquer rota inexistente |
 | 503 | só em `/stream` e `/ws`: acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo |
 | 500 | erro interno nas rotas de consulta |

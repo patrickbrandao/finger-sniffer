@@ -204,12 +204,12 @@ func TestHTTP3Fields(t *testing.T) {
 	}
 }
 
-// TestAuditF5Docs: os guias refletem os contratos 0.3.3 e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
+// TestAuditF5Docs: os guias refletem os contratos (0.3.3, hoje 0.4.x) e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
 // da API, métricas do capture publicadas desde a partida e as diferenças esperadas que a auditoria explicou.
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.3.3", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"versão 0.4.x", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
 			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
 		},
 		"metrics.md": {
@@ -309,6 +309,39 @@ func TestConnectionCloseDocs(t *testing.T) {
 	} {
 		if strings.Contains(s, b) {
 			t.Errorf("probes.md ainda diz %q", b)
+		}
+	}
+}
+
+// TestContracts04Docs: api.md e probes.md descrevem os campos e parâmetros dos contratos 0.4.x (ADR 0029,
+// task 124): settle/min_conns/wait_met e seus 400, os 4 instantes, ip.packets, TFO, alertas e keepalive.
+func TestContracts04Docs(t *testing.T) {
+	want := map[string][]string{
+		"api.md": {
+			"versão 0.4.x", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
+			"settle and min_conns require wait", "`settle` fora de `0s`–`10s`", "`min_conns` fora de 1–1000",
+			"`request_started_at`", "`request_ended_at`", "`response_started_at`", "`response_ended_at`",
+			"Cada instante é **independente**", "RST_STREAM", "`ip.packets`", "`first_data`",
+		},
+		"probes.md": {
+			"?wait=30s&settle=1s", "`wait_met: true`", "`&min_conns=N`", "--tcp-fastopen", "`tcp.syn.payload_b64`",
+			"#### TCP Fast Open", "`0x15`", "**sem duplicar**", "`unknown_ca`", "**não mandam keepalive TCP**",
+			"`ip.packets.{syn,ack,first_data}`", "os instantes `request_started_at`",
+		},
+	}
+	for f, ws := range want {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(data)
+		for _, w := range ws {
+			if !strings.Contains(s, w) {
+				t.Errorf("%s sem %q", f, w)
+			}
+		}
+		if strings.Contains(s, "?wait=10s") && f == "probes.md" {
+			t.Errorf("probes.md ainda coleta com ?wait=10s")
 		}
 	}
 }
