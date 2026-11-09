@@ -47,6 +47,7 @@ type conn struct {
 	lastSeen int64
 	degraded bool
 	limited  bool // conta nos limites do modo degradado: TCP e QUIC (overloaded)
+	refunded bool // a ficha das novas/s já foi devolvida (tentativa que não virou conexão)
 
 	syn, synAck, established, firstData        int64
 	clientFin, serverFin, clientRst, serverRst int64
@@ -339,8 +340,22 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	}
 	c.observe(fi, ts, t.grace)
 	c.analyze(fi, ts, c.fromClient(fi), t)
+	// SYN recusado (RST do espelho sem SYN-ACK, porta fechada ou varredura): não é conexão, devolve a ficha.
+	if c.l4 == protoTCP && c.synAck == 0 && c.serverRst != 0 {
+		t.refund(c)
+	}
 	res.conn = c
 	return res
+}
+
+// refund devolve a ficha das novas/s de uma tentativa que virou pacote avulso (spec 004 RF-03), para que
+// varreduras e SYNs sem resposta não esvaziem o balde da carga legítima (task 103).
+func (t *flowTable) refund(c *conn) {
+	if !c.limited || c.refunded {
+		return
+	}
+	c.refunded = true
+	t.newTokens = min(float64(t.maxNewPerS), t.newTokens+1)
 }
 
 // overloaded aplica o modo degradado (spec 004 RF-11): acima de maxOpen conexões simultâneas ou de maxNewPerS
@@ -352,6 +367,8 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 //     perfil exato (50/s em intervalos de 20 ms) com jitter de rede não degrada, uma rajada de até maxNewPerS
 //     passa e uma taxa sustentada acima do limite esvazia o balde e degrada o excedente. A janela fixa de 1 s
 //     de antes degradava no próprio perfil (a 51ª conexão com 5 ms de adiantamento já passava do limite).
+//   - Tentativas que viram pacote avulso (SYN recusado ou sem resposta) devolvem a ficha (refund): no perfil
+//     exato, ~0,7 varredura/s esvaziava o balde aos poucos e degradava as conexões da carga nos minutos finais.
 func (t *flowTable) overloaded(ts int64, limited bool) bool {
 	t.refill(ts)
 	full := t.liveLimited() >= t.maxOpen
@@ -407,6 +424,9 @@ func (t *flowTable) due(now int64) []*conn {
 			delete(t.conns, k)
 			delete(t.byID, c.id)
 			t.finish(c)
+			if c.isStray() {
+				t.refund(c)
+			}
 			// só a que vira conexão gravada (a que vira pacotes avulsos sai do banco: o tardio é avulso também)
 			if c.closing() && (c.l4 == protoTCP || c.app.isQUIC()) && (!c.isStray() || c.app.events > 0) {
 				c.lingerUntil = c.endTs() + lateLinger.Nanoseconds()

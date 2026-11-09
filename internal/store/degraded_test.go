@@ -135,3 +135,28 @@ func TestOverloadedCountsLiveOnly(t *testing.T) {
 		t.Fatal("201st live connection must degrade")
 	}
 }
+
+// TestOverloadedRefundsStray: SYNs recusados (RST do espelho) por cima do perfil exato não esvaziam o balde.
+func TestOverloadedRefundsStray(t *testing.T) {
+	ft := newLimitTable()
+	port := uint16(20000)
+	deg := 0
+	for i := range 3000 {
+		ts := base + int64(i)*int64(20*time.Millisecond)
+		port++
+		cli := netip.AddrPortFrom(client.Addr(), port)
+		if c := openTCP(ft, cli, ts, true); c.degraded {
+			deg++
+		}
+		if i%10 == 0 { // 5 varreduras/s a uma porta fechada
+			scan := netip.AddrPortFrom(netip.MustParseAddr("203.0.113.9"), port)
+			closed := netip.AddrPortFrom(mirror.Addr(), 9999)
+			ft.handle(parseFrame(frame(scan, closed, protoTCP, tcpSYN, 0)), ts+int64(time.Millisecond))
+			ft.handle(parseFrame(frame(closed, scan, protoTCP, tcpRST|tcpACK, 0)), ts+int64(2*time.Millisecond))
+		}
+		ft.due(ts) // tira da tabela as fechadas (folga de 100 ms)
+	}
+	if deg != 0 {
+		t.Fatalf("%d of 3000 degraded with refused SYNs on top", deg)
+	}
+}
