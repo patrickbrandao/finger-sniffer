@@ -33,6 +33,8 @@ type IngestConfig struct {
 	P0F *p0f.DB
 	// Syncookies lê o contador TcpExt SyncookiesSent (nil desliga a detecção de SYN cookie).
 	Syncookies func() int64
+	// RawStreamMax é FS_RAW_STREAM_MAX_BYTES (0 = padrão de 16 MiB).
+	RawStreamMax int
 }
 
 // Ingestor consome o stream e grava pacotes e conexões no SQLite.
@@ -46,13 +48,17 @@ type Ingestor struct {
 
 	lagMu sync.Mutex
 	lags  []float64 // ms, janela corrente
+
+	// Usados só pelo laço de ingest (sem trava).
+	pending   []pendingEvent             // eventos à espera da conexão (até pendingWait)
+	eventOnly map[flowKey]*eventOnlyConn // conexões criadas só pelos eventos
 }
 
 // NewIngestor cria o ingestor.
 func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metrics) *Ingestor {
 	return &Ingestor{
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
-		flows: newFlowTable(cfg),
+		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
 	}
 }
 
@@ -83,7 +89,7 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 		for m := range batch.Messages() {
 			msgs = append(msgs, m)
 		}
-		if len(msgs) > 0 {
+		if len(msgs) > 0 || len(in.pending) > 0 || len(in.eventOnly) > 0 {
 			if err := in.Process(ctx, msgs); err != nil {
 				in.log.Error("ingest", "err", err)
 				for _, m := range msgs {
@@ -136,17 +142,28 @@ func (in *Ingestor) process(ctx context.Context, msgs []msgSource) error {
 	var tss []int64
 	var ended []*conn
 	for _, m := range msgs {
-		if m.Subject() != event.SubjectCapturePacket {
-			continue // outros subjects chegam na F3 (aplicação) ou vão por assinatura própria (heartbeat)
+		subject := m.Subject()
+		if isAppSubject(subject) {
+			if err := in.appMessage(ctx, tx, subject, m.Data()); err != nil {
+				return err
+			}
+			continue
+		}
+		if subject != event.SubjectCapturePacket {
+			continue // heartbeat vai por assinatura própria; subjects desconhecidos são ignorados
 		}
 		_, err := event.DecodePackets(m.Data(), func(p event.Packet) error {
 			tss = append(tss, p.TsNs)
-			return in.packet(ctx, st, p, &ended)
+			return in.packet(ctx, tx, st, p, &ended)
 		})
 		if err != nil {
 			in.log.Warn("bad packet batch", "err", err)
 			in.metrics.Add("store_bad_batches_total", 1)
 		}
+	}
+	// Eventos que chegaram antes dos pacotes (no mesmo lote ou antes) acham a conexão agora.
+	if err := in.flushPending(ctx, tx); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -161,7 +178,7 @@ func (in *Ingestor) process(ctx context.Context, msgs []msgSource) error {
 	return in.Finalize(ctx, ended)
 }
 
-func (in *Ingestor) packet(ctx context.Context, st *stmts, p event.Packet, ended *[]*conn) error {
+func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.Packet, ended *[]*conn) error {
 	fi := parseFrame(p.Frame)
 	res := in.flows.handle(fi, p.TsNs)
 	if res.ended != nil {
@@ -181,6 +198,10 @@ func (in *Ingestor) packet(ctx context.Context, st *stmts, p event.Packet, ended
 		if _, err := st.insConn.ExecContext(ctx, c.id, l4Name(c.l4), c.family, c.client.Addr().String(), int(c.client.Port()),
 			c.server.Addr().String(), int(c.server.Port()), l4Name(c.l4), c.started, boolInt(c.degraded), string(rec), c.started); err != nil {
 			return fmt.Errorf("insert connection: %w", err)
+		}
+		// O ID pode ser o de uma conexão criada antes só pelos eventos (pacotes atrasados).
+		if err := in.adoptEventOnly(ctx, tx, c, keyOf(c.l4, c.client, c.server)); err != nil {
+			return err
 		}
 	}
 	if c.degraded {
@@ -238,7 +259,8 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	}
 	_ = rows.Close()
 
-	if c.isStray() {
+	// Com eventos de aplicação a conexão existe de fato (ex. capture reiniciado no meio dela): não vira avulso.
+	if c.isStray() && c.app.events == 0 {
 		// Sem resposta do outro lado: pacotes avulsos (spec 004 RF-03).
 		for _, p := range pkts {
 			fi := parseFrame(p.frame)
@@ -373,7 +395,9 @@ func prepare(ctx context.Context, tx *sql.Tx) (*stmts, error) {
 	var s stmts
 	var err error
 	if s.insConn, err = tx.PrepareContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port,
-		proto, started_ns, degraded, record_json, updated_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`); err != nil {
+		proto, started_ns, degraded, record_json, updated_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (conn_id) DO UPDATE SET started_ns = excluded.started_ns, ended_ns = NULL, degraded = excluded.degraded,
+		record_json = excluded.record_json, updated_ns = excluded.updated_ns`); err != nil {
 		return nil, err
 	}
 	if s.insPkt, err = tx.PrepareContext(ctx, "INSERT INTO packets (conn_id, ts_ns, dir, wire_len, frame) VALUES (?, ?, ?, ?, ?)"); err != nil {
