@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "service": "raw",
+  "service_version": "0.0.0-test",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "tcp",
+    "src_ip": "203.0.113.7",
+    "src_port": 51000,
+    "dst_ip": "198.51.100.1",
+    "dst_port": 21
+  },
+  "probe_id": "abcdefgh",
+  "payload": {
+    "mode": "source",
+    "tls": false,
+    "banner": "220 finger-sniffer FTP ready\r\n",
+    "probe_line": "PROBE abcdefgh mode=source n=1000\r\n",
+    "reads_in": [
+      [
+        12.345678,
+        35
+      ]
+    ],
+    "writes_out": [
+      [
+        0.051234,
+        30
+      ],
+      [
+        12.4,
+        1000
+      ]
+    ],
+    "half_close": null
+  }
+}

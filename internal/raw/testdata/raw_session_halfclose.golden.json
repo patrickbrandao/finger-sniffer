@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "service": "raw",
+  "service_version": "0.0.0-test",
+  "ts": "2026-11-08T12:00:00.123456789Z",
+  "flow": {
+    "l4": "tcp",
+    "src_ip": "203.0.113.7",
+    "src_port": 51000,
+    "dst_ip": "198.51.100.1",
+    "dst_port": 21
+  },
+  "payload": {
+    "mode": "echo",
+    "tls": false,
+    "banner": null,
+    "probe_line": null,
+    "reads_in": [
+      [
+        1,
+        5
+      ]
+    ],
+    "writes_out": [
+      [
+        1.1,
+        5
+      ],
+      [
+        2.2,
+        17
+      ]
+    ],
+    "half_close": {
+      "server_sent_after_client_fin": true,
+      "bytes": 17
+    }
+  }
+}
