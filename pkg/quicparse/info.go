@@ -61,6 +61,12 @@ type HTTP3Request struct {
 	BodyLen         int64        `json:"body_len"`
 	Status          int          `json:"status,omitempty"`
 	Controls        any          `json:"controls,omitempty"`
+	// Instantes da requisição e da resposta (RFC 3339 UTC com ns, relógio do web; nulos quando não houve),
+	// preenchidos pelo serviço web (spec 011 RF-03, ADR 0029).
+	RequestStartedAt  *string `json:"request_started_at"`
+	RequestEndedAt    *string `json:"request_ended_at"`
+	ResponseStartedAt *string `json:"response_started_at"`
+	ResponseEndedAt   *string `json:"response_ended_at"`
 
 	// HeadFields é quantos itens de Fields vieram do primeiro HEADERS (o resto são trailers).
 	HeadFields int `json:"-"`

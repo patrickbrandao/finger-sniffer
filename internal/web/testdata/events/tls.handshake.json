@@ -1,13 +1,13 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 64167,
+    "dst_port": 65145,
     "l4": "tcp",
     "src_ip": "127.0.0.1",
-    "src_port": 64168
+    "src_port": 65146
   },
   "payload": {
-    "handshake_ms": 5.151458,
+    "handshake_ms": 1.8125,
     "negotiated": {
       "alpn": "http/1.1",
       "cipher": "TLS_AES_128_GCM_SHA256",
@@ -20,5 +20,5 @@
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T03:53:56.573810000Z"
+  "ts": "2026-11-09T20:25:12.870485000Z"
 }

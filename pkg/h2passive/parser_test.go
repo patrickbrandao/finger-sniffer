@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // frame monta um frame HTTP/2 à mão.
@@ -515,4 +516,37 @@ func tsharkRepr(s string) string {
 		return ReprLiteralNeverIndexed
 	}
 	return "?" + s
+}
+
+// TestStreamInstants: FeedAt marca o fim do primeiro HEADERS, o END_STREAM e o RST_STREAM de cada stream
+// (ADR 0029); no sentido out o RST de um stream sem HEADERS cria o stream.
+func TestStreamInstants(t *testing.T) {
+	t0 := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	at := func(ms int) time.Time { return t0.Add(time.Duration(ms) * time.Millisecond) }
+	p := NewParser(Options{})
+	p.FeedAt(at(0), 0, []byte(Preface))
+	h := frame(FrameHeaders, FlagEndHeaders, 1, simpleBlock())
+	p.FeedAt(at(1), 1, h[:5])
+	p.FeedAt(at(2), 2, h[5:])
+	p.FeedAt(at(3), 3, frame(FrameData, 0, 1, []byte("ab")))
+	p.FeedAt(at(4), 4, frame(FrameData, FlagEndStream, 1, []byte("c")))
+	p.FeedAt(at(5), 5, frame(FrameHeaders, FlagEndHeaders|FlagEndStream, 3, []byte{0x82, 0x87, 0x84}))
+	p.FeedAt(at(6), 6, frame(FrameHeaders, FlagEndHeaders, 1, []byte{0x82}))
+	p.FeedAt(at(7), 7, frame(FrameRSTStream, 0, 9, []byte{0, 0, 0, 8}))
+	st := p.Info().Streams
+	if len(st) != 2 || !st[0].HeadersAt.Equal(at(2)) || !st[0].EndAt.Equal(at(4)) || !st[0].ResetAt.IsZero() ||
+		!st[1].HeadersAt.Equal(at(5)) || !st[1].EndAt.Equal(at(5)) {
+		t.Fatalf("streams %+v", st)
+	}
+	out := NewParser(Options{Dir: DirOut})
+	out.FeedAt(at(8), 8, frame(FrameRSTStream, 0, 5, []byte{0, 0, 0, 2}))
+	if ost := out.Info().Streams; len(ost) != 1 || ost[0].StreamID != 5 || !ost[0].ResetAt.Equal(at(8)) {
+		t.Fatalf("out %+v", ost)
+	}
+	// Feed sem instante deixa tudo zero.
+	q := NewParser(Options{})
+	q.Feed(0, conn(frame(FrameHeaders, FlagEndHeaders|FlagEndStream, 1, simpleBlock())))
+	if s := q.Info().Streams[0]; !s.HeadersAt.IsZero() || !s.EndAt.IsZero() {
+		t.Fatalf("Feed %+v", s)
+	}
 }

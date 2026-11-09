@@ -161,6 +161,11 @@ type tap struct {
 	lastReadAt  time.Time
 	firstReadAt time.Time
 	marked      bool
+	// firstWriteAt é o instante da primeira escrita com bytes depois de markWrite; lastWriteAt o da última
+	// (instantes da resposta, spec 009 RF-06).
+	firstWriteAt time.Time
+	lastWriteAt  time.Time
+	writeMarked  bool
 }
 
 func newTap(c net.Conn, maxPerDir int, now func() time.Time, emit func(event.StreamBytes)) *tap {
@@ -193,11 +198,16 @@ func (t *tap) Read(p []byte) (int, error) {
 func (t *tap) Write(p []byte) (int, error) {
 	n, err := t.Conn.Write(p)
 	if n > 0 {
+		at := t.now()
 		t.mu.Lock()
 		t.out.add(p[:n])
+		t.lastWriteAt = at
+		if t.writeMarked {
+			t.firstWriteAt, t.writeMarked = at, false
+		}
 		t.mu.Unlock()
 		if f := t.observe.Load(); f != nil {
-			(*f)(event.DirectionOut, t.now(), p[:n])
+			(*f)(event.DirectionOut, at, p[:n])
 		}
 	}
 	return n, err
@@ -231,6 +241,20 @@ func (t *tap) lastRead() time.Time {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.lastReadAt
+}
+
+// markWrite começa a esperar a próxima escrita com bytes (início de uma resposta HTTP/1).
+func (t *tap) markWrite() {
+	t.mu.Lock()
+	t.writeMarked, t.firstWriteAt = true, time.Time{}
+	t.mu.Unlock()
+}
+
+// writeTimes devolve o instante da primeira escrita depois de markWrite (zero se não houve) e o da última.
+func (t *tap) writeTimes() (first, last time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.firstWriteAt, t.lastWriteAt
 }
 
 // outTotal devolve quantos bytes já saíram (offset do próximo byte no fluxo out).

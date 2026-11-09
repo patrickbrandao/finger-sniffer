@@ -512,3 +512,49 @@ func TestH2StopWhileDelayed(t *testing.T) {
 		t.Fatalf("want connection error, got %v", err)
 	}
 }
+
+// TestH2Instants: o stream h2 sai com os quatro instantes em ordem e delay_head=200 aparece entre o fim da
+// requisição e o primeiro HEADERS do servidor; no stream 1 do Upgrade: h2c os da requisição são nulos.
+func TestH2Instants(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	var port int
+	cl := h2cClient(h.addr80, &port)
+	do(t, cl, http.MethodGet, "http://x/p/"+testProbe+"/r?delay_head=200&delay_body=50&size=10")
+	in := instantsOf(t, h.events.wait(t, event.SubjectWebHTTP2Stream, port, 1)[0].Payload)
+	checkOrder(t, "h2", in)
+	if d := in.respStart.Sub(in.reqEnd); d < 200*time.Millisecond {
+		t.Fatalf("delay_head: %v", d)
+	}
+	if d := in.respEnd.Sub(in.respStart); d < 50*time.Millisecond {
+		t.Fatalf("delay_body: %v", d)
+	}
+
+	// rst=1: o fim da resposta é o RST_STREAM do servidor.
+	req, _ := http.NewRequest(http.MethodGet, "http://x/r?rst=1&size=10", nil)
+	if resp, err := cl.Do(req); err == nil {
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
+	evs := h.events.wait(t, event.SubjectWebHTTP2Stream, port, 2)
+	checkOrder(t, "h2 rst", instantsOf(t, evs[1].Payload))
+
+	// Upgrade: h2c.
+	c := dial(t, h.addr443)
+	settings := base64.RawURLEncoding.EncodeToString([]byte{0, 3, 0, 0, 0, 100})
+	_, _ = io.WriteString(c, "GET /p/"+testProbe+"/ HTTP/1.1\r\nHost: x\r\nConnection: Upgrade, HTTP2-Settings\r\n"+
+		"Upgrade: h2c\r\nHTTP2-Settings: "+settings+"\r\n\r\n"+h2passive.Preface)
+	br := bufio.NewReader(c)
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if resp, err := http.ReadResponse(br, &http.Request{Method: "GET"}); err != nil || resp.StatusCode != 101 {
+		t.Fatalf("101: %v %v", resp, err)
+	}
+	r := &h2raw{t: t, c: c, fr: http2.NewFramer(c, br)}
+	_ = r.fr.WriteSettings()
+	r.until(func(f http2.Frame) bool {
+		return f.Header().StreamID == 1 && f.Header().Flags.Has(http2.FlagDataEndStream)
+	})
+	up := instantsOf(t, h.events.wait(t, event.SubjectWebHTTP2Stream, srcPort(c), 1)[0].Payload)
+	if !up.reqStart.IsZero() || !up.reqEnd.IsZero() || up.respStart.IsZero() || up.respEnd.Before(up.respStart) {
+		t.Fatalf("upgrade: %+v", up)
+	}
+}

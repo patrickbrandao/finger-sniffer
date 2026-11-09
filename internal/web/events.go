@@ -162,3 +162,11 @@ func msSince(from, to time.Time) float64 {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// instant formata um instante do contrato (RFC 3339 UTC com ns, event.FormatTime); zero vira nulo.
+func instant(t time.Time) *string {
+	if t.IsZero() {
+		return nil
+	}
+	return ptr(event.FormatTime(t))
+}

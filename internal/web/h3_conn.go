@@ -270,12 +270,15 @@ func (h *h3Conn) acceptBidi() {
 
 // readAll lê o stream de requisição até o FIN, alimentando o parser passivo; erro de leitura que não é
 // o fim normal aborta (stream cancelado pelo cliente, conexão fechada).
-func readAll(str *quic.Stream, rs *quicparse.RequestStream) error {
+func readAll(str *quic.Stream, rs *quicparse.RequestStream, fed func()) error {
 	buf := make([]byte, 16<<10)
 	for {
 		n, err := str.Read(buf)
 		if n > 0 {
 			rs.Feed(buf[:n])
+			if fed != nil {
+				fed()
+			}
 			if rs.Err() != nil {
 				return rs.Err()
 			}

@@ -165,7 +165,9 @@ func (c *conn) serveTLS(ic *idleConn) {
 		c.serveRaw(ic, detect.Result{Protocol: detect.TLS})
 		return
 	}
-	tc := tlsparse.NewConn(ic)
+	// Os bytes crus dos dois sentidos passam pelos leitores de alertas durante o handshake (ADR 0029).
+	ac := newAlertConn(ic)
+	tc := tlsparse.NewConn(ac)
 	published := false
 	publishHello := func() {
 		if published {
@@ -183,9 +185,10 @@ func (c *conn) serveTLS(ic *idleConn) {
 	ts := tls.Server(tc, cfg)
 	err := ts.Handshake()
 	end := s.now()
+	seen := ac.stop()
 	// Handshake que falhou antes do callback (ClientHello que o crypto/tls recusou): publica o que houver.
 	publishHello()
-	c.publishHandshake(ts, err, start, end)
+	c.publishHandshake(ts, err, seen, start, end)
 	if err != nil {
 		// Sessão TLS morta: espera o cliente fechar (ou a ociosidade) sem fechar antes (RF-08).
 		drain(ic)
@@ -236,9 +239,10 @@ func (c *conn) publishClientHello(tc *tlsparse.Conn) {
 	c.publish(event.SubjectWebTLSClientHello, c.srv.now(), probeID, info)
 }
 
-// publishHandshake publica fs.v1.web.tls.handshake (negociado, tempo, alertas).
-func (c *conn) publishHandshake(ts *tls.Conn, herr error, start, end time.Time) {
-	p := event.TLSHandshake{Alerts: []event.TLSAlert{}}
+// publishHandshake publica fs.v1.web.tls.handshake (negociado, tempo, alertas). seen são os alertas em
+// texto claro lidos nos bytes dos dois sentidos, na ordem.
+func (c *conn) publishHandshake(ts *tls.Conn, herr error, seen []event.TLSAlert, start, end time.Time) {
+	p := event.TLSHandshake{Alerts: append([]event.TLSAlert{}, seen...)}
 	if herr == nil {
 		st := ts.ConnectionState()
 		n := &event.TLSNegotiated{
@@ -254,10 +258,83 @@ func (c *conn) publishHandshake(ts *tls.Conn, herr error, start, end time.Time) 
 		}
 		p.Negotiated = n
 		p.HandshakeMs = ptr(msSince(start, end))
-	} else if a, ok := alertFromError(herr); ok {
-		p.Alerts = append(p.Alerts, a)
+	}
+	if herr != nil {
+		p.Alerts = mergeAlerts(p.Alerts, herr)
 	}
 	c.publish(event.SubjectWebTLSHandshake, end, "", p)
+}
+
+// mergeAlerts acrescenta aos alertas vistos nos bytes o que o crypto/tls informa no erro (o cifrado, que só
+// ele vê), só se não houver um igual: mesma direção e descrição (spec 008 RF-04, ADR 0029).
+func mergeAlerts(seen []event.TLSAlert, herr error) []event.TLSAlert {
+	a, ok := alertFromError(herr)
+	if !ok {
+		return seen
+	}
+	for _, s := range seen {
+		if s.Dir == a.Dir && s.Description == a.Description {
+			return seen
+		}
+	}
+	return append(seen, a)
+}
+
+// alertConn copia os bytes crus lidos (in) e escritos (out) para um leitor de alertas TLS por sentido até
+// stop; os alertas em texto claro ficam na ordem em que apareceram nos dois sentidos.
+type alertConn struct {
+	net.Conn
+
+	// done evita o mutex nas leituras e escritas depois do handshake.
+	done    atomic.Bool
+	mu      sync.Mutex
+	in, out *tlsparse.AlertReader
+	alerts  []event.TLSAlert
+	stopped bool
+}
+
+func newAlertConn(c net.Conn) *alertConn {
+	return &alertConn{Conn: c, in: tlsparse.NewAlertReader(), out: tlsparse.NewAlertReader()}
+}
+
+func (a *alertConn) Read(p []byte) (int, error) {
+	n, err := a.Conn.Read(p)
+	if n > 0 && !a.done.Load() {
+		a.feed(event.DirectionIn, p[:n])
+	}
+	return n, err
+}
+
+func (a *alertConn) Write(p []byte) (int, error) {
+	n, err := a.Conn.Write(p)
+	if n > 0 && !a.done.Load() {
+		a.feed(event.DirectionOut, p[:n])
+	}
+	return n, err
+}
+
+func (a *alertConn) feed(dir string, p []byte) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.stopped {
+		return
+	}
+	r := a.in
+	if dir == event.DirectionOut {
+		r = a.out
+	}
+	for _, x := range r.Feed(p) {
+		a.alerts = append(a.alerts, event.TLSAlert{Dir: dir, Level: int(x.Level), Description: int(x.Description)})
+	}
+}
+
+// stop encerra a cópia (fim do handshake) e devolve os alertas vistos.
+func (a *alertConn) stop() []event.TLSAlert {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stopped = true
+	a.done.Store(true)
+	return a.alerts
 }
 
 // goAlerts mapeia o texto dos alertas do crypto/tls para o código (RFC 8446 §6 e registro IANA). O

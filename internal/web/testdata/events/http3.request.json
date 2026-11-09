@@ -1,11 +1,11 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 51972,
+    "dst_port": 51134,
     "l4": "udp",
-    "quic_dcid_hex": "e8be4059c7787e59",
+    "quic_dcid_hex": "cb42a35d28e8bda8dda4dedaf63789aa46",
     "src_ip": "127.0.0.1",
-    "src_port": 57845
+    "src_port": 52138
   },
   "payload": {
     "body_len": 0,
@@ -27,7 +27,7 @@
         "never_indexed": false,
         "repr": "literal-name-ref",
         "static": true,
-        "value": "127.0.0.1:51972"
+        "value": "127.0.0.1:51134"
       },
       {
         "huffman_name": null,
@@ -88,6 +88,10 @@
       ":path",
       ":scheme"
     ],
+    "request_ended_at": "2026-11-09T20:25:13.194001000Z",
+    "request_started_at": "2026-11-09T20:25:13.194000000Z",
+    "response_ended_at": "2026-11-09T20:25:13.199410000Z",
+    "response_started_at": "2026-11-09T20:25:13.199407000Z",
     "status": 201,
     "stream_id": 4,
     "values_truncated": false
@@ -96,5 +100,5 @@
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T07:17:40.872871000Z"
+  "ts": "2026-11-09T20:25:13.199416000Z"
 }

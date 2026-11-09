@@ -62,6 +62,8 @@ type h2Conn struct {
 	connEmitted bool
 	closed      bool
 	wg          sync.WaitGroup
+	// outGen é fechado (e trocado) a cada pedaço de bytes do servidor lido pelo parser out.
+	outGen chan struct{}
 }
 
 // h2NetConn é a conexão entregue ao x/net/http2: escreve no tap e lê de r (o tap, ou os bytes já lidos
@@ -142,10 +144,15 @@ func (h *h2Conn) observe(dir string, at time.Time, p []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if dir == event.DirectionIn {
-		h.in.Feed(tMs, p)
-	} else {
-		h.out.Feed(tMs, p)
+		h.in.FeedAt(at, tMs, p)
+		return
 	}
+	h.out.FeedAt(at, tMs, p)
+	// Acorda quem espera o fim de um stream do servidor (outEnd).
+	if h.outGen != nil {
+		close(h.outGen)
+	}
+	h.outGen = make(chan struct{})
 }
 
 // h2cUpgrade decide se a requisição HTTP/1 pede Upgrade: h2c (RFC 7540 §3.2) e o servidor aceita: só em

@@ -1,10 +1,10 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 64599,
+    "dst_port": 65150,
     "l4": "tcp",
     "src_ip": "127.0.0.1",
-    "src_port": 64601
+    "src_port": 65152
   },
   "payload": {
     "controls": {
@@ -72,6 +72,10 @@
       ":path",
       ":scheme"
     ],
+    "request_ended_at": "2026-11-09T20:25:13.060866000Z",
+    "request_started_at": "2026-11-09T20:25:13.060866000Z",
+    "response_ended_at": "2026-11-09T20:25:13.061045000Z",
+    "response_started_at": "2026-11-09T20:25:13.061025000Z",
     "status": 200,
     "stream_id": 1,
     "values_truncated": false
@@ -80,5 +84,5 @@
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T05:50:01.792843000Z"
+  "ts": "2026-11-09T20:25:13.061086000Z"
 }

@@ -129,6 +129,13 @@ type Request struct {
 	ResponseSentTruncated bool   `json:"response_sent_truncated"`
 	ResponseSentSize      int64  `json:"response_sent_size"`
 
+	// Instantes da requisição e da resposta (RFC 3339 UTC com ns, relógio do servidor; nulos quando não
+	// houve), preenchidos pelo servidor (spec 009 RF-06, ADR 0029).
+	RequestStartedAt  *string `json:"request_started_at"`
+	RequestEndedAt    *string `json:"request_ended_at"`
+	ResponseStartedAt *string `json:"response_started_at"`
+	ResponseEndedAt   *string `json:"response_ended_at"`
+
 	// BufferedAfter é quantos bytes já estavam no buffer de leitura logo depois do fim desta requisição
 	// (cabeçalho e corpo): > 0 indica a próxima requisição enviada sem esperar a resposta (RF-05).
 	BufferedAfter int `json:"-"`

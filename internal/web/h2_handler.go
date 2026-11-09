@@ -22,6 +22,8 @@ type h2Stream struct {
 	index   int
 	probeID string
 	status  int
+	// upgrade marca o stream 1 do Upgrade: h2c (a requisição foi HTTP/1).
+	upgrade bool
 }
 
 // ServeHTTP atende um stream h2 com as mesmas rotas do HTTP/1 (spec 005 RF-05) e os controles que fazem
@@ -38,6 +40,7 @@ func (h *h2Conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Context().Value(h2UpgradeKey{}) != nil && !h.upClaimed {
 		// Stream 1 do Upgrade: o HEADERS foi a requisição HTTP/1 (já registrada em http1.request).
 		h.upClaimed = true
+		st.upgrade = true
 		st.rec = h2passive.HTTP2Stream{StreamID: 1, PseudoOrder: []string{}, Fields: []h2passive.HPACKField{}, EndStream: true}
 		if h.up != nil {
 			st.rec.JA4H = h.up.ja4h
@@ -53,8 +56,12 @@ func (h *h2Conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.c.srv.metrics.Add(MetricH2StreamsTotal, 1)
 	defer func() {
 		h.ic.release()
-		st.finish()
-		h.wg.Done()
+		// O x/net só escreve o fim do stream (END_STREAM ou RST_STREAM) depois que o handler retorna: o
+		// registro sai em segundo plano, quando o fim aparece no fio (instantes da resposta, ADR 0029).
+		go func() {
+			defer h.wg.Done()
+			st.finish()
+		}()
 	}()
 	st.serve()
 }
@@ -67,6 +74,7 @@ func (st *h2Stream) finish() {
 	first := !h.connEmitted
 	h.mu.Unlock()
 	st.rec.Status = st.status
+	h.fillInstants(&st.rec, st.upgrade)
 	h.publishStream(&st.rec, st.probeID)
 	if first {
 		h.publishConn()
@@ -284,6 +292,10 @@ func (st *h2Stream) control(rawQuery string) {
 	flusher, _ := st.w.(http.Flusher)
 	if ctl.Close == CloseBeforeBody {
 		st.abort(flusher)
+	}
+	if ctl.DelayBody > 0 && flusher != nil {
+		// O cabeçalho sai antes da espera, como no HTTP/1 (o x/net o seguraria até o primeiro DATA).
+		flusher.Flush()
 	}
 	if !sleepCtx(ctx, ctl.DelayBody) {
 		return

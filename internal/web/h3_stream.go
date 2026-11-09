@@ -53,7 +53,17 @@ func (st *h3Stream) serve() {
 	s.metrics.Add(MetricH3RequestsTotal, 1)
 	st.rs = quicparse.NewRequestStream(uint64(st.str.StreamID()), quicparse.DefaultMaxFieldsPerSection) //nolint:gosec // id >= 0
 	defer st.publish()
-	err := readAll(st.str, st.rs)
+	req := &st.rs.Request
+	err := readAll(st.str, st.rs, func() {
+		// request_started_at: o primeiro HEADERS acabou de ser lido inteiro (spec 011 RF-03).
+		if st.rs.HeadersSeen && req.RequestStartedAt == nil {
+			req.RequestStartedAt = instant(s.now())
+		}
+	})
+	if err == nil {
+		// FIN do stream do cliente: fim da requisição.
+		req.RequestEndedAt = instant(s.now())
+	}
 	switch {
 	case errors.Is(err, quicparse.ErrH3FrameTooLarge):
 		st.str.CancelRead(h3ExcessiveLoad)
@@ -62,14 +72,14 @@ func (st *h3Stream) serve() {
 	case err != nil && st.rs.Err() != nil:
 		// QPACK ou frame ilegível
 		st.str.CancelRead(qpackDecompression)
-		st.str.CancelWrite(qpackDecompression)
+		st.cancelWrite(qpackDecompression)
 		return
 	case err != nil:
 		// stream cancelado pelo cliente ou conexão encerrada
-		st.str.CancelWrite(h3RequestIncomplete)
+		st.cancelWrite(h3RequestIncomplete)
 		return
 	case !st.rs.HeadersSeen:
-		st.str.CancelWrite(h3RequestIncomplete)
+		st.cancelWrite(h3RequestIncomplete)
 		return
 	}
 	h.waitSettings()
@@ -185,7 +195,23 @@ func h3Fields(status int, fields []h1.HeaderField) [][2]string {
 func (st *h3Stream) writeHeaders(fields [][2]string) error {
 	b := quicparse.AppendH3Frame(nil, quicparse.H3FrameHeaders, quicparse.AppendFieldSection(nil, fields))
 	_, err := st.str.Write(b)
+	if req := &st.rs.Request; err == nil && req.ResponseStartedAt == nil {
+		// response_started_at: primeiro HEADERS escrito (1xx incluídas).
+		req.ResponseStartedAt = instant(st.h.srv.now())
+	}
 	return err
+}
+
+// closeWrite manda o FIN do stream: fim da resposta (response_ended_at).
+func (st *h3Stream) closeWrite() {
+	_ = st.str.Close()
+	st.rs.Request.ResponseEndedAt = instant(st.h.srv.now())
+}
+
+// cancelWrite encerra o sentido de escrita com reset (RESET_STREAM): também é o fim da resposta.
+func (st *h3Stream) cancelWrite(code quic.StreamErrorCode) {
+	st.str.CancelWrite(code)
+	st.rs.Request.ResponseEndedAt = instant(st.h.srv.now())
 }
 
 // writeData manda até limit bytes de r em frames DATA de piece bytes.
@@ -233,7 +259,7 @@ func (st *h3Stream) writeSimple(resp response, head bool) {
 			return
 		}
 	}
-	_ = st.str.Close()
+	st.closeWrite()
 }
 
 // control monta a resposta controlada de /r e /p/<id>/r em h3: status (1xx incluídas), size, chunk=
@@ -301,7 +327,7 @@ func (st *h3Stream) control(rawQuery string, head bool) {
 			}
 		}
 	}
-	_ = st.str.Close()
+	st.closeWrite()
 }
 
 // publish publica fs.v1.web.http3.request quando a resposta termina.
