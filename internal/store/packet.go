@@ -34,10 +34,58 @@ type frameInfo struct {
 	tcpFlags uint8
 	payload  int    // bytes de aplicação (TCP/UDP)
 	headers  int    // bytes até o fim do cabeçalho L4 (para o pcap truncado)
-	frag     bool   // IPv4 com MF ligado ou deslocamento de fragmento
+	frag     bool   // IPv4 com MF ligado ou deslocamento de fragmento; IPv6 com cabeçalho Fragment
 	l3       []byte // do cabeçalho IP até o fim declarado do pacote
 	l4       []byte // do cabeçalho L4 até o fim do pacote (TCP: cabeçalho, opções e dados)
 	tcpDoff  int    // tamanho do cabeçalho TCP com opções
+}
+
+// Cabeçalhos de extensão IPv6 (spec 013 RF-05).
+const (
+	ipv6HopByHop = 0
+	ipv6Routing  = 43
+	ipv6Fragment = 44
+	ipv6AH       = 51
+	ipv6DstOpts  = 60
+	v6ExtMax     = 16 // limite do percurso, o mesmo do capture
+)
+
+// v6Upper atravessa os cabeçalhos de extensão IPv6 e devolve o protocolo de transporte, o que vem depois dele,
+// quantos bytes de extensão havia e se havia cabeçalho Fragment. Fragmento não inicial, cabeçalho truncado ou
+// extensões demais devolvem l4 nil (sem análise L4), como no capture.
+func v6Upper(next byte, p []byte) (proto byte, l4 []byte, ext int, frag bool) {
+	for range v6ExtMax {
+		switch next {
+		case ipv6HopByHop, ipv6Routing, ipv6DstOpts, ipv6AH:
+			if len(p) < 8 {
+				return next, nil, ext, frag
+			}
+			n := (int(p[1]) + 1) * 8
+			if next == ipv6AH {
+				n = (int(p[1]) + 2) * 4
+			}
+			if len(p) < n {
+				return next, nil, ext, frag
+			}
+			next, p, ext = p[0], p[n:], ext+n
+		case ipv6Fragment:
+			if len(p) < 8 {
+				return next, nil, ext, true
+			}
+			frag = true
+			if binary.BigEndian.Uint16(p[2:4])&0xfff8 != 0 {
+				return p[0], nil, ext + 8, true // não inicial: sem cabeçalho L4
+			}
+			next, p, ext = p[0], p[8:], ext+8
+		default:
+			return next, p, ext, frag
+		}
+	}
+	switch next {
+	case ipv6HopByHop, ipv6Routing, ipv6DstOpts, ipv6AH, ipv6Fragment:
+		return next, nil, ext, frag
+	}
+	return next, p, ext, frag
 }
 
 // parseFrame decodifica Ethernet (VLAN opcional), IPv4/IPv6 e TCP/UDP sem alocar.
@@ -82,12 +130,14 @@ func parseFrame(f []byte) frameInfo {
 		if len(p) < 40 {
 			return frameInfo{}
 		}
-		r.family, r.proto = 6, p[6]
+		r.family = 6
 		r.src, r.dst = netip.AddrFrom16([16]byte(p[8:24])), netip.AddrFrom16([16]byte(p[24:40]))
 		end := min(len(p), 40+int(binary.BigEndian.Uint16(p[4:6])))
-		l4, l4off = p[40:end], off+40
+		var ext int
+		r.proto, l4, ext, r.frag = v6Upper(p[6], p[40:end])
+		l4off = off + 40 + ext
 		r.l3 = p[:end]
-		r.headers = off + 40
+		r.headers = l4off
 	default:
 		return frameInfo{}
 	}

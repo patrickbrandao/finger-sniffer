@@ -50,24 +50,25 @@ type totalsJSON struct {
 
 // connectionJSON é o registro gravado em connections.record_json.
 type connectionJSON struct {
-	ConnID        string            `json:"conn_id"`
-	ProbeID       *string           `json:"probe_id"`
-	Proto         string            `json:"proto"`
-	L4            string            `json:"l4"`
-	Family        int               `json:"family"`
-	Src           endpointJSON      `json:"src"`
-	Dst           endpointJSON      `json:"dst"`
-	Started       string            `json:"started"`
-	Ended         *string           `json:"ended"`
-	Requests      int               `json:"requests"`
-	Degraded      bool              `json:"degraded"`
-	PcapTruncated bool              `json:"pcap_truncated"`
-	RawTruncated  *rawTruncatedJSON `json:"raw_truncated,omitempty"`
-	Times         *timesJSON        `json:"times,omitempty"`
-	Close         closeJSON         `json:"close"`
-	Totals        totalsJSON        `json:"totals"`
-	IP            *ipJSON           `json:"ip,omitempty"`
-	TCP           *tcpJSON          `json:"tcp,omitempty"`
+	ConnID         string            `json:"conn_id"`
+	ProbeID        *string           `json:"probe_id"`
+	Proto          string            `json:"proto"`
+	L4             string            `json:"l4"`
+	Family         int               `json:"family"`
+	Src            endpointJSON      `json:"src"`
+	Dst            endpointJSON      `json:"dst"`
+	Started        string            `json:"started"`
+	Ended          *string           `json:"ended"`
+	Requests       int               `json:"requests"`
+	Degraded       bool              `json:"degraded"`
+	PcapTruncated  bool              `json:"pcap_truncated"`
+	RawTruncated   *rawTruncatedJSON `json:"raw_truncated,omitempty"`
+	OffloadSuspect bool              `json:"offload_suspect"`
+	Times          *timesJSON        `json:"times,omitempty"`
+	Close          closeJSON         `json:"close"`
+	Totals         totalsJSON        `json:"totals"`
+	IP             *ipJSON           `json:"ip,omitempty"`
+	TCP            *tcpJSON          `json:"tcp,omitempty"`
 	// Camadas de aplicação (spec 004, tabela de montagem); tls/http/http2/http3/raw seguem os esquemas do contrato
 	// como chegaram nos eventos.
 	TLS       json.RawMessage   `json:"tls,omitempty"`
@@ -99,7 +100,7 @@ func (c *conn) record(ended int64, how string) connectionJSON {
 		Src:     endpointJSON{IP: c.client.Addr().String(), Port: int(c.client.Port())},
 		Dst:     endpointJSON{IP: c.server.Addr().String(), Port: int(c.server.Port())},
 		Started: event.FormatTime(time.Unix(0, c.started)), Ended: tsPtr(ended),
-		Degraded: c.degraded, PcapTruncated: c.truncated,
+		Degraded: c.degraded, PcapTruncated: c.truncated, OffloadSuspect: c.offloadSuspect,
 		Close: closeJSON{By: "unknown", How: "open"},
 		Totals: totalsJSON{
 			In: dirTotalsJSON{
@@ -148,6 +149,18 @@ func (c *conn) closeInfo(how string) closeJSON {
 	}
 	if first.ts != 0 {
 		ci.By, ci.How = first.by, first.how
+		// Quem mandou o FIN também mandou RST antes de o outro lado fechar (close() sem shutdown recebendo os dados
+		// do meio-fechamento do raw): fechou por RST. RST do outro lado, ou depois dos dois FIN (resposta a um
+		// close_notify tardio), não muda o "como"; fica em times.*_rst.
+		if first.how == "fin" {
+			otherFin, rst := c.serverFin, c.clientRst
+			if first.by == "server" {
+				otherFin, rst = c.clientFin, c.serverRst
+			}
+			if rst != 0 && (otherFin == 0 || rst < otherFin) {
+				ci.How = "rst"
+			}
+		}
 		if last := c.lastDataBeforeClose(first.ts, first.by == "client"); last != 0 {
 			ms := float64(first.ts-last) / 1e6
 			ci.IdleBeforeCloseMs = &ms
