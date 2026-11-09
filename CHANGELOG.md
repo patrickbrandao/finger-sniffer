@@ -26,6 +26,7 @@ Detalhe das decisões em `specs/decisions/`.
 
 - Contratos 0.2.0 para a F3 (aditivos): `fs.v1.web.raw.session`, `fs.v1.store.conn_id`, `truncated` no fluxo, `ja4h`/offsets/tamanho da resposta no HTTP/1, `frames_truncated`, `raw_truncated`; semântica de conjunto do TXT ACME; `pkg/certs` com nomes fixos em `FS_CERT_DIR` e `FS_ACME_ENABLE`; regras de correlação e montagem do registro no store (task 015).
 - `htdocs/` mínimo da F3: `index.html` em inglês (o que é o espelho, portas capturadas, aviso de tráfego público e retenção de 10 min, como sondar por `/p/<id>/` e `PROBE`, resultado em `/api/v1/probes/<id>`, link para o openapi), sem JS, cookies nem terceiros; `robots.txt` com `Disallow: /p/`; teste em `htdocs/htdocs_test.go` (task 034).
+- Serviço dns: autoritativo de `FS_DNS_ZONE` em UDP/TCP 53 (miekg/dns v1.1.73), sem recursão, REFUSED fora da zona, SOA/NS no apex, NOERROR/NODATA com SOA para o resto (CAA do Let's Encrypt), EDNS 1232/BADVERS, TC=1 acima do limite UDP, FORMERR; TXT `_acme-challenge` por request/reply `fs.v1.dns.acme.set|clear` com conjunto de valores e expiração de 10 min; listener que não sobe deixa o health `degraded` e é tentado de novo (task 016).
 
 ### Decidido
 - Espelho genérico de conexões; consumidor principal go-xproxy (ADR 0001).
