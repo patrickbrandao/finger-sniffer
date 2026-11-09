@@ -374,10 +374,11 @@ func (in *Ingestor) writeLate(ctx context.Context, tx *sql.Tx) error {
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		}
-		r := c.record(c.lastSeen, "")
+		end := c.endTs()
+		r := c.record(end, "")
 		rec, _ := json.Marshal(r)
 		if _, err := tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ? WHERE conn_id = ?",
-			c.lastSeen, boolInt(c.truncated), string(rec), id); err != nil {
+			end, boolInt(c.truncated), string(rec), id); err != nil {
 			return err
 		}
 		if _, ok := in.dirty[id]; !ok {
@@ -463,11 +464,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	for _, p := range pkts {
 		pcap = appendPcapRecord(pcap, p.ts, p.wireLen, p.frame)
 	}
-	end := c.lastSeen
-	// QUIC encerrado pelo web: o fim é o do evento, se vier depois do último pacote.
-	if c.app != nil && c.app.h3CloseTs > end {
-		end = c.app.h3CloseTs
-	}
+	end := c.endTs()
 	how, reason := "timeout", "idle"
 	switch {
 	case c.l4 == protoUDP && c.closing():

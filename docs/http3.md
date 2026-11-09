@@ -141,8 +141,9 @@ JavaScript precisa de um parser que preserve inteiros grandes (por exemplo `JSON
 ## Fim da conexão
 
 QUIC não tem FIN. O web é a fonte da verdade sobre o fim: quando ele vê o CONNECTION_CLOSE (ou um stateless reset,
-ou a ociosidade), o store fecha o registro 2 s depois com `close.how = "quic_close"` (ou `"timeout"` quando o web
-informou `idle_timeout`). Uma conexão encerrada pelo cliente aparece fechada em até 3 s. O servidor não fecha por
+ou a ociosidade), o store fecha o registro na folga de `FS_TCP_CLOSE_GRACE` (100 ms) com `close.how = "quic_close"` (ou
+`"timeout"` quando o web informou `idle_timeout`); datagramas que chegam depois entram no mesmo registro. Uma
+conexão encerrada pelo cliente aparece fechada em menos de 500 ms. O servidor não fecha por
 ociosidade antes de `FS_IDLE_DEFAULT` (120 s); navegadores costumam manter a conexão QUIC aberta por bastante tempo,
 então o `wait` do probe pode voltar no prazo com `all_closed: false`.
 
