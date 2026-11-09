@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -42,7 +43,10 @@ func (s *session) startTLS(prefix []byte) bool {
 	if len(prefix) > 0 {
 		under = &prefixConn{Conn: tcp, pending: append([]byte(nil), prefix...)}
 	}
-	tc := tlsparse.NewConn(under)
+	// Os bytes crus dos dois sentidos (incluindo o prefixo já lido) passam pelo leitor de alertas até o fim
+	// do handshake (spec 006 RF-08, spec 008 RF-04).
+	ac := newAlertConn(under)
+	tc := tlsparse.NewConn(ac)
 	published := false
 	publishHello := func() {
 		if !published {
@@ -62,7 +66,7 @@ func (s *session) startTLS(prefix []byte) bool {
 	_ = tcp.SetDeadline(time.Time{})
 	// ClientHello que o crypto/tls recusou antes do callback: publica o que foi capturado.
 	publishHello()
-	s.publishHandshake(ts, err, start, end)
+	s.publishHandshake(ts, err, ac.stop(), start, end)
 	if err != nil {
 		// Sessão TLS morta: espera o cliente fechar (ou a ociosidade), sem fechar antes (RF-07).
 		drainUntilIdle(tcp, s.cfg.Idle)
@@ -100,8 +104,9 @@ func (s *session) publishClientHello(tc *tlsparse.Conn) {
 }
 
 // publishHandshake publica o resultado do handshake: negociado, tempo e alertas.
-func (s *session) publishHandshake(ts *tls.Conn, herr error, start, end time.Time) {
-	p := event.TLSHandshake{Alerts: []event.TLSAlert{}}
+// seen são os alertas lidos nos bytes crus, na ordem; o do erro do crypto/tls entra depois, sem duplicar.
+func (s *session) publishHandshake(ts *tls.Conn, herr error, seen []event.TLSAlert, start, end time.Time) {
+	p := event.TLSHandshake{Alerts: append([]event.TLSAlert{}, seen...)}
 	if herr == nil {
 		st := ts.ConnectionState()
 		n := &event.TLSNegotiated{
@@ -119,10 +124,68 @@ func (s *session) publishHandshake(ts *tls.Conn, herr error, start, end time.Tim
 		p.Negotiated = n
 		ms := float64(end.Sub(start).Nanoseconds()) / 1e6
 		p.HandshakeMs = &ms
-	} else if a, ok := alertFromError(herr); ok {
-		p.Alerts = append(p.Alerts, a)
+	} else {
+		p.Alerts = mergeAlerts(p.Alerts, herr)
 	}
 	s.em.publish(event.SubjectWebTLSHandshake, end, s.probeID, p)
+}
+
+// mergeAlerts acrescenta aos alertas vistos nos bytes o que o crypto/tls informa no erro (o cifrado, que só
+// ele vê), só se não houver um igual: mesma direção e descrição (spec 008 RF-04, ADR 0029).
+func mergeAlerts(seen []event.TLSAlert, herr error) []event.TLSAlert {
+	a, ok := alertFromError(herr)
+	if !ok {
+		return seen
+	}
+	for _, x := range seen {
+		if x.Dir == a.Dir && x.Description == a.Description {
+			return seen
+		}
+	}
+	return append(seen, a)
+}
+
+// alertConn copia os bytes crus lidos (in) e escritos (out) para um leitor de alertas TLS por sentido até
+// stop; os alertas em texto claro ficam na ordem em que apareceram nos dois sentidos. Antes de stop só a
+// goroutine do handshake usa a conexão; depois dele as leituras e escritas só passam adiante.
+type alertConn struct {
+	net.Conn
+
+	done    atomic.Bool
+	in, out *tlsparse.AlertReader
+	alerts  []event.TLSAlert
+}
+
+func newAlertConn(c net.Conn) *alertConn {
+	return &alertConn{Conn: c, in: tlsparse.NewAlertReader(), out: tlsparse.NewAlertReader()}
+}
+
+func (a *alertConn) Read(p []byte) (int, error) {
+	n, err := a.Conn.Read(p)
+	if n > 0 && !a.done.Load() {
+		a.feed(event.DirectionIn, a.in, p[:n])
+	}
+	return n, err
+}
+
+func (a *alertConn) Write(p []byte) (int, error) {
+	n, err := a.Conn.Write(p)
+	if n > 0 && !a.done.Load() {
+		a.feed(event.DirectionOut, a.out, p[:n])
+	}
+	return n, err
+}
+
+func (a *alertConn) feed(dir string, r *tlsparse.AlertReader, p []byte) {
+	for _, x := range r.Feed(p) {
+		a.alerts = append(a.alerts, event.TLSAlert{Dir: dir, Level: int(x.Level), Description: int(x.Description)})
+	}
+}
+
+// stop encerra a cópia (fim do handshake) e devolve os alertas vistos.
+func (a *alertConn) stop() []event.TLSAlert {
+	a.done.Store(true)
+	return a.alerts
 }
 
 // goAlerts mapeia o texto dos alertas do crypto/tls para o código (RFC 8446 §6); o crypto/tls não exporta o

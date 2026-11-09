@@ -508,3 +508,11 @@ func TestFlowOfNonTCP(t *testing.T) {
 		t.Error("closeWrite on pipe: nil error")
 	}
 }
+
+func TestListenConfigNoKeepAlive(t *testing.T) {
+	// O Control do TFO não pode religar o keepalive do servidor (spec 013).
+	lc := New(Config{}, nil, quietLog(), nil).listenConfig()
+	if lc.KeepAlive >= 0 || lc.Control == nil {
+		t.Fatalf("listenConfig = %+v", lc)
+	}
+}
