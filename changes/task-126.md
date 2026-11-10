@@ -1,1 +1,0 @@
-- Modo degradado com margem sobre a garantia do RNF-01 (ADR 0030): `FS_MAX_CONNS=250` (store e web) e `FS_MAX_NEW_CONNS_PER_S=60` por padrão; garantia segue 200/50 (task 126).

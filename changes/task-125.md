@@ -1,2 +1,0 @@
-- store: a conexão QUIC/h3 não se divide mais quando o fim do web é aplicado antes do lote com o 2º Initial do cliente (DCID = SCID do espelho); Initial só abre conexão nova se capturado depois do fim e com DCID fora dos CIDs da conexão (task 125).
-- store: `times.tls_done` fica null quando o handshake TLS falha (`negotiated` null), como no QUIC (task 125).

@@ -1,1 +1,0 @@
-- store: `wait=0s` traz `wait_met`; `updated_ns` das conexões só por eventos e das órfãs recuperadas usa o relógio do store (settle do long-poll); exemplo do probe com `wait_met` (task 123).

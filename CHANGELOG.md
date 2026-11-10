@@ -5,13 +5,33 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+## [0.2.0] - 2026-11-10
+
 ### Adicionado
 - Contratos 0.4.0 (ADR 0029, aditivos): instantes absolutos de cada requisição e resposta em `http[]`, `http2.streams[]` e `http3.requests[]`; `ip.packets {syn, ack, first_data}`; `settle`/`min_conns` no long-poll `wait` e `wait_met` no probe; specs: TFO concedido pelos listeners do web e do raw e alertas TLS lidos dos registros `0x15` (task 113).
+- store: `ip.packets` com o cabeçalho IP do SYN, do ACK do handshake e do primeiro pacote com dados (UDP: só o primeiro datagrama); long-poll `?wait` aceita `settle` (0–10 s) e `min_conns` (1–1000) e responde `wait_met`; instantes por requisição de h1/h2/h3 conferidos até o registro e nos exemplos do openapi (task 114, ADR 0029).
+- web: `request_started_at`, `request_ended_at`, `response_started_at` e `response_ended_at` em `http1.request`, `http2.stream` e `http3.request` (ADR 0029); listeners TCP com `TCP_FASTOPEN` (fila 256); `tls.alerts` lê os alertas em texto claro dos bytes dos dois sentidos (`pkg/tlsparse.AlertReader`) antes do alerta do `crypto/tls`, sem duplicar; h2 manda o HEADERS antes de `delay_body` (task 115).
+- raw: TCP_FASTOPEN (fila 256) nos listeners, mantendo o keepalive desligado, e `alerts` do handshake TLS lidos dos bytes crus nos dois sentidos, com o do erro do crypto/tls só quando não repete (task 116, ADR 0029).
+- docs: `settle`/`min_conns`/`wait_met` e os 400 do long-poll, os 4 instantes por requisição e `ip.packets` em `docs/api.md`; coleta com `wait=30s&settle=1s`, receita de TFO, origem dos alertas TLS e ausência de keepalive TCP em `docs/probes.md` (task 124).
+- Carga oficial de 10 min da v0.2.0 em `c1aefd8` com os limites 250/60 da ADR 0030: todas as metas da ADR 0022 passaram (`official-50k`, `degraded` = 0 com o ruído da internet e sem bloqueio de origens); `test/load/RESULTS.md` com as 50f–50i (200/50) como histórico (task 120).
 
 ### Alterado
-- Modo degradado com margem sobre a garantia do RNF-01 (ADR 0030, provisória): padrões `FS_MAX_CONNS=250` (store e web) e `FS_MAX_NEW_CONNS_PER_S=60`; a garantia segue 200 simultâneas e 50 novas/s, e a carga oficial passa a exigir `degraded` = 0 com o ruído da internet presente (task 126).
+- Modo degradado com margem sobre a garantia do RNF-01 (ADR 0030): padrões `FS_MAX_CONNS=250` (store e web) e `FS_MAX_NEW_CONNS_PER_S=60`, também no `.env.example` e no env da vps602; a garantia segue 200 simultâneas e 50 novas/s, e a carga oficial passa a exigir `degraded` = 0 com o ruído da internet presente (task 126).
 - Contratos 0.4.1 (documental): quando cada instante por requisição é nulo (h2: cliente cancelou com RST_STREAM ou fim fora da espera de 1 s; h3: reset sem HEADERS conta como fim); `wait=0s` é `wait` válido e traz `wait_met`; spec 005: listeners TCP do web sem keepalive do servidor (task 121).
+- web: listeners TCP com o keepalive TCP do servidor desligado, como no raw, para não pôr pacotes do espelho na conexão analisada (task 122).
 - Projeto independente de consumidores específicos (ADR 0028): specs, docs e AGENTS genéricos, matriz e2e só pelo caminho direto, receitas por proxy genérico (`PROXY:PORTA`), sem pendência externa; `X-xproxy-*` sai dos sinais de proxy padrão (task 112).
+
+### Corrigido
+- web: no h2, o `http2.stream` sai sem a espera de 1 s quando o cliente manda RST_STREAM (ou a conexão fecha), com `response_ended_at` nulo se o servidor não encerrou o stream; teste do reset por erro no h3 (task 122).
+- store: `wait=0s` traz `wait_met`; `updated_ns` das conexões só por eventos e das órfãs recuperadas usa o relógio do store (settle do long-poll); exemplo do probe com `wait_met` (task 123).
+- store: a conexão QUIC/h3 não se divide mais quando o fim do web é aplicado antes do lote com o 2º Initial do cliente (DCID = SCID do espelho); Initial só abre conexão nova se capturado depois do fim e com DCID fora dos CIDs da conexão (task 125).
+- store: `times.tls_done` fica null quando o handshake TLS falha (`negotiated` null), como no QUIC (task 125).
+- docs: `docs/probes.md` corrige o fechamento após `Connection: close` (achado A6): o espelho não fecha (spec 005 RF-08); quem fecha é o cliente (em TLS, `close_notify` respondido pelo espelho), um cliente que espera o EOF fica até os 120 s de ociosidade, e `close=after`/`idle=` pedem o fechamento pelo servidor (task 119).
+- test: caso 7 do e2e aceita o handshake abandonado pelo Chrome (task 120).
+
+### Decidido
+- Campos para a auditoria de requisitos (ADR 0029); projeto independente de consumidores (ADR 0028).
+- Garantia do RNF-01 (200/50) separada do limite do modo degradado (250/60); aceita depois da carga oficial `official-50k` sem disparar os gatilhos de revisão (ADR 0030) (task 127).
 
 ## [0.1.0] - 2026-11-09
 

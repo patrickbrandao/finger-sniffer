@@ -1,1 +1,0 @@
-- raw: TCP_FASTOPEN (fila 256) nos listeners, mantendo o keepalive desligado, e `alerts` do handshake TLS lidos dos bytes crus nos dois sentidos, com o do erro do crypto/tls só quando não repete (task 116, ADR 0029).

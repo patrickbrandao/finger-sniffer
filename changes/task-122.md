@@ -1,2 +1,0 @@
-- web: no h2, o `http2.stream` sai sem a espera de 1 s quando o cliente manda RST_STREAM (ou a conexão fecha), com `response_ended_at` nulo se o servidor não encerrou o stream; teste do reset por erro no h3 (task 122).
-- web: listeners TCP com o keepalive TCP do servidor desligado, como no raw, para não pôr pacotes do espelho na conexão analisada (task 122).
