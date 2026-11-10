@@ -1,9 +1,13 @@
-# Carga de 10 min — metas RNF (task 068, spec 017 RF-13, ADR 0022/0024/0025/0026)
+# Carga de 10 min — metas RNF (tasks 068 e 120, spec 017 RF-13, ADR 0022/0024/0025/0026/0030)
 
-Resultado da rodada atual (`899ade1`, depois da task 108; janela oficial `official-50e`): **todas as metas da
-ADR 0022 passam**, com a meta de registro QUIC de 500 ms (task 090, ADR 0026). 0 de 30 000 conexões da carga
-saíram `degraded`, 0 probes sem registro, 0 erros no cliente; o máximo do feed caiu de 30,1 s para 576 ms (o
-`packet.stray` por ociosidade agora usa o instante da decisão). Item 3 de sucesso da spec 000 cumprido.
+Resultado da rodada atual (`c1aefd8`, `v0.1.0-13-gc1aefd8`, candidata à v0.2.0; task 120), com os limites do modo
+degradado da [ADR 0030](../../specs/decisions/0030-margem-do-modo-degradado.md) (`FS_MAX_CONNS=250`,
+`FS_MAX_NEW_CONNS_PER_S=60`; garantia do RNF-01 continua 200 simultâneas e 50 novas/s): **todas as metas passaram
+na janela oficial `official-50k`**, com o tráfego da internet presente e sem bloquear nenhuma origem. A janela
+anterior (`official-50j`) também teve `degraded` = 0 e passou em todas as metas medidas; só registrou 1 erro h3 no
+cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `official-50i` (`90c86d8`, limites
+200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
+junto com a rodada de `899ade1` (v0.1.0).
 
 ## Como reproduzir
 
@@ -26,7 +30,10 @@ tmp/load/loadgen run -out tmp/load/raw/prefill -duration 9m -retention-check=fal
 
 O vigia de tráfego alheio (`foreign_watch.txt`) é um laço no Mac, do início do pré-aquecimento ao fim da janela:
 a cada 15 s, `GET /api/v1/connections?since=<agora − 15 s>&limit=1000` na 9001 e a lista das conexões cuja
-`src.ip` não é o IP público do Mac. Uma janela em que o tráfego alheio mexe em alguma meta é repetida.
+`src.ip` não é o IP público do Mac. Desde a ADR 0030, a janela só é descartada e repetida quando o tráfego
+alheio, somado à carga, passa do limite do modo degradado: vivas TCP/QUIC acima de 250 por mais de 200 ms ou novas/s
+acima de 60 sustentadas. O ruído abaixo disso faz parte do ambiente; bloquear origens (`nft`) não faz parte do
+método. O vigia usado na rodada `c1aefd8` também grava as conexões alheias em `foreign_api.jsonl`.
 
 `run.sh` (no Mac) compila o `loadgen` (local) e o `loadmon` (linux/amd64, build tag `load`), cria
 `/tmp/fs-load-running` na vps602 (convenção: ninguém implanta nem roda e2e enquanto existir), sobe o `loadmon`
@@ -60,14 +67,154 @@ em gzip; `run.log` vira `run.txt` porque o `.gitignore` ignora `*.log`).
   `kernel_drops`; RNF-05 = depois da carga, os 20 primeiros probes somem (404) após retenção + 75 s e os fechados há
   ~9 min continuam (200); RNF-07 = `capture_max_frame_bytes`, `offload_suspect`.
 
-## Execuções (rodada atual, `899ade1`)
+## Execuções (rodada atual, `c1aefd8`, limites 250/60 da ADR 0030)
+
+A vps602 já estava em `c1aefd8` (`v0.1.0-13-gc1aefd8`, `versions_match: true`), com `FS_MAX_CONNS=250` e
+`FS_MAX_NEW_CONNS_PER_S=60` no env e conferidos no `/proc/<pid>/environ` do store, do web e do raw;
+`FS_RETENTION=10m`; nenhuma regra `nft` de bloqueio (a `inet fsloadblock` das 50g–50i foi removida às 23:24).
+Antes da carga: branch rebaseada em `c1aefd8`, `make verify-quick` verde e `go test -tags e2e ./test/e2e/...`
+verde contra a vps602 (240 s; o `verify-full --e2e` completo já tinha passado em `90c86d8` + caso 7, e o `c1aefd8`
+só muda os padrões dos limites, docs e specs). Nenhum deploy nem e2e durante as janelas; `/tmp/fs-load-running`
+na vps602 do pré-aquecimento ao fim de cada janela; vigia de conexões alheias rodando o tempo todo.
+
+| Pasta | Início (UTC) | Commit | Taxa | Observação |
+| --- | --- | --- | --- | --- |
+| (`tmp/load/raw/prefill`, fora do Git) | 2026-11-09 23:54:47 | `c1aefd8` | 50/s, 9 min | pré-aquecimento do banco, sem medição |
+| `results/official-50j` | 2026-11-10 00:04:06 | `c1aefd8` | 50/s | `degraded` = 0 com a força bruta ssh na 22 presente (os mesmos 154.18.197.29 e 193.141.127.102 da 50f, sem bloqueio); `store_connections_open` medido p5 200 / mediana 202 / máx **212** (acima do antigo limite de 200). 1 erro h3 no cliente em t=17,9 s, **no aquecimento** (`timeout: no recent network activity`, registro `quic` sem h3 gravado, `degraded` falso); o `summary.md` conta o erro na janela inteira e marca a linha como falha. Por isso a segunda janela |
+| `results/official-50k` | 2026-11-10 00:16:01 | `c1aefd8` | 50/s | **janela oficial**: todas as metas passaram (`summary.md`: "Todas as metas passaram"); força bruta ssh ainda presente; `store_connections_open` p5 201 / mediana 204 / máx 210 |
+
+## Resultado por meta (rodada `c1aefd8`, janelas `official-50j` e `official-50k`)
+
+| Meta | Métrica | Alvo | 50j | 50k (oficial) | Resultado |
+| --- | --- | --- | --- | --- | --- |
+| RNF-02 | feed /ws, chegada − `LiveEvent.ts`, p99 (máx) | < 1 s | 398 (535) ms | 396 (588) ms | passou |
+| RNF-02 | feed /stream (SSE), p99 (máx) | < 1 s | 397 (539) ms | 396 (649) ms | passou |
+| RNF-02 | `stream.dropped` (ws e sse) | 0 | 0 | 0 | passou |
+| RNF-03 | `GET /connections/{id}`, p95 no cliente | < 100 ms | 35,5 ms | 33,1 ms | passou |
+| RNF-03 | `GET /probes/{id}`, p95 no cliente | < 100 ms | 38,1 ms | 33,7 ms | passou |
+| RNF-04 | TCP: fim no cliente → registro, p95 (máx) | ≤ 500 ms | 204 (426) ms | 203 (504) ms | passou |
+| RNF-04 | QUIC: CONNECTION_CLOSE → registro, p95 (máx) | ≤ 500 ms | 261 (568) ms | 269 (569) ms | passou |
+| RNF-01 | probes sem registro | 0 | 0/29 999 | 0/30 000 | passou |
+| RNF-01 | registros `degraded` da carga | 0 | **0** | **0** | passou |
+| RNF-01 | erros no cliente / puladas pelo teto | 0 | 1 (aquecimento) / 0 | 0 / 0 | passou (50k) |
+| RNF-01 | `dropped_events_total`, `kernel_drops`, health fora de `ok` | 0 | 0 | 0 | passou |
+| RNF-01 | `fs_store_connections_degraded_total` (Δ, qualquer origem) | — | 0 | 0 | — |
+| RNF-01 | RAM: anon máx / MemoryMax (store; nats), MiB | anon < MemoryMax | 73/384; 89/192 | 76/384; 88/192 | passou |
+| RNF-05 | expurgo: 20 primeiros 404; ~9 min ainda 200 | — | 20/20; 20/20 | 20/20; 20/20 | passou |
+| RNF-07 | maior frame / `offload_suspect` | ≤ 1514 / 0 | 1514 / 0 | 1514 / 0 | passou |
+
+CPU (% de 1 vCPU, média / p95 / máx): store 30,9/36,0/49,7 (50j), 30,3/34,7/43,2 (50k); web 16,1/15,9 de média;
+capture ~1,9; raw ~2,1; nats 5,0; host 58/65/77 (50j) e 56/64/71 (50k), steal 0,1. Iguais aos da 50i (store 31,0
+de média) e abaixo do gatilho de revisão da ADR 0030 (host > 75% de média). Decomposição na 50k (ms, p50/p95/p99):
+`ingest_lag` 97/162/308, `record_ready{close}` 112/257/305, `record_ready{quic_close}` 195/304/314.
+
+### Tráfego alheio e a regra da ADR 0030
+
+- Vivas: com o perfil em 190–197 no cliente, o `store_connections_open` (health a cada 5 s, `timeline.csv`, sem o
+  aquecimento) ficou acima de 200 em quase todas as amostras da 50j (104 de 112; máx 212) e na 50k (máx 210),
+  pela força bruta ssh na 22 (raw `banner`, ~105 s de vida por conexão) e por varreduras avulsas. Com 200/50 isso
+  degradou 29 430 conexões da carga na 50f; com 250 sobram ~40 vagas e nenhuma foi degradada. Nunca passou de 250.
+- Novas/s: o vigia viu 64 (50j) e 63 (50k) conexões TCP/QUIC alheias em ~10 min (~0,1/s; no máximo 8 numa fatia
+  de 15 s), contra 10 fichas/s de sobra no balde de 60/s. Nenhuma rajada perto de esvaziar o balde.
+- Portanto nenhuma das condições de descarte da ADR 0030 ocorreu e as duas janelas valem. Origens mais vistas
+  (pré-aquecimento + 50j): 154.18.197.29 e 193.141.127.102 na 22 (82 conexões), 45.79.207.111 na 80 (11).
+
+### Conferência de fingerprints (rodada `c1aefd8`)
+
+`git diff v0.1.0..c1aefd8 -- pkg/fingerprint pkg/tlsparse pkg/h2passive`: igual ao de `90c86d8` (o `c1aefd8` não
+toca esses pacotes): `pkg/fingerprint` sem mudança, `pkg/tlsparse` só ganhou `alerts.go` e `pkg/h2passive` só os
+instantes por stream. `test/e2e/testdata/fingerprints-f5.md` continua válido.
+
+## Histórico: rodada de `90c86d8` (limites 200/50, antes da ADR 0030)
+
+Falhou só na meta `degraded` = 0, nas quatro janelas (50f–50i): com o limite do modo degradado igual à garantia
+(200/50), o perfil ocupava 190–196 vagas e o tráfego alheio da internet completava o resto. A causa e a decisão
+estão na [ADR 0030](../../specs/decisions/0030-margem-do-modo-degradado.md), que separou a garantia do RNF-01 do
+limite (padrão 250/60) e tirou o bloqueio por `nft` do método.
+
+### Execuções (`90c86d8`)
+
+Deploy completo de `origin/main` (`90c86d8`, detached, sem `-dirty`) às 22:04 UTC, smoke ok, `versions_match: true`;
+`make verify-full ARGS="--e2e"` verde antes da carga (e2e 233 s) e `TestCase12HTTP3` 10/10 (task 125). Nenhum
+deploy nem e2e durante as janelas; `/tmp/fs-load-running` na vps602 do início do pré-aquecimento ao fim de cada
+janela; `FS_RETENTION=10m` conferido. O vigia de conexões alheias (`foreign_watch.txt`) rodou do início do
+pré-aquecimento ao fim da última janela.
+
+| Pasta | Início (UTC) | Commit | Taxa | Observação |
+| --- | --- | --- | --- | --- |
+| (`tmp/load/raw/prefill`, fora do Git) | 2026-11-09 22:18:10 | `90c86d8` | 50/s, 9 min | pré-aquecimento do banco, sem medição |
+| `results/official-50f` | 2026-11-09 22:27:43 | `90c86d8` | 50/s | **interferência**: força bruta ssh na porta 22 (raw `banner`) de 193.141.127.102 e 154.18.197.29, uma conexão nova a cada ~30 s de cada IP com ~105 s de vida (máx 133 s): ~10 vivas alheias o tempo todo, `store_connections_open` 201–207 na janela inteira e **29 430** conexões da carga `degraded`. Repetida |
+| `results/official-50g` | 2026-11-09 22:46:28 | `90c86d8` | 50/s | os dois IPs da força bruta recebem RST na porta 22 (`nft`, tabela `inet fsloadblock`, só durante as janelas 50g–50i; removida às 23:24). **2** `degraded`, cada um aberto 3–6 ms depois de um par de conexões de um scanner TLS na 993 (87.236.176.x, a cada ~33 s; `foreign_993.txt`). 1 erro h3 no cliente no minuto de aquecimento (t=46,8 s; `timeout: no recent network activity`, registro `quic` sem h3; já expirado quando analisado). Repetida |
+| `results/official-50h` | 2026-11-09 22:59:51 | `90c86d8` | 50/s | **27** `degraded`, 26 entre t=233 e 309 s (23:03:44–23:05:00), junto com um rastreador em `45.79.168.172:80` (4–5 conexões por fatia de 15 s), `3.131.220.121:443` e uma rajada de 10+ conexões de 66.132.172.x na 993 às 23:04:39–54 |
+| `results/official-50i` | 2026-11-09 23:12:05 | `90c86d8` | 50/s | última repetição (limite combinado com o coordenador). **1** `degraded` (h1 às 23:21:22,7), junto com 2 conexões de 195.182.16.23 na 8080 abertas às 23:21:22,76–22,98 |
+
+### Resultado por meta (rodada `90c86d8`, janelas `official-50f` a `official-50i`)
+
+| Meta | Métrica | Alvo | 50f | 50g | 50h | 50i | Resultado |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| RNF-02 | feed /ws, chegada − `LiveEvent.ts`, p99 (máx) | < 1 s | 389 (477) | 391 (486) | 394 (631) | 395 (527) ms | passou |
+| RNF-02 | feed /stream (SSE), p99 (máx) | < 1 s | 388 (725) | 390 (486) | 397 (635) | 395 (527) ms | passou |
+| RNF-02 | `stream.dropped` (ws e sse) | 0 | 0 | 0 | 0 | 0 | passou |
+| RNF-03 | `GET /connections/{id}`, p95 no cliente | < 100 ms | 36,1 | 33,0 | 32,6 | 37,9 ms | passou |
+| RNF-03 | `GET /probes/{id}`, p95 no cliente | < 100 ms | 29,2 | 33,5 | 32,3 | 38,2 ms | passou |
+| RNF-04 | TCP: fim no cliente → registro, p95 (máx) | ≤ 500 ms | 186 (295) | 195 (315) | 198 (500) | 202 (426) ms | passou |
+| RNF-04 | QUIC: CONNECTION_CLOSE → registro, p95 (máx) | ≤ 500 ms | 254 (338) | 253 (343) | 264 (546) | 261 (384) ms | passou |
+| RNF-01 | probes sem registro | 0 | 0/30 000 | 0/29 999 | 0/30 000 | 0/30 000 | passou |
+| RNF-01 | registros `degraded` da carga | 0 | **29 430** | **2** | **27** | **1** | **falhou** (tráfego alheio) |
+| RNF-01 | erros no cliente / puladas pelo teto | 0 | 0 / 0 | **1** (aquecimento) / 0 | 0 / 0 | 0 / 0 | passou, menos 50g |
+| RNF-01 | `dropped_events_total`, `kernel_drops`, health fora de `ok` | 0 | 0 | 0 | 0 | 0 | passou |
+| RNF-01 | RAM: anon máx / MemoryMax (store; nats), MiB | anon < MemoryMax | 72/384; 88/192 | 73/384; 88/192 | 76/384; 88/192 | 82/384; 88/192 | passou |
+| RNF-05 | expurgo: 20 primeiros 404; ~9 min ainda 200 | — | 20/20; 20/20 | 20/20; 20/20 | 20/20; 20/20 | 20/20; 20/20 | passou |
+| RNF-07 | maior frame / `offload_suspect` | ≤ 1514 / 0 | 1514 / 0 | 1514 / 0 | 1514 / 0 | 1514 / 0 | passou |
+
+CPU (% de 1 vCPU, média / p95 / máx): store 23,1/27,5/32,0 (50f), 27,0/31,9/40,3 (50g), 29,5/33,8/38,9 (50h),
+31,0/37,8/59,3 (50i); web ~16/17/19; host 49/54/61 → 58/66/87. Na v0.1.0 (`official-50e`): store 28,1/32,9/41,5,
+host 52/58/83. As janelas rodaram em sequência sobre o mesmo banco, por isso a 50f teve menos expurgo que as
+seguintes.
+
+#### Causa provável do `degraded`
+
+O limite do modo degradado conta toda conexão TCP/QUIC aberta, de qualquer origem (`liveLimited()` em
+`internal/store/flows.go`, spec 004 RF-11). O perfil oficial ocupa 190–196 das 200 no store (`timeline.csv`,
+igual à v0.1.0: 191–195), então sobram 4–10 vagas para o ruído da internet. Nas quatro janelas, cada lote de
+conexões da carga que saiu `degraded` coincide, em milissegundos, com conexões alheias abertas no mesmo instante
+(ver as observações da tabela de execuções). Na v0.1.0 (`official-50e`) também havia tráfego alheio, mas nenhuma
+coincidência levou a carga a `degraded`; nesta noite o ruído foi mais denso (scanner da 993 a cada ~33 s,
+rastreadores na 80, força bruta ssh na 22).
+
+Hipótese conferida (do coordenador): a task 122 desligou o keepalive TCP dos listeners do web; o ruído com par
+morto poderia ficar vivo até a ociosidade de 120 s e ocupar vagas. Os dados não a sustentam:
+- 50i (`foreign_api.jsonl.gz`, todas as conexões alheias de 23:14 a 23:23, consultadas antes do expurgo):
+  38 conexões TCP/QUIC alheias, 56 conexões·s no total, duração máxima 11 s, **nenhuma com mais de 30 s** e
+  nenhuma aberta no fim;
+- v0.1.0/pré-122 (`official-50d/connections_api.json.gz`, 8 min): 16 conexões, 21 conexões·s, máximo 8 s;
+- as de vida longa da 50f são do raw na porta 22 (~105 s, perto do `FS_IDLE_DEFAULT=120s`), e o raw tem o
+  keepalive desligado desde a v0.1.0 (task 029); a 122 não mudou o raw;
+- nas 50g e 50h, as conexões alheias que coincidiram com os `degraded` duraram 0,4–0,8 s (scanner da 993).
+
+Não é defeito de código das tasks 122–125: as latências e o restante das metas ficaram iguais aos da v0.1.0. A
+falha é a margem do perfil contra o limite de 200 sob o ruído da internet, uma questão de spec/ADR (perfil da
+ADR 0022 contra o limite da spec 004 RF-11), decidida pela ADR 0030.
+
+#### Conferência de fingerprints (`90c86d8`)
+
+`git diff v0.1.0..90c86d8 -- pkg/fingerprint pkg/tlsparse pkg/h2passive`: `pkg/fingerprint` sem mudança;
+`pkg/tlsparse` só ganhou `alerts.go` (alertas TLS pelos bytes, task 115/116); `pkg/h2passive` só ganhou os
+instantes por stream (`FeedAt`, `HeadersAt`/`EndAt`/`ResetAt`, ADR 0029). O cálculo de JA3/JA4/Akamai não muda e
+`test/e2e/testdata/fingerprints-f5.md` continua válido.
+
+## Histórico: rodada de `899ade1` (v0.1.0, depois da task 108)
+
+Resultado: todas as metas passavam na janela `official-50e`.
+
+### Execuções
 
 | Pasta | Início (UTC) | Commit | Taxa | Observação |
 | --- | --- | --- | --- | --- |
 | (`tmp/load/raw/prefill`, fora do Git) | 2026-11-09 14:51:56 | `899ade1` | 50/s, 9 min | pré-aquecimento do banco, sem medição; a vps602 já estava em `899ade1` com `versions_match: true` (último deploy às 14:38 UTC, nenhum deploy desta rodada), `FS_RETENTION=10m` conferido no env; `/tmp/fs-load-running` criado antes do pré-aquecimento |
 | `results/official-50e` | 2026-11-09 15:01:24 | `899ade1` | 50/s | **janela oficial**: banco em regime (expurgo do pré-aquecimento durante a carga), sem deploy nem e2e; `versions_match: true` e `899ade1` antes e depois; vigia de conexões alheias a cada 15 s (`foreign_watch.txt`, ver abaixo) |
 
-## Resultado por meta (janela oficial `official-50e`, `899ade1`)
+### Resultado por meta (janela oficial `official-50e`, `899ade1`)
 
 | Meta | Métrica | Alvo | Medido | Resultado |
 | --- | --- | --- | --- | --- |
@@ -89,7 +236,7 @@ em gzip; `run.log` vira `run.txt` porque o `.gitignore` ignora `*.log`).
 CPU por unit (% de 1 vCPU, média / p95 / máx): capture 1,7/2,0/2,3; web 14,6/15,6/16,6; raw 1,9/2,1/2,4;
 dns 0/0,1/0,1; store 28,1/32,9/41,5; nats 4,6/5,2/5,7; host 52/58/83 (steal 0,1).
 
-### Decomposição do atraso (ms, p50 / p95 / p99)
+#### Decomposição do atraso (ms, p50 / p95 / p99)
 
 | Etapa | official-50e (`899ade1`) | official-50d (`efcb465`) |
 | --- | --- | --- |
@@ -105,7 +252,7 @@ O pipeline não mudou com a 108 (mesmos números da `official-50d`). Por tipo, o
 `connection.updated` do h3 (421 ms) e do TLS (h2 399, h1 414 ms); `packet.stray` (642 eventos) p99 174 / máx
 207 ms, sem o avulso de 30 s da rodada anterior.
 
-### Tráfego alheio e `fs_store_connections_degraded_total`
+#### Tráfego alheio e `fs_store_connections_degraded_total`
 
 O vigia (`foreign_watch.txt`, conexões com origem diferente do Mac a cada 15 s) viu, durante a janela, varreduras
 avulsas (ssh e portas variadas, 1–4 por janela de 15 s), um rastreador em `45.79.207.71:80` a partir de 15:07 e,
@@ -136,6 +283,14 @@ acima do perfil, não sobre a carga; a janela não foi repetida porque a interfe
   carga a cada 15 s, desde o início do pré-aquecimento na `official-50e`); só na `official-50d`,
   `connections_api.json.gz` (`GET /connections` de 13:50:33 a 13:58:27, antes do expurgo, usado na análise da
   rajada).
+
+- Em `official-50f` a `official-50i` (~1,4 MB cada), os mesmos brutos em gzip e `foreign_watch.txt` do trecho de
+  cada janela; em `official-50g`, `foreign_993.txt` (conexões do scanner da 993) e os dois registros `degraded`
+  em JSON; em `official-50h`, `foreign_api.txt` (o que restava das alheias de 23:03–23:05 na hora da análise);
+  em `official-50i`, `foreign_api.jsonl.gz` (todas as conexões alheias de 23:14 a 23:23, antes do expurgo).
+- Em `official-50j` e `official-50k` (~1,4 MB cada, rodada `c1aefd8`), os mesmos brutos em gzip, `foreign_watch.txt`
+  e `foreign_api.jsonl.gz` (as conexões alheias de cada fatia de 15 s, gravadas pelo vigia durante a janela;
+  a da 50j inclui o pré-aquecimento).
 
 ## Histórico: rodada de `efcb465` (depois das tasks 103, 105 e 106; antes da 108)
 

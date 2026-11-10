@@ -1,0 +1,243 @@
+{
+  "conn_id": "01M7184YWP0CV5AKNH1DE0KBHY",
+  "probe_id": "ldiet3f44rw22pyo",
+  "proto": "raw",
+  "l4": "tcp",
+  "family": 4,
+  "src": {
+    "ip": "191.37.76.135",
+    "port": 58636
+  },
+  "dst": {
+    "ip": "172.233.24.85",
+    "port": 21
+  },
+  "started": "2026-11-09T22:51:33.654600363Z",
+  "ended": "2026-11-09T22:51:37.484724372Z",
+  "requests": 0,
+  "degraded": true,
+  "pcap_truncated": false,
+  "offload_suspect": false,
+  "times": {
+    "syn": "2026-11-09T22:51:33.654600363Z",
+    "syn_ack": "2026-11-09T22:51:33.654611553Z",
+    "established": "2026-11-09T22:51:33.667423280Z",
+    "tls_done": null,
+    "first_data": "2026-11-09T22:51:33.680170915Z",
+    "client_fin": "2026-11-09T22:51:37.454857428Z",
+    "server_fin": "2026-11-09T22:51:37.471810354Z",
+    "client_rst": null,
+    "server_rst": null,
+    "end": "2026-11-09T22:51:37.484724372Z"
+  },
+  "close": {
+    "by": "client",
+    "how": "fin",
+    "idle_before_close_ms": 1265.993202,
+    "half_close": true
+  },
+  "totals": {
+    "in": {
+      "app_bytes": 195,
+      "segments": 10,
+      "data_segments": 4,
+      "retransmits": 0,
+      "out_of_order": 0
+    },
+    "out": {
+      "app_bytes": 47,
+      "segments": 8,
+      "data_segments": 2,
+      "retransmits": 0,
+      "out_of_order": 0
+    }
+  },
+  "ip": {
+    "ttl": 48,
+    "ttl_initial": 64,
+    "hops": 16,
+    "ip_id_syn": 0,
+    "ip_id_pattern": "zero",
+    "df": true,
+    "tos": 2,
+    "dscp": 0,
+    "ecn": "ect0",
+    "options_hex": "",
+    "fragmented": false,
+    "flow_label": null,
+    "traffic_class": null,
+    "packets": {
+      "syn": {
+        "ttl": 48,
+        "df": true,
+        "ip_id": 0,
+        "tos": 0,
+        "dscp": 0,
+        "ecn": "not-ect",
+        "flow_label": null,
+        "total_length": 64,
+        "options_hex": "",
+        "fragmented": false
+      },
+      "ack": {
+        "ttl": 48,
+        "df": true,
+        "ip_id": 0,
+        "tos": 0,
+        "dscp": 0,
+        "ecn": "not-ect",
+        "flow_label": null,
+        "total_length": 52,
+        "options_hex": "",
+        "fragmented": false
+      },
+      "first_data": {
+        "ttl": 48,
+        "df": true,
+        "ip_id": 0,
+        "tos": 2,
+        "dscp": 0,
+        "ecn": "ect0",
+        "flow_label": null,
+        "total_length": 76,
+        "options_hex": "",
+        "fragmented": false
+      }
+    }
+  },
+  "tcp": {
+    "syn": {
+      "src_port": 58636,
+      "isn": 1043193029,
+      "window": 65535,
+      "flags": "SEC",
+      "urgent_ptr": 0,
+      "header_len": 44,
+      "options": [
+        [
+          "mss",
+          1430
+        ],
+        [
+          "nop"
+        ],
+        [
+          "wscale",
+          6
+        ],
+        [
+          "nop"
+        ],
+        [
+          "nop"
+        ],
+        [
+          "ts",
+          2842295506,
+          0
+        ],
+        [
+          "sack_perm"
+        ],
+        [
+          "eol"
+        ]
+      ],
+      "payload_b64": null,
+      "tfo": false
+    },
+    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6",
+    "p0f": "4:48+16:0:1430:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0",
+    "os_guess": "Mac OS X",
+    "window_series": [
+      [
+        0,
+        65535
+      ],
+      [
+        12.823,
+        131904
+      ]
+    ],
+    "ack_pattern": "unknown",
+    "psh_used": true,
+    "keepalive_probes": [],
+    "zero_window": false,
+    "rst_with_data": false,
+    "segments_in": [
+      [
+        25.571,
+        24
+      ],
+      [
+        25.819,
+        57
+      ],
+      [
+        1267.042,
+        57
+      ],
+      [
+        2534.264,
+        57
+      ]
+    ],
+    "segments_out": [
+      [
+        12.953,
+        30
+      ],
+      [
+        3800.313,
+        17
+      ]
+    ],
+    "ts_clock_hz": 999.97,
+    "ts_initial": 2842295506,
+    "ts_clock_group": "clk-01M71792SE2DJP8JCXDFC97K4J",
+    "rtt_handshake_ms": 12.812,
+    "rtt_app_ms": 12.617,
+    "syn_cookie_server": false,
+    "retransmits_in": 0
+  },
+  "raw": {
+    "mode": "banner",
+    "tls": false,
+    "banner": "220 finger-sniffer FTP ready\r\n",
+    "probe_line": "PROBE ldiet3f44rw22pyo\r\n",
+    "reads_in": [
+      [
+        12.706804,
+        24
+      ],
+      [
+        12.983438,
+        57
+      ],
+      [
+        1254.191924,
+        57
+      ],
+      [
+        2521.399635,
+        57
+      ]
+    ],
+    "writes_out": [
+      [
+        0.065021,
+        30
+      ],
+      [
+        3787.404997,
+        17
+      ]
+    ],
+    "reads_in_truncated": false,
+    "writes_out_truncated": false,
+    "half_close": {
+      "server_sent_after_client_fin": true,
+      "bytes": 17
+    }
+  }
+}

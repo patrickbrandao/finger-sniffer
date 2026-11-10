@@ -1,0 +1,46 @@
+2026-11-10T00:15:57Z total=0 foreign=0 foreign_tcp_quic=0 
+2026-11-10T00:16:12Z total=509 foreign=1 foreign_tcp_quic=1 193.141.127.102:22/tcp
+2026-11-10T00:16:27Z total=763 foreign=3 foreign_tcp_quic=3 91.196.152.209:22/tcp 154.18.197.29:22/tcp 46.151.178.14:8080/tcp
+2026-11-10T00:16:42Z total=780 foreign=2 foreign_tcp_quic=2 46.151.178.14:993/tcp 193.141.127.102:22/tcp
+2026-11-10T00:16:57Z total=794 foreign=3 foreign_tcp_quic=1 146.88.241.150:7777/udp 146.88.241.110:27026/udp 154.18.197.29:22/tcp
+2026-11-10T00:17:12Z total=760 foreign=1 foreign_tcp_quic=1 193.141.127.102:22/tcp
+2026-11-10T00:17:27Z total=773 foreign=2 foreign_tcp_quic=2 91.196.152.42:22/tcp 154.18.197.29:22/tcp
+2026-11-10T00:17:42Z total=785 foreign=1 foreign_tcp_quic=1 193.141.127.102:22/tcp
+2026-11-10T00:17:57Z total=752 foreign=1 foreign_tcp_quic=1 154.18.197.29:22/tcp
+2026-11-10T00:18:12Z total=768 foreign=0 foreign_tcp_quic=0 
+2026-11-10T00:18:27Z total=780 foreign=2 foreign_tcp_quic=2 154.18.197.29:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:18:42Z total=785 foreign=0 foreign_tcp_quic=0 
+2026-11-10T00:18:57Z total=762 foreign=4 foreign_tcp_quic=4 5.187.38.30:8080/http1.1 154.18.197.29:22/tcp 5.187.38.30:8080/tcp 193.141.127.102:22/tcp
+2026-11-10T00:19:12Z total=769 foreign=0 foreign_tcp_quic=0 
+2026-11-10T00:19:27Z total=788 foreign=4 foreign_tcp_quic=4 45.156.129.134:443/tcp 154.18.197.29:22/tcp 91.231.89.79:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:19:42Z total=758 foreign=1 foreign_tcp_quic=1 45.156.129.134:443/tcp
+2026-11-10T00:19:57Z total=766 foreign=2 foreign_tcp_quic=2 154.18.197.29:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:20:12Z total=778 foreign=1 foreign_tcp_quic=0 173.230.137.59:37810/udp
+2026-11-10T00:20:27Z total=797 foreign=2 foreign_tcp_quic=2 91.231.89.226:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:20:42Z total=757 foreign=2 foreign_tcp_quic=2 78.153.140.237:8443/tcp 154.18.197.29:22/tcp
+2026-11-10T00:20:57Z total=773 foreign=2 foreign_tcp_quic=2 216.226.77.20:993/tls 193.141.127.102:22/tcp
+2026-11-10T00:21:12Z total=788 foreign=2 foreign_tcp_quic=2 154.18.197.29:22/tcp 216.226.77.20:993/tls/raw
+2026-11-10T00:21:28Z total=751 foreign=2 foreign_tcp_quic=2 193.141.127.102:22/tcp 172.233.24.85:18780/tcp
+2026-11-10T00:21:43Z total=763 foreign=1 foreign_tcp_quic=1 154.18.197.29:22/tcp
+2026-11-10T00:21:58Z total=780 foreign=1 foreign_tcp_quic=1 89.248.172.11:80/tls
+2026-11-10T00:22:13Z total=789 foreign=2 foreign_tcp_quic=2 154.18.197.29:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:22:28Z total=756 foreign=2 foreign_tcp_quic=2 85.217.149.50:8443/tcp 91.231.89.215:22/tcp
+2026-11-10T00:22:43Z total=770 foreign=2 foreign_tcp_quic=2 154.18.197.29:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:22:58Z total=786 foreign=1 foreign_tcp_quic=0 66.132.172.249:40814/udp
+2026-11-10T00:23:13Z total=801 foreign=4 foreign_tcp_quic=4 91.231.89.196:22/tcp 154.18.197.29:22/tcp 193.141.127.102:22/tcp 154.80.128.230:22/tcp
+2026-11-10T00:23:28Z total=759 foreign=1 foreign_tcp_quic=1 91.231.89.196:22/raw
+2026-11-10T00:23:43Z total=777 foreign=2 foreign_tcp_quic=2 154.18.197.29:22/tcp 193.141.127.102:22/tcp
+2026-11-10T00:23:58Z total=787 foreign=1 foreign_tcp_quic=1 149.88.25.211:80/http1.1
+2026-11-10T00:24:13Z total=758 foreign=2 foreign_tcp_quic=2 193.141.127.102:22/tcp 154.18.197.29:22/tcp
+2026-11-10T00:24:28Z total=767 foreign=0 foreign_tcp_quic=0 
+2026-11-10T00:24:43Z total=784 foreign=1 foreign_tcp_quic=1 154.18.197.29:22/tcp
+2026-11-10T00:24:58Z total=795 foreign=2 foreign_tcp_quic=2 163.192.211.251:8080/tcp 193.141.127.102:22/tcp
+2026-11-10T00:25:13Z total=762 foreign=1 foreign_tcp_quic=1 154.18.197.29:22/tcp
+2026-11-10T00:25:28Z total=776 foreign=4 foreign_tcp_quic=4 91.231.89.246:22/tcp 91.196.152.168:22/tcp 193.141.127.102:22/tcp 154.18.197.29:22/tcp
+2026-11-10T00:25:43Z total=786 foreign=1 foreign_tcp_quic=0 193.176.31.245:5349/udp
+2026-11-10T00:25:58Z total=757 foreign=2 foreign_tcp_quic=2 193.141.127.102:22/tcp 154.18.197.29:22/tcp
+2026-11-10T00:26:13Z total=198 foreign=0 foreign_tcp_quic=0 
+2026-11-10T00:26:28Z total=2 foreign=2 foreign_tcp_quic=2 193.141.127.102:22/tcp 154.18.197.29:22/tcp
+2026-11-10T00:26:43Z total=1 foreign=1 foreign_tcp_quic=0 66.132.172.254:52808/udp
+2026-11-10T00:26:58Z total=2 foreign=2 foreign_tcp_quic=2 193.141.127.102:22/tcp 154.18.197.29:22/tcp
+2026-11-10T00:27:13Z total=2 foreign=2 foreign_tcp_quic=2 45.156.129.134:443/tls/http1.1 45.156.129.48:443/raw/unknown
