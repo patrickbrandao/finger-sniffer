@@ -1,7 +1,6 @@
 # 0030 — Garantia do RNF-01 separada do limite do modo degradado (margem para o tráfego alheio)
 
-Status: provisória (revisar se a carga oficial com os padrões novos tiver `degraded` > 0 sem tráfego alheio acima
-de 250 vivas ou de 60 novas/s, ou se a CPU do host passar de 75% de média na janela)
+Status: aceita (era provisória até a carga oficial; confirmada na release v0.2.0, task 127)
 Data: 2026-11-09
 Altera: 0022 (regra de `degraded` = 0 na medição), 0026 (item 4, descarte da janela com tráfego alheio). Não muda
 a spec 000 RNF-01.
@@ -78,3 +77,11 @@ da ADR 0026 não converge num servidor público com o ruído atual.
 - Código e config (task 126, delegação da ADR 0023): `.env.example`, padrão do store (`internal/store/store.go`)
   e do web (`internal/web/config.go`), testes dos padrões, `docs/api.md` e o env da vps602.
 - A carga da task 120 é refeita pelo tester com os padrões novos; o resultado decide a revisão desta ADR.
+
+## Revisão (task 127, release v0.2.0)
+Carga oficial `official-50k` em `c1aefd8` com os padrões 250/60 (`test/load/RESULTS.md`, task 120): todas as
+metas da ADR 0022 passaram, `degraded` = 0 com o ruído da internet presente e sem bloqueio de origens
+(`store_connections_open` máx 210, nunca acima de 250; ~0,1 conexão alheia nova/s); CPU do host 56% de média
+(p95 64%, máx 71%), abaixo de 75%. A janela `official-50j` deu o mesmo resultado (`degraded` = 0, host 58%).
+Nenhum gatilho de revisão disparou: a decisão passa de provisória a **aceita**. A revisão volta a ser
+acionada pelos mesmos fatos (tráfego alheio que esgote a margem, ou CPU do host acima de 75% de média).

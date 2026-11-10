@@ -1,1 +1,0 @@
-- docs: `settle`/`min_conns`/`wait_met` e os 400 do long-poll, os 4 instantes por requisição e `ip.packets` em `docs/api.md`; coleta com `wait=30s&settle=1s`, receita de TFO, origem dos alertas TLS e ausência de keepalive TCP em `docs/probes.md` (task 124).
