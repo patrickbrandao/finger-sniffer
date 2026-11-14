@@ -2,6 +2,7 @@
 package docs
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -454,6 +455,107 @@ func TestContracts06Docs(t *testing.T) {
 			if strings.Contains(s, b) {
 				t.Errorf("%s ainda diz %q", f, b)
 			}
+		}
+	}
+}
+
+// Nomes de métricas no código (task 188): constantes Metric* e literais passados a Metrics.Add/Set (ou m.Add/Set
+// no capture), e os nomes das métricas nativas do store (prometheus Name/NewDesc).
+var (
+	metricConstRe   = regexp.MustCompile(`\bMetric\w*\s*=\s*"([a-z0-9_]+)"`)
+	metricLiteralRe = regexp.MustCompile(`(?:[mM]etrics|\bm)\.(?:Add|Set)\("([a-z0-9_]+)"`)
+	metricNativeRe  = regexp.MustCompile(`(?:Name:\s*|NewDesc\()"(fs_[a-z0-9_]+)"`)
+	replacedRe      = regexp.MustCompile(`"([a-z0-9_]+)":\s*true`)
+)
+
+// codeMetrics varre internal/ e pkg/service (sem testes) e devolve os nomes como aparecem no /metrics.
+func codeMetrics(t *testing.T) map[string]string {
+	t.Helper()
+	replaced := map[string]bool{}
+	src, err := os.ReadFile("../internal/store/metrics.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	i := strings.Index(s, "var replacedHeartbeat")
+	if i < 0 {
+		t.Fatal("replacedHeartbeat não achado em internal/store/metrics.go")
+	}
+	block := s[i : i+strings.Index(s[i:], "\n}")]
+	for _, m := range replacedRe.FindAllStringSubmatch(block, -1) {
+		replaced[m[1]] = true
+	}
+	if len(replaced) == 0 {
+		t.Fatal("replacedHeartbeat vazio: o padrão do teste ficou velho")
+	}
+	out := map[string]string{}
+	for _, root := range []string{"../internal", "../pkg/service"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, re := range []*regexp.Regexp{metricConstRe, metricLiteralRe} {
+				for _, m := range re.FindAllStringSubmatch(string(data), -1) {
+					if !replaced[m[1]] {
+						out["fs_"+m[1]] = path
+					}
+				}
+			}
+			for _, m := range metricNativeRe.FindAllStringSubmatch(string(data), -1) {
+				out[m[1]] = path
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out
+}
+
+// TestMetricsDocCoversCode falha se uma métrica publicada pelo código (heartbeat ou nativa do store) faltar em
+// docs/metrics.md (task 188).
+func TestMetricsDocCoversCode(t *testing.T) {
+	data, err := os.ReadFile("metrics.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	names := codeMetrics(t)
+	// sanidade: o varredor acha os contadores de cada serviço e os nativos
+	for _, n := range []string{
+		"fs_capture_batches_total", "fs_web_acme_failures_total", "fs_raw_events_oversize_total",
+		"fs_dns_rate_limited_total", "fs_store_bad_batches_total", "fs_dropped_events_total",
+		"fs_web_h3_init_table_full_total", "fs_store_flows_dropped_total", "fs_store_live_dropped_total",
+	} {
+		if _, ok := names[n]; !ok {
+			t.Errorf("varredura do código não achou %s", n)
+		}
+	}
+	if _, ok := names["fs_store_stray_total"]; ok {
+		t.Error("nome de replacedHeartbeat não deveria entrar na lista")
+	}
+	nameRe := regexp.MustCompile("`" + `(fs_[a-z0-9_]+)`)
+	documented := map[string]bool{}
+	for _, m := range nameRe.FindAllStringSubmatch(doc, -1) {
+		documented[m[1]] = true
+	}
+	for n, path := range names {
+		if !documented[n] {
+			t.Errorf("docs/metrics.md não cita %s (de %s)", n, path)
+		}
+	}
+	// os alertas pedidos na task 188
+	for _, q := range []string{
+		"increase(fs_web_events_oversize_total[5m]) > 0", "increase(fs_store_bad_batches_total[5m]) > 0",
+		"increase(fs_web_acme_failures_total[1h]) > 0",
+	} {
+		if !strings.Contains(doc, q) {
+			t.Errorf("docs/metrics.md sem a consulta %q", q)
 		}
 	}
 }

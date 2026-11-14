@@ -26,16 +26,17 @@ os republica como `fs_<métrica>{service="<svc>"}`, com o valor do último heart
 
 Publicados hoje no heartbeat (o conjunto depende de cada serviço e aparece também em `services.<svc>.metrics` do
 `/api/v1/health`; um contador só aparece depois do primeiro uso desde o último reinício do serviço, por exemplo os
-de WebSocket; o capture publica os seus zerados desde a partida):
+de WebSocket; o capture publica os seus zerados desde a partida). Por isso os alertas usam `increase(...) > 0`, que não dispara
+com a série ausente, e não `== 0` nem comparação com o valor anterior:
 
 | Serviço | Métricas |
 | --- | --- |
 | capture | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total`, `fs_capture_packets_in_total`, `fs_capture_packets_out_total`, `fs_capture_batches_total`, `fs_capture_queue_freezes_total`, `fs_capture_max_frame_bytes`, `fs_capture_filtered_userspace_total`, `fs_capture_offload_suspect_total`, `fs_capture_truncated_total`, `fs_dropped_events_total` (detalhes [abaixo](#capture)) |
-| web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening` (1 com o listener UDP 443 de pé), `fs_web_input_budget_used_bytes` (bytes reservados agora do orçamento de entrada `FS_WEB_INPUT_BUDGET`), `fs_web_input_budget_denied_total` (reservas recusadas: 431, 503, `H3_EXCESSIVE_LOAD` ou `fields_truncated` por falta de orçamento) |
-| raw | `fs_raw_sessions_total`, `fs_raw_active_sessions` |
-| dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total` |
-| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total` (pacote tardio, como o ACK ou o RST depois do FIN, anexado ao pcap e ao registro já gravado, TCP ou QUIC, até 2 s depois do fim), `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_pending_events_total` (evento de aplicação que chegou antes dos pacotes da conexão e esperou), `fs_store_event_only_connections_total` (conexão criada só por eventos, sem pacotes: capture fora do ar ou atrasado), `fs_store_bad_events_total` (evento sem 5-tupla, descartado) |
-| todos que publicam no NATS | `fs_published_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (buffer do produtor) |
+| web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening`, `fs_web_h3_init_table_full_total`, `fs_web_input_budget_used_bytes`, `fs_web_input_budget_denied_total`, `fs_web_events_oversize_total`, `fs_web_events_marshal_errors_total`, `fs_web_acme_issued_total`, `fs_web_acme_failures_total` (detalhes [abaixo](#web)) |
+| raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total` (detalhes [abaixo](#raw)) |
+| dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
+| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total` (detalhes [abaixo](#store-heartbeat)) |
+| todos que publicam no NATS | `fs_published_events_total`, `fs_dropped_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (detalhes [abaixo](#produtor-nats)) |
 | host (pelo store) | `fs_host_syncookies_sent` |
 
 ### capture
@@ -71,6 +72,73 @@ fs_capture_truncated_total{service="capture"} 0
 fs_dropped_events_total{service="capture"} 0
 ```
 
+### web
+
+| Métrica | Conteúdo |
+| --- | --- |
+| `fs_web_connections_active`, `fs_web_connections_total` | conexões TCP abertas agora (gauge) e aceitas desde a partida, em todas as portas do web |
+| `fs_web_http1_requests_total` | requisições HTTP/1.x lidas |
+| `fs_web_http2_connections_total`, `fs_web_http2_streams_total` | conexões h2 (TLS ou h2c) e streams abertos nelas |
+| `fs_web_http3_connections_total`, `fs_web_http3_requests_total` | conexões QUIC/h3 aceitas e requisições h3 |
+| `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total` | WebSockets estabelecidos (HTTP/1.1 ou RFC 8441) e frames recebidos |
+| `fs_web_h3_listening` | 1 com o listener UDP 443 de pé, 0 sem ele (gauge) |
+| `fs_web_h3_init_table_full_total` | 5-tuplas QUIC novas que acharam cheia a tabela de Initials em análise (4096 entradas), com ou sem despejo: com despejo sai a entrada não reclamada encerrada mais antiga; sem nada para despejar, a conexão segue no h3, mas sem a análise do Initial. Sobe sob inundação de UDP forjado |
+| `fs_web_input_budget_used_bytes` | bytes reservados agora do orçamento de entrada `FS_WEB_INPUT_BUDGET` (gauge, ADR 0033) |
+| `fs_web_input_budget_denied_total` | reservas recusadas pelo orçamento global ou pelo teto do dono (requisição, conexão, sessão): 431, 503, `H3_EXCESSIVE_LOAD` ou `fields_truncated` |
+| `fs_web_events_oversize_total` | eventos acima de 900 KiB (`event.MaxEventBytes`, ADR 0018) descartados antes de publicar |
+| `fs_web_events_marshal_errors_total` | eventos que falharam ao serializar, descartados |
+| `fs_web_acme_issued_total` | certificados emitidos e gravados pelo ACME (spec 015) |
+| `fs_web_acme_failures_total` | tentativas de emissão ou renovação que falharam (o web repete com espera crescente) |
+
+`fs_web_input_budget_used_bytes` e `fs_web_input_budget_denied_total` existem desde a partida do web; os demais
+aparecem no primeiro uso.
+
+### raw
+
+| Métrica | Conteúdo |
+| --- | --- |
+| `fs_raw_sessions_total`, `fs_raw_active_sessions` | sessões aceitas desde a partida e abertas agora (gauge), somando todas as portas cruas |
+| `fs_raw_events_oversize_total` | eventos acima de 900 KiB descartados antes de publicar (ADR 0035) |
+
+### dns
+
+| Métrica | Conteúdo |
+| --- | --- |
+| `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total` | mensagens DNS recebidas por UDP e por TCP |
+| `fs_dns_formerr_total` | consultas ilegíveis (cabeçalho legível, corpo não) respondidas com FORMERR |
+| `fs_dns_dropped_total` | mensagens sem resposta (menos de 12 bytes ou com QR=1, que já é resposta) e conexões TCP recusadas com as 256 em uso |
+| `fs_dns_rate_limited_total` | consultas UDP acima do RRL, respondidas com TC=1 sem dados para o resolvedor repetir em TCP; o TCP fica fora do RRL (ADR 0035) |
+
+### store (heartbeat)
+
+Além das [métricas nativas](#métricas-do-store), o store publica no próprio heartbeat:
+
+| Métrica | Conteúdo |
+| --- | --- |
+| `fs_store_packets_total` | pacotes gravados (lotes confirmados) |
+| `fs_store_app_events_total` | eventos de aplicação (web, raw, dns) lidos do JetStream e válidos |
+| `fs_store_pending_events_total` | eventos de aplicação que chegaram antes dos pacotes da conexão e esperaram |
+| `fs_store_event_only_connections_total` | conexões criadas só por eventos, sem pacotes: capture fora do ar ou atrasado |
+| `fs_store_bad_events_total` | eventos de aplicação ilegíveis ou sem 5-tupla (exceto DNS por UDP, que não tem conexão), descartados |
+| `fs_store_late_packets_total` | pacotes tardios (ACK ou RST depois do FIN, último datagrama QUIC) anexados ao pcap e ao registro já gravado, até 2 s depois do fim |
+| `fs_store_late_dropped_total` | pacotes tardios descartados porque a conexão já saiu do banco (retenção ou `DELETE`) |
+| `fs_store_raw_stream_bytes_total` | bytes crus de aplicação gravados (`fs.v1.web.stream.bytes`, `fs.v1.raw.read`) |
+| `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total` | pedidos de `conn_id` respondidos e pedidos inválidos, deixados sem resposta (o serviço segue com `conn_id: unknown`) |
+| `fs_store_bad_batches_total` | lotes FSPB do capture com formato ou versão diferentes de `fspb1`/`1`, ou truncados, descartados inteiros (ADR 0034). Erro de banco não conta aqui: vai para `fs_store_ingest_errors_total` |
+| `fs_store_batch_count_mismatch_total` | lotes cujo `Fs-Count` diverge do número de pacotes decodificados (o lote é aplicado mesmo assim) |
+| `fs_store_ingest_errors_total` | transações do ingest desfeitas (o lote volta ao JetStream por Nak e é reentregue) e falhas de finalização de conexões depois do commit |
+| `fs_store_finalize_retries_total` | novas tentativas de finalizar uma conexão, uma a uma, até 5; esgotadas, a conexão é fechada sem pcap |
+
+### produtor NATS
+
+Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
+
+| Métrica | Conteúdo |
+| --- | --- |
+| `fs_published_events_total` | mensagens aceitas pelo NATS |
+| `fs_dropped_events_total` | mensagens descartadas: buffer acima de 30 s ou 16 MiB com o NATS fora do ar, ou mensagem acima do `max_payload` do NATS, que nunca seria aceita (ADR 0035) |
+| `fs_buffered_events`, `fs_buffered_bytes` | mensagens e bytes no buffer agora (gauges) |
+
 ## Métricas do store
 
 | Métrica | Tipo | Conteúdo |
@@ -88,8 +156,9 @@ fs_dropped_events_total{service="capture"} 0
 | `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (TCP com FIN/RST, meta p95 ≤ 500 ms), `quic_close` (QUIC encerrado, visto pelo web, mesma meta) ou `idle` (fechada por ociosidade, fora da meta); ver [abaixo](#tempo-até-o-registro) |
 | `fs_store_live_clients{transport}` | gauge | clientes de tempo real, `transport` = `sse` ou `ws` |
 | `fs_store_live_events_total{kind}` | contador | eventos ao vivo emitidos, por tipo |
-| `fs_store_live_dropped_total` | contador | eventos descartados para clientes lentos (ADR 0020) |
+| `fs_store_live_dropped_total` | contador | eventos descartados para clientes lentos: fila cheia em eventos (`FS_LIVE_BUFFER`) ou em bytes (4 MiB por cliente, 64 MiB no hub); o cliente recebe `stream.dropped` (ADR 0020, ADR 0034) |
 | `fs_store_live_delay_seconds` | histograma | do `ts` do evento de origem até o envio ao cliente (meta: < 1 s) |
+| `fs_store_flows_dropped_total{reason}` | contador | tabela de fluxos cheia (8192 entradas): `reason` = `evicted` (entrada não estabelecida mais antiga despejada, sem registro nem avulso) ou `table_full` (pacote de 5-tupla nova recusado sem nada para despejar) |
 | `fs_store_api_requests_total{route,code}` | contador | requisições da API por rota e código |
 | `fs_store_api_request_duration_seconds{route}` | histograma | duração das requisições da API (meta p95 < 100 ms) |
 
@@ -171,8 +240,26 @@ increase(fs_capture_kernel_drops_total[5m]) > 0
 # offload de agregação ligado ou pacote truncado pelo snaplen
 increase(fs_capture_offload_suspect_total[5m]) > 0 or increase(fs_capture_truncated_total[5m]) > 0
 
-# eventos perdidos com o NATS fora do ar
+# eventos perdidos pelo produtor (NATS fora do ar ou mensagem acima do max_payload)
 increase(fs_dropped_events_total[5m]) > 0
+
+# eventos do web ou do raw descartados (acima do teto ou erro de serialização)
+increase(fs_web_events_oversize_total[5m]) > 0 or increase(fs_web_events_marshal_errors_total[5m]) > 0 or increase(fs_raw_events_oversize_total[5m]) > 0
+
+# lotes de pacotes inválidos ou transações desfeitas no ingest
+increase(fs_store_bad_batches_total[5m]) > 0 or increase(fs_store_ingest_errors_total[5m]) > 0
+
+# falha de emissão ou renovação de certificado
+increase(fs_web_acme_failures_total[1h]) > 0
+
+# DNS sob abuso: RRL ou descartes
+increase(fs_dns_rate_limited_total[5m]) > 0 or increase(fs_dns_dropped_total[5m]) > 0
+
+# tabelas cheias: Initials QUIC no web, fluxos no store
+increase(fs_web_h3_init_table_full_total[5m]) > 0 or increase(fs_store_flows_dropped_total[5m]) > 0
+
+# orçamento de entrada do web recusando reservas
+increase(fs_web_input_budget_denied_total[5m]) > 0
 
 # p95 do atraso do feed ao vivo
 histogram_quantile(0.95, sum by (le) (rate(fs_store_live_delay_seconds_bucket[5m])))
