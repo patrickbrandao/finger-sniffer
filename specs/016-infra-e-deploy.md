@@ -28,7 +28,8 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 - RF-06: hardening: usuário de sistema `finger-sniffer`; `ProtectSystem=strict`, `ReadWritePaths=/finger-sniffer/var`,
   `NoNewPrivileges`, `AmbientCapabilities` mínimas (NET_BIND_SERVICE para web/raw/dns; NET_RAW para capture;
   nenhuma para store/nats), `EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env`.
-- RF-07: `MemoryMax` (ADR 0005, ADR 0016): store 384M, nats 192M, demais 96M; `LimitNOFILE=65536`. Web com
+- RF-07: `MemoryMax` (ADR 0005, ADR 0016): store 384M, nats 192M, demais 96M; `LimitNOFILE=65536`.
+  `GOMEMLIMIT`: store 320MiB, nats 170MiB, web 64MiB (ADR 0036), capture/raw/dns 80MiB. Web com
   `Environment=QUIC_GO_DISABLE_GSO=true QUIC_GO_DISABLE_ECN=true` (ADR 0019).
 - RF-08: journald drop-in: `MaxRetentionSec=24h`, `SystemMaxUse=200M`.
 
