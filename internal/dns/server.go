@@ -54,7 +54,7 @@ type Query struct {
 	Raw   []byte    // mensagem crua recebida (antes do unpack)
 	Req   *mdns.Msg // nil se não deu para decodificar
 	Resp  *mdns.Msg // mensagem enviada (nil se nada foi respondido)
-	// RateLimited: acima do RRL (UDP recebeu TC=1 sem dados; TCP foi descartado).
+	// RateLimited: acima do RRL; só em UDP, que recebeu TC=1 sem dados (o TCP fica fora do RRL, ADR 0035).
 	RateLimited bool
 }
 
@@ -332,12 +332,14 @@ func (s *Server) observe(q *Query) {
 // handle responde à mensagem crua aplicando o RRL; o último retorno indica limite atingido.
 func (s *Server) handle(raw []byte, tcp bool, src netip.Addr) ([]byte, *mdns.Msg, *mdns.Msg, bool) {
 	out, req, resp := s.answer(raw, tcp)
-	if out == nil || s.RRL.Allow(src) {
+	// O TCP fica fora do RRL (ADR 0035): o handshake já validou a origem, não há amplificação, e é a rota do
+	// resolvedor legítimo depois do TC=1; os limites dele são os do servidor (conexões, consultas, ociosidade).
+	if out == nil || tcp || s.RRL.Allow(src) {
 		return out, req, resp, false
 	}
 	s.metrics.Add(MetricRateLimited, 1)
-	// Acima do limite: TCP descarta; UDP responde TC=1 sem dados, para o resolvedor legítimo repetir em TCP.
-	if tcp || resp == nil {
+	// Acima do limite: UDP responde TC=1 sem dados, para o resolvedor legítimo repetir em TCP.
+	if resp == nil {
 		return nil, req, nil, true
 	}
 	tc := resp.Copy()

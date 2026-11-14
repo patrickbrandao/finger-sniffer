@@ -41,22 +41,84 @@ func TestRRLRate(t *testing.T) {
 	}
 }
 
-func TestRRLDisabledAndFull(t *testing.T) {
+func TestRRLDisabled(t *testing.T) {
 	var nilRRL *RRL
 	if !nilRRL.Allow(netip.MustParseAddr("192.0.2.1")) || !NewRRL(0, nil).Allow(netip.MustParseAddr("192.0.2.1")) {
 		t.Fatal("RRL desligado deve permitir")
 	}
-	r := NewRRL(1, nil)
+}
+
+// TestRRLFullTable: com a tabela cheia, origens novas dividem o balde de transbordo (sem fail-open) e a tabela
+// não passa de rrlMaxEntries+1 entradas; origens com balde próprio seguem com o delas.
+func TestRRLFullTable(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	r := NewRRL(20, clk.now)
+	r.lastPrune = clk.now() // sem limpeza durante o teste
 	for i := range rrlMaxEntries {
-		r.buckets[netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)})] = &bucket{last: time.Now()}
+		r.buckets[netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)})] = &bucket{tokens: 20, last: clk.now()}
 	}
-	if !r.Allow(netip.MustParseAddr("192.0.2.9")) {
-		t.Fatal("tabela cheia não limita")
+	allowed := 0
+	for i := range 100 {
+		if r.Allow(netip.AddrFrom4([4]byte{198, 51, byte(i >> 8), byte(i)})) {
+			allowed++
+		}
+	}
+	if allowed != 20 {
+		t.Fatalf("origens novas com a tabela cheia: %d permitidas, quer 20 (transbordo)", allowed)
+	}
+	if len(r.buckets) != rrlMaxEntries+1 {
+		t.Fatalf("baldes %d, quer %d", len(r.buckets), rrlMaxEntries+1)
+	}
+	if !r.Allow(netip.AddrFrom4([4]byte{10, 0, 0, 1})) {
+		t.Fatal("origem com balde próprio não deve usar o transbordo")
+	}
+	// O transbordo repõe fichas na mesma taxa.
+	clk.advance(time.Second)
+	allowed = 0
+	for i := range 100 {
+		if r.Allow(netip.AddrFrom4([4]byte{203, 0, byte(i >> 8), byte(i)})) {
+			allowed++
+		}
+	}
+	if allowed != 20 {
+		t.Fatalf("transbordo depois de 1 s: %d", allowed)
+	}
+}
+
+// TestRRLIPv6Prefix: endereços distintos do mesmo /64 dividem um balde; /64 distintos e IPv4 ficam separados, e o
+// IPv4 mapeado cai no balde do IPv4.
+func TestRRLIPv6Prefix(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	r := NewRRL(20, clk.now)
+	allowed := 0
+	for i := range 100 {
+		a := netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, byte(i >> 8), byte(i)})
+		if r.Allow(a) {
+			allowed++
+		}
+	}
+	if allowed != 20 {
+		t.Fatalf("mesmo /64: %d permitidas", allowed)
+	}
+	if !r.Allow(netip.MustParseAddr("2001:db8:0:2::1")) {
+		t.Fatal("outro /64 deve ter balde próprio")
+	}
+	if !r.Allow(netip.MustParseAddr("fe80::1%eth0")) || !r.Allow(netip.MustParseAddr("fe80::2%eth1")) {
+		t.Fatal("link-local com fichas deve passar")
+	}
+	if _, ok := r.buckets[netip.MustParseAddr("fe80::")]; !ok {
+		t.Fatal("zona deve ser ignorada na chave")
+	}
+	for range 20 {
+		r.Allow(netip.MustParseAddr("192.0.2.7"))
+	}
+	if r.Allow(netip.MustParseAddr("::ffff:192.0.2.7")) {
+		t.Fatal("IPv4 mapeado deve usar o balde do IPv4")
 	}
 }
 
 // TestServerRRL: 100 consultas UDP em rajada do mesmo IP → exatamente 20 completas e o resto TC=1 sem dados;
-// em TCP, acima do limite a conexão é descartada.
+// o TCP fica fora do RRL: com o balde UDP esgotado, o mesmo IP recebe a resposta completa em TCP (ADR 0035).
 //
 // O relógio do RRL fica parado (sem reposição de fichas), então a contagem não depende da velocidade da máquina.
 // O Observer roda depois de a resposta sair, por isso a contagem dele é esperada com prazo, e nenhum t.Fatal
@@ -65,10 +127,13 @@ func TestRRLDisabledAndFull(t *testing.T) {
 func TestServerRRL(t *testing.T) {
 	z, _ := newTestZone()
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	var limitedUDP, limitedTCP atomic.Int64
+	var limitedUDP, limitedTCP, seenTCP atomic.Int64
 	_, udp, tcp := startServer(t, z, func(s *Server) {
 		s.RRL = NewRRL(20, clk.now)
 		s.Observer = func(q *Query) {
+			if q.Proto == "tcp" {
+				seenTCP.Add(1)
+			}
 			if !q.RateLimited {
 				return
 			}
@@ -102,13 +167,27 @@ func TestServerRRL(t *testing.T) {
 		t.Fatalf("observer marcou %d, TC %d", got, tc)
 	}
 
-	// TCP do mesmo IP já sem fichas: sem resposta.
-	ct := &mdns.Client{Net: "tcp", Timeout: 500 * time.Millisecond}
-	if _, _, err := ct.ExchangeContext(context.Background(), query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), tcp); err == nil {
-		t.Fatal("TCP acima do limite devia ser descartado")
+	// TCP do mesmo IP com o balde UDP esgotado: resposta completa, sem rate_limited.
+	ct := &mdns.Client{Net: "tcp", Timeout: 2 * time.Second}
+	for range 3 {
+		r, _, err := ct.ExchangeContext(context.Background(), query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), tcp)
+		if err != nil {
+			t.Fatalf("TCP com o balde UDP esgotado: %v", err)
+		}
+		if r.Truncated || len(r.Answer) != 1 {
+			t.Fatalf("resposta TCP incompleta %v", r)
+		}
 	}
-	if got := waitCount(&limitedTCP, 1, 2*time.Second); got != 1 {
-		t.Fatalf("observer TCP marcou %d", got)
+	if got := waitCount(&seenTCP, 3, 2*time.Second); got != 3 {
+		t.Fatalf("observer viu %d consultas TCP", got)
+	}
+	if n := limitedTCP.Load(); n != 0 {
+		t.Fatalf("TCP marcado rate_limited %d vezes", n)
+	}
+	// O UDP continua limitado depois das consultas TCP.
+	r, _, err := c.Exchange(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), udp)
+	if err != nil || !r.Truncated || len(r.Answer) != 0 {
+		t.Fatalf("UDP depois do TCP: %v %v", r, err)
 	}
 }
 
