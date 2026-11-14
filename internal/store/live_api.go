@@ -73,6 +73,7 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case m := <-c.ch:
+			a.Live.take(c, m)
 			if write(m.kind, m.data) != nil {
 				return
 			}
@@ -148,6 +149,7 @@ func (a *API) ws(w http.ResponseWriter, r *http.Request) {
 		case <-gone:
 			return
 		case m := <-c.ch:
+			a.Live.take(c, m)
 			if write(m.data) != nil {
 				return
 			}
