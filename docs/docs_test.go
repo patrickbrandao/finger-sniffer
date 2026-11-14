@@ -204,12 +204,12 @@ func TestHTTP3Fields(t *testing.T) {
 	}
 }
 
-// TestAuditF5Docs: os guias refletem os contratos (0.3.3, hoje 0.4.x) e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
+// TestAuditF5Docs: os guias refletem os contratos (0.3.3, hoje 0.5.x) e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
 // da API, métricas do capture publicadas desde a partida e as diferenças esperadas que a auditoria explicou.
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.4.x", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"versão 0.5.x", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
 			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
 		},
 		"metrics.md": {
@@ -314,11 +314,12 @@ func TestConnectionCloseDocs(t *testing.T) {
 }
 
 // TestContracts04Docs: api.md e probes.md descrevem os campos e parâmetros dos contratos 0.4.x (ADR 0029,
+// mantidos no 0.5.x,
 // task 124): settle/min_conns/wait_met e seus 400, os 4 instantes, ip.packets, TFO, alertas e keepalive.
 func TestContracts04Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.4.x", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
+			"versão 0.5.x", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
 			"settle and min_conns require wait", "`settle` fora de `0s`–`10s`", "`min_conns` fora de 1–1000",
 			"`request_started_at`", "`request_ended_at`", "`response_started_at`", "`response_ended_at`",
 			"Cada instante é **independente**", "RST_STREAM", "`ip.packets`", "`first_data`",
@@ -357,7 +358,8 @@ func TestMSSWindowDocs(t *testing.T) {
 	s := string(data)
 	for _, w := range []string{
 		"#### MSS, MTU implícito e teto de throughput pela janela", `["mss", N]`, "`N + 40`", "`N + 60`",
-		"Não some os 12 bytes", "1460 (IPv4) e 1440 (IPv6)", "PPPoE", "GRE ou 6in4", "IPsec", "MSS clamping",
+		"Não some os 12 bytes", "1460 (IPv4) e 1440 (IPv6)", "PPPoE", "IPsec", "MSS clamping",
+		"GRE (sem e com chave)", "6in4, 6rd, IPIP", "jumbo frames", "MTU mínimo do IPv6",
 		"`janela_max = window × 2^S`", "nunca é escalada", "`teto_Mbps = janela × 8 / rtt_handshake_ms / 1000`",
 		"`tcp.window_series`", "o SYN visto é o do proxy", "túnel L3",
 	} {
@@ -367,5 +369,45 @@ func TestMSSWindowDocs(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(s), "tcp-analyzer") {
 		t.Errorf("probes.md cita consumidor específico (ADR 0028)")
+	}
+}
+
+// TestContracts05Docs: api.md e probes.md descrevem os campos do contrato 0.5.x (ADR 0031, task 198): MSS e MTU
+// pelo SYN, a tabela de referência com a ressalva do clamping, a leitura certa de segments_in e o ip.src_kind;
+// o caso 7 nomeia o HTTPS-proxy sem a porta de um consumidor (task 189).
+func TestContracts05Docs(t *testing.T) {
+	want := map[string][]string{
+		"api.md": {
+			"versão 0.5.x", "contrato (0.5.x)", "ADRs 0029 e 0031", "### MSS, MTU implícito e tipo da origem",
+			"`tcp.syn_mss`", "`tcp.mtu_implied`", "`tcp.mss_reduction`", "`ip.src_kind`",
+			"anteriores ao 0.5.0", "`1460 − syn_mss`", "`1440 − syn_mss`", "MSS clamping",
+			"`shared`", "`teredo`", "`6to4`", "`nat64`", "`other`", "`global`", ".tcp.syn_mss", ".ip.src_kind",
+		},
+		"probes.md": {
+			"`tcp.syn_mss`", "`tcp.mtu_implied`", "`tcp.mss_reduction`", "`ip.src_kind`",
+			"| Redução | MTU implícito | Causas prováveis (ou MSS clamping no mesmo valor) |",
+			"| 220 (só IPv6) | 1280 |", "**Segmentos do cliente.**", "**não** se compara com `syn_mss`",
+			"MSS do SYN-ACK do espelho", "1448 e\n1428", "PMTUD do cliente", "**Tipo da origem.**",
+			"`teredo` (`2001::/32`)", "`6to4` (`2002::/16`)", "caminho é interno à operadora",
+			"**na frente do servidor**", "**Não** indica NAT64 nem 464XLAT do cliente", ".tcp.mtu_implied",
+			"Por\n  HTTPS-proxy também",
+		},
+	}
+	for f, ws := range want {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(data)
+		for _, w := range ws {
+			if !strings.Contains(s, w) {
+				t.Errorf("%s sem %q", f, w)
+			}
+		}
+		for _, b := range []string{"4443", "versão 0.4.x", "contrato (0.4.x)"} {
+			if strings.Contains(s, b) {
+				t.Errorf("%s ainda diz %q", f, b)
+			}
+		}
 	}
 }
