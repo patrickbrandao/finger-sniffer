@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.4.x, ADR 0029, servido também em
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.5.x, ADRs 0029 e 0031, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação
@@ -303,6 +303,35 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[0].ip.packe
 {"syn":{"ttl":49,"tos":0,"ecn":"not-ect","flow_label":512,"total_length":84},"ack":{"ttl":49,"tos":0,"ecn":"not-ect","flow_label":512,"total_length":72},"first_data":{"ttl":49,"tos":2,"ecn":"ect0","flow_label":512,"total_length":417}}
 ```
 
+### MSS, MTU implícito e tipo da origem
+
+Desde o 0.5.0 (ADR 0031) o store publica, calculados por regra fixa a partir do registro (ausentes, não nulos,
+em registros anteriores ao 0.5.0):
+
+- `tcp.syn_mss`: a **primeira** opção MSS do primeiro SYN do cliente (retransmissão não substitui), o valor que
+  **chegou** ao espelho, já com qualquer reescrita do caminho; nulo sem a opção ou sem SYN (UDP, conexão vista sem
+  o SYN).
+- `tcp.mtu_implied`: `syn_mss + 40` (IPv4) ou `syn_mss + 60` (IPv6), sem somar os 12 bytes de timestamps.
+- `tcp.mss_reduction`: `1460 − syn_mss` (IPv4) ou `1440 − syn_mss` (IPv6), a diferença para um MTU Ethernet de
+  1500; negativa com jumbo frames. MTU reduzido e MSS clamping no caminho dão o mesmo número.
+- `ip.src_kind`: a classe do endereço de origem pelos prefixos de uso especial da IANA, em TCP e UDP: `loopback`,
+  `link_local`, `private` (RFC 1918 e ULA), `shared` (CGNAT `100.64.0.0/10`), `teredo` (`2001::/32`), `6to4`
+  (`2002::/16`), `nat64` (`64:ff9b::/96` e `64:ff9b:1::/48`), `other` (não unicast, documentação, benchmarking e
+  outros usos especiais) ou `global`. A família está em `family`.
+
+Como ler cada valor está em [probes.md, caso 11](probes.md#mss-mtu-implícito-e-teto-de-throughput-pela-janela).
+Exemplo real (cliente IPv4 direto; a segunda conexão é um upload de 20 kB):
+
+```console
+$ curl -s "http://$id.dns-monitor.tmsoft.com.br/p/$id/" >/dev/null
+$ curl -s -o /dev/null --data-binary @<(head -c 20000 /dev/zero) "http://$id.dns-monitor.tmsoft.com.br/p/$id/"
+$ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | {family,
+    src_kind: .ip.src_kind, syn_mss: .tcp.syn_mss, mtu: .tcp.mtu_implied, reduction: .tcp.mss_reduction,
+    seg_max: ([.tcp.segments_in[][1]] | max)}'
+{"family":4,"src_kind":"global","syn_mss":1412,"mtu":1452,"reduction":48,"seg_max":114}
+{"family":4,"src_kind":"global","syn_mss":1412,"mtu":1452,"reduction":48,"seg_max":1400}
+```
+
 ### pcap
 
 ```console
@@ -420,7 +449,7 @@ ou quando o `nf_conntrack` foi carregado depois do boot (`conntrack loaded`).
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.4.x):
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.5.x):
 
 | Código | Quando |
 | --- | --- |

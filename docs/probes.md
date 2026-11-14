@@ -214,8 +214,8 @@ entre caminhos. A lista de cada caso diz quais importam ali; a tabela abaixo é 
 
 | Camada | Estáveis (mesmo cliente) | Sempre variam (ignorar) |
 | --- | --- | --- |
-| IP | `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.df`, `ip.ip_id_pattern`, `ip.tos`/`dscp`/`ecn`, `family`; em `ip.packets.{syn,ack,first_data}`: `ttl`, `df`, `tos`/`dscp`/`ecn`, `options_hex`, `fragmented` e quais pacotes existem | `ip.ip_id_syn` (exceto padrão `zero`/`constant`), `ip_id` e `flow_label` de cada pacote em `ip.packets`, `total_length` quando o tamanho da requisição muda |
-| TCP | `tcp.syn.window`, `tcp.syn.flags`, `tcp.syn.options` (tipos, ordem e valores, menos o TSval), `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.ts_clock_hz` (aproximado) | `src.port`, `tcp.syn.isn`, TSval, `tcp.ts_initial`, `tcp.ts_clock_group` (é um ID; compare igualdade só dentro da mesma execução), RTT e séries de tempo |
+| IP | `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.src_kind`, `ip.df`, `ip.ip_id_pattern`, `ip.tos`/`dscp`/`ecn`, `family`; em `ip.packets.{syn,ack,first_data}`: `ttl`, `df`, `tos`/`dscp`/`ecn`, `options_hex`, `fragmented` e quais pacotes existem | `ip.ip_id_syn` (exceto padrão `zero`/`constant`), `ip_id` e `flow_label` de cada pacote em `ip.packets`, `total_length` quando o tamanho da requisição muda |
+| TCP | `tcp.syn.window`, `tcp.syn.flags`, `tcp.syn.options` (tipos, ordem e valores, menos o TSval), `tcp.syn_mss`, `tcp.mtu_implied`, `tcp.mss_reduction`, `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.ts_clock_hz` (aproximado) | `src.port`, `tcp.syn.isn`, TSval, `tcp.ts_initial`, `tcp.ts_clock_group` (é um ID; compare igualdade só dentro da mesma execução), RTT e séries de tempo |
 | TLS | `tls.record_version`, `handshake_version`, `session_id_len`, `cipher_suites`, `compression_methods`, tipos e dados das extensões (menos as voláteis), `sni`, `alpn`, `supported_groups`, `signature_algorithms`, `supported_versions`, grupos e tamanhos de `key_share`, `ja3n`, `ja4`, `ja4_r`, `ja4_stable`, `negotiated` (versão, cifra, grupo, ALPN) | `random_hex`, bytes do session ID, chaves de `key_share`, binder/ticket de PSK, carga do ECH, `handshake_ms` |
 | TLS, cliente que embaralha extensões (Chrome) | os de cima; a **ordem** das extensões não | `ja3`, `ja3_md5`, `ja4_o` e a ordem de `extensions` |
 | HTTP/1 | `request_line` (método, forma, versão, terminador), `fields` (nome com caixa, separador, valor, terminador, ordem), `duplicates`, `field_count`, `head_size`, `obs_fold`, `ja4h`, `body` (enquadramento, tamanho, SHA-256, pedaços e extensões, trailers), `expect_continue.waited`, `pipelined`, `upgrade`, `proxy_signals` | `t_first_byte_ms`, `t_since_prev_response_ms`, `expect_continue.wait_ms`, os instantes `request_started_at`/`request_ended_at`/`response_started_at`/`response_ended_at` (compare só as diferenças entre eles), valores com probe ID ou `conn_id` |
@@ -492,7 +492,8 @@ Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperad
   intactos; por um proxy que refaz o TLS, os alertas são os do proxy.
 - **Diferenças esperadas**: nenhuma acima do TCP. Por túnel `CONNECT`, ClientHello, JA3/JA4, ALPN, SETTINGS h2 e
   Akamai têm de ser iguais aos do direto; qualquer diferença é TLS refeito pelo caminho (interceptação). Por
-  4443 também: o TLS com o proxy é outro, e o do espelho continua sendo o do cliente. TCP e DNS são do proxy.
+  HTTPS-proxy também: o TLS com o proxy é outro, e o do espelho continua sendo o do cliente. TCP e DNS são do
+  proxy.
 
 ### Caso 8: `CONNECT` para portas baixas em `banner` e `echo`, com meio-fechamento
 
@@ -620,8 +621,8 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {ttl: .
 {"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":20.196,"app":null}
 ```
 
-- **Procurar**: `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.df`, `ip.ip_id_pattern`, `tcp.syn` (janela, flags,
-  opções na ordem), `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.rtt_handshake_ms` × `tcp.rtt_app_ms` (menor intervalo entre um
+- **Procurar**: `ip.ttl`, `ip.ttl_initial`, `ip.hops`, `ip.df`, `ip.ip_id_pattern`, `ip.src_kind`, `tcp.syn` (janela,
+  flags, opções na ordem), `tcp.syn_mss`/`mtu_implied`/`mss_reduction` (ver abaixo), `tcp.ja4t`, `tcp.p0f`, `tcp.os_guess`, `tcp.rtt_handshake_ms` × `tcp.rtt_app_ms` (menor intervalo entre um
   dado do espelho e o próximo dado do cliente que o confirma: Finished do TLS, próxima requisição na mesma
   conexão; nulo quando o cliente não manda nada depois da resposta, como numa só requisição HTTP/1 em claro),
   `tcp.ts_clock_hz`, `tcp.ts_initial`, `tcp.ts_clock_group`. O relógio só é estimado em conexões que duram alguns
@@ -663,24 +664,52 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections
 
 #### MSS, MTU implícito e teto de throughput pela janela
 
-O SYN capturado permite duas leituras que diferem entre caminhos, com campos que já estão no registro.
+O SYN capturado permite duas leituras que diferem entre caminhos. Desde o contrato 0.5.0 (ADR 0031) o MSS e o
+MTU implícito vêm prontos no registro; a conta abaixo explica os campos e serve para registros anteriores.
 
-**MSS e MTU implícito.** O MSS anunciado é o item `["mss", N]` de `tcp.syn.options`. O MTU que o remetente do
-SYN supõe é `N + 40` no IPv4 e `N + 60` no IPv6 (cabeçalhos IP e TCP sem opções). Não some os 12 bytes de
-timestamps: o MSS do SYN não os desconta. Para MTU 1500 a referência é 1460 (IPv4) e 1440 (IPv6); a redução é
-a referência menos `N`:
+**MSS e MTU implícito.** `tcp.syn_mss` é o MSS anunciado no primeiro SYN, o item `["mss", N]` de
+`tcp.syn.options` (nulo sem a opção ou sem SYN). O MTU que o remetente do SYN supõe, `tcp.mtu_implied`, é
+`N + 40` no IPv4 e `N + 60` no IPv6 (cabeçalhos IP e TCP sem opções). Não some os 12 bytes de timestamps: o MSS
+do SYN não os desconta. Para MTU 1500 a referência é 1460 (IPv4) e 1440 (IPv6); `tcp.mss_reduction` é a
+referência menos `N`. Valores típicos (não uma função):
 
-| Redução do MSS | Causa provável |
-| --- | --- |
-| 0 | MTU 1500 no caminho do remetente |
-| 8 | PPPoE |
-| 20 | GRE ou 6in4 |
-| ~60–80 | OpenVPN ou WireGuard |
-| 81–100 | IPsec |
-| mais que isso | encapsulamentos somados |
+| Redução | MTU implícito | Causas prováveis (ou MSS clamping no mesmo valor) |
+| --- | --- | --- |
+| < 0 | > 1500 | jumbo frames (caminho local ou de datacenter) |
+| 0 | 1500 | Ethernet sem encapsulamento visível |
+| 8 | 1492 | PPPoE |
+| 20 | 1480 | túnel com cabeçalho IPv4 externo (6in4, 6rd, IPIP) |
+| 24–28 | 1476–1472 | GRE (sem e com chave) |
+| 40–100 | 1460–1400 | VPN (WireGuard com MTU 1420 = 80, OpenVPN, IPsec ESP 50–90 conforme cifra e NAT-T), rede móvel |
+| > 100 | < 1400 | encapsulamentos múltiplos ou clamping agressivo |
+| 220 (só IPv6) | 1280 | MTU mínimo do IPv6 (Teredo e túneis que fixam 1280) |
 
-A tabela é palpite, não diagnóstico: um roteador que faz MSS clamping reescreve o MSS do SYN e dá o mesmo
-valor sem que haja túnel, e o MSS diz o MTU que o remetente supõe, não o menor MTU do caminho.
+A tabela é palpite, não diagnóstico: um roteador que faz MSS clamping (CPE, BRAS, firewall) reescreve o MSS do
+SYN e dá o mesmo valor sem que haja túnel, as faixas de VPN se sobrepõem, e o MSS diz o MTU que o remetente
+supõe, não o menor MTU do caminho. Por isso a tabela fica neste guia, e não no contrato.
+
+**Segmentos do cliente.** `tcp.segments_in` (`[t_ms, bytes]` dos primeiros segmentos com dados do cliente)
+**não** se compara com `syn_mss`: o MSS que o cliente anuncia limita o que o **espelho** envia. O que o cliente
+envia é limitado pelo MSS do SYN-ACK do espelho (1460 no IPv4, 1440 no IPv6, menos 12 com timestamps: 1448 e
+1428) e pelo MTU do próprio cliente. Só com upload de mais de um segmento cheio há sinal: um máximo menor que o
+do espelho e que o do MTU do cliente indica MSS do SYN-ACK reescrito no caminho ou PMTUD do cliente; maior
+indica reescrita para cima ou violação. Os pedidos típicos das sondagens cabem num segmento, então o sinal
+raramente existe.
+
+**Tipo da origem.** `ip.src_kind` classifica o endereço de origem (o do cliente, ou o do proxy) pelos prefixos de
+uso especial da IANA:
+
+- `global`: endereço público comum; nada a deduzir pelo prefixo.
+- `teredo` (`2001::/32`) ou `6to4` (`2002::/16`): túnel de transição IPv6 sobre IPv4 do lado do cliente. Espere
+  MTU implícito menor (1280 no Teredo, 1480 no 6to4) e RTT maior que o do caminho IPv4 do mesmo cliente, porque o
+  tráfego passa por um relay.
+- `shared` (`100.64.0.0/10`, CGNAT): um endereço que não devia ser roteado na internet chegou ao espelho; o
+  caminho é interno à operadora (a sondagem saiu por dentro da rede onde o CGNAT fica).
+- `private`, `loopback`, `link_local`: rede privada ou teste local na frente do espelho.
+- `nat64` (`64:ff9b::/96`, `64:ff9b:1::/48`): só aparece com um tradutor (SIIT/NAT46) **na frente do servidor**
+  convertendo um cliente IPv4. **Não** indica NAT64 nem 464XLAT do cliente: esse cliente chega por IPv6 nativo
+  ou pelo IPv4 do NAT64. A vps602 não tem tradutor, então o valor não aparece no espelho.
+- `other`: não unicast, documentação, benchmarking e outros usos especiais.
 
 **Teto pela janela.** `window` (`tcp.syn.window`) e `wscale` (item `["wscale", S]` de `tcp.syn.options`) dão a
 janela máxima que a escala permite, `janela_max = window × 2^S`. A janela do próprio SYN nunca é escalada
@@ -691,22 +720,31 @@ aumenta durante a conexão, e `tcp.window_series` (`[t_ms, janela com escala apl
 espelho) mostra a evolução. Numa conexão curta a série para cedo; o teto real fica entre o da janela vista e o
 de `janela_max`.
 
+A segunda conexão do exemplo é um upload de 20 kB, para que `tcp.segments_in` tenha segmentos cheios;
+`mtu_conta` refaz a conta pelo `tcp.syn.options` e tem de bater com `mtu`:
+
 ```console
 $ curl -s "http://$H/p/$id/" >/dev/null
-$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[]
+$ curl -s -o /dev/null --data-binary @<(head -c 20000 /dev/zero) "http://$H/p/$id/"
+$ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[]
     | (.tcp.syn.options | map({(.[0]): .[1]}) | add) as $o | .tcp.rtt_handshake_ms as $rtt
-    | {family, mss: $o.mss, mtu: ($o.mss + (if .family == 6 then 60 else 40 end)),
-       reducao: ((if .family == 6 then 1440 else 1460 end) - $o.mss),
+    | {family, src_kind: .ip.src_kind, mss: .tcp.syn_mss, mtu: .tcp.mtu_implied, reducao: .tcp.mss_reduction,
+       mtu_conta: ($o.mss + (if .family == 6 then 60 else 40 end)),
+       seg_max: ([.tcp.segments_in[][1]] | max), segs: (.tcp.segments_in | length),
        window: .tcp.syn.window, wscale: $o.wscale, janela_max: (.tcp.syn.window * pow(2; $o.wscale // 0)),
        rtt: $rtt, teto_syn_mbps: (.tcp.syn.window * 8 / $rtt / 1000),
        teto_max_mbps: (.tcp.syn.window * pow(2; $o.wscale // 0) * 8 / $rtt / 1000),
        janela_vista: ([.tcp.window_series[][1]] | max)}'
-{"family":6,"mss":1432,"mtu":1492,"reducao":8,"window":65535,"wscale":6,"janela_max":4194240,"rtt":16.382,"teto_syn_mbps":32.00341838603345,"teto_max_mbps":2048.218776706141,"janela_vista":132096}
+{"family":4,"src_kind":"global","mss":1412,"mtu":1452,"reducao":48,"mtu_conta":1452,"seg_max":114,"segs":1,"window":65535,"wscale":6,"janela_max":4194240,"rtt":20.812,"teto_syn_mbps":25.191235825485297,"teto_max_mbps":1612.239092831059,"janela_vista":131648}
+{"family":4,"src_kind":"global","mss":1412,"mtu":1452,"reducao":48,"mtu_conta":1452,"seg_max":1400,"segs":15,"window":65535,"wscale":6,"janela_max":4194240,"rtt":19.863,"teto_syn_mbps":26.394804410209936,"teto_max_mbps":1689.267482253436,"janela_vista":131648}
 ```
 
-No exemplo (um cliente IPv6 direto): MSS 1432 dá MTU 1492, redução de 8, compatível com PPPoE no acesso. A
-janela inicial de 65535 bytes a 16,4 ms limita a ~32 Mbit/s; a escala 6 permite até 4.194.240 bytes
-(~2 Gbit/s), e a janela já tinha subido para 132096 bytes (~64,5 Mbit/s) antes do fim da conexão.
+No exemplo (um cliente IPv4 direto, origem `global`): MSS 1412 dá MTU 1452, redução de 48, na faixa de VPN ou
+rede móvel da tabela, ou um clamping nesse valor; só o MSS não separa os casos. No upload, o maior segmento do
+cliente tem 1400 bytes: 1452 − 40 − 12 de timestamps, o limite do MTU do próprio cliente, abaixo dos 1448 do
+espelho; não há sinal de reescrita. A janela inicial de 65535 bytes a ~20 ms limita a ~25 Mbit/s; a escala 6
+permite até 4.194.240 bytes (~1,6 Gbit/s), e a janela já tinha subido para 131648 bytes (~50 Mbit/s) antes do
+fim da conexão.
 
 - **Diferenças esperadas**: com proxy HTTP ou túnel `CONNECT`, o SYN visto é o do proxy: MSS, `wscale`, janela,
   TTL e JA4T são do proxy e o RTT é o do proxy até o espelho, então o teto calculado é o do trecho
