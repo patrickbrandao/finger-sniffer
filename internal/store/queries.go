@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -26,21 +27,44 @@ type Queries struct {
 	// pollEvery é o intervalo do long-poll de /probes/{id}?wait.
 	pollEvery time.Duration
 	snaplen   uint32
+	// waiters limita os long-polls simultâneos de /probes/{id}?wait (ADR 0032): acima, 503 na hora.
+	waiters chan struct{}
+	// probeReads conta as leituras completas do probe (record_json); os testes conferem que o wait lê uma vez.
+	probeReads atomic.Int64
 }
+
+// Tetos de /probes/{id} (ADR 0032): esperas simultâneas e itens por lista na resposta.
+const (
+	probeWaitMax  = 64
+	probeMaxItems = 1000
+)
 
 // NewQueries cria o leitor.
 func NewQueries(db *sql.DB, live func(string) (connectionJSON, bool), snaplen uint32) *Queries {
 	if live == nil {
 		live = func(string) (connectionJSON, bool) { return connectionJSON{}, false }
 	}
-	return &Queries{db: db, live: live, now: time.Now, pollEvery: 50 * time.Millisecond, snaplen: snaplen}
+	return &Queries{
+		db: db, live: live, now: time.Now, pollEvery: 50 * time.Millisecond, snaplen: snaplen,
+		waiters: make(chan struct{}, probeWaitMax),
+	}
 }
 
 // Erros de consulta mapeados para HTTP.
 var (
 	ErrNotFound   = errors.New("not found or expired")
 	errBadRequest = errors.New("bad request")
+	// errBusy é um teto de concorrência da API atingido (503 com Retry-After, ADR 0032).
+	errBusy = errors.New("busy")
 )
+
+type busyError struct{ msg string }
+
+func (b busyError) Error() string { return b.msg }
+func (b busyError) Unwrap() error { return errBusy }
+
+// errProbeWaitBusy: as 64 vagas de ?wait estão ocupadas.
+var errProbeWaitBusy = busyError{"too many waiting requests, retry later"}
 
 type badRequest struct{ msg string }
 
@@ -369,6 +393,8 @@ func (q *Queries) rawList(ctx context.Context, sqlq string, args ...any) ([]json
 type probeJSON struct {
 	ProbeID   string `json:"probe_id"`
 	AllClosed bool   `json:"all_closed"`
+	// Truncated: connections ou dns passou de probeMaxItems e foi cortada (ADR 0032).
+	Truncated bool `json:"truncated,omitempty"`
 	// WaitMet só aparece com wait (ADR 0029): true quando saiu pelo critério, false pelo fim do prazo.
 	WaitMet     *bool             `json:"wait_met,omitempty"`
 	Connections []json.RawMessage `json:"connections"`
@@ -389,20 +415,31 @@ type ProbeWait struct {
 // Probe devolve as conexões e consultas DNS do probe. Com Wait > 0, espera até haver ao menos MinConns conexões,
 // nenhuma aberta e nenhuma mudança nas conexões do probe nos últimos Settle, ou até o prazo acabar (máx. 60 s);
 // só consultas DNS (ou nada) não encerram a espera. No fim do prazo devolve o estado atual, ou ErrNotFound se o
-// probe não tem nada.
+// probe não tem nada. O laço lê só o resumo das conexões (probeStateOf); o registro completo, com o teto de
+// probeMaxItems por lista, é lido uma vez, na saída (ADR 0032). Com as probeWaitMax vagas de espera ocupadas,
+// um Wait > 0 recebe errProbeWaitBusy na hora.
 func (q *Queries) Probe(ctx context.Context, id string, pw ProbeWait) (probeJSON, error) {
 	if !probe.Valid(id) {
 		return probeJSON{}, bad("invalid probe id %q", id)
 	}
 	wait := min(pw.Wait, 60*time.Second)
+	if wait > 0 {
+		// Só quem vai esperar ocupa vaga; sem vaga, recusa na hora em vez de enfileirar.
+		select {
+		case q.waiters <- struct{}{}:
+			defer func() { <-q.waiters }()
+		default:
+			return probeJSON{}, errProbeWaitBusy
+		}
+	}
 	minConns := max(pw.MinConns, 1)
 	deadline := q.now().Add(wait)
 	var last probeState
 	var lastChange time.Time
 	for {
-		p, st, err := q.probeOnce(ctx, id)
+		st, err := q.probeStateOf(ctx, id)
 		if err != nil {
-			return p, err
+			return probeJSON{}, err
 		}
 		now := q.now()
 		// Mudança no conjunto (conexão nova, correlacionada ao probe ou fechada) vista pelo próprio poll; na
@@ -410,15 +447,21 @@ func (q *Queries) Probe(ctx context.Context, id string, pw ProbeWait) (probeJSON
 		switch {
 		case lastChange.IsZero():
 			lastChange = time.Unix(0, min(st.updated, now.UnixNano()))
-		case !st.same(last):
+		case st.conns != last.conns || st.closed != last.closed:
 			lastChange = now
 		}
 		last = st
-		met := len(p.Connections) >= minConns && !st.open && now.Sub(lastChange) >= pw.Settle
+		met := st.conns >= int64(minConns) && st.closed == st.conns && now.Sub(lastChange) >= pw.Settle
 		if met || !now.Before(deadline) {
+			p, err := q.probeFull(ctx, id)
+			if err != nil {
+				return p, err
+			}
 			if len(p.Connections) == 0 && len(p.DNS) == 0 {
 				return p, ErrNotFound
 			}
+			// all_closed olha o conjunto inteiro (mesmo com truncated), como o critério.
+			p.AllClosed = st.closed == st.conns
 			if pw.Given || wait > 0 {
 				p.WaitMet = &met
 			}
@@ -426,50 +469,49 @@ func (q *Queries) Probe(ctx context.Context, id string, pw ProbeWait) (probeJSON
 		}
 		select {
 		case <-ctx.Done():
-			return p, ctx.Err()
+			return probeJSON{}, ctx.Err()
 		case <-time.After(q.pollEvery):
 		}
 	}
 }
 
-// probeState resume as conexões de uma leitura do probe para detectar mudanças entre leituras.
+// probeState resume as conexões do probe (o conjunto inteiro, sem teto) para o critério do wait e para detectar
+// mudanças entre leituras: conexão nova ou correlacionada ao probe muda conns, fechada muda closed (apagada pela
+// retenção também muda conns).
 type probeState struct {
-	open    bool
-	updated int64           // maior updated_ns das conexões
-	conns   map[string]bool // conn_id → fechada
+	conns, closed int64
+	updated       int64 // maior updated_ns das conexões (instante da última mudança, na primeira leitura)
 }
 
-func (a probeState) same(b probeState) bool {
-	if len(a.conns) != len(b.conns) {
-		return false
-	}
-	for id, closed := range a.conns {
-		if c, ok := b.conns[id]; !ok || c != closed {
-			return false
-		}
-	}
-	return true
+// probeStateOf lê o resumo das conexões do probe numa consulta de agregados, sem record_json.
+func (q *Queries) probeStateOf(ctx context.Context, id string) (probeState, error) {
+	var st probeState
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(ended_ns), COALESCE(MAX(updated_ns), 0)
+		FROM connections WHERE probe_id = ?`, id).Scan(&st.conns, &st.closed, &st.updated)
+	return st, err
 }
 
-func (q *Queries) probeOnce(ctx context.Context, id string) (probeJSON, probeState, error) {
+// probeFull lê os registros do probe com o teto de probeMaxItems por lista (lê um a mais para saber se cortou);
+// conexão aberta vem do estado ao vivo.
+func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
+	q.probeReads.Add(1)
 	p := probeJSON{ProbeID: id, Connections: []json.RawMessage{}, DNS: []json.RawMessage{}}
-	st := probeState{conns: map[string]bool{}}
-	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns, updated_ns FROM connections WHERE probe_id = ? ORDER BY started_ns", id)
+	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns FROM connections WHERE probe_id = ? ORDER BY started_ns LIMIT ?", id, probeMaxItems+1)
 	if err != nil {
-		return p, st, err
+		return p, err
 	}
 	for rows.Next() {
 		var cid, rec string
 		var ended sql.NullInt64
-		var updated int64
-		if err := rows.Scan(&cid, &rec, &ended, &updated); err != nil {
+		if err := rows.Scan(&cid, &rec, &ended); err != nil {
 			_ = rows.Close()
-			return p, st, err
+			return p, err
 		}
-		st.updated = max(st.updated, updated)
-		st.conns[cid] = ended.Valid
+		if len(p.Connections) == probeMaxItems {
+			p.Truncated = true
+			break
+		}
 		if !ended.Valid {
-			st.open = true
 			if r, ok := q.live(cid); ok {
 				b, _ := json.Marshal(r)
 				rec = string(b)
@@ -477,14 +519,20 @@ func (q *Queries) probeOnce(ctx context.Context, id string) (probeJSON, probeSta
 		}
 		p.Connections = append(p.Connections, json.RawMessage(rec))
 	}
+	err = rows.Err()
 	_ = rows.Close()
-	dns, err := q.rawList(ctx, "SELECT record_json FROM dns_queries WHERE probe_id = ? ORDER BY ts_ns", id)
 	if err != nil {
-		return p, st, err
+		return p, err
+	}
+	dns, err := q.rawList(ctx, "SELECT record_json FROM dns_queries WHERE probe_id = ? ORDER BY ts_ns LIMIT ?", id, probeMaxItems+1)
+	if err != nil {
+		return p, err
+	}
+	if len(dns) > probeMaxItems {
+		dns, p.Truncated = dns[:probeMaxItems], true
 	}
 	p.DNS = dns
-	p.AllClosed = !st.open
-	return p, st, nil
+	return p, nil
 }
 
 // DeleteProbe apaga o probe, suas conexões (com pacotes, pcaps e bytes, em cascata) e consultas DNS.

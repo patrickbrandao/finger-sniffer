@@ -277,7 +277,7 @@ func TestAPIErrorContract(t *testing.T) {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
-	// três servidores: normal, com o banco fechado (500) e com o tempo real lotado (503)
+	// servidores: normal, com o banco fechado (500) e com o tempo real lotado (503)
 	_, _, ok := liveAPI(t, 16, 4)
 	inBroken, _, broken := liveAPI(t, 16, 4)
 	if err := inBroken.db.Close(); err != nil {
@@ -289,6 +289,11 @@ func TestAPIErrorContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { hubFull.leave(hold) })
+	// e com as vagas de ?wait ocupadas (503, ADR 0032)
+	waitFull := newAPIFixture(t)
+	for range probeWaitMax {
+		waitFull.q.waiters <- struct{}{}
+	}
 
 	var bodies [][]byte
 	for _, c := range tab.Cases {
@@ -300,6 +305,8 @@ func TestAPIErrorContract(t *testing.T) {
 				base = broken.URL
 			case "live_full":
 				base = full.URL
+			case "probe_wait_full":
+				base = waitFull.srv.URL
 			default:
 				t.Fatalf("fault desconhecida %q", c.Fault)
 			}

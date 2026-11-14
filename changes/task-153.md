@@ -1,0 +1,1 @@
+- store: `GET /api/v1/probes/{id}` devolve até 1000 conexões e 1000 consultas DNS com `truncated: true` acima disso (`all_closed` e o `wait` sobre o conjunto inteiro) e escreve os registros direto no socket; 10 chamadas a um probe de 50 mil conexões passaram de +2,2 GiB para +21 MiB de heap (ADR 0032).
