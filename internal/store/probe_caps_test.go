@@ -14,6 +14,29 @@ import (
 	"time"
 )
 
+// TestProbeWaitBusyCORS: o 503 do wait pedido de outra origem expõe o Retry-After ao navegador (task 212).
+func TestProbeWaitBusyCORS(t *testing.T) {
+	f := newAPIFixture(t)
+	for range probeWaitMax {
+		f.q.waiters <- struct{}{}
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, f.srv.URL+"/api/v1/probes/"+probeID+"?wait=10s", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Origin", "https://example.test")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	expose := resp.Header.Get("Access-Control-Expose-Headers")
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get("Retry-After") == "" ||
+		!strings.Contains(strings.ToLower(expose), "retry-after") {
+		t.Fatalf("%d Retry-After=%q Expose=%q", resp.StatusCode, resp.Header.Get("Retry-After"), expose)
+	}
+}
+
 // TestProbeWaitBusy: com as 64 vagas de wait ocupadas, um novo ?wait recebe 503 na hora com Retry-After; sem
 // wait (ou com wait=0s) a rota responde normalmente (ADR 0032, task 152).
 func TestProbeWaitBusy(t *testing.T) {
