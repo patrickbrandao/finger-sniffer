@@ -18,16 +18,44 @@ const openapiFile = "../../cmd/finger-sniffer-store/openapi.yaml"
 
 // validateContract valida cada valor JSON contra um schema do openapi.yaml com o mesmo Redocly do verify: copia o
 // contrato e os exemplos para um diretório temporário, acrescenta uma rota sintética cuja resposta é o schema e
-// cujos exemplos são os valores, e roda o lint (regra no-invalid-media-type-examples = erro). Sem npx, ou com
-// -short, o teste é pulado.
+// cujos exemplos são os valores, e roda o lint (regra no-invalid-media-type-examples = erro). Com -short, ou sem
+// o Redocly instalado em scripts/contracts-tools fora do CI, o teste é pulado.
 func validateContract(t *testing.T, schema string, values ...[]byte) {
+	t.Helper()
+	if out, err := lintContract(t, schema, values...); err != nil {
+		t.Fatalf("%d valores não validam contra %s: %v\n%s", len(values), schema, err, out)
+	}
+}
+
+// redoclyBin devolve o Redocly travado no package-lock.json de scripts/contracts-tools (o mesmo do verify). Sem o
+// binário, pula o teste; no CI (CI=true) falha, porque lá o verify-full instala as ferramentas antes dos testes.
+func redoclyBin(t *testing.T) string {
+	t.Helper()
+	bin, err := filepath.Abs(redoclyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(bin); err != nil {
+		msg := "Redocly ausente (" + redoclyPath + "): rode npm ci --ignore-scripts --prefix scripts/contracts-tools " +
+			"(ou make verify-full, que instala)"
+		if os.Getenv("CI") == "true" {
+			t.Fatal(msg)
+		}
+		t.Skip(msg)
+	}
+	return bin
+}
+
+// redoclyPath: binário instalado por npm ci em scripts/contracts-tools (relativo a internal/store).
+const redoclyPath = "../../scripts/contracts-tools/node_modules/.bin/redocly"
+
+// lintContract monta o openapi com a rota sintética e roda o Redocly; devolve a saída e o erro do lint.
+func lintContract(t *testing.T, schema string, values ...[]byte) ([]byte, error) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("contrato via Redocly pulado com -short")
 	}
-	if _, err := exec.LookPath("npx"); err != nil {
-		t.Skip("npx ausente: contrato não validado")
-	}
+	bin := redoclyBin(t)
 	spec, err := os.ReadFile(openapiFile)
 	if err != nil {
 		t.Fatal(err)
@@ -68,11 +96,20 @@ func validateContract(t *testing.T, schema string, values ...[]byte) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "npx", "-y", "@redocly/cli@2.76.0", "lint", "--format=summary", "openapi.yaml")
+	cmd := exec.CommandContext(ctx, bin, "lint", "--format=summary", "openapi.yaml") //nolint:gosec // binário do repositório
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%d valores não validam contra %s: %v\n%s", len(values), schema, err, out)
+	return cmd.CombinedOutput()
+}
+
+// TestContractRejectsInvalidExample: o lint do contrato reprova um valor fora do schema (o teste de contrato não
+// passa vazio quando o Redocly não valida nada).
+func TestContractRejectsInvalidExample(t *testing.T) {
+	if out, err := lintContract(t, "Error", []byte(`{"error":42}`)); err == nil {
+		t.Fatalf("valor inválido aceito pelo lint do contrato:\n%s", out)
+	}
+	if out, err := lintContract(t, "Error", []byte(`{"error":"not found"}`)); err != nil {
+		t.Fatalf("valor válido reprovado: %v\n%s", err, out)
 	}
 }
 

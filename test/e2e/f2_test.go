@@ -322,7 +322,11 @@ func validateContract(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command("npx", "-y", "@redocly/cli@2.76.0", "lint", "openapi.yaml")
+	bin, err := redoclyBin(root)
+	if err != nil {
+		t.Skip(err.Error())
+	}
+	cmd := exec.Command(bin, "lint", "openapi.yaml") //nolint:gosec // binário do repositório
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	out, err := cmd.CombinedOutput()
