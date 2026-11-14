@@ -1,6 +1,8 @@
 package store
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -101,13 +103,17 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = enc.Encode(v)
 }
 
-// writeErr converte erros de consulta em 400/404/500 com o schema Error.
+// writeErr converte erros de consulta em 400/404/500/503 com o schema Error.
 func writeErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errBadRequest):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case errors.Is(err, ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+	case errors.Is(err, errBusy):
+		// teto de concorrência (ADR 0032): o cliente tenta de novo depois do Retry-After
+		w.Header().Set("Retry-After", "1")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 	case errors.Is(err, context.Canceled):
 		// cliente desistiu
 	default:
@@ -247,7 +253,50 @@ func (a *API) getProbe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	writeProbe(w, p)
+}
+
+// writeProbe escreve o Probe com a mesma forma de writeJSON (indentação de 2), mas registro a registro: os
+// record_json já são JSON e vão direto para o socket, sem a cópia do conjunto inteiro que o Encoder faz (e a
+// segunda, reindentada) antes de escrever (task 153).
+func writeProbe(w http.ResponseWriter, p probeJSON) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	// bufio guarda o primeiro erro de escrita e ignora as seguintes; o Flush o devolve (cliente que caiu).
+	bw := bufio.NewWriterSize(w, 32<<10)
+	put := func(s string) { _, _ = bw.WriteString(s) }
+	id, _ := json.Marshal(p.ProbeID)
+	put("{\n  \"probe_id\": " + string(id) + ",\n  \"all_closed\": " + strconv.FormatBool(p.AllClosed) + ",\n")
+	if p.Truncated {
+		put("  \"truncated\": true,\n")
+	}
+	if p.WaitMet != nil {
+		put("  \"wait_met\": " + strconv.FormatBool(*p.WaitMet) + ",\n")
+	}
+	var buf bytes.Buffer
+	list := func(name string, items []json.RawMessage, sep string) {
+		put("  \"" + name + "\": [")
+		for i, it := range items {
+			if i > 0 {
+				put(",")
+			}
+			put("\n    ")
+			buf.Reset()
+			if json.Indent(&buf, it, "    ", "  ") != nil {
+				_, _ = bw.Write(it) // não acontece: record_json é gravado por json.Marshal
+				continue
+			}
+			_, _ = bw.Write(buf.Bytes())
+		}
+		if len(items) > 0 {
+			put("\n  ")
+		}
+		put("]" + sep + "\n")
+	}
+	list("connections", p.Connections, ",")
+	list("dns", p.DNS, "")
+	put("}\n")
+	_ = bw.Flush()
 }
 
 func (a *API) deleteProbe(w http.ResponseWriter, r *http.Request) {

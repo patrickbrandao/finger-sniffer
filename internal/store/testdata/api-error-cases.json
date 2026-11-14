@@ -1,5 +1,5 @@
 {
-  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (vps602). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
+  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (vps602). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
   "cases": [
     {"name": "connection id not ULID", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/bad", "want": 400},
     {"name": "connection id lowercase", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01jc0000000000000000000000", "want": 400},
@@ -44,6 +44,7 @@
     {"name": "probe wait in microseconds", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=1us", "want": 400},
     {"name": "probe unknown", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 404},
     {"name": "probe unknown after wait", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=200ms", "want": 404},
+    {"name": "probe too many waits", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=10s", "want": 503, "fault": "probe_wait_full"},
     {"name": "probe db error", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
 
     {"name": "delete probe id invalid", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/AB", "want": 400},
@@ -80,7 +81,6 @@
   "untestable": {
     "getHealth 500": "o handler não tem caminho de erro (monta e serializa o Health em memória); 500 só viria de pânico, que o net/http transforma em conexão derrubada",
     "getOpenAPI 500": "o contrato é embutido no binário e escrito direto; não há erro a provocar",
-    "getProbe 503": "teto de esperas `wait` simultâneas ainda não implementado (task 152, ADR 0032); a tarefa troca este motivo por um caso na tabela",
     "getConnectionPcap 503": "teto de downloads de BLOB simultâneos ainda não implementado (task 129, ADR 0032); a tarefa troca este motivo por um caso na tabela",
     "getConnectionRaw 503": "teto de downloads de BLOB simultâneos ainda não implementado (task 129, ADR 0032); a tarefa troca este motivo por um caso na tabela"
   }

@@ -40,7 +40,7 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 | Método e caminho | Retorno |
 | --- | --- |
 | `GET /api/v1/health` | saúde de cada serviço, host, certificados e banco |
-| `GET /api/v1/probes/{id}?wait=10s` | todas as conexões (completas) e consultas DNS do probe |
+| `GET /api/v1/probes/{id}?wait=10s` | conexões (completas) e consultas DNS do probe, até 1000 de cada (`truncated`) |
 | `DELETE /api/v1/probes/{id}` | apaga o probe (204) |
 | `GET /api/v1/connections?src_ip=&dst_port=&since=&until=&probe=&limit=` | lista resumida (`ConnectionSummary`) |
 | `GET /api/v1/connections/{conn_id}` | registro completo (`Connection`) |
@@ -67,6 +67,11 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 Junta tudo o que foi associado ao probe ID: conexões (pelo SNI, `Host`, caminho `/p/<id>/`, linha `PROBE` ou DNS) e
 consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.md).
 
+A resposta traz no máximo **1000 conexões** (as mais antigas primeiro) e **1000 consultas DNS** (pela ordem de
+chegada). Acima disso vem `truncated: true` e o restante fica em `GET /api/v1/connections?probe=<id>` e
+`GET /api/v1/dns?probe=<id>`, que paginam por `since`/`until`/`limit`. `all_closed` e o critério do `wait` olham o
+conjunto inteiro, não só o que veio na resposta (ADR 0032).
+
 ### Long-poll `wait`
 
 `wait` é uma duração em `ms` ou `s` (por exemplo `500ms`, `10s`); acima de 60 s vale 60 s:
@@ -76,7 +81,9 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
   de um proxy que resolveu o nome mas ainda não conectou;
 - no fim do prazo: 200 com o estado atual (`all_closed` diz se ainda há conexão aberta) ou 404 se o probe não tem
   nada;
-- sem `wait`: responde na hora.
+- sem `wait`: responde na hora;
+- no máximo **64** esperas `wait` simultâneas no store: acima disso a resposta é `503` na hora, com
+  `Retry-After: 1` (tente de novo depois). Sem `wait` não há esse teto (ADR 0032).
 
 Dois parâmetros deixam o critério mais estrito (ADR 0029); os dois **só valem com `wait`**:
 
@@ -464,7 +471,7 @@ Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada
 | --- | --- |
 | 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, `settle` ou `min_conns` sem `wait`, `settle` fora de `0s`–`10s` ou mal formado, `min_conns` fora de 1–1000, filtro de tempo real inválido |
 | 404 | ID no formato certo mas desconhecido ou expirado (retenção), e qualquer rota inexistente |
-| 503 | só em `/stream` e `/ws`: acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo |
+| 503 | em `/stream` e `/ws`, acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo; em `/probes/{id}?wait=`, acima de 64 esperas simultâneas (com `Retry-After: 1`) |
 | 500 | erro interno nas rotas de consulta |
 
 `OPTIONS` em qualquer caminho responde **204** sem corpo (pré-voo CORS, com `Access-Control-Allow-Origin: *` e
