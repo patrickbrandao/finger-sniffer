@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.5.x, ADRs 0029 e 0031, servido também em
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.6.x, ADRs 0029, 0031 e 0032, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação
@@ -31,7 +31,10 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 
 - Os registros duram `FS_RETENTION` (10 minutos) ou até o banco chegar a `FS_STORE_MAX_BYTES` (2 GiB); o primeiro
   limite atingido apaga os registros mais antigos (ADR 0012). Depois disso a API responde 404.
-- `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões e suas consultas DNS (204).
+- `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões fechadas e suas consultas DNS (204).
+  As conexões do probe ainda abertas somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo
+  real) e são apagadas quando fecham (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
+  probe novo.
 - Não há histórico além da retenção nem paginação por cursor: as listas aceitam só `limit` (1 a 1000, padrão 100)
   e vêm das mais novas para as mais antigas.
 
@@ -264,6 +267,39 @@ Um alvo muito longo não descarta a requisição: `request_line.target` é corta
 partir caractere UTF-8; menos, se o evento ainda não couber em 900 KiB) com `request_line.target_truncated: true`
 (ausente = `false`, contrato 0.6.0); o alvo inteiro está no fluxo `in` a partir de `in_offset`.
 
+### Marcas de corte e valores especiais (0.6.0)
+
+O contrato 0.6.0 (ADR 0032) acrescenta marcas para cortes que antes eram silenciosos. Todo booleano novo é
+opcional: **ausente equivale a `false`** (registros anteriores ao 0.6.0 não o têm).
+
+| Campo | `true` quando | Onde está o dado completo |
+| --- | --- | --- |
+| `http[].request_line.target_truncated` | `target` cortado em `FS_EVENT_INLINE_MAX` bytes (ou menos, para o evento caber em 900 KiB), numa fronteira de runa | fluxo `in` (`/raw?dir=in`) |
+| `tls.lists_truncated` | as listas analisadas do ClientHello (cipher suites, extensões, grupos, algoritmos…) foram reduzidas e `ja3`, `ja3n`, `ja4_r`, `ja4_o` cortados para o evento caber em 900 KiB | `client_hello_b64` (com `client_hello_truncated`) e o fluxo `in` |
+| `http3.transport_params_truncated` | o parser parou em 1024 parâmetros de transporte, ou a lista foi reduzida para caber no evento | pcap (o Initial, decifrável com as chaves públicas do QUIC) |
+| `http3.h3_settings_truncated` | o parser parou em 256 pares de SETTINGS do h3, ou a lista foi reduzida para caber no evento | não fica guardado (o stream de controle vai cifrado) |
+
+Com `lists_truncated`, os fingerprints (`ja4`, `ja3_md5`, `ja3n_md5`, `ja4_stable`…) **continuam calculados
+sobre o ClientHello completo**, antes do corte: só as listas e as strings longas do registro ficam incompletas. O
+evento não é mais descartado por tamanho, então um ClientHello enorme ou um alvo HTTP/1 longo aparecem no
+registro.
+
+Outros valores com sentido definido:
+
+- `http[].head_too_large`: cabeçalho acima de 1 MiB, de 1024 campos ou do orçamento de entrada do web; a resposta
+  foi **431**.
+- `http[].body.chunks_truncated`: `chunks` lista só o prefixo (acima de 4096 pedaços ou de 256 KiB de extensões
+  somadas na requisição); tamanho e SHA-256 seguem do corpo inteiro.
+- `http2.streams[].stream_id` igual a `0`: o web não conseguiu ligar o handler a um stream (stream não
+  identificado); esses itens são sempre acrescentados, nunca substituem outro. A ligação é heurística: duas
+  requisições idênticas em todos os campos podem trocar de stream.
+- `http2.streams[].status` igual a `0` com RST_STREAM, 400 ou 431 do servidor em `http2.frames`: stream recusado
+  pela biblioteca h2 antes de chegar ao handler.
+- `websocket` com `frames: []` e `close: null`: Upgrade aceito sem nenhum frame (o cliente fechou logo depois do
+  101); `over`, `path`, `extensions` e `subprotocol` vêm preenchidos.
+- `raw.probe_line`: a linha `PROBE` como recebida, **com o terminador** (CRLF ou LF), igual no raw e no web.
+- `rate_limited` de uma consulta DNS: só UDP (resposta com TC=1); o TCP fica fora do RRL.
+
 ### Instantes de cada requisição e resposta
 
 Cada item de `http[]` (HTTP/1), `http2.streams[]` e `http3.requests[]` traz quatro instantes (RFC 3339 UTC com
@@ -391,7 +427,8 @@ request: 0
 probe_id: k3x9q2mz7a
 ```
 
-Cada sentido guarda até `FS_RAW_STREAM_MAX_BYTES`; acima disso o registro marca `raw_truncated.in`/`.out`.
+Cada sentido guarda até `FS_RAW_STREAM_MAX_BYTES`; acima disso o registro marca `raw_truncated.in`/`.out`. Os
+mesmos 4 downloads simultâneos e o prazo de 60 s do pcap valem aqui (503 com `Retry-After: 1`).
 
 ## DNS e pacotes avulsos
 
@@ -417,7 +454,9 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/dns?probe=k3x9q2mz7a&limit=1
 `qname` mantém a caixa original (0x20 dos resolvedores), e `edns.ecs` mostra o Client Subnet quando o resolvedor
 manda. `raw_b64` traz a mensagem crua.
 
-Pacotes avulsos são os que não formam conexão: SYN sem resposta, RST solto, ICMP, UDP sem resposta.
+Pacotes avulsos são os que não formam conexão: SYN sem resposta, RST solto, ICMP, UDP sem resposta. O filtro
+`src_ip` de `/api/v1/packets` é o IP do **cliente**: a origem nos pacotes com `dir=in` e o destino nos com
+`dir=out`, como no filtro do tempo real.
 
 ```console
 $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/packets?limit=1'
@@ -468,7 +507,7 @@ ou quando o `nf_conntrack` foi carregado depois do boot (`conntrack loaded`).
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.5.x):
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.6.x):
 
 | Código | Quando |
 | --- | --- |
