@@ -34,6 +34,14 @@ const (
 	DefaultLiveMaxClients = 64
 )
 
+// Tetos de bytes das filas do tempo real (ADR 0034): por cliente e somando todas as filas (cada evento conta em
+// cada fila em que está, embora o buffer seja compartilhado). Acima, o evento é descartado para aquele cliente e
+// entra no stream.dropped, como a fila cheia.
+const (
+	liveClientMaxBytes = 4 << 20
+	liveHubMaxBytes    = 64 << 20
+)
+
 // ErrTooManyLiveClients é devolvido quando FS_LIVE_MAX_CLIENTS já estão conectados (503).
 var ErrTooManyLiveClients = errors.New("too many live clients")
 
@@ -156,6 +164,7 @@ type liveClient struct {
 	ch        chan *liveMsg
 	dropped   atomic.Int64  // descartados desde o último stream.dropped
 	notify    chan struct{} // avisa o escritor de que houve descarte
+	queued    atomic.Int64  // bytes dos eventos na fila (ch)
 }
 
 // nextDropped devolve o stream.dropped pendente (nil se nada foi descartado) e zera a contagem.
@@ -179,7 +188,10 @@ type LiveStats struct {
 // nunca bloqueia.
 type Hub struct {
 	buffer, max int
-	now         func() time.Time
+	// clientMax e totalMax são os tetos de bytes por fila e somando as filas (liveClientMaxBytes, liveHubMaxBytes).
+	clientMax, totalMax int64
+	queued              atomic.Int64 // bytes somando as filas de todos os clientes
+	now                 func() time.Time
 	// OnSend, se definido, recebe o atraso entre o evento de origem e o envio a um cliente.
 	OnSend func(kind string, delay time.Duration)
 
@@ -201,7 +213,8 @@ func NewHub(buffer, maxClients int) *Hub {
 		maxClients = DefaultLiveMaxClients
 	}
 	return &Hub{
-		buffer: buffer, max: maxClients, now: time.Now, clients: map[*liveClient]struct{}{},
+		buffer: buffer, max: maxClients, clientMax: liveClientMaxBytes, totalMax: liveHubMaxBytes,
+		now: time.Now, clients: map[*liveClient]struct{}{},
 		events: map[string]int64{}, lastUpd: map[string]int64{}, pendUpd: map[string]*liveMsg{},
 	}
 }
@@ -218,11 +231,19 @@ func (h *Hub) join(f LiveFilter, transport string) (*liveClient, error) {
 	return c, nil
 }
 
-// leave libera a vaga.
+// leave libera a vaga e devolve ao hub os bytes que ficaram na fila do cliente.
 func (h *Hub) leave(c *liveClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, c)
+	h.queued.Add(-c.queued.Swap(0))
+}
+
+// take devolve os bytes de um evento que o escritor do cliente tirou da fila.
+func (h *Hub) take(c *liveClient, m *liveMsg) {
+	n := int64(len(m.data))
+	c.queued.Add(-n)
+	h.queued.Add(-n)
 }
 
 // Publish entrega os eventos (já depois do commit) aos clientes cujo filtro casa. connection.updated é
@@ -269,22 +290,29 @@ func (h *Hub) flushUpdates() {
 	}
 }
 
-// fanout enfileira sem bloquear; fila cheia descarta para aquele cliente. Chamado com a trava.
+// fanout enfileira sem bloquear; fila cheia (em eventos ou em bytes, do cliente ou do hub) descarta para aquele
+// cliente. Chamado com a trava (só o fanout soma em queued; o escritor só subtrai).
 func (h *Hub) fanout(m *liveMsg) {
 	h.events[m.kind]++
+	n := int64(len(m.data))
 	for c := range h.clients {
 		if !c.filter.match(m) {
 			continue
 		}
-		select {
-		case c.ch <- m:
-		default:
-			c.dropped.Add(1)
-			h.dropped++
+		if c.queued.Load()+n <= h.clientMax && h.queued.Load()+n <= h.totalMax {
 			select {
-			case c.notify <- struct{}{}:
+			case c.ch <- m:
+				c.queued.Add(n)
+				h.queued.Add(n)
+				continue
 			default:
 			}
+		}
+		c.dropped.Add(1)
+		h.dropped++
+		select {
+		case c.notify <- struct{}{}:
+		default:
 		}
 	}
 }

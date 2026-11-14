@@ -18,9 +18,11 @@ Os dois aceitam qualquer `Origin` (a API é aberta; a página do site vem de out
 
 - **Sem replay**: o cliente recebe só o que acontecer depois de conectar; não há `Last-Event-ID`. Para o passado,
   use a [API de consulta](api.md).
-- **Melhor esforço**: cada cliente tem uma fila de `FS_LIVE_BUFFER` (1024) eventos. Se ela encher (cliente lento),
-  os eventos seguintes são **descartados para aquele cliente** e, quando houver espaço, ele recebe um
-  `stream.dropped` com a contagem. O ingest nunca espera por cliente.
+- **Melhor esforço**: cada cliente tem uma fila de `FS_LIVE_BUFFER` (1024) eventos e de no máximo **4 MiB**, e as
+  filas de todos os clientes somam no máximo **64 MiB** (ADR 0034). Se a fila encher, em eventos ou em bytes
+  (cliente lento, ou eventos grandes como um `http.request` de quase 900 KiB), os eventos seguintes são
+  **descartados para aquele cliente** e, quando houver espaço, ele recebe um `stream.dropped` com a contagem. O
+  ingest nunca espera por cliente.
 - Até `FS_LIVE_MAX_CLIENTS` (64) clientes simultâneos, somando SSE e WebSocket; acima disso, **503** com
   `{"error": …}`. Ao desconectar, a vaga é liberada.
 - `connection.updated` é agregado: no máximo um por conexão a cada 250 ms (vale o último estado).
