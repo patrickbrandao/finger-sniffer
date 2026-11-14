@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -607,5 +608,44 @@ func TestH2ClientCancelInstants(t *testing.T) {
 	in := instantsOf(t, ev.Payload)
 	if in.reqStart.IsZero() || in.respStart.IsZero() || !in.respEnd.IsZero() {
 		t.Fatalf("cancelado: %+v", in)
+	}
+}
+
+// TestH2ClientCancelBeforeOutObserved: o cliente recebe o HEADERS da resposta e manda RST_STREAM antes de o
+// parser passivo out ver esse HEADERS (a cópia da escrita chega ao parser depois do Write no socket; aqui
+// atrasada de propósito). O http2.stream sai com response_started_at preenchido (task 213).
+func TestH2ClientCancelBeforeOutObserved(t *testing.T) {
+	const delay = 150 * time.Millisecond
+	tapAfterWriteHook = func(p []byte) {
+		// Atrasa só a escrita que traz um frame HEADERS do stream 1 (os frames de saída começam alinhados
+		// em cada Write do x/net).
+		for len(p) >= 9 {
+			n := int(p[0])<<16 | int(p[1])<<8 | int(p[2])
+			if p[3] == byte(http2.FrameHeaders) && binary.BigEndian.Uint32(p[5:9])&0x7fffffff == 1 {
+				time.Sleep(delay)
+				return
+			}
+			p = p[min(len(p), 9+n):]
+		}
+	}
+	t.Cleanup(func() { tapAfterWriteHook = nil })
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	r := newH2Raw(t, c, true)
+	if err := r.fr.WriteSettings(); err != nil {
+		t.Fatal(err)
+	}
+	r.headers(1, http.MethodGet, "/p/"+testProbe+"/r?size=10&delay_body=500", http2.PriorityParam{})
+	r.until(func(f http2.Frame) bool {
+		_, ok := f.(*http2.MetaHeadersFrame)
+		return ok && f.Header().StreamID == 1
+	})
+	if err := r.fr.WriteRSTStream(1, http2.ErrCodeCancel); err != nil {
+		t.Fatal(err)
+	}
+	ev := h.events.wait(t, event.SubjectWebHTTP2Stream, srcPort(c), 1)[0]
+	in := instantsOf(t, ev.Payload)
+	if in.reqStart.IsZero() || in.respStart.IsZero() || !in.respEnd.IsZero() {
+		t.Fatalf("cancelado antes de o parser ver o HEADERS: %+v", in)
 	}
 }

@@ -166,7 +166,15 @@ type tap struct {
 	firstWriteAt time.Time
 	lastWriteAt  time.Time
 	writeMarked  bool
+	// writing conta as escritas em andamento (do Write no socket até a cópia entregue ao observador);
+	// writeIdle é fechado quando ela volta a zero (writesDone).
+	writing   int
+	writeIdle chan struct{}
 }
+
+// tapAfterWriteHook, quando definido (só em teste), roda entre a escrita no socket e a entrega da cópia ao
+// observador: simula o atraso em que o cliente já recebeu os bytes e o parser passivo ainda não.
+var tapAfterWriteHook func(p []byte)
 
 func newTap(c net.Conn, maxPerDir int, now func() time.Time, emit func(event.StreamBytes)) *tap {
 	return &tap{
@@ -196,9 +204,19 @@ func (t *tap) Read(p []byte) (int, error) {
 }
 
 func (t *tap) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	if t.writing == 0 {
+		t.writeIdle = make(chan struct{})
+	}
+	t.writing++
+	t.mu.Unlock()
+	defer t.endWrite()
 	n, err := t.Conn.Write(p)
 	if n > 0 {
 		at := t.now()
+		if hook := tapAfterWriteHook; hook != nil {
+			hook(p[:n])
+		}
 		t.mu.Lock()
 		t.out.add(p[:n])
 		t.lastWriteAt = at
@@ -211,6 +229,35 @@ func (t *tap) Write(p []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+// endWrite encerra uma escrita: a cópia dela já foi entregue ao observador.
+func (t *tap) endWrite() {
+	t.mu.Lock()
+	t.writing--
+	if t.writing == 0 {
+		close(t.writeIdle)
+	}
+	t.mu.Unlock()
+}
+
+// closedChan é um canal já fechado (nenhuma escrita em andamento).
+var closedChan = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// writesDone devolve um canal fechado quando as escritas em andamento agora (no socket, ainda sem a cópia
+// entregue ao observador) terminarem. O cliente pode reagir a bytes que o parser passivo ainda não viu
+// (RST_STREAM depois do HEADERS da resposta, task 213): quem decide pelo parser out espera esse canal.
+func (t *tap) writesDone() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.writing == 0 {
+		return closedChan
+	}
+	return t.writeIdle
 }
 
 // setObserver liga (ou desliga, com nil) a cópia das leituras e escritas.
