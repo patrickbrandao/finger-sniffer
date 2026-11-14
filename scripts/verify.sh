@@ -395,11 +395,11 @@ verify_quick() {
 		skip_step "release-test" "scripts de release sem mudança"
 	fi
 
-	# 4d. o próprio verify alterado: teste dele
-	if echo "$files" | grep -qE '^scripts/verify(-test)?\.sh$'; then
+	# 4d. o próprio verify ou um workflow alterado: teste dele (inclui as checagens dos workflows)
+	if echo "$files" | grep -qE '^(scripts/verify(-test)?\.sh|\.github/workflows/[^/]+\.yml)$'; then
 		run_step "verify-test" scripts/verify-test.sh
 	else
-		skip_step "verify-test" "verify.sh sem mudança"
+		skip_step "verify-test" "verify.sh e workflows sem mudança"
 	fi
 
 	# 5. testes ligados ao que mudou (ou os explícitos)

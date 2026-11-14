@@ -176,6 +176,13 @@ check "toda action por SHA com versão em comentário" '! grep -hE "^[[:space:]-
 	grep -vE "uses:[[:space:]]+[^@[:space:]]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]"'
 check "há actions nos workflows" 'grep -qE "uses:" "$ROOT"/.github/workflows/ci.yml'
 
+# Concorrência do CI (task 219): cancela a execução anterior só em PR; na main o grupo é por SHA.
+CI_GROUP='group: ci-${{ github.event_name == '\''pull_request'\'' && github.ref || github.sha }}'
+CI_CANCEL='cancel-in-progress: ${{ github.event_name == '\''pull_request'\'' }}'
+check "CI agrupa a main por SHA" 'grep -qF "$CI_GROUP" "$ROOT"/.github/workflows/ci.yml'
+check "CI cancela execução anterior só em PR" 'grep -qF "$CI_CANCEL" "$ROOT"/.github/workflows/ci.yml'
+check "CI sem cancel-in-progress fixo em true" '! grep -qE "cancel-in-progress:[[:space:]]*true" "$ROOT"/.github/workflows/ci.yml'
+
 # npm_deps: npm ci --ignore-scripts uma vez por package-lock.json (stub de npm registra as chamadas)
 cat >"$T/bin/npm" <<'EOF'
 #!/usr/bin/env bash
