@@ -1,0 +1,1 @@
+- dns: RRL com balde por /64 em IPv6 e balde de transbordo compartilhado quando a tabela de baldes enche, em vez de liberar sem limite (task 163, ADR 0035).

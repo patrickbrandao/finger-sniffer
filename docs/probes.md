@@ -599,8 +599,9 @@ Rótulos de controle, em qualquer posição à direita do probe ID:
 | `nx` | NXDOMAIN |
 
 Qualquer nome da zona resolve para o espelho (A/AAAA, TTL 5 s) e tem um registro HTTPS (tipo 65) com
-`alpn="h3,h2"` e dicas de IP. Nomes fora da zona recebem `REFUSED`; acima de 20 respostas/s por IP de origem, o
-servidor responde com TC=1 (UDP) ou descarta (`rate_limited: true`).
+`alpn="h3,h2"` e dicas de IP. Nomes fora da zona recebem `REFUSED`. Em UDP, acima de 20 respostas/s por origem
+(o IP em IPv4, o /64 em IPv6), o servidor responde com TC=1 sem dados (`rate_limited: true`), para o resolvedor
+repetir em TCP; o TCP fica fora desse limite e sempre recebe a resposta completa (`rate_limited: false`).
 
 - **Procurar**: `dns[]` do probe (ou `/api/v1/dns?probe=`): `resolver` (quem perguntou), `proto`, `qname` com a
   caixa original, `qtype`, `flags`, `edns` (tamanho UDP, DO, cookie, ECS, opções), `response`.

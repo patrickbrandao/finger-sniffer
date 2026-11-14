@@ -1,0 +1,1 @@
+- dns: o RRL vale só para UDP; uma consulta TCP sempre recebe a resposta completa (`rate_limited: false`), e UDP forjado deixa de bloquear o fallback TC=1 → TCP de um resolvedor (task 147, ADR 0035).
