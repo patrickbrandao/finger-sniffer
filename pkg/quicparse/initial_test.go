@@ -497,8 +497,8 @@ func TestCryptoStreamEdges(t *testing.T) {
 		t.Fatal("mensagem inteira com tamanho errado")
 	}
 	var d CryptoStream
-	for i := range 2*MaxCryptoLen/1000 + 2 {
-		d.Add(uint64(10+i%5), make([]byte, 1000)) // nunca encosta no offset 0
+	for i := range 3 {
+		d.Add(uint64(10+i), make([]byte, 50000)) // sobrepostos, nunca encostam no offset 0
 	}
 	if !errors.Is(d.Err(), ErrCryptoTooLarge) {
 		t.Fatal("teto de bytes guardados")
