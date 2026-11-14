@@ -578,6 +578,10 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
   $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, ws: .websocket.close, tcp: .close|{by,how}}'
   {"proto":"http1.1/ws","ws":{"by":"client","code":1000,"reason":"bye"},"tcp":{"by":"server","how":"fin"}}
   ```
+- **Sem frames**: um WebSocket aceito (101, ou 200 no h2) que termina sem nenhum frame ainda aparece em
+  `websocket`, com `over`, `path`, `extensions` e `subprotocol` negociados, `frames: []` e `close: null` (ADR 0032).
+  Sem vaga (32 sessões simultâneas) ou sem orçamento de entrada o espelho responde 503 antes do 101 e não há
+  `websocket` no registro (ADR 0033).
 - **Estáveis**: a linha de WebSocket da [tabela](#campos-estáveis-e-o-que-sempre-varia), mais os campos do
   `Upgrade` da requisição (caso 1).
 - **Diferenças esperadas**: `ws://` por proxy HTTP depende de o proxy repassar o `Upgrade` (muitos proxies

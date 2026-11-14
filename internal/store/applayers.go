@@ -157,6 +157,10 @@ func (l *layers) addLayer(ev appEvent) {
 		if f.Upgrade != nil && l.ws.Over == "" {
 			l.ws.Over, l.ws.Path, l.ws.Extensions, l.ws.Subprotocol = f.Upgrade.Over, f.Upgrade.Path, f.Upgrade.Extensions, f.Upgrade.Subprotocol
 		}
+		// Sessão sem frames (ADR 0032): o evento só leva o Upgrade, nenhum frame entra na lista.
+		if f.UpgradeOnly {
+			return
+		}
 		if f.Close != nil {
 			l.ws.Close = f.Close
 		}

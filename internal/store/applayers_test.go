@@ -234,6 +234,25 @@ func TestLayersHTTP2StreamIDZero(t *testing.T) {
 	}
 }
 
+// TestLayersWebSocketUpgradeOnly (task 185): sessão sem frames (evento upgrade_only) vira websocket com o
+// upgrade, frames vazio e close nulo, sem frame fantasma.
+func TestLayersWebSocketUpgradeOnly(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	sub := "chat"
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP),
+		appMsg(t, event.SubjectWebHTTP1Request, "tcp", client, mirror, 25, "", http1Payload(0, "HTTP/1.1")),
+		appMsg(t, event.SubjectWebWebSocketFrame, "tcp", client, mirror, 30, "", event.WebSocketFrame{
+			Dir: "in", UpgradeOnly: true,
+			Upgrade: &event.WebSocketUpgrade{Over: "http1.1", Path: "/p/t1a2b3c4/ws", Subprotocol: &sub},
+		}))
+	_, r := onlyConn(t, db)
+	ws := r.WebSocket
+	if ws == nil || ws.Over != "http1.1" || ws.Path != "/p/t1a2b3c4/ws" || ws.Subprotocol == nil || *ws.Subprotocol != sub ||
+		ws.Frames == nil || len(ws.Frames) != 0 || ws.Close != nil {
+		t.Fatalf("websocket %+v", ws)
+	}
+}
+
 func TestLayersWebSocket(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	key := "a1b2c3d4"
