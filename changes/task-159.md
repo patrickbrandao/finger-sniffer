@@ -1,0 +1,1 @@
+- Store: `since`/`until` fora de 1678–2262 saturam nos limites do int64 em vez de estourar o `UnixNano`; `until=9999-...` passa a valer "sem limite" e `since=9999-...` devolve `[]` em connections, packets e dns (task 159).

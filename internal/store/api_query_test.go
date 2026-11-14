@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -99,6 +100,10 @@ func TestAPIConnectionsList(t *testing.T) {
 	for q, want := range map[string]int{
 		"?src_ip=192.0.2.10": 1, "?dst_port=7700": 2, "?dst_port=80": 0, "?probe=" + probeID: 1, "?limit=1": 1,
 		"?since=2026-11-07T12:00:01Z": 0, "?until=2026-11-07T12:00:01Z": 2,
+		// Datas fora de 1678–2262 saturam em vez de estourar o UnixNano (task 159).
+		"?until=9999-12-31T23:59:59Z": 2, "?until=9999-12-31T00:00:00Z": 2, "?since=9999-12-31T23:59:59Z": 0,
+		"?since=0001-01-01T00:00:00Z": 2, "?since=1600-01-01T00:00:00Z": 2,
+		"?since=1600-01-01T00:00:00Z&until=9999-12-31T23:59:59Z": 2,
 	} {
 		code, body := f.get(t, "/api/v1/connections"+q)
 		_ = json.Unmarshal([]byte(body), &list)
@@ -188,6 +193,26 @@ func TestAPIRaw(t *testing.T) {
 	}
 }
 
+// TestSaturatedUnixNano confere a saturação nas bordas e que datas dentro da faixa ficam iguais a UnixNano.
+func TestSaturatedUnixNano(t *testing.T) {
+	in := time.Date(2026, 11, 7, 12, 0, 0, 123, time.UTC)
+	for tm, want := range map[time.Time]int64{
+		in:                          in.UnixNano(),
+		time.Unix(0, math.MinInt64): math.MinInt64,
+		time.Unix(0, math.MaxInt64): math.MaxInt64,
+		time.Unix(0, math.MinInt64).Add(-time.Nanosecond): math.MinInt64,
+		time.Unix(0, math.MaxInt64).Add(time.Nanosecond):  math.MaxInt64,
+		time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC):          math.MinInt64,
+		time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC):  math.MaxInt64,
+		time.Date(1677, 9, 21, 0, 0, 0, 0, time.UTC):      math.MinInt64,
+		time.Date(2262, 4, 12, 0, 0, 0, 0, time.UTC):      math.MaxInt64,
+	} {
+		if got := saturatedUnixNano(tm); got != want {
+			t.Errorf("%s: %d, want %d", tm, got, want)
+		}
+	}
+}
+
 func TestAPIPacketsAndDNS(t *testing.T) {
 	f := newAPIFixture(t)
 	code, body := f.get(t, "/api/v1/packets?src_ip=192.0.2.10")
@@ -201,6 +226,25 @@ func TestAPIPacketsAndDNS(t *testing.T) {
 	code, body = f.get(t, "/api/v1/dns?probe="+probeID)
 	if code != 200 || !strings.Contains(body, "T1a2B3c4.dns-monitor") {
 		t.Fatalf("%d %s", code, body)
+	}
+	// Datas fora de 1678–2262 saturam nos limites do int64 (task 159).
+	all := func(path string) string {
+		_, b := f.get(t, path)
+		return b
+	}
+	for path, want := range map[string]string{
+		"/api/v1/packets?until=9999-12-31T23:59:59Z": all("/api/v1/packets"),
+		"/api/v1/packets?since=0001-01-01T00:00:00Z": all("/api/v1/packets"),
+		"/api/v1/packets?since=9999-12-31T23:59:59Z": "[]\n",
+		"/api/v1/dns?since=0001-01-01T00:00:00Z":     all("/api/v1/dns"),
+		"/api/v1/dns?since=9999-12-31T23:59:59Z":     "[]\n",
+	} {
+		if code, body := f.get(t, path); code != 200 || body != want {
+			t.Errorf("%s: %d %q (want %q)", path, code, body, want)
+		}
+	}
+	if all("/api/v1/packets") == "[]\n" || all("/api/v1/dns") == "[]\n" {
+		t.Fatal("fixture without packets or dns")
 	}
 	for _, p := range []string{"/api/v1/packets?limit=x", "/api/v1/dns?probe=X"} {
 		if code, _ := f.get(t, p); code != 400 {
