@@ -103,6 +103,23 @@ func framesOf(p map[string]any, dir string) []string {
 	return out
 }
 
+// streamByID escolhe o evento http2.stream pelo stream_id: a ordem de publicação entre streams da mesma
+// conexão não é garantida (task 202).
+func streamByID(t *testing.T, evs []decoded, id int) decoded {
+	t.Helper()
+	for _, e := range evs {
+		if v, ok := e.Payload["stream_id"].(float64); ok && int(v) == id {
+			return e
+		}
+	}
+	ids := make([]any, 0, len(evs))
+	for _, e := range evs {
+		ids = append(ids, e.Payload["stream_id"])
+	}
+	t.Fatalf("no http2.stream with stream_id %d among %v", id, ids)
+	return decoded{}
+}
+
 func contains(list []string, s string) bool {
 	for _, v := range list {
 		if v == s {
@@ -133,20 +150,21 @@ func TestH2ALPN(t *testing.T) {
 	cl.CloseIdleConnections()
 
 	streams := h.events.wait(t, event.SubjectWebHTTP2Stream, 0, 2)
-	port := streams[0].Env.Flow.SrcPort
-	st := streams[0].Payload
+	first := streamByID(t, streams, 1)
+	port := first.Env.Flow.SrcPort
+	st := first.Payload
 	if num(t, st["stream_id"]) != 1 || num(t, st["status"]) != 200 || st["ja4h"] == nil ||
 		!strings.HasPrefix(st["ja4h"].(string), "ge20") {
 		t.Fatalf("stream %v", st)
 	}
-	if *streams[0].Env.ProbeID != testProbe {
-		t.Fatalf("probe %v", streams[0].Env.ProbeID)
+	if first.Env.ProbeID == nil || *first.Env.ProbeID != testProbe {
+		t.Fatalf("probe %v", first.Env.ProbeID)
 	}
 	if order := st["pseudo_order"].([]any); len(order) != 4 {
 		t.Fatalf("pseudo_order %v", order)
 	}
-	if num(t, streams[1].Payload["stream_id"]) != 3 {
-		t.Fatalf("second stream %v", streams[1].Payload)
+	if second := streamByID(t, streams, 3); second.Env.Flow.SrcPort != port {
+		t.Fatalf("second stream port %d want %d", second.Env.Flow.SrcPort, port)
 	}
 	p := h.events.lastConn(t, port, func(p map[string]any) bool {
 		return contains(framesOf(p, "in"), "GOAWAY") || len(framesOf(p, "out")) >= 4
@@ -290,7 +308,11 @@ func TestH2RawFrames(t *testing.T) {
 		t.Fatalf("out %v", out)
 	}
 	streams := h.events.wait(t, event.SubjectWebHTTP2Stream, port, 2)
-	pr := streams[0].Payload["priority"].(map[string]any)
+	// O stream 1 traz a PRIORITY do HEADERS; o 7 não tem e sai com priority nulo.
+	pr, ok := streamByID(t, streams, 1).Payload["priority"].(map[string]any)
+	if !ok {
+		t.Fatalf("stream 1 priority %v", streamByID(t, streams, 1).Payload["priority"])
+	}
 	if num(t, pr["depends_on"]) != 5 || num(t, pr["weight"]) != 42 {
 		t.Fatalf("priority %v", pr)
 	}
@@ -536,7 +558,7 @@ func TestH2Instants(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 	evs := h.events.wait(t, event.SubjectWebHTTP2Stream, port, 2)
-	checkOrder(t, "h2 rst", instantsOf(t, evs[1].Payload))
+	checkOrder(t, "h2 rst", instantsOf(t, streamByID(t, evs, 3).Payload))
 
 	// Upgrade: h2c.
 	c := dial(t, h.addr443)
