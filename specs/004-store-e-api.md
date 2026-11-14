@@ -118,7 +118,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno. Toda rota do
   openapi declara os códigos que devolve (contrato 0.3.3; 0.3.4 descreve o `LiveEvent.ts`; 0.3.5, o `ts` do `packet.stray`, ADR 0026;
   0.4.0, aditivo: instantes por requisição, `ip.packets`, `settle`/`min_conns`/`wait_met`, ADR 0029; 0.4.1,
-  documental: nulos dos instantes e `wait=0s`).
+  documental: nulos dos instantes e `wait=0s`; 0.5.0, aditivo: `ip.src_kind`, `tcp.syn_mss`, `tcp.mtu_implied`,
+  `tcp.mss_reduction`, ADR 0031).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
