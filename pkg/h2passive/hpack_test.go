@@ -99,8 +99,14 @@ func TestHPACKErrors(t *testing.T) {
 		b   []byte
 		err error
 	}{
-		"inteiro truncado":   {[]byte{0xff}, ErrHPACKTruncated},
-		"inteiro enorme":     {[]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, ErrHPACKInteger},
+		"inteiro truncado": {[]byte{0xff}, ErrHPACKTruncated},
+		"inteiro enorme":   {[]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, ErrHPACKInteger},
+		"inteiro com continuação longa": {
+			[]byte{0x0f, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7f, 0x00}, ErrHPACKInteger,
+		},
+		"inteiro com zeros demais": {
+			[]byte{0x0f, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00}, ErrHPACKInteger,
+		},
 		"cadeia vazia":       {[]byte{0x40}, ErrHPACKTruncated},
 		"nome truncado":      {[]byte{0x40, 0x05, 'a'}, ErrHPACKTruncated},
 		"valor ausente":      {[]byte{0x41}, ErrHPACKTruncated},
@@ -170,5 +176,29 @@ func TestHPACKAgainstXNet(t *testing.T) {
 	}
 	if mine.maxSize != 256 {
 		t.Fatalf("maxSize = %d", mine.maxSize)
+	}
+}
+
+// TestHPACKIntegerBoundary: com N bytes de continuação 0x80 antes do 0x00 final, o passivo e o x/net
+// aceitam e recusam nos mesmos N, com o mesmo campo (task 169).
+func TestHPACKIntegerBoundary(t *testing.T) {
+	for n := range 13 {
+		// literal sem indexação, índice de nome 15 com zeros de preenchimento, valor vazio
+		b := append([]byte{0x0f}, bytes.Repeat([]byte{0x80}, n)...)
+		b = append(b, 0x00, 0x00)
+		got, err := newHPACKDecoder(4096, 10).decode(b)
+		want, refErr := hpack.NewDecoder(4096, nil).DecodeFull(b)
+		if (err == nil) != (refErr == nil) {
+			t.Fatalf("n=%d: passivo %v, x/net %v", n, err, refErr)
+		}
+		if err != nil {
+			if !errors.Is(err, ErrHPACKInteger) {
+				t.Fatalf("n=%d: err %v", n, err)
+			}
+			continue
+		}
+		if len(got) != 1 || len(want) != 1 || got[0].Name != want[0].Name || got[0].Name != "accept-charset" {
+			t.Fatalf("n=%d: %v, x/net %v", n, got, want)
+		}
 	}
 }

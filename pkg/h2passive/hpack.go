@@ -245,7 +245,9 @@ func (d *hpackDecoder) literal(block []byte, n uint8, repr string) (HPACKField, 
 }
 
 // readInt lê um inteiro HPACK com prefixo de n bits (RFC 7541 seção 5.1). Valores acima de 2^32 são
-// rejeitados: nenhum campo legítimo chega perto disso.
+// rejeitados: nenhum campo legítimo chega perto disso. A continuação é limitada como no x/net (deslocamento
+// abaixo de 63): sem isso os bits além de 64 seriam descartados e o passivo aceitaria blocos que o servidor
+// recusa (task 169).
 func readInt(b []byte, n uint8) (uint64, []byte, error) {
 	if len(b) == 0 {
 		return 0, nil, ErrHPACKTruncated
@@ -271,6 +273,9 @@ func readInt(b []byte, n uint8) (uint64, []byte, error) {
 			return v, b, nil
 		}
 		shift += 7
+		if shift >= 63 {
+			return 0, nil, ErrHPACKInteger
+		}
 	}
 }
 
