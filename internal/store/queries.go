@@ -29,6 +29,10 @@ type Queries struct {
 	snaplen   uint32
 	// waiters limita os long-polls simultâneos de /probes/{id}?wait (ADR 0032): acima, 503 na hora.
 	waiters chan struct{}
+	// blobs limita os downloads de /pcap e /raw em andamento (as duas rotas somadas, ADR 0032): acima, 503.
+	blobs chan struct{}
+	// blobWrite é o prazo de escrita de cada resposta de /pcap e /raw (ADR 0032).
+	blobWrite time.Duration
 	// probeReads conta as leituras completas do probe (record_json); os testes conferem que o wait lê uma vez.
 	probeReads atomic.Int64
 }
@@ -39,6 +43,13 @@ const (
 	probeMaxItems = 1000
 )
 
+// Downloads de BLOB (ADR 0032): no máximo blobMax respostas de /pcap e /raw em andamento, cada uma com
+// blobWriteTimeout para ser escrita; o cliente que não lê nesse prazo tem a conexão encerrada.
+const (
+	blobMax          = 4
+	blobWriteTimeout = 60 * time.Second
+)
+
 // NewQueries cria o leitor.
 func NewQueries(db *sql.DB, live func(string) (connectionJSON, bool), snaplen uint32) *Queries {
 	if live == nil {
@@ -47,6 +58,7 @@ func NewQueries(db *sql.DB, live func(string) (connectionJSON, bool), snaplen ui
 	return &Queries{
 		db: db, live: live, now: time.Now, pollEvery: 50 * time.Millisecond, snaplen: snaplen,
 		waiters: make(chan struct{}, probeWaitMax),
+		blobs:   make(chan struct{}, blobMax), blobWrite: blobWriteTimeout,
 	}
 }
 
@@ -63,8 +75,21 @@ type busyError struct{ msg string }
 func (b busyError) Error() string { return b.msg }
 func (b busyError) Unwrap() error { return errBusy }
 
-// errProbeWaitBusy: as 64 vagas de ?wait estão ocupadas.
-var errProbeWaitBusy = busyError{"too many waiting requests, retry later"}
+// Tetos de concorrência atingidos: as 64 vagas de ?wait e as 4 de download de BLOB.
+var (
+	errProbeWaitBusy = busyError{"too many waiting requests, retry later"}
+	errBlobBusy      = busyError{"too many downloads in progress, retry later"}
+)
+
+// acquireBlob ocupa uma vaga de download de BLOB, sem esperar; release devolve a vaga.
+func (q *Queries) acquireBlob() (release func(), err error) {
+	select {
+	case q.blobs <- struct{}{}:
+		return func() { <-q.blobs }, nil
+	default:
+		return nil, errBlobBusy
+	}
+}
 
 type badRequest struct{ msg string }
 
@@ -292,12 +317,17 @@ func (q *Queries) Raw(ctx context.Context, id, dir string) ([]byte, error) {
 	default:
 		return nil, bad("dir must be in or out")
 	}
+	// Reserva o tamanho final de uma vez: o append em dobro reservaria até 2× os 16 MiB do fluxo (task 129).
+	var total int64
+	if err := q.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(length(data)), 0) FROM raw_streams WHERE conn_id = ? AND dir = ?", id, d).Scan(&total); err != nil {
+		return nil, err
+	}
 	rows, err := q.db.QueryContext(ctx, "SELECT data FROM raw_streams WHERE conn_id = ? AND dir = ? ORDER BY offset", id, d)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var out []byte
+	out := make([]byte, 0, total)
 	n := 0
 	for rows.Next() {
 		var b []byte

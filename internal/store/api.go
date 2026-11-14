@@ -146,23 +146,43 @@ func (a *API) getConnection(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) getPcap(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("conn_id")
-	data, err := a.Q.Pcap(r.Context(), id)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/vnd.tcpdump.pcap")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`.pcap"`)
-	_, _ = w.Write(data)
+	a.blob(w, r, func(ctx context.Context) ([]byte, error) { return a.Q.Pcap(ctx, id) }, func(h http.Header) {
+		h.Set("Content-Type", "application/vnd.tcpdump.pcap")
+		h.Set("Content-Disposition", `attachment; filename="`+id+`.pcap"`)
+	})
 }
 
 func (a *API) getRaw(w http.ResponseWriter, r *http.Request) {
-	data, err := a.Q.Raw(r.Context(), r.PathValue("conn_id"), r.URL.Query().Get("dir"))
+	id, dir := r.PathValue("conn_id"), r.URL.Query().Get("dir")
+	a.blob(w, r, func(ctx context.Context) ([]byte, error) { return a.Q.Raw(ctx, id, dir) }, func(h http.Header) {
+		h.Set("Content-Type", "application/octet-stream")
+	})
+}
+
+// blob serve um download de BLOB (/pcap, /raw) com o teto de downloads em andamento e o prazo de escrita da
+// ADR 0032. A vaga é tomada antes de ler o BLOB (ele é que ocupa memória) e devolvida quando a escrita termina,
+// falha ou estoura o prazo. O prazo vale só para esta resposta: é zerado ao sair (o net/http também o zera depois
+// de cada requisição HTTP/1), para não passar à requisição seguinte da mesma conexão keep-alive; SSE, WS e
+// long-poll não têm prazo de escrita.
+func (a *API) blob(w http.ResponseWriter, r *http.Request, read func(context.Context) ([]byte, error), headers func(http.Header)) {
+	release, err := a.Q.acquireBlob()
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
+	defer release()
+	rc := http.NewResponseController(w)
+	// Sem suporte a prazo (ResponseWriter de teste), segue sem ele.
+	if rc.SetWriteDeadline(time.Now().Add(a.Q.blobWrite)) == nil {
+		defer func() { _ = rc.SetWriteDeadline(time.Time{}) }()
+	}
+	data, err := read(r.Context())
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	headers(w.Header())
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	_, _ = w.Write(data)
 }
 
