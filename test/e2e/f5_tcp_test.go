@@ -184,18 +184,24 @@ func checkCase11(t *testing.T, runs []tcpRun) {
 		t.Errorf("RTT do handshake instável entre execuções: %.3f–%.3f ms", lo, hi)
 	}
 
-	// Hz do TSval: o mesmo valor nominal (±10%) em todas as execuções
+	// Hz do TSval (task 201): o store só publica a estimativa com erro ≤ 5%; em conexão curta com jitter sai nulo.
+	// Cada valor publicado fica a até 5% de uma frequência nominal, a mesma em todas as execuções.
 	t.Run("ts_clock_hz", func(t *testing.T) {
-		var base float64
+		var want float64
 		for i, r := range runs {
 			if r.hz == nil {
-				t.Fatalf("execução %d sem ts_clock_hz", i+1)
+				t.Logf("execução %d sem ts_clock_hz (conexão curta com jitter)", i+1)
+				continue
 			}
-			if base == 0 {
-				base = *r.hz
+			n := nearestNominalHz(*r.hz)
+			if math.Abs(*r.hz-n) > n*0.05 {
+				t.Errorf("execução %d: ts_clock_hz %.2f a mais de 5%% de %v Hz", i+1, *r.hz, n)
 			}
-			if math.Abs(*r.hz-base) > base*0.1 {
-				t.Errorf("execução %d: ts_clock_hz %.2f, a 1ª teve %.2f", i+1, *r.hz, base)
+			if want == 0 {
+				want = n
+			}
+			if n != want {
+				t.Errorf("execução %d: ts_clock_hz %.2f (~%v Hz), a anterior deu ~%v Hz", i+1, *r.hz, n, want)
 			}
 		}
 	})
@@ -253,4 +259,15 @@ func fmtF(f *float64) string {
 		return "null"
 	}
 	return fmt.Sprintf("%.2f", *f)
+}
+
+// nearestNominalHz devolve a frequência comum de TSval mais próxima (as mesmas do agrupamento no store).
+func nearestNominalHz(hz float64) float64 {
+	best := 0.0
+	for _, n := range []float64{1, 2, 4, 8, 10, 16, 32, 64, 100, 128, 200, 250, 256, 300, 500, 512, 1000, 1024} {
+		if best == 0 || math.Abs(math.Log(hz/n)) < math.Abs(math.Log(hz/best)) {
+			best = n
+		}
+	}
+	return best
 }

@@ -97,8 +97,11 @@ func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metr
 	}
 }
 
-// Run busca lotes do consumidor durável, grava e confirma (ack depois do commit) até ctx terminar.
+// Run busca lotes do consumidor durável, grava e confirma (ack depois do commit) até ctx terminar. O fim de ctx
+// só é olhado entre lotes: o lote em curso usa um contexto sem cancelamento e termina (commit + ack ou
+// rollback + nak) antes de Run voltar (task 206).
 func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
+	work := context.WithoutCancel(ctx)
 	if err := in.recoverOrphans(ctx); err != nil {
 		in.log.Error("recover orphans", "err", err)
 	}
@@ -126,7 +129,7 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 		}
 		if len(msgs) > 0 || len(in.pending) > 0 || len(in.eventOnly) > 0 {
 			// Só erro antes do commit chega aqui (rollback): o lote volta por Nak (ADR 0034).
-			if err := in.Process(ctx, msgs); err != nil {
+			if err := in.Process(work, msgs); err != nil {
 				in.log.Error("ingest", "err", err)
 				in.metrics.Add("store_ingest_errors_total", 1)
 				for _, m := range msgs {
@@ -140,7 +143,7 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 		}
 		// As que falharam antes ficam na fila e são tentadas de novo aqui, uma a uma.
 		in.toFinalize = append(in.toFinalize, in.flows.due(in.now().UnixNano())...)
-		if err := in.finalizeQueued(ctx); err != nil {
+		if err := in.finalizeQueued(work); err != nil {
 			in.log.Error("finalize", "err", err)
 		}
 	}

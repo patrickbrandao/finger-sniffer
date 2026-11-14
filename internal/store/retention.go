@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"math"
 	"strconv"
 	"time"
 )
@@ -104,31 +105,89 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 			}
 		}
 	}
-	// Teto de tamanho: apaga as mais antigas até ficar abaixo do teto.
-	for !over() {
-		size, err := r.logicalSize(ctx)
-		if err != nil || size <= r.maxBytes {
-			break
-		}
-		n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE ended_ns IS NOT NULL ORDER BY started_ns LIMIT ?)", r.batch)
-		if err != nil {
-			return total, err
-		}
-		if n == 0 {
-			if _, err := r.exec(ctx, "DELETE FROM stray_packets WHERE id IN (SELECT id FROM stray_packets ORDER BY ts_ns LIMIT ?)", rowBatch); err != nil {
-				return total, err
-			}
-			if s2, _ := r.logicalSize(ctx); s2 >= size {
-				break
-			}
-		}
-		total += n
-		r.purged("size", n)
+	n, err = r.purgeSize(ctx, over)
+	total += n
+	if err != nil {
+		return total, err
 	}
 	if over() {
 		return total, nil
 	}
 	return total, r.vacuum(ctx)
+}
+
+// sizeTable é uma tabela do expurgo por tamanho: head lê o instante da linha mais antiga e del apaga, das mais
+// antigas, até limit linhas com instante <= o limite.
+type sizeTable struct {
+	head, del string
+	limit     int
+	conns     bool // conta em fs_store_purged_total{reason="size"}
+}
+
+var sizeTables = []sizeTable{
+	{
+		"SELECT min(started_ns) FROM connections WHERE ended_ns IS NOT NULL",
+		"DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE ended_ns IS NOT NULL AND started_ns <= ? ORDER BY started_ns LIMIT ?)",
+		DefaultRetentionBatch, true,
+	},
+	{
+		"SELECT min(ts_ns) FROM dns_queries",
+		"DELETE FROM dns_queries WHERE id IN (SELECT id FROM dns_queries WHERE ts_ns <= ? ORDER BY ts_ns LIMIT ?)", rowBatch, false,
+	},
+	{
+		"SELECT min(ts_ns) FROM stray_packets",
+		"DELETE FROM stray_packets WHERE id IN (SELECT id FROM stray_packets WHERE ts_ns <= ? ORDER BY ts_ns LIMIT ?)", rowBatch, false,
+	},
+}
+
+// purgeSize aplica o teto de tamanho (ADR 0034 item 9): enquanto o banco passa de maxBytes, apaga do mais antigo
+// para o mais novo entre as conexões encerradas (com as filhas), as consultas DNS e os pacotes avulsos. A cada
+// passo, a tabela cuja linha mais antiga é a mais velha perde um lote, só até o instante da mais antiga das
+// outras; desiste quando nada mais pode ser apagado (restam só conexões abertas). Devolve as conexões apagadas.
+func (r *Retention) purgeSize(ctx context.Context, over func() bool) (int64, error) {
+	var total int64
+	for !over() {
+		size, err := r.logicalSize(ctx)
+		if err != nil || size <= r.maxBytes {
+			return total, err
+		}
+		heads := make([]sql.NullInt64, len(sizeTables))
+		pick := -1
+		for i, st := range sizeTables {
+			if err := r.db.QueryRowContext(ctx, st.head).Scan(&heads[i]); err != nil {
+				return total, err
+			}
+			if heads[i].Valid && (pick < 0 || heads[i].Int64 < heads[pick].Int64) {
+				pick = i
+			}
+		}
+		if pick < 0 {
+			return total, nil // nada encerrado a apagar
+		}
+		bound := int64(math.MaxInt64)
+		for i, h := range heads {
+			if i != pick && h.Valid && h.Int64 < bound {
+				bound = h.Int64
+			}
+		}
+		st := sizeTables[pick]
+		limit := st.limit
+		if st.conns {
+			limit = r.batch
+		}
+		n, err := r.exec(ctx, st.del, bound, limit)
+		if err != nil {
+			return total, err
+		}
+		if n == 0 {
+			return total, nil // não acontece: a linha mais antiga tem instante <= bound
+		}
+		if st.conns {
+			total += n
+			r.purged("size", n)
+		}
+	}
+	return total, nil
 }
 
 // purgeOrphans apaga as linhas abertas (ended_ns nulo) que o ingest esqueceu (ver Tracked). Percorre as
