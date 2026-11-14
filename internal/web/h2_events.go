@@ -225,8 +225,9 @@ func (h *h2Conn) clientResetLocked(id uint32) bool {
 // fillInstants preenche os instantes do stream (spec 010 RF-08, ADR 0029): os da requisição pelo parser in
 // (HEADERS e END_STREAM do cliente; nulos no stream 1 do Upgrade, que não tem HEADERS) e os da resposta
 // pelo parser out (primeiro HEADERS e END_STREAM ou RST_STREAM do servidor). Espera até h2EndWait o fim
-// do stream no fio; com RST_STREAM do cliente ou conexão fechada, sai na hora e response_ended_at fica
-// nulo se o servidor não encerrou o stream.
+// do stream no fio; com RST_STREAM do cliente, sai assim que as escritas em andamento chegarem ao parser
+// out (task 213), e com a conexão fechada, na hora; response_ended_at fica nulo se o servidor não encerrou o
+// stream.
 func (h *h2Conn) fillInstants(rec *h2passive.HTTP2Stream, upgrade bool) {
 	if rec.StreamID == 0 {
 		return
@@ -244,7 +245,17 @@ wait:
 			h.gen = gen
 		}
 		h.mu.Unlock()
-		if (ok && (!out.EndAt.IsZero() || !out.ResetAt.IsZero())) || clientReset {
+		if ok && (!out.EndAt.IsZero() || !out.ResetAt.IsZero()) {
+			break
+		}
+		if clientReset {
+			// O cliente pode ter resetado ao receber bytes cuja cópia ainda não chegou ao parser out (o tap
+			// entrega depois do Write no socket): espera as escritas em andamento antes de ler o out.
+			select {
+			case <-h.t.writesDone():
+			case <-timer.C:
+			case <-h.ctx.Done():
+			}
 			break
 		}
 		select {
