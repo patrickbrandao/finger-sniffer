@@ -21,7 +21,7 @@
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
 MODULE="github.com/patrickbrandao/finger-sniffer"
@@ -63,7 +63,16 @@ STEP_NOTES=()
 FAILED=0
 STOP_ON_FAIL=0
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fs-verify.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+# Diretório remoto dos testes linux_priv desta execução (vazio fora do passo); apagado também na saída por erro
+# ou sinal (task 174).
+REMOTE_WORK=""
+cleanup() {
+	rm -rf "$WORK"
+	remote_cleanup
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 now_ms() { perl -MTime::HiRes=time -e 'printf("%d\n", time()*1000)'; }
 
@@ -249,6 +258,30 @@ pebble_check() {
 	echo "FS_TEST_PEBBLE=$FS_TEST_PEBBLE"
 }
 
+# Arquivos .go do repositório: versionados e novos não ignorados. O que o .gitignore cobre (tmp/, bin/, dist/)
+# fica de fora, como no quick (task 203).
+go_source_files() {
+	local f
+	git ls-files --cached --others --exclude-standard -- '*.go' | while IFS= read -r f; do
+		[ -f "$f" ] && echo "$f"
+	done
+}
+
+# Arquivos de teste do repositório (go_source_files) que casam com o padrão ERE $1, com prefixo ./.
+test_files_matching() {
+	go_source_files | grep -E '_test\.go$' | tr '\n' '\0' | xargs -0 grep -lE "$1" /dev/null 2>/dev/null |
+		sed 's|^|./|'
+}
+
+# Formatação de todos os .go do repositório (go_source_files), não da árvore inteira.
+gofumpt_all() {
+	local files
+	files=$(go_source_files)
+	[ -n "$files" ] || return 0
+	# shellcheck disable=SC2086
+	gofumpt_check $files
+}
+
 gofumpt_check() {
 	local out
 	out=$(gofumpt -l "$@")
@@ -360,6 +393,13 @@ verify_quick() {
 		skip_step "release-test" "scripts de release sem mudança"
 	fi
 
+	# 4d. o próprio verify alterado: teste dele
+	if echo "$files" | grep -qE '^scripts/verify(-test)?\.sh$'; then
+		run_step "verify-test" scripts/verify-test.sh
+	else
+		skip_step "verify-test" "verify.sh sem mudança"
+	fi
+
 	# 5. testes ligados ao que mudou (ou os explícitos)
 	if [ ${#explicit[@]} -gt 0 ]; then
 		run_step "testes (explícitos)" go test "${explicit[@]}"
@@ -453,7 +493,7 @@ full_tests() {
 
 fuzz_all() {
 	local list rc=0 file pkg name
-	list=$(grep -rlE '^func Fuzz[A-Z0-9_][A-Za-z0-9_]*\(' --include='*_test.go' . 2>/dev/null)
+	list=$(test_files_matching '^func Fuzz[A-Z0-9_][A-Za-z0-9_]*\(')
 	for file in $list; do
 		pkg=$(dirname "$file")
 		for name in $(sed -nE 's/^func (Fuzz[A-Za-z0-9_]*)\(.*/\1/p' "$file"); do
@@ -464,28 +504,57 @@ fuzz_all() {
 	return $rc
 }
 
-has_fuzz() { grep -rqE '^func Fuzz' --include='*_test.go' . 2>/dev/null; }
+has_fuzz() { [ -n "$(test_files_matching '^func Fuzz')" ]; }
 
 # Pacotes com testes marcados //go:build linux_priv (AF_PACKET, ethtool).
 linux_priv_pkgs() {
-	grep -rlE '^//go:build .*linux_priv' --include='*_test.go' . 2>/dev/null | xargs -n1 dirname 2>/dev/null | sort -u
+	test_files_matching '^//go:build .*linux_priv' | xargs -n1 dirname 2>/dev/null | sort -u
 }
 
+# Apaga o diretório remoto desta execução, se houver. Só toca em /tmp/fs-verify.* criado por linux_priv_tests.
+remote_cleanup() {
+	[ -n "$REMOTE_WORK" ] || return 0
+	ssh -p "$VPS_PORT" -o BatchMode=yes -o ConnectTimeout=10 "$VPS_SSH" "rm -rf '$REMOTE_WORK'" || true
+	REMOTE_WORK=""
+}
+
+# Compila os pacotes com a tag linux_priv e os roda na vps602 como root. Cada execução usa um diretório remoto
+# próprio (mktemp -d) e apaga só ele, inclusive em erro: dois verify-full simultâneos, de worktrees diferentes,
+# não se atropelam (task 174). Os testes em si toleram paralelismo (cada um abre seu AF_PACKET e um NATS embutido
+# em porta aleatória; as asserções são limites inferiores), por isso não há trava.
 linux_priv_tests() {
 	local pkgs="$1" d name rc=0
 	ssh -p "$VPS_PORT" -o BatchMode=yes -o ConnectTimeout=10 "$VPS_SSH" true || {
 		echo "vps602 inacessível por ssh ($VPS_SSH:$VPS_PORT)"
 		return 1
 	}
-	ssh -p "$VPS_PORT" "$VPS_SSH" 'mkdir -p /tmp/fs-verify' || return 1
+	REMOTE_WORK=$(ssh -p "$VPS_PORT" "$VPS_SSH" 'mktemp -d /tmp/fs-verify.XXXXXX') || {
+		REMOTE_WORK=""
+		return 1
+	}
+	case "$REMOTE_WORK" in
+	/tmp/fs-verify.?*) ;;
+	*)
+		echo "diretório remoto inesperado: '$REMOTE_WORK'"
+		REMOTE_WORK=""
+		return 1
+		;;
+	esac
+	echo "vps602: diretório $REMOTE_WORK"
 	for d in $pkgs; do
 		name=$(echo "${d#./}" | tr '/' '_').test
-		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -tags linux_priv -o "$WORK/$name" "$d" || return 1
-		scp -q -P "$VPS_PORT" "$WORK/$name" "$VPS_SSH:/tmp/fs-verify/$name" || return 1
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -tags linux_priv -o "$WORK/$name" "$d" || {
+			rc=1
+			break
+		}
+		scp -q -P "$VPS_PORT" "$WORK/$name" "$VPS_SSH:$REMOTE_WORK/$name" || {
+			rc=1
+			break
+		}
 		echo "vps602: $d"
-		ssh -p "$VPS_PORT" "$VPS_SSH" "cd /tmp/fs-verify && ./$name -test.v -test.count=1" || rc=1
+		ssh -p "$VPS_PORT" "$VPS_SSH" "cd '$REMOTE_WORK' && ./$name -test.v -test.count=1" || rc=1
 	done
-	ssh -p "$VPS_PORT" "$VPS_SSH" 'rm -rf /tmp/fs-verify' || true
+	remote_cleanup
 	return $rc
 }
 
@@ -507,8 +576,9 @@ verify_full() {
 	if [ "${CI:-}" = true ]; then
 		run_step "pebble (CI)" pebble_check
 	fi
-	run_step "format" gofumpt_check .
+	run_step "format" gofumpt_all
 	run_step "binários versionados" scripts/check-binaries.sh
+	run_step "verify-test" scripts/verify-test.sh
 	run_step "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
 	run_step "contratos" contracts_check
@@ -546,6 +616,7 @@ verify_full() {
 }
 
 case "$MODE" in
+lib) return 0 2>/dev/null || exit 0 ;; # carregado por scripts/verify-test.sh só pelas funções
 quick) verify_quick "$@" ;;
 full) verify_full "$@" ;;
 *)
