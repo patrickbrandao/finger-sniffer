@@ -1,1 +1,0 @@
-- infra: toolchain Go 1.27.4, corrige GO-2026-6859 (queda do servidor HTTP/1 em `net/http`) achada pelo govulncheck (task 199).
