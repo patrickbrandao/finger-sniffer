@@ -26,7 +26,9 @@ Fatos que orientam a decisão:
   provável" no contrato ficaria presa à regra de compatibilidade aditiva (ADR 0001) e mudar uma faixa seria mudar
   comportamento acordado.
 - O MSS que o **cliente** anuncia limita os segmentos que o **espelho** envia, não os que o cliente envia. Os
-  segmentos do cliente (`tcp.segments_in`) são limitados pelo MSS do SYN-ACK do espelho. A proposta 3 da task 193
+  segmentos do cliente (`tcp.segments_in`) são limitados pelo MSS do SYN-ACK do espelho e pelo MTU do próprio
+  cliente (a task 198 mediu na vps602 um upload com máximo de 1400 bytes, abaixo dos 1448 do SYN-ACK, porque o
+  MTU do cliente era 1452). A proposta 3 da task 193
   ("segmento de dados maior que `syn_mss` indica reescrita") está invertida.
 - A classificação do endereço é por prefixos fixos da IANA (registros de uso especial), sem interpretação.
 
@@ -62,8 +64,10 @@ os campos novos (ausentes, não nulos), como no 0.4.0.
    | 220 (só IPv6) | 1280 | MTU mínimo do IPv6 (Teredo e túneis que fixam 1280) |
 3. **Sem campo auxiliar de "MSS máximo visto".** `tcp.segments_in` (RF-09) já traz o tamanho dos primeiros
    segmentos; a doc explica a leitura certa: só com o cliente mandando mais de um segmento cheio, um
-   `max(segments_in)` menor que o MSS do SYN-ACK do espelho (1460/1440, menos 12 com timestamps) indica MSS do
-   SYN-ACK reescrito no caminho ou PMTUD do cliente; maior indica reescrita para cima ou violação. Os pedidos
+   `max(segments_in)` menor que o MSS do SYN-ACK do espelho (1460/1440, menos 12 com timestamps) **e** que o
+   limite do MTU do próprio cliente (MTU − 40/60 − 12 com timestamps; o `tcp.mtu_implied` do SYN é a melhor
+   estimativa dele) indica MSS do SYN-ACK reescrito no caminho ou PMTUD do cliente; maior que o MSS do SYN-ACK
+   indica reescrita para cima ou violação. Os pedidos
    típicos das sondagens são pequenos, então o sinal raramente existe e não justifica campo.
 4. **`ip.src_kind` no `IPInfo` (spec 013 RF-05a)**, calculado pelo store do endereço de origem da conexão (o do
    cliente), em TCP e UDP. Enum final, avaliado nesta ordem (primeira regra que casa):

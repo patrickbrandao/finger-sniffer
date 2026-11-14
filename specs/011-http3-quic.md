@@ -35,7 +35,8 @@ o Initial.
 - Tracker dos Initials: no máximo 4096 entradas e 8 MiB de datagramas guardados; uma entrada não reclamada pelo
   quic-go e sem ClientHello completo sai ao fim dos 2 s. Com a tabela cheia, uma 5-tupla nova despeja a entrada não
   reclamada já encerrada mais antiga, preferindo as sem ClientHello; sem nenhuma, a 5-tupla nova fica sem análise
-  do Initial (o h3 continua funcionando) e conta em `web_h3_init_table_full_total` no heartbeat. Sem Retry e sem
+  do Initial (o h3 continua funcionando). Toda 5-tupla nova que encontra a tabela cheia, com ou sem despejo, conta
+  em `web_h3_init_table_full_total` no heartbeat. Sem Retry e sem
   limite por prefixo (RF-06, ADR 0001).
 - `pkg/quicparse`: cabeçalho longo (versão, DCID/SCID, token, Length, número do pacote), remoção da proteção de
   cabeçalho e decifragem com as chaves Initial derivadas do DCID (QUIC v1 RFC 9001 e v2 RFC 9369), frames na

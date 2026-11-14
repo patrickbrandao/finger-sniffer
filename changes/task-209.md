@@ -1,0 +1,1 @@
+- specs: ADR 0031 cita o MTU do próprio cliente como limite de `tcp.segments_in`; spec 016 RF-10 registra a versão desencontrada tolerada no smoke com `SVC`; spec 011 conta `web_h3_init_table_full_total` em toda 5-tupla nova com a tabela cheia, com ou sem despejo (task 209).
