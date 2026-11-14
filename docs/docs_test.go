@@ -345,3 +345,27 @@ func TestContracts04Docs(t *testing.T) {
 		}
 	}
 }
+
+// TestMSSWindowDocs: probes.md ensina a ler o MSS, o MTU implícito e o teto pela janela só com campos do contrato
+// (task 195): a conta sem timestamps, as referências 1460/1440, o aviso de clamping, a janela do SYN sem escala e
+// a série da janela; sem citar consumidor específico (ADR 0028).
+func TestMSSWindowDocs(t *testing.T) {
+	data, err := os.ReadFile("probes.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, w := range []string{
+		"#### MSS, MTU implícito e teto de throughput pela janela", `["mss", N]`, "`N + 40`", "`N + 60`",
+		"Não some os 12 bytes", "1460 (IPv4) e 1440 (IPv6)", "PPPoE", "GRE ou 6in4", "IPsec", "MSS clamping",
+		"`janela_max = window × 2^S`", "nunca é escalada", "`teto_Mbps = janela × 8 / rtt_handshake_ms / 1000`",
+		"`tcp.window_series`", "o SYN visto é o do proxy", "túnel L3",
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("probes.md sem %q", w)
+		}
+	}
+	if strings.Contains(strings.ToLower(s), "tcp-analyzer") {
+		t.Errorf("probes.md cita consumidor específico (ADR 0028)")
+	}
+}

@@ -661,6 +661,59 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections
 - **Diferenças esperadas**: por proxy, o TFO é do proxy (a maioria não usa); um caminho que remove a opção ou os
   dados do SYN aparece como `tfo: false` ou sem `payload_b64` onde o direto tinha.
 
+#### MSS, MTU implícito e teto de throughput pela janela
+
+O SYN capturado permite duas leituras que diferem entre caminhos, com campos que já estão no registro.
+
+**MSS e MTU implícito.** O MSS anunciado é o item `["mss", N]` de `tcp.syn.options`. O MTU que o remetente do
+SYN supõe é `N + 40` no IPv4 e `N + 60` no IPv6 (cabeçalhos IP e TCP sem opções). Não some os 12 bytes de
+timestamps: o MSS do SYN não os desconta. Para MTU 1500 a referência é 1460 (IPv4) e 1440 (IPv6); a redução é
+a referência menos `N`:
+
+| Redução do MSS | Causa provável |
+| --- | --- |
+| 0 | MTU 1500 no caminho do remetente |
+| 8 | PPPoE |
+| 20 | GRE ou 6in4 |
+| ~60–80 | OpenVPN ou WireGuard |
+| 81–100 | IPsec |
+| mais que isso | encapsulamentos somados |
+
+A tabela é palpite, não diagnóstico: um roteador que faz MSS clamping reescreve o MSS do SYN e dá o mesmo
+valor sem que haja túnel, e o MSS diz o MTU que o remetente supõe, não o menor MTU do caminho.
+
+**Teto pela janela.** `window` (`tcp.syn.window`) e `wscale` (item `["wscale", S]` de `tcp.syn.options`) dão a
+janela máxima que a escala permite, `janela_max = window × 2^S`. A janela do próprio SYN nunca é escalada
+(RFC 7323), então `window` é a janela inicial e `janela_max` é o limite superior (exato quando `window` é
+65535). Com o RTT do handshake, o teto de throughput que uma janela impõe é
+`teto_Mbps = janela × 8 / rtt_handshake_ms / 1000`. A janela do SYN é só a inicial: o auto-tuning do cliente a
+aumenta durante a conexão, e `tcp.window_series` (`[t_ms, janela com escala aplicada]`, sentido cliente →
+espelho) mostra a evolução. Numa conexão curta a série para cedo; o teto real fica entre o da janela vista e o
+de `janela_max`.
+
+```console
+$ curl -s "http://$H/p/$id/" >/dev/null
+$ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[]
+    | (.tcp.syn.options | map({(.[0]): .[1]}) | add) as $o | .tcp.rtt_handshake_ms as $rtt
+    | {family, mss: $o.mss, mtu: ($o.mss + (if .family == 6 then 60 else 40 end)),
+       reducao: ((if .family == 6 then 1440 else 1460 end) - $o.mss),
+       window: .tcp.syn.window, wscale: $o.wscale, janela_max: (.tcp.syn.window * pow(2; $o.wscale // 0)),
+       rtt: $rtt, teto_syn_mbps: (.tcp.syn.window * 8 / $rtt / 1000),
+       teto_max_mbps: (.tcp.syn.window * pow(2; $o.wscale // 0) * 8 / $rtt / 1000),
+       janela_vista: ([.tcp.window_series[][1]] | max)}'
+{"family":6,"mss":1432,"mtu":1492,"reducao":8,"window":65535,"wscale":6,"janela_max":4194240,"rtt":16.382,"teto_syn_mbps":32.00341838603345,"teto_max_mbps":2048.218776706141,"janela_vista":132096}
+```
+
+No exemplo (um cliente IPv6 direto): MSS 1432 dá MTU 1492, redução de 8, compatível com PPPoE no acesso. A
+janela inicial de 65535 bytes a 16,4 ms limita a ~32 Mbit/s; a escala 6 permite até 4.194.240 bytes
+(~2 Gbit/s), e a janela já tinha subido para 132096 bytes (~64,5 Mbit/s) antes do fim da conexão.
+
+- **Diferenças esperadas**: com proxy HTTP ou túnel `CONNECT`, o SYN visto é o do proxy: MSS, `wscale`, janela,
+  TTL e JA4T são do proxy e o RTT é o do proxy até o espelho, então o teto calculado é o do trecho
+  proxy → espelho. Num túnel L3 (VPN), o SYN é o do cliente, com o MSS reduzido pelo túnel ou pelo clamping,
+  e o RTT inclui o túnel. Um MSS menor no caminho em teste do que no direto, com o mesmo JA4T afora o MSS, aponta
+  túnel ou clamping no caminho.
+
 ### Caso 12: HTTP/3 (só caminho direto)
 
 ```console
