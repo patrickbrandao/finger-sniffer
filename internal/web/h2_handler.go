@@ -106,8 +106,12 @@ func (st *h2Stream) serve() {
 		return
 	}
 	// O corpo é lido inteiro antes da resposta, como no HTTP/1 (o fim do stream e os trailers entram no
-	// registro); o x/net manda o 100-continue sozinho.
+	// registro); o x/net manda o 100-continue sozinho. Enquanto espera o corpo o stream não segura a
+	// ociosidade (spec 010 RF-09, ADR 0033): se a conexão inteira ficar idle sem bytes, ela fecha como no
+	// HTTP/1 e a leitura do corpo termina com erro; os delays da resposta continuam segurando.
+	st.h.ic.release()
 	_, _ = io.Copy(io.Discard, r.Body)
+	st.h.ic.hold()
 
 	path, rawQuery, ok := splitTarget(r.RequestURI)
 	kind := routeBadTarget
