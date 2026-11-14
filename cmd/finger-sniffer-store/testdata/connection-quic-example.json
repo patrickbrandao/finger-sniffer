@@ -181,6 +181,7 @@
         },
         "syn": null
       },
+      "src_kind": "other",
       "tos": 0,
       "traffic_class": null,
       "ttl": 64,
