@@ -128,9 +128,10 @@ paths:
       operationId: deleteProbe
       summary: Apaga o probe, suas conexões e consultas DNS
       description: |
-        Apaga numa transação as conexões fechadas do probe, as consultas DNS e o probe. Conexões ainda abertas
-        somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo real) e são apagadas quando
-        fecham (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
+        Apaga numa transação todas as conexões do probe (inclusive as ainda abertas), as consultas DNS e o probe;
+        tudo some na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo real). Pacotes e eventos
+        que ainda chegarem para as conexões que estavam abertas são descartados até elas fecharem (ADR 0034).
+        Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
       responses:
         "204": { description: Apagado. }
         "400": { $ref: "#/components/responses/BadRequest" }

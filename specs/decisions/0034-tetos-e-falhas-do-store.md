@@ -61,11 +61,14 @@ cliente anônimo e caminhos de erro sem regra escrita:
 7. **Evento de conexão apagada (140).** Se o alvo de um evento não existe mais no banco, o evento segue a regra de
    evento sem conexão (spec 004: espera até 2 s e cria a conexão só com eventos), salvo o caso do item 8. **Sem
    `MaxDeliver`/`BackOff`** no consumidor: a semântica de entrega da ADR 0016 fica como está.
-8. **`DELETE` de probe (150).** Numa transação: apaga as conexões fechadas do probe (com as filhas), as consultas
-   DNS e a linha do probe. As conexões **abertas** do probe somem na hora das leituras por probe
-   (`/probes/{id}`, `/connections?probe=`, tempo real com `probe=`) e da leitura direta, e a linha é apagada quando
-   a conexão fecha; até lá o store guarda o conjunto desses `conn_id` em memória e descarta os eventos e pacotes
-   que chegarem para eles. Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
+8. **`DELETE` de probe (150).** Numa transação: apaga todas as conexões do probe, **abertas** ou fechadas (com as
+   filhas), as consultas DNS e a linha do probe; tudo some na hora de todas as leituras (`/probes/{id}`,
+   `/connections?probe=`, leitura direta, tempo real). O ingest guarda em memória os `conn_id` das que estavam
+   abertas (ou à espera da finalização) e descarta os pacotes, os eventos e a finalização delas, sem recriar a
+   linha, até a conexão fechar. Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
+   *Ajuste de 2026-11-14 (task 216):* o texto original apagava a linha da conexão aberta só no fechamento; a
+   implementação (PR #168) apaga na hora, na mesma transação. O efeito na API é o mesmo e nada se perde (o
+   cliente pediu o apagamento), com uma linha a menos para filtrar em cada leitura; o texto foi alinhado.
 9. **Expurgo por tamanho (154).** O laço de `FS_STORE_MAX_BYTES` apaga, do mais antigo para o mais novo,
    `connections` (com as filhas), `dns_queries` e `stray_packets`, e só desiste quando nada mais pode ser apagado.
 10. **Cabeçalhos do lote FSPB (182).** Antes de decodificar, o store confere `Fs-Format: fspb1` e
@@ -91,7 +94,7 @@ cliente anônimo e caminhos de erro sem regra escrita:
 - `MaxDeliver`/`BackOff` no consumidor (140): defesa genérica, mas descartaria lotes de pacotes legítimos depois de
   uma falha passageira do SQLite; o laço tem causa conhecida e correção local.
 - `DELETE` que espera as conexões abertas fecharem, ou que responde 409: o cliente não controla o fim das
-  conexões alheias ao seu teste; esconder na hora e apagar no fechamento dá o efeito esperado.
+  conexões alheias ao seu teste; apagar na hora e descartar o resto em memória dá o efeito esperado.
 - Variável própria para o web em vez da regra do zero (184): mais uma chave para o mesmo conceito.
 
 ## Consequências

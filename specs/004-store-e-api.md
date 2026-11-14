@@ -82,7 +82,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     evento (sem pacotes: `times.syn` nulo, sem `ip`/`tcp`, sem pcap) — é o caso do capture fora do ar;
   - evento de conexão já finalizada (até `FS_RETENTION`): atualiza o registro gravado;
   - evento cuja conexão não existe mais no banco (expurgada): segue a regra do evento sem conexão; evento de
-    conexão de um probe apagado pelo `DELETE` é descartado (ADR 0034);
+    conexão aberta de um probe apagado pelo `DELETE` é descartado (ADR 0034);
   - todo evento é guardado em `app_events`; os fluxos (`stream.bytes`, `raw.read`) vão para `raw_streams`.
 - Montagem do registro a partir dos eventos:
 
@@ -133,11 +133,11 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     presença do parâmetro: `wait=0s` é um `wait` válido, avalia o critério uma vez, responde na hora e traz
     `wait_met`. Para
     o conjunto completo de uma sondagem, o uso recomendado é `wait=30s&settle=1s` (acima dos 500 ms do RNF-04).
-- `DELETE /api/v1/probes/{id}` (ADR 0034): numa transação, apaga as conexões fechadas do probe (com as filhas),
-  as consultas DNS e o probe. As conexões abertas do probe somem na hora de todas as leituras (por probe, lista,
-  detalhe e tempo real) e a linha é apagada quando a conexão fecha; até lá o store guarda esses `conn_id` em
-  memória e descarta eventos e pacotes que chegarem para eles. Tráfego novo com o mesmo probe ID cria um probe
-  novo.
+- `DELETE /api/v1/probes/{id}` (ADR 0034): numa transação, apaga todas as conexões do probe, abertas ou
+  fechadas (com as filhas), as consultas DNS e o probe; tudo some na hora de todas as leituras (por probe, lista,
+  detalhe e tempo real). Os `conn_id` das conexões que ainda estavam abertas (ou à espera da finalização) ficam
+  em memória no ingest, que descarta os pacotes, os eventos e a finalização delas, sem recriar a linha, até a
+  conexão fechar. Tráfego novo com o mesmo probe ID cria um probe novo.
 - Downloads de BLOB (`/pcap`, `/raw`; ADR 0032): no máximo 4 em andamento somando as duas rotas; acima, `503`
   com `Retry-After: 1`. Cada resposta tem prazo de escrita de 60 s (por resposta, nunca global).
 - Falha no ingest (ADR 0034):
@@ -229,7 +229,7 @@ Contrato: [cmd/finger-sniffer-store/openapi.yaml](../cmd/finger-sniffer-store/op
 | `GET /api/v1/connections/{conn_id}/raw?dir=in\|out` | bytes de aplicação de cada sentido (`out` = o que o espelho mandou); 503 acima de 4 downloads |
 | `GET /api/v1/dns?probe=&since=` | consultas DNS |
 | `GET /api/v1/packets?since=&until=&src_ip=` | pacotes avulsos; `src_ip` = IP do cliente (origem com `dir=in`, destino com `dir=out`) |
-| `DELETE /api/v1/probes/{id}` | apaga o probe, suas conexões e consultas DNS (abertas: ocultas já, apagadas ao fechar) |
+| `DELETE /api/v1/probes/{id}` | apaga o probe, suas conexões (abertas também) e consultas DNS, na hora |
 | `GET /api/v1/stream` | SSE |
 | `GET /api/v1/ws` | WebSocket |
 | `GET /api/v1/openapi.yaml` | contrato |
