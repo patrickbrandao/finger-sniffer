@@ -246,6 +246,9 @@ type flowTable struct {
 	// finalizing são as conexões que saíram da tabela e esperam a finalização no ingest (ADR 0034): a linha
 	// delas ainda tem ended_ns nulo, mas não é órfã (Retention.Tracked).
 	finalizing map[string]struct{}
+	// hidden são as conexões abertas de um probe apagado pelo DELETE (ADR 0034 item 8): a linha já saiu do banco
+	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
+	hidden     map[string]struct{}
 	reserved   map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
 	newID      func(ts int64) string
 	grace      time.Duration
@@ -272,7 +275,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 		db = &p0f.DB{} // sem banco: assinatura crua sem palpite de SO
 	}
 	return &flowTable{
-		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]struct{}{},
+		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]struct{}{}, hidden: map[string]struct{}{},
 		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
@@ -338,6 +341,7 @@ type result struct {
 	created bool  // conexão nova (inserir a linha)
 	ended   *conn // conexão anterior com a mesma 5-tupla que terminou agora (reuso)
 	late    bool  // pacote tardio de uma conexão já gravada (conn é ela)
+	hidden  bool  // conexão de um probe apagado: descartar (ADR 0034 item 8)
 }
 
 // handle correlaciona um pacote (spec 004 RF-02/RF-03).
@@ -411,6 +415,9 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		t.refund(c)
 	}
 	res.conn = c
+	if len(t.hidden) > 0 {
+		_, res.hidden = t.hidden[c.id]
+	}
 	return res
 }
 
@@ -617,7 +624,38 @@ func (t *flowTable) finalized(conns ...*conn) {
 	defer t.mu.Unlock()
 	for _, c := range conns {
 		delete(t.finalizing, c.id)
+		delete(t.hidden, c.id)
 	}
+}
+
+// hide marca as conexões abertas (ou à espera da finalização) de um probe apagado; as que o ingest não conhece
+// ficam de fora, porque nada as tiraria do conjunto.
+func (t *flowTable) hide(ids []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, id := range ids {
+		_, fin := t.finalizing[id]
+		if _, open := t.byID[id]; open || fin {
+			t.hidden[id] = struct{}{}
+		}
+	}
+}
+
+// unhide desfaz hide (transação do DELETE desfeita).
+func (t *flowTable) unhide(ids []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, id := range ids {
+		delete(t.hidden, id)
+	}
+}
+
+// isHidden informa se a conexão é de um probe apagado (ver hide).
+func (t *flowTable) isHidden(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.hidden[id]
+	return ok
 }
 
 // tracked informa se o conn_id está na memória do ingest (aberto ou à espera da finalização): a retenção não

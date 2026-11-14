@@ -163,7 +163,8 @@ que o espelho viu (spec 017, ADR 0028). Para cada caso e caminho:
    conexão). Quando o caso abre um número conhecido de conexões, acrescente `&min_conns=N`
    ([api.md](api.md#long-poll-wait)).
 5. **Comparar** com a execução direta os campos estáveis do caso, descontando as diferenças esperadas do caminho.
-6. Opcional: `DELETE /api/v1/probes/<id>` para não deixar o registro público até expirar.
+6. Opcional: `DELETE /api/v1/probes/<id>` para não deixar o registro público até expirar; vale também para as
+   conexões que ainda estiverem abertas (somem na hora e não voltam ao fechar).
 
 ```sh
 api=https://vps602.tmsoft.com.br:9000/api/v1

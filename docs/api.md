@@ -31,10 +31,10 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 
 - Os registros duram `FS_RETENTION` (10 minutos) ou até o banco chegar a `FS_STORE_MAX_BYTES` (2 GiB); o primeiro
   limite atingido apaga os registros mais antigos (ADR 0012). Depois disso a API responde 404.
-- `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões fechadas e suas consultas DNS (204).
-  As conexões do probe ainda abertas somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo
-  real) e são apagadas quando fecham (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
-  probe novo.
+- `DELETE /api/v1/probes/{id}` apaga antes do prazo, numa transação, o probe, suas conexões e suas consultas DNS
+  (204). As conexões ainda abertas somem na hora de todas as leituras (por probe, lista, detalhe, pcap e tempo real)
+  e o que chegar delas até fecharem é descartado. Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe
+  novo.
 - Não há histórico além da retenção nem paginação por cursor: as listas aceitam só `limit` (1 a 1000, padrão 100)
   e vêm das mais novas para as mais antigas.
 
@@ -44,7 +44,7 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 | --- | --- |
 | `GET /api/v1/health` | saúde de cada serviço, host, certificados e banco |
 | `GET /api/v1/probes/{id}?wait=10s` | conexões (completas) e consultas DNS do probe, até 1000 de cada (`truncated`) |
-| `DELETE /api/v1/probes/{id}` | apaga o probe (204) |
+| `DELETE /api/v1/probes/{id}` | apaga o probe, inclusive as conexões ainda abertas (204) |
 | `GET /api/v1/connections?src_ip=&dst_port=&since=&until=&probe=&limit=` | lista resumida (`ConnectionSummary`) |
 | `GET /api/v1/connections/{conn_id}` | registro completo (`Connection`) |
 | `GET /api/v1/connections/{conn_id}/pcap` | pcap da conexão, os dois sentidos |

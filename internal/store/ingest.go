@@ -70,6 +70,7 @@ type Ingestor struct {
 	batchCreated []*conn             // conexões cuja linha foi inserida pelo lote em curso
 	eoUndo       []eventOnlyUndo     // mudanças do lote em curso em eventOnly, para desfazer
 	batchApp     map[string]struct{} // conexões abertas que receberam eventos no lote em curso
+	eoChecked    map[string]struct{} // conexões só de eventos com a linha conferida no lote em curso
 	appStale     []*conn             // conexões abertas cujo estado de aplicação é relido no próximo lote
 	pendSnap     []pendingEvent      // pending no início do lote em curso
 	pendKeysSnap map[flowKey]int     // pendingKeys no início do lote em curso
@@ -93,7 +94,7 @@ func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metr
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
 		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
 		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{}, late: map[string]*conn{},
-		batchApp: map[string]struct{}{},
+		batchApp: map[string]struct{}{}, eoChecked: map[string]struct{}{},
 	}
 }
 
@@ -158,6 +159,7 @@ func (in *Ingestor) drainPending() {
 	if len(in.pending) == 0 {
 		return
 	}
+	in.beginBatch()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := func() (err error) {
@@ -335,6 +337,9 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		if off || cut {
 			in.flows.mark(c, cut, off)
 		}
+	}
+	if res.hidden {
+		return nil // probe apagado: a linha já saiu do banco e não volta (ADR 0034 item 8)
 	}
 	if res.late {
 		in.metrics.Add("store_late_packets_total", 1)
@@ -598,6 +603,9 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		// A linha foi desfeita com o lote que a criou e a reentrega não chegou: nada gravado a finalizar.
 		in.log.Warn("connection without stored row dropped", "conn_id", c.id)
 		return nil
+	}
+	if in.flows.isHidden(c.id) {
+		return nil // probe apagado pelo DELETE: a linha já saiu, nada a gravar (finalized tira do conjunto)
 	}
 	rows, err := tx.QueryContext(ctx, "SELECT ts_ns, dir, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", c.id)
 	if err != nil {
