@@ -150,6 +150,13 @@ type HTTP2Stream struct {
 
 	// HeadFields é quantos itens de Fields vieram do primeiro bloco (o resto são trailers).
 	HeadFields int `json:"-"`
+	// FieldsCut informa que campos decodificados não foram guardados (teto de campos retidos ou orçamento de
+	// entrada, ADR 0033): o evento sai com fields_truncated.
+	FieldsCut bool `json:"-"`
+	// retained é o custo dos campos guardados deste stream (devolvido por ReleaseFields); headSeen marca que
+	// o primeiro bloco já foi decodificado (os seguintes são trailers, mesmo com campos cortados ou soltos).
+	retained int
+	headSeen bool
 	// HeadersAt, EndAt e ResetAt são os instantes (de FeedAt) em que terminaram, neste sentido, o primeiro
 	// frame HEADERS do stream, o frame com END_STREAM e o RST_STREAM; zero quando não houve (ou com Feed).
 	HeadersAt time.Time `json:"-"`
@@ -194,6 +201,10 @@ type Options struct {
 	HeaderTableSize uint32
 	// Limits são os tetos; o valor zero usa DefaultLimits().
 	Limits Limits
+	// Reserve e Release, quando definidos, pedem e devolvem ao orçamento de entrada o custo dos campos
+	// guardados (80 + nome + valor; ADR 0033). Reserve false: o campo não é guardado (FieldsCut).
+	Reserve func(n int) bool
+	Release func(n int)
 }
 
 // Parser consome os bytes de um sentido em pedaços (Feed) e acumula o HTTP2Info.
@@ -223,6 +234,7 @@ type Parser struct {
 	hpackDead   bool
 
 	streams     map[uint32]int
+	retained    int // custo dos campos guardados agora (teto MaxRetainedFieldBytes)
 	settingsSet bool
 	seenHeaders bool
 }
@@ -534,7 +546,8 @@ func (p *Parser) finishBlock() {
 	p.block = p.block[:0]
 	st := p.stream(p.blockStream)
 	if st != nil {
-		first := st.HeadFields == 0 && len(st.Fields) == 0
+		first := !st.headSeen
+		st.headSeen = true
 		for _, f := range fields {
 			if first && len(f.Name) > 0 && f.Name[0] == ':' {
 				st.PseudoOrder = append(st.PseudoOrder, f.Name)
@@ -545,7 +558,21 @@ func (p *Parser) finishBlock() {
 				}
 			}
 		}
-		st.Fields = append(st.Fields, fields...)
+		// A decodificação acima já correu inteira (a tabela dinâmica fica em sincronia); aqui só se decide o
+		// que é guardado, dentro do teto de campos retidos e do orçamento de entrada.
+		for _, f := range fields {
+			if st.FieldsCut {
+				break
+			}
+			cost := FieldOverhead + len(f.Name) + len(f.Value)
+			if p.retained+cost > p.lim.MaxRetainedFieldBytes || (p.opts.Reserve != nil && !p.opts.Reserve(cost)) {
+				st.FieldsCut = true
+				break
+			}
+			p.retained += cost
+			st.retained += cost
+			st.Fields = append(st.Fields, f)
+		}
 		if first {
 			st.HeadFields = len(st.Fields)
 		}
@@ -554,6 +581,28 @@ func (p *Parser) finishBlock() {
 		p.killHPACK(err)
 	}
 }
+
+// ReleaseFields solta os campos guardados do stream id (já publicados por quem monta o registro) e devolve
+// o custo ao teto e ao orçamento. O stream continua registrado (instantes, fim, prioridade).
+func (p *Parser) ReleaseFields(id uint32) {
+	i, ok := p.streams[id]
+	if !ok {
+		return
+	}
+	st := &p.info.Streams[i]
+	if st.retained > 0 {
+		p.retained -= st.retained
+		if p.opts.Release != nil {
+			p.opts.Release(st.retained)
+		}
+	}
+	st.retained = 0
+	st.Fields = nil
+	st.HeadFields = 0
+}
+
+// RetainedFieldBytes devolve o custo dos campos guardados agora.
+func (p *Parser) RetainedFieldBytes() int { return p.retained }
 
 // killHPACK para a decodificação HPACK da conexão: sem o bloco perdido a tabela dinâmica não é mais
 // confiável. Os frames continuam sendo registrados.

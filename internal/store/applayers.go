@@ -119,10 +119,13 @@ func (l *layers) addLayer(ev appEvent) {
 		if l.h2StreamIdx == nil {
 			l.h2StreamIdx = map[int]int{}
 		}
-		if i, ok := l.h2StreamIdx[h.StreamID]; ok {
+		// stream_id 0 é "stream não identificado" (spec 010 RF-02a, ADR 0032): sempre acrescenta.
+		if i, ok := l.h2StreamIdx[h.StreamID]; ok && h.StreamID != 0 {
 			l.h2Streams[i] = ev.env.Payload
 		} else {
-			l.h2StreamIdx[h.StreamID] = len(l.h2Streams)
+			if h.StreamID != 0 {
+				l.h2StreamIdx[h.StreamID] = len(l.h2Streams)
+			}
 			l.h2Streams = append(l.h2Streams, ev.env.Payload)
 		}
 	case event.SubjectWebHTTP3Connection:

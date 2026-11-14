@@ -45,7 +45,7 @@ func (h *h2Conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if h.up != nil {
 			st.rec.JA4H = h.up.ja4h
 		}
-	} else if rec, ok := h.streamRecordLocked(r.Method, r.RequestURI, r.Host); ok {
+	} else if rec, ok := h.streamRecordLocked(r); ok {
 		st.rec = rec
 		st.rec.JA4H = ja4hOfStream(&st.rec)
 	} else {
@@ -76,6 +76,13 @@ func (st *h2Stream) finish() {
 	st.rec.Status = st.status
 	h.fillInstants(&st.rec, st.upgrade)
 	h.publishStream(&st.rec, st.probeID)
+	// Publicado: os campos do stream saem dos parsers e o custo volta ao orçamento (ADR 0033).
+	if st.rec.StreamID != 0 {
+		h.mu.Lock()
+		h.in.ReleaseFields(st.rec.StreamID)
+		h.out.ReleaseFields(st.rec.StreamID)
+		h.mu.Unlock()
+	}
 	if first {
 		h.publishConn()
 	}
