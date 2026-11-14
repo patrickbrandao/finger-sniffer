@@ -139,6 +139,22 @@ func (ws *wsSession) onFrame(dir string, f wsFrame) {
 	ws.c.publish(event.SubjectWebWebSocketFrame, f.At, ws.probeID, p)
 }
 
+// flushUpgrade publica o Upgrade de uma sessão que terminou sem nenhum frame (spec 012 RF-05, ADR 0032):
+// evento com upgrade_only e campos de frame zerados, que o store usa para preencher o websocket sem
+// acrescentar frame.
+func (ws *wsSession) flushUpgrade() {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if ws.sentUp {
+		return
+	}
+	ws.sentUp = true
+	up := ws.upgrade
+	ws.c.publish(event.SubjectWebWebSocketFrame, ws.c.srv.now(), ws.probeID, event.WebSocketFrame{
+		Dir: event.DirectionIn, Upgrade: &up, UpgradeOnly: true,
+	})
+}
+
 // wsConn é a conexão entregue ao coder/websocket depois do "hijack": lê de r, escreve em w e copia os
 // bytes para o parser. Os prazos são da conexão de baixo (HTTP/1) ou do contexto (h2).
 type wsConn struct {
@@ -231,6 +247,7 @@ func acceptOptions(r *http.Request) *websocket.AcceptOptions {
 // Um eco que não termina de escrever em wsWriteTimeout chama kill, que encerra o TCP: no h2 a escrita
 // presa no controle de fluxo do stream só solta com a conexão fechada.
 func (ws *wsSession) echo(ctx context.Context, wc *websocket.Conn, idle func() time.Duration, kill func()) {
+	defer ws.flushUpgrade()
 	wc.SetReadLimit(wsReadLimit)
 	for {
 		rctx, cancel := ctx, context.CancelFunc(func() {})
