@@ -106,8 +106,11 @@ func LoadConfig(base service.Config) (Config, error) {
 	if c.MaxConns, err = service.EnvInt("FS_MAX_CONNS", DefaultMaxConns); err != nil {
 		return c, err
 	}
+	// FS_MAX_CONNS=0 só tem significado no store (degrada tudo, spec 004 RF-11, ADR 0034) e o env é compartilhado:
+	// o web não pode ter limite zero (nenhuma conexão seria aceita), então fica com o padrão e avisa.
 	if c.MaxConns <= 0 {
-		return c, fmt.Errorf("web: FS_MAX_CONNS must be > 0")
+		c.Warnings = append(c.Warnings, fmt.Sprintf("FS_MAX_CONNS=%d not usable by web; using %d", c.MaxConns, DefaultMaxConns))
+		c.MaxConns = DefaultMaxConns
 	}
 	c.Htdocs = service.Env("FS_HTDOCS", DefaultHtdocs)
 	if c.IdleDefault, err = service.EnvDuration("FS_IDLE_DEFAULT", DefaultIdle); err != nil {
