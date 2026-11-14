@@ -168,6 +168,7 @@ type analysis struct {
 	tsFirst      tsSample
 	tsLast       tsSample
 	tsCount      int
+	tsHull       tsHulls // envoltórias das amostras para a frequência (tsclock.go)
 	tsInitial    *int64
 	clockGroup   *string
 	cookie       bool
@@ -230,12 +231,7 @@ func (c *conn) analyze(fi frameInfo, ts int64, cli bool, t *flowTable) {
 	}
 
 	if cli && opts.hasTS {
-		s := tsSample{t: ts, v: opts.tsVal}
-		if a.tsCount == 0 {
-			a.tsFirst = s
-		}
-		a.tsLast = s
-		a.tsCount++
+		a.addTS(ts, opts.tsVal)
 	}
 
 	// retransmissão, fora de ordem e keep-alive como o tshark (seqanalysis.go)
@@ -605,17 +601,49 @@ func (a *analysis) ackPattern() string {
 	return "mixed"
 }
 
-// clockHz estima a frequência do TSval do cliente (precisa de 100 ms e 5 ticks).
-func (a *analysis) clockHz() float64 {
+// addTS registra um TSval do cliente capturado em ts.
+func (a *analysis) addTS(ts int64, v uint32) {
+	s := tsSample{t: ts, v: v}
+	if a.tsCount == 0 {
+		a.tsFirst = s
+	}
+	a.tsLast = s
+	a.tsCount++
+	if dv := s.v - a.tsFirst.v; dv < 1<<31 {
+		a.tsHull.add(tsPoint{x: float64(s.t - a.tsFirst.t), y: float64(dv)})
+	}
+}
+
+// clockHz estima a frequência do TSval do cliente (precisa de 100 ms e 5 ticks) pela envoltória das amostras
+// (tsclock.go) e devolve também o limite do erro relativo. O agrupamento por relógio usa a estimativa mesmo
+// imprecisa (ele compara com ±10%); o registro só a publica com erro ≤ tsMaxRelErr (publishedHz).
+func (a *analysis) clockEstimate() (hz, relErr float64) {
 	if a.tsCount < 2 {
-		return 0
+		return 0, math.Inf(1)
 	}
 	dt := float64(a.tsLast.t-a.tsFirst.t) / 1e9
 	ticks := float64(a.tsLast.v - a.tsFirst.v)
 	if dt < 0.1 || ticks < 5 || ticks > float64(math.MaxUint32/2) {
-		return 0
+		return 0, math.Inf(1)
 	}
-	return ticks / dt
+	if hz, relErr = a.tsHull.estimate(); hz > 0 {
+		return hz, relErr
+	}
+	return ticks / dt, math.Inf(1)
+}
+
+// clockHz é a estimativa usada pelo agrupamento (0 = sem estimativa).
+func (a *analysis) clockHz() float64 {
+	hz, _ := a.clockEstimate()
+	return hz
+}
+
+// publishedHz é o ts_clock_hz do registro: a estimativa com erro ≤ tsMaxRelErr, ou 0 (nulo).
+func (a *analysis) publishedHz() float64 {
+	if hz, relErr := a.clockEstimate(); relErr <= tsMaxRelErr {
+		return hz
+	}
+	return 0
 }
 
 // synCookie decide se o SYN-ACK do espelho veio de SYN cookie (spec 013 RF-12): o contador
@@ -648,7 +676,7 @@ func (a *analysis) tcpJSON(c *conn) *tcpJSON {
 		RetransmitsIn: a.dir[0].retrans,
 	}
 	r.SynMSS, r.MTUImplied, r.MSSReduction = mssDerived(a.synMSS, a.synFamily)
-	if hz := a.clockHz(); hz > 0 {
+	if hz := a.publishedHz(); hz > 0 {
 		v := math.Round(hz*100) / 100
 		r.TSClockHz = &v
 	}
