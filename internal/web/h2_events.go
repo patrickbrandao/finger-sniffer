@@ -1,7 +1,9 @@
 package web
 
 import (
+	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -62,16 +64,24 @@ func (s *Server) fitH2Conn(c *conn, info *h2passive.HTTP2Info) []byte {
 	return data
 }
 
-// streamRecord devolve o registro do stream visto pelo parser passivo (cópia), ligado a um handler pelo
-// :method, :path e :authority: o x/net não expõe o id do stream ao handler. Entre streams iguais vale o
-// de menor id ainda livre. ok false se nenhum casou (HPACK parado, por exemplo).
-func (h *h2Conn) streamRecordLocked(method, path, authority string) (h2passive.HTTP2Stream, bool) {
+// streamRecordLocked devolve o registro do stream visto pelo parser passivo (cópia) que casa com o handler:
+// o x/net não expõe o id do stream ao handler (spec 010 RF-02a, ADR 0032). Casa pelos pseudo-cabeçalhos
+// (:method, :path, :authority; CONNECT sem :protocol compara com :path vazio, porque o x/net põe a
+// autoridade no RequestURI) e, entre candidatos iguais, pelos campos regulares do primeiro bloco contra o
+// r.Header (menos divergências vence; depois o menor id). Streams que o servidor já respondeu ou resetou
+// (recusados pela biblioteca antes do handler) não são candidatos. ok false se nenhum casou.
+func (h *h2Conn) streamRecordLocked(r *http.Request) (h2passive.HTTP2Stream, bool) {
+	method, path, authority := r.Method, r.RequestURI, r.Host
+	if method == http.MethodConnect && r.Header.Get(":protocol") == "" {
+		path = ""
+	}
 	info := h.in.Info()
+	answered := h.answeredLocked()
 	best := -1
-	bestScore := 0
+	bestScore, bestMiss := 0, 0
 	for i := range info.Streams {
 		st := &info.Streams[i]
-		if h.claimed[st.StreamID] {
+		if h.claimed[st.StreamID] || answered[st.StreamID] {
 			continue
 		}
 		score := 0
@@ -80,11 +90,17 @@ func (h *h2Conn) streamRecordLocked(method, path, authority string) (h2passive.H
 			if pseudo(st, ":authority") == authority {
 				score = 3
 			}
-		} else if len(st.PseudoOrder) == 0 {
+		} else if unreadable(st) {
+			// HPACK parado ou campos não guardados (teto/orçamento): o stream pode ser este, sem como conferir.
 			score = 1
 		}
-		if score > bestScore || (score == bestScore && score > 0 && st.StreamID < info.Streams[best].StreamID) {
-			best, bestScore = i, score
+		if score == 0 {
+			continue
+		}
+		miss := fieldMisses(st, r.Header)
+		if score > bestScore || (score == bestScore && (miss < bestMiss ||
+			(miss == bestMiss && st.StreamID < info.Streams[best].StreamID))) {
+			best, bestScore, bestMiss = i, score, miss
 		}
 	}
 	if best < 0 {
@@ -97,6 +113,74 @@ func (h *h2Conn) streamRecordLocked(method, path, authority string) (h2passive.H
 	return st, true
 }
 
+// unreadable informa se os pseudo-cabeçalhos do stream não podem ser conferidos: nenhum campo decodificado
+// (HPACK parado) ou campos cortados antes de :method e :path. Um stream com campos e sem pseudo-cabeçalhos
+// foi recusado pela biblioteca e não casa com handler nenhum.
+func unreadable(st *h2passive.HTTP2Stream) bool {
+	if len(st.PseudoOrder) == 0 && len(st.Fields) == 0 {
+		return true
+	}
+	return st.FieldsCut && pseudo(st, ":method") == "" && pseudo(st, ":path") == ""
+}
+
+// publishUnclaimed publica, no fim da conexão, os streams que o parser passivo viu com HEADERS e que nenhum
+// handler atendeu: a biblioteca h2 os recusou antes do handler (RST_STREAM, 400 ou 431, visíveis em frames).
+// Saem com status 0 (spec 010 RF-02a, ADR 0032). Chamar depois de h.wg.Wait().
+func (h *h2Conn) publishUnclaimed() {
+	h.mu.Lock()
+	var recs []h2passive.HTTP2Stream
+	for _, st := range h.in.Info().Streams {
+		if h.claimed[st.StreamID] || st.HeadersAt.IsZero() {
+			continue
+		}
+		h.claimed[st.StreamID] = true
+		st.PseudoOrder = slices.Clone(st.PseudoOrder)
+		st.Fields = slices.Clone(st.Fields)
+		st.Status = 0
+		recs = append(recs, st)
+	}
+	h.mu.Unlock()
+	for i := range recs {
+		recs[i].JA4H = ja4hOfStream(&recs[i])
+		// O contexto já foi cancelado: fillInstants não espera, só copia os instantes vistos no fio.
+		h.fillInstants(&recs[i], false)
+		h.publishStream(&recs[i], h.c.probe())
+	}
+}
+
+// answeredLocked devolve os streams em que o servidor já mandou HEADERS ou RST_STREAM. Chamar com h.mu.
+func (h *h2Conn) answeredLocked() map[uint32]bool {
+	out := map[uint32]bool{}
+	for _, st := range h.out.Info().Streams {
+		if !st.HeadersAt.IsZero() || !st.ResetAt.IsZero() {
+			out[st.StreamID] = true
+		}
+	}
+	return out
+}
+
+// fieldMisses conta os campos regulares do primeiro bloco do stream que não aparecem com o mesmo valor em
+// hdr (o r.Header do handler).
+func fieldMisses(st *h2passive.HTTP2Stream, hdr http.Header) int {
+	miss := 0
+	for _, f := range st.Fields[:min(st.HeadFields, len(st.Fields))] {
+		if strings.HasPrefix(f.Name, ":") {
+			continue
+		}
+		vals := hdr.Values(f.Name)
+		if f.Name == "cookie" && len(vals) > 0 {
+			// O x/net junta os campos cookie com "; " (RFC 9113 §8.2.3).
+			if strings.Contains("; "+strings.Join(vals, "; ")+"; ", "; "+f.Value+"; ") {
+				continue
+			}
+		}
+		if !slices.Contains(vals, f.Value) {
+			miss++
+		}
+	}
+	return miss
+}
+
 // refreshLocked relê o stream (fim do stream e trailers que chegaram depois do HEADERS).
 func (h *h2Conn) refreshLocked(st *h2passive.HTTP2Stream) {
 	info := h.in.Info()
@@ -104,6 +188,7 @@ func (h *h2Conn) refreshLocked(st *h2passive.HTTP2Stream) {
 		if info.Streams[i].StreamID == st.StreamID {
 			st.EndStream = info.Streams[i].EndStream
 			st.Fields = slices.Clone(info.Streams[i].Fields)
+			st.FieldsCut = info.Streams[i].FieldsCut
 			if st.Priority == nil {
 				st.Priority = info.Streams[i].Priority
 			}
@@ -218,6 +303,9 @@ type h2StreamEvent struct {
 	*h2passive.HTTP2Stream
 	FieldsTruncated bool `json:"fields_truncated"`
 	ValuesTruncated bool `json:"values_truncated"`
+	// Status sempre serializado (sombra do campo com omitempty do parser): 0 = stream recusado pela
+	// biblioteca antes do handler (spec 010 RF-02a, ADR 0032).
+	Status int `json:"status"`
 }
 
 // publishStream publica fs.v1.web.http2.stream dentro do teto (ADR 0018): valores longos são cortados em
@@ -235,7 +323,7 @@ func (h *h2Conn) publishStream(st *h2passive.HTTP2Stream, probeID string) {
 // fitH2Stream serializa o stream dentro do teto do evento, cortando valores e depois campos.
 func (s *Server) fitH2Stream(flow *event.Flow, probeID string, st *h2passive.HTTP2Stream) []byte {
 	ts := s.now()
-	ev := &h2StreamEvent{HTTP2Stream: st}
+	ev := &h2StreamEvent{HTTP2Stream: st, FieldsTruncated: st.FieldsCut, Status: st.Status}
 	data := s.encode(ts, flow, probeID, ev)
 	inline := max(s.cfg.EventInlineMax, 64)
 	for i := 0; i < 64 && data != nil && len(data) > event.MaxEventBytes; i++ {

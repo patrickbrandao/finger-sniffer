@@ -1,0 +1,1 @@
+- pkg/web: parser passivo do h2 guarda campos HPACK até 1 MiB por conexão (custo 80 + nome + valor) reservados do orçamento de entrada e soltos ao publicar cada stream; acima, `fields_truncated` com a tabela dinâmica em sincronia (ADR 0033).

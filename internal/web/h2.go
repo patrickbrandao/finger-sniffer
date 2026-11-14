@@ -64,7 +64,13 @@ type h2Conn struct {
 	wg          sync.WaitGroup
 	// gen é fechado (e trocado) a cada pedaço de bytes lido por um dos parsers (in ou out).
 	gen chan struct{}
+	// fieldsHold é a reserva dos campos HPACK guardados pelos dois parsers (até h2FieldsConnMax, dentro do
+	// orçamento global de entrada; ADR 0033), devolvida ao publicar cada stream e no fim da conexão.
+	fieldsHold *budgetHold
 }
+
+// h2FieldsConnMax é o teto do custo dos campos HPACK guardados por conexão (spec 010 RF-02, ADR 0033).
+const h2FieldsConnMax = h2passive.DefaultMaxRetainedFieldBytes
 
 // h2NetConn é a conexão entregue ao x/net/http2: escreve no tap e lê de r (o tap, ou os bytes já lidos
 // pelo HTTP/1 seguidos do tap no Upgrade). Não expõe ConnectionState: o espelho atende h2 mesmo com TLS
@@ -83,11 +89,20 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 	s.metrics.Add(MetricH2ConnsTotal, 1)
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
+	hold := s.budget.newHold(h2FieldsConnMax)
+	defer hold.releaseAll()
+	reserve := func(n int) bool { return hold.reserve(int64(n)) }
+	release := func(n int) { hold.release(int64(n)) }
 	h := &h2Conn{
 		c: c, t: t, ic: ic, mode: mode, up: up, ctx: ctx,
-		in:      h2passive.NewParser(h2passive.Options{Dir: h2passive.DirIn, Mode: mode, Limits: s.cfg.H2Limits}),
-		out:     h2passive.NewParser(h2passive.Options{Dir: h2passive.DirOut, Limits: s.cfg.H2Limits}),
-		claimed: map[uint32]bool{},
+		in: h2passive.NewParser(h2passive.Options{
+			Dir: h2passive.DirIn, Mode: mode, Limits: s.cfg.H2Limits, Reserve: reserve, Release: release,
+		}),
+		out: h2passive.NewParser(h2passive.Options{
+			Dir: h2passive.DirOut, Limits: s.cfg.H2Limits, Reserve: reserve, Release: release,
+		}),
+		claimed:    map[uint32]bool{},
+		fieldsHold: hold,
 	}
 	var r io.Reader = t
 	if up != nil && len(up.buffered) > 0 {
@@ -132,6 +147,7 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 	h.mu.Unlock()
 	cancel()
 	h.wg.Wait()
+	h.publishUnclaimed()
 	h.publishConn()
 }
 

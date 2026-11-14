@@ -20,6 +20,12 @@ const (
 	DefaultMaxFieldsPerBlock = 1024
 	// DefaultMaxHeaderBlock limita o bloco de cabeçalho (HEADERS + CONTINUATION) guardado para decodificar.
 	DefaultMaxHeaderBlock = 1 << 20
+	// DefaultMaxRetainedFieldBytes é o teto do custo dos campos HPACK guardados ao mesmo tempo pelo parser
+	// (80 + nome + valor por campo; spec 010 RF-02, ADR 0033); acima dele os campos não são guardados e o
+	// stream sai com fields_truncated.
+	DefaultMaxRetainedFieldBytes = 1 << 20
+	// FieldOverhead é o custo fixo de cada campo guardado (struct HPACKField e cabeçalhos das strings).
+	FieldOverhead = 80
 	// DefaultHeaderTableSize é o SETTINGS_HEADER_TABLE_SIZE inicial (RFC 9113 seção 6.5.2).
 	DefaultHeaderTableSize = 4096
 )
@@ -32,6 +38,8 @@ type Limits struct {
 	MaxSettings       int // pares do SETTINGS registrados
 	MaxFieldsPerBlock int // campos por bloco HPACK
 	MaxHeaderBlock    int // bytes por bloco de cabeçalho; acima disso a decodificação HPACK para
+	// MaxRetainedFieldBytes é o custo máximo dos campos guardados ao mesmo tempo (ReleaseFields devolve).
+	MaxRetainedFieldBytes int
 }
 
 // DefaultLimits devolve os limites padrão.
@@ -43,6 +51,8 @@ func DefaultLimits() Limits {
 		MaxSettings:       DefaultMaxSettings,
 		MaxFieldsPerBlock: DefaultMaxFieldsPerBlock,
 		MaxHeaderBlock:    DefaultMaxHeaderBlock,
+
+		MaxRetainedFieldBytes: DefaultMaxRetainedFieldBytes,
 	}
 }
 
@@ -79,6 +89,9 @@ func (l Limits) normalize() Limits {
 	}
 	if l.MaxHeaderBlock <= 0 {
 		l.MaxHeaderBlock = d.MaxHeaderBlock
+	}
+	if l.MaxRetainedFieldBytes <= 0 {
+		l.MaxRetainedFieldBytes = d.MaxRetainedFieldBytes
 	}
 	return l
 }

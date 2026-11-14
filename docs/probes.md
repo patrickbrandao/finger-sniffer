@@ -439,7 +439,7 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 (curl 8.23 com OpenSSL 4, OpenSSL do macOS e Go 1.27; os valores dependem da versão de cada cliente.) Por
 proxy: `curl -x http://PROXY:PORTA …`, `openssl s_client -proxy PROXY:PORTA …`, `HTTPS_PROXY=… go run …`.
 
-Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperado:
+Três casos de h2 em que o registro difere do de um cliente comum, e é o esperado:
 
 - **h2c por `Upgrade: h2c`** (`curl --http2 http://…`): o stream 1 é a própria requisição HTTP/1 do upgrade, sem
   frame HEADERS, então sem outro stream a parte `PS` (ordem dos pseudo-campos) do Akamai sai **vazia** (spec 010
@@ -465,6 +465,16 @@ Dois casos de h2 em que o registro difere do de um cliente comum, e é o esperad
       frames: [.http2.frames[] | [.dir, .type]], streams: (.http2.streams | length), close: .close|{by,how}}'
   {"proto":"h2c","settings":[[4,65536],[3,100],[4,131072]],"akamai":"4:65536;3:100;4:131072|00|0|","frames":[["in","SETTINGS"],["out","SETTINGS"],["out","GOAWAY"]],"streams":0,"close":{"by":"server","how":"fin"}}
   ```
+
+- **Stream ligado por heurística**: o servidor h2 não diz ao espelho qual stream cada requisição é; o registro
+  de `http2.streams[]` é ligado ao stream pelos pseudo-cabeçalhos (`:method`, `:path`, `:authority`; `CONNECT`
+  simples compara com `:path` vazio) e, no empate, pelos demais campos do primeiro HEADERS (spec 010 RF-02a, ADR
+  0032). Duas requisições idênticas em todos os campos podem trocar de `stream_id`; um item com `stream_id` 0 é
+  um stream que não casou com nenhum (cada um entra na lista, sem substituir outro). Um stream que o servidor h2
+  recusou antes de atendê-lo (campo de conexão como `connection:`, nome em maiúscula, pseudo-cabeçalho faltando:
+  400, 431 ou RST_STREAM do `x/net/http2`) entra no fim da conexão com `status: 0`, os campos como chegaram e a
+  recusa visível em `http2.frames` (spec 010 RF-02a). Os campos guardados de uma conexão h2 vão até 1 MiB
+  (orçamento de entrada, ADR 0033); acima disso o stream sai com `fields_truncated: true`.
 
 - **Procurar**: `tls.client_hello_b64` (ClientHello cru) e o analisado (`cipher_suites`, `extensions`,
   `supported_groups`, `key_share`…), `ja3`/`ja3n`/`ja4`/`ja4_r`/`ja4_o`/`ja4_stable`, `negotiated`;

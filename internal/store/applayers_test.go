@@ -210,6 +210,30 @@ func TestLayersHTTP2(t *testing.T) {
 	}
 }
 
+// TestLayersHTTP2StreamIDZero (task 145): stream_id 0 é "não identificado" e sempre acrescenta; os demais
+// continuam substituindo pelo id.
+func TestLayersHTTP2StreamIDZero(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP),
+		appMsg(t, event.SubjectWebHTTP2Stream, "tcp", client, mirror, 40, "", map[string]any{"stream_id": 0, "status": 404}),
+		appMsg(t, event.SubjectWebHTTP2Stream, "tcp", client, mirror, 41, "", map[string]any{"stream_id": 0, "status": 405}),
+		appMsg(t, event.SubjectWebHTTP2Stream, "tcp", client, mirror, 42, "", map[string]any{"stream_id": 1, "status": 500}),
+		appMsg(t, event.SubjectWebHTTP2Stream, "tcp", client, mirror, 43, "", map[string]any{"stream_id": 0, "status": 200}),
+		appMsg(t, event.SubjectWebHTTP2Stream, "tcp", client, mirror, 44, "", map[string]any{"stream_id": 1, "status": 200}))
+	_, r := onlyConn(t, db)
+	var h2 struct {
+		Streams []struct {
+			StreamID int `json:"stream_id"`
+			Status   int
+		}
+	}
+	_ = json.Unmarshal(r.HTTP2, &h2)
+	if r.Requests != 4 || len(h2.Streams) != 4 || h2.Streams[0].Status != 404 || h2.Streams[1].Status != 405 ||
+		h2.Streams[2].StreamID != 1 || h2.Streams[2].Status != 200 || h2.Streams[3].Status != 200 {
+		t.Fatalf("requests %d %+v", r.Requests, h2.Streams)
+	}
+}
+
 func TestLayersWebSocket(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	key := "a1b2c3d4"
