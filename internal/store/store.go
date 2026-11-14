@@ -326,6 +326,7 @@ func (s *Store) retentionLoop(ctx context.Context) {
 	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
 	r.OnPurge = s.prom.purge
 	r.Budget = DefaultRetentionBudget
+	r.Tracked, r.OrphanIdle = s.ingest.flows.tracked, s.cfg.Ingest.TCPIdle
 	t := time.NewTicker(RetentionInterval)
 	defer t.Stop()
 	for {

@@ -31,6 +31,7 @@ var heartbeatNames = map[string][]string{
 		"store_conn_id_requests_total", "store_connections_open", "store_connections_total", "store_db_bytes", "store_dns_queries_total",
 		"store_event_only_connections_total", "store_expunged_total", "store_ingest_lag_ms", "store_packets_total",
 		"store_pending_events_total", "store_raw_stream_bytes_total", "store_stray_total", "store_degraded_connections_total",
+		"store_ingest_errors_total", "store_finalize_retries_total", "store_batch_count_mismatch_total",
 	},
 	event.ServiceCapture: {"published_events_total"},
 }

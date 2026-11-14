@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -245,7 +247,7 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), max(ev.ts, now)); err != nil {
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
-	in.eventOnly[k] = &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()}
+	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()})
 	in.liveConn(LiveConnOpened, summaryFrom(eventOnlyRecord(id, ev, ev.ts)), ev.ts)
 	in.prom.connection(l4Name(ev.l4), l4Name(ev.l4))
 	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID.
@@ -287,6 +289,9 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 	}
 	if tg.open {
 		probeSet, before, after, ok := in.flows.addApp(tg.id, ev)
+		if ok {
+			in.batchApp[tg.id] = struct{}{}
+		}
 		if ok && in.live != nil {
 			s, _ := in.flows.openSummary(tg.id)
 			in.liveApp(ev, tg.id, strOrEmpty(s.ProbeID))
@@ -348,15 +353,101 @@ func (in *Ingestor) flushDirty(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// discardBatchState desfaz o estado em memória que dependia do lote que falhou (a transação foi desfeita e as
-// mensagens voltam por Nak): o registro sujo é descartado e o estado das conexões só de eventos é relido depois.
+// eventOnlyUndo é o valor anterior de uma entrada de in.eventOnly mudada pelo lote em curso (nil = não havia).
+type eventOnlyUndo struct {
+	k    flowKey
+	prev *eventOnlyConn
+}
+
+// setEventOnly troca (ou, com nil, apaga) a conexão só de eventos da 5-tupla, guardando o valor anterior para o
+// rollback do lote.
+func (in *Ingestor) setEventOnly(k flowKey, eo *eventOnlyConn) {
+	in.eoUndo = append(in.eoUndo, eventOnlyUndo{k: k, prev: in.eventOnly[k]})
+	if eo == nil {
+		delete(in.eventOnly, k)
+		return
+	}
+	in.eventOnly[k] = eo
+}
+
+// beginBatch guarda o que o rollback do lote precisa repor (ADR 0034): a fila de eventos pendentes.
+func (in *Ingestor) beginBatch() {
+	in.pendSnap = slices.Clip(in.pending)
+	in.pendKeysSnap = maps.Clone(in.pendingKeys)
+	in.batchCreated = in.batchCreated[:0]
+	in.eoUndo = in.eoUndo[:0]
+	clear(in.batchApp)
+}
+
+// commitBatch esquece o que só servia ao rollback: o lote está gravado.
+func (in *Ingestor) commitBatch() {
+	in.pendSnap, in.pendKeysSnap = nil, nil
+	for _, c := range in.batchCreated {
+		in.metrics.Add("store_connections_total", 1)
+		if c.degraded {
+			in.metrics.Add("store_degraded_connections_total", 1)
+			in.prom.degradedConn()
+		}
+	}
+	in.batchCreated = in.batchCreated[:0]
+	in.eoUndo = in.eoUndo[:0]
+	clear(in.batchApp)
+}
+
+// discardBatchState desfaz o estado em memória que dependia do lote cuja transação foi desfeita; as mensagens
+// voltam por Nak (ADR 0034: só erro antes do commit chega aqui, nunca um erro da finalização depois dele).
+//   - o registro sujo e os tardios são descartados e o estado das conexões só de eventos é relido depois;
+//   - as conexões criadas pelo lote saem da tabela de fluxos, com a ficha das novas/s devolvida e o conn_id
+//     reservado para a 5-tupla: a reentrega as recria (e reinsere a linha) com o mesmo ID. Ficar na tabela faria
+//     o SYN reentregue de uma conexão já estabelecida abrir outra (reuso da 5-tupla);
+//   - as conexões só de eventos criadas ou adotadas pelo lote voltam ao que eram, e a fila de pendentes também;
+//   - o estado de aplicação das conexões abertas que receberam eventos no lote é relido de app_events no
+//     próximo lote, para a reentrega não aplicar os eventos duas vezes.
+//
+// Limitação aceita: a análise IP/TCP e os contadores das conexões que já existiam contam de novo os pacotes
+// reentregues.
 func (in *Ingestor) discardBatchState() {
 	clear(in.dirty)
 	clear(in.late)
 	in.liveBatch = nil
+	for id := range in.batchApp {
+		if c := in.flows.connByID(id); c != nil {
+			in.appStale = append(in.appStale, c)
+		}
+	}
+	clear(in.batchApp)
+	in.flows.undoCreated(in.batchCreated)
+	in.batchCreated = in.batchCreated[:0]
+	for i := len(in.eoUndo) - 1; i >= 0; i-- {
+		u := in.eoUndo[i]
+		if u.prev == nil {
+			delete(in.eventOnly, u.k)
+		} else {
+			in.eventOnly[u.k] = u.prev
+		}
+	}
+	in.eoUndo = in.eoUndo[:0]
 	for _, eo := range in.eventOnly {
 		eo.app = nil
 	}
+	if in.pendKeysSnap != nil {
+		in.pending, in.pendingKeys = in.pendSnap, in.pendKeysSnap
+		in.pendSnap, in.pendKeysSnap = nil, nil
+	}
+}
+
+// reloadStaleApp relê de app_events o estado de aplicação das conexões abertas marcadas por discardBatchState.
+func (in *Ingestor) reloadStaleApp(ctx context.Context, tx *sql.Tx) error {
+	for _, c := range in.appStale {
+		in.appReloads++
+		a, err := loadAppState(ctx, tx, c.id)
+		if err != nil {
+			return err
+		}
+		in.flows.setApp(c, a)
+	}
+	in.appStale = in.appStale[:0]
+	return nil
 }
 
 // loadAppState reconstrói o estado de aplicação de uma conexão a partir de app_events.
@@ -423,7 +514,7 @@ func (in *Ingestor) adoptEventOnly(ctx context.Context, tx *sql.Tx, c *conn, k f
 	if eo == nil || eo.id != c.id {
 		return nil
 	}
-	delete(in.eventOnly, k)
+	in.setEventOnly(k, nil)
 	// O registro passa a ser o dos pacotes (a linha foi substituída): o que estava sujo não vale mais.
 	delete(in.dirty, c.id)
 	a := eo.app

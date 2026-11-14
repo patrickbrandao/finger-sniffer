@@ -202,7 +202,7 @@ func TestIntegrationConnID(t *testing.T) {
 		buf = event.AppendPacket(buf, p)
 		return nil
 	})
-	if _, err := js.Publish(ctx, event.SubjectCapturePacket, buf); err != nil {
+	if _, err := js.PublishMsg(ctx, natsMsg(event.SubjectCapturePacket, buf)); err != nil {
 		t.Fatal(err)
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/connections/%s", port, rep.ConnID)

@@ -141,7 +141,7 @@ func TestIntegrationHealth(t *testing.T) {
 		buf = event.AppendPacket(buf, p)
 		return nil
 	})
-	if _, err := js.Publish(ctx, event.SubjectCapturePacket, buf); err != nil {
+	if _, err := js.PublishMsg(ctx, natsMsg(event.SubjectCapturePacket, buf)); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, 10*time.Second, func() bool {

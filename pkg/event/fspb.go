@@ -3,6 +3,8 @@ package event
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"strconv"
 )
 
 // FSPB v1 (ADR 0015): sequência de registros little-endian
@@ -47,6 +49,19 @@ type Packet struct {
 
 // ErrShortBatch indica um lote truncado.
 var ErrShortBatch = errors.New("event: short FSPB batch")
+
+// ErrPacketHeaders indica um lote cujo Fs-Format ou Fs-Schema-Version não é o FSPB v1 (ADR 0015, ADR 0034).
+var ErrPacketHeaders = errors.New("event: unsupported FSPB batch headers")
+
+// CheckPacketHeaders confere os cabeçalhos NATS de um lote de pacotes antes de decodificá-lo: o corpo FSPB não
+// tem magic nem versão, então formato e versão só existem nos cabeçalhos. get lê um cabeçalho ("" se ausente).
+func CheckPacketHeaders(get func(string) string) error {
+	format, version := get(HeaderFormat), get(HeaderSchemaVersion)
+	if format != FSPBFormat || version != strconv.Itoa(SchemaVersion) {
+		return fmt.Errorf("%w: %s=%q %s=%q", ErrPacketHeaders, HeaderFormat, format, HeaderSchemaVersion, version)
+	}
+	return nil
+}
 
 // AppendPacket acrescenta um registro ao lote.
 func AppendPacket(buf []byte, p Packet) []byte {

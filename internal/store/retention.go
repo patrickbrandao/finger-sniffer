@@ -42,6 +42,12 @@ type Retention struct {
 	Budget time.Duration
 	// OnPurge, se definido, recebe as conexões expurgadas por motivo (age ou size).
 	OnPurge func(reason string, n int64)
+	// Tracked, se definido, diz se um conn_id está na memória do ingest (aberto ou à espera da finalização).
+	// Liga o expurgo de órfãs (ADR 0034): linha com ended_ns nulo, fora da memória e com started_ns mais velho
+	// que maxAge + OrphanIdle, que nenhuma finalização vai fechar.
+	Tracked func(id string) bool
+	// OrphanIdle é a ociosidade máxima do TCP (a conexão aberta mais longa sem pacote que o ingest mantém).
+	OrphanIdle time.Duration
 	// now mede o orçamento (testes trocam).
 	now func() time.Time
 }
@@ -73,6 +79,12 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 		if over() {
 			return total, nil
 		}
+	}
+	n, err := r.purgeOrphans(ctx, now, over)
+	total += n
+	r.purged("age", n)
+	if err != nil || over() {
+		return total, err
 	}
 	for _, q := range []string{
 		"DELETE FROM stray_packets WHERE id IN (SELECT id FROM stray_packets WHERE ts_ns < ? ORDER BY ts_ns LIMIT ?)",
@@ -117,6 +129,52 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 		return total, nil
 	}
 	return total, r.vacuum(ctx)
+}
+
+// purgeOrphans apaga as linhas abertas (ended_ns nulo) que o ingest esqueceu (ver Tracked). Percorre as
+// candidatas por (started_ns, conn_id), em páginas, porque as conexões longas ainda abertas também aparecem.
+// Uma linha fora da memória não volta a ela (só conexões novas entram na tabela de fluxos), então conferir e
+// apagar em passos separados não tem corrida.
+func (r *Retention) purgeOrphans(ctx context.Context, now time.Time, over func() bool) (int64, error) {
+	if r.Tracked == nil {
+		return 0, nil
+	}
+	cut := now.Add(-r.maxAge - r.OrphanIdle).UnixNano()
+	var total int64
+	lastTs, lastID := int64(-1<<63), ""
+	for {
+		rows, err := r.db.QueryContext(ctx, `SELECT conn_id, started_ns FROM connections WHERE ended_ns IS NULL AND started_ns < ?
+			AND (started_ns, conn_id) > (?, ?) ORDER BY started_ns, conn_id LIMIT ?`, cut, lastTs, lastID, r.batch)
+		if err != nil {
+			return total, err
+		}
+		var orphans []string
+		seen := 0
+		for rows.Next() {
+			if err := rows.Scan(&lastID, &lastTs); err != nil {
+				_ = rows.Close()
+				return total, err
+			}
+			seen++
+			if !r.Tracked(lastID) {
+				orphans = append(orphans, lastID)
+			}
+		}
+		_ = rows.Close()
+		if err := rows.Err(); err != nil {
+			return total, err
+		}
+		for _, id := range orphans {
+			n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id = ? AND ended_ns IS NULL", id)
+			if err != nil {
+				return total, err
+			}
+			total += n
+		}
+		if seen < r.batch || over() {
+			return total, nil
+		}
+	}
 }
 
 // vacuum devolve ao sistema, aos poucos, o espaço livre que sobrou quando o banco encolheu (fim de uma carga).

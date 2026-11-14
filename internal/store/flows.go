@@ -69,6 +69,10 @@ type conn struct {
 	quicSCIDs                                  []string // SCIDs do espelho nos cabeçalhos longos (hex), até maxQUICCIDs
 	ana                                        *analysis
 	app                                        *appState // eventos de aplicação associados (spec 004)
+	// Usados só pelo laço de ingest (ADR 0034): unstored = a linha em connections foi desfeita com o rollback
+	// do lote que a criou (a reentrega cria outra conn); finalTries = finalizações que falharam.
+	unstored   bool
+	finalTries int
 }
 
 // dataSeg é um segmento com dados, guardado para medir a ociosidade antes do fechamento.
@@ -235,10 +239,13 @@ func (c *conn) isStray() bool {
 
 // flowTable guarda as conexões abertas. É usada pelo ingest e consultada pela API (registro ao vivo).
 type flowTable struct {
-	mu         sync.Mutex
-	conns      map[flowKey]*conn
-	closed     map[flowKey]*conn // TCP e QUIC já finalizadas, à espera de pacotes tardios até lingerUntil
-	byID       map[string]*conn
+	mu     sync.Mutex
+	conns  map[flowKey]*conn
+	closed map[flowKey]*conn // TCP e QUIC já finalizadas, à espera de pacotes tardios até lingerUntil
+	byID   map[string]*conn
+	// finalizing são as conexões que saíram da tabela e esperam a finalização no ingest (ADR 0034): a linha
+	// delas ainda tem ended_ns nulo, mas não é órfã (Retention.Tracked).
+	finalizing map[string]struct{}
 	reserved   map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
 	newID      func(ts int64) string
 	grace      time.Duration
@@ -265,7 +272,8 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 		db = &p0f.DB{} // sem banco: assinatura crua sem palpite de SO
 	}
 	return &flowTable{
-		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
+		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]struct{}{},
+		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
 	}
@@ -355,6 +363,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
 		delete(t.conns, k)
 		delete(t.byID, c.id)
+		t.finalizing[c.id] = struct{}{}
 		t.finish(c)
 		res.ended, c = c, nil
 	}
@@ -503,6 +512,7 @@ func (t *flowTable) due(now int64) []*conn {
 			out = append(out, c)
 			delete(t.conns, k)
 			delete(t.byID, c.id)
+			t.finalizing[c.id] = struct{}{}
 			t.finish(c)
 			if c.isStray() {
 				t.refund(c)
@@ -572,6 +582,54 @@ func quicLongSCID(udp []byte) (string, bool) {
 		return "", false
 	}
 	return hex.EncodeToString(p[off+1 : off+1+m]), true
+}
+
+// undoCreated desfaz na tabela as conexões criadas por um lote cuja transação foi desfeita (ADR 0034): saem da
+// tabela, devolvem a ficha das novas/s e deixam o conn_id reservado para a 5-tupla, para a reentrega recriá-las
+// com o mesmo ID. As que já saíram da tabela no mesmo lote (reuso) ficam marcadas unstored: não há linha a
+// finalizar.
+func (t *flowTable) undoCreated(conns []*conn) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, c := range conns {
+		c.unstored = true
+		k := keyOf(c.l4, c.client, c.server)
+		if t.conns[k] != c {
+			continue
+		}
+		delete(t.conns, k)
+		delete(t.byID, c.id)
+		t.refund(c)
+		t.reserved[k] = reservation{id: c.id, expires: c.started + eventOnlyIdle.Nanoseconds()}
+	}
+}
+
+// connByID devolve a conexão aberta com o conn_id (nil se saiu da tabela).
+func (t *flowTable) connByID(id string) *conn {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.byID[id]
+}
+
+// finalized tira as conexões do conjunto à espera da finalização (registro gravado ou desistência).
+func (t *flowTable) finalized(conns ...*conn) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, c := range conns {
+		delete(t.finalizing, c.id)
+	}
+}
+
+// tracked informa se o conn_id está na memória do ingest (aberto ou à espera da finalização): a retenção não
+// apaga a linha dele mesmo com ended_ns nulo.
+func (t *flowTable) tracked(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.byID[id]; ok {
+		return true
+	}
+	_, ok := t.finalizing[id]
+	return ok
 }
 
 // open devolve quantas conexões estão abertas.
