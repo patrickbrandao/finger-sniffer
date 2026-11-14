@@ -351,8 +351,10 @@ $ tshark -r c.pcap | head -4
 ```
 
 - Formato libpcap com nanossegundos, `Content-Type: application/vnd.tcpdump.pcap`, os dois sentidos.
-- Teto de `FS_PCAP_MAX_BYTES_PER_CONN` (16 MiB): acima disso os pacotes ficam só com os cabeçalhos e o registro
-  marca `pcap_truncated: true`.
+- Teto de `FS_PCAP_MAX_BYTES_PER_CONN` (16 MiB): acima disso os pacotes ficam só com os cabeçalhos, por mais
+  16 MiB; esgotado esse segundo orçamento, os pacotes seguintes ficam fora do pcap (o pcap tem no máximo ~32 MiB).
+  Nos dois casos o registro marca `pcap_truncated: true`, e os contadores, o fechamento e o RTT do registro
+  continuam contando todos os pacotes (ADR 0034).
 - Conexão `degraded` ou criada só por eventos (o capture estava fora do ar) não tem pcap: 404.
 
 ### Bytes crus: `/raw?dir=in|out`
