@@ -537,7 +537,7 @@ func TestIntegrationLive(t *testing.T) {
 	eventually(t, 2*time.Second, func() bool { s := st.live.Stats(); return s.Clients["ws"] == 1 && s.Clients["sse"] == 1 }, "clients")
 
 	shift := time.Now().UnixNano() - base
-	if _, err := js.Publish(ctx, event.SubjectCapturePacket, shiftBatch(batch(client, mirror, protoTCP, fullTCP[:6]), shift).data); err != nil {
+	if _, err := js.PublishMsg(ctx, natsMsg(event.SubjectCapturePacket, shiftBatch(batch(client, mirror, protoTCP, fullTCP[:6]), shift).data)); err != nil {
 		t.Fatal(err)
 	}
 	const n = 200

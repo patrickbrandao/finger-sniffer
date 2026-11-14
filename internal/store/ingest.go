@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -63,7 +65,21 @@ type Ingestor struct {
 	appTs       []int64                    // ts dos eventos de aplicação do lote (lag)
 	readyEnds   []readyEnd                 // fim das conexões finalizadas na transação (record_ready)
 	late        map[string]*conn           // conexões gravadas que receberam pacotes tardios neste lote
+
+	// Falha de transação (ADR 0034): o que o rollback do lote precisa desfazer e a fila de finalização.
+	batchCreated []*conn             // conexões cuja linha foi inserida pelo lote em curso
+	eoUndo       []eventOnlyUndo     // mudanças do lote em curso em eventOnly, para desfazer
+	batchApp     map[string]struct{} // conexões abertas que receberam eventos no lote em curso
+	appStale     []*conn             // conexões abertas cujo estado de aplicação é relido no próximo lote
+	pendSnap     []pendingEvent      // pending no início do lote em curso
+	pendKeysSnap map[flowKey]int     // pendingKeys no início do lote em curso
+	toFinalize   []*conn             // conexões fora da tabela à espera da finalização (saem só depois do commit)
+	finalStats   []finalStat         // métricas da transação de finalização em curso
 }
+
+// maxFinalizeTries é o máximo de tentativas de finalizar uma conexão; esgotadas, a linha é fechada com ended_ns
+// e o que houver (ADR 0034).
+const maxFinalizeTries = 5
 
 // SetMetrics liga as métricas Prometheus do ingest.
 func (in *Ingestor) SetMetrics(m *storeMetrics) { in.prom = m }
@@ -77,6 +93,7 @@ func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metr
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
 		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
 		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{}, late: map[string]*conn{},
+		batchApp: map[string]struct{}{},
 	}
 }
 
@@ -108,8 +125,10 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 			msgs = append(msgs, m)
 		}
 		if len(msgs) > 0 || len(in.pending) > 0 || len(in.eventOnly) > 0 {
+			// Só erro antes do commit chega aqui (rollback): o lote volta por Nak (ADR 0034).
 			if err := in.Process(ctx, msgs); err != nil {
 				in.log.Error("ingest", "err", err)
+				in.metrics.Add("store_ingest_errors_total", 1)
 				for _, m := range msgs {
 					_ = m.Nak()
 				}
@@ -119,7 +138,9 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 				_ = m.Ack()
 			}
 		}
-		if err := in.Finalize(ctx, in.flows.due(in.now().UnixNano())); err != nil {
+		// As que falharam antes ficam na fila e são tentadas de novo aqui, uma a uma.
+		in.toFinalize = append(in.toFinalize, in.flows.due(in.now().UnixNano())...)
+		if err := in.finalizeQueued(ctx); err != nil {
 			in.log.Error("finalize", "err", err)
 		}
 	}
@@ -163,6 +184,7 @@ func (in *Ingestor) drainPending() {
 // msgSource é o que o Process precisa de uma mensagem (permite testar sem NATS).
 type msgSource interface {
 	Subject() string
+	Headers() nats.Header
 	Data() []byte
 }
 
@@ -204,6 +226,7 @@ func (in *Ingestor) process(ctx context.Context, msgs []msgSource) (err error) {
 }
 
 func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
+	in.beginBatch()
 	tx, err := in.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -214,9 +237,11 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 		return err
 	}
 	defer st.close()
+	if err := in.reloadStaleApp(ctx, tx); err != nil {
+		return err
+	}
 
 	var tss []int64
-	var ended []*conn
 	in.appTs = in.appTs[:0]
 	received := in.now().UnixNano()
 	for _, m := range msgs {
@@ -231,13 +256,30 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 		if subject != event.SubjectCapturePacket {
 			continue // heartbeat vai por assinatura própria; subjects desconhecidos são ignorados
 		}
-		_, err := event.DecodePackets(m.Data(), func(p event.Packet) error {
-			tss = append(tss, p.TsNs)
-			return in.packet(ctx, tx, st, p, &ended)
-		})
+		h := m.Headers()
+		// Lote FSPB malformado (cabeçalhos de outro formato ou corpo truncado) é descartado inteiro, antes de
+		// aplicar qualquer registro, e confirmado (ADR 0034 itens 6 e 10).
+		if err := event.CheckPacketHeaders(h.Get); err != nil {
+			in.log.Warn("unsupported packet batch", "err", err)
+			in.metrics.Add("store_bad_batches_total", 1)
+			continue
+		}
+		n, err := event.DecodePackets(m.Data(), func(event.Packet) error { return nil })
 		if err != nil {
 			in.log.Warn("bad packet batch", "err", err)
 			in.metrics.Add("store_bad_batches_total", 1)
+			continue
+		}
+		if want := h.Get(event.HeaderCount); want != strconv.Itoa(n) {
+			in.log.Warn("packet batch count mismatch", "header", want, "decoded", n)
+			in.metrics.Add("store_batch_count_mismatch_total", 1)
+		}
+		// Erro aqui é de banco, não de formato: aborta a transação e o lote volta por Nak.
+		if _, err := event.DecodePackets(m.Data(), func(p event.Packet) error {
+			tss = append(tss, p.TsNs)
+			return in.packet(ctx, tx, st, p)
+		}); err != nil {
+			return fmt.Errorf("store packet: %w", err)
 		}
 	}
 	// Eventos que chegaram antes dos pacotes (no mesmo lote ou antes) acham a conexão agora.
@@ -253,6 +295,7 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	in.commitBatch()
 	in.publishLive()
 	now := in.now().UnixNano()
 	in.lagMu.Lock()
@@ -266,14 +309,20 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 		}
 	}
 	in.metrics.Add("store_packets_total", float64(len(tss)))
-	return in.Finalize(ctx, ended)
+	// O lote já está gravado: falha da finalização (conexões encerradas por reuso da 5-tupla) nunca vira Nak,
+	// porque a reentrega duplicaria pacotes e eventos; as conexões ficam na fila para a próxima tentativa.
+	if err := in.finalizeQueued(ctx); err != nil {
+		in.log.Error("finalize after commit", "err", err)
+	}
+	return nil
 }
 
-func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.Packet, ended *[]*conn) error {
+func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.Packet) error {
 	fi := parseFrame(p.Frame)
 	res := in.flows.handle(fi, p.TsNs)
 	if res.ended != nil {
-		*ended = append(*ended, res.ended)
+		// Já saiu da tabela: entra na fila de finalização mesmo que este lote seja desfeito.
+		in.toFinalize = append(in.toFinalize, res.ended)
 	}
 	if c := res.conn; c != nil {
 		// flags do capture: offload suspeito e frame cortado pelo snaplen (pcap incompleto)
@@ -306,11 +355,8 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	}
 	c := res.conn
 	if res.created {
-		in.metrics.Add("store_connections_total", 1)
-		if c.degraded {
-			in.metrics.Add("store_degraded_connections_total", 1)
-			in.prom.degradedConn()
-		}
+		// As métricas contam no commit (commitBatch): no rollback a conexão é recriada pela reentrega.
+		in.batchCreated = append(in.batchCreated, c)
 		rec, _ := json.Marshal(c.record(0, ""))
 		if _, err := st.insConn.ExecContext(ctx, c.id, l4Name(c.l4), c.family, c.client.Addr().String(), int(c.client.Port()),
 			c.server.Addr().String(), int(c.server.Port()), l4Name(c.l4), c.started, boolInt(c.degraded), string(rec), c.started); err != nil {
@@ -405,28 +451,117 @@ func (in *Ingestor) writeLate(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// Finalize materializa o pcap das conexões terminadas (ou as converte em pacotes avulsos) e grava o registro final.
+// Finalize põe as conexões terminadas na fila de finalização e a processa (finalizeQueued).
 func (in *Ingestor) Finalize(ctx context.Context, conns []*conn) error {
-	if len(conns) == 0 {
+	in.toFinalize = append(in.toFinalize, conns...)
+	return in.finalizeQueued(ctx)
+}
+
+// finalizeQueued materializa o pcap das conexões da fila (ou as converte em pacotes avulsos) e grava o registro
+// final (ADR 0034). As que nunca falharam vão numa transação só; se ela falha, cada uma é tentada de novo nas
+// rodadas seguintes numa transação própria (uma conexão problemática não leva as outras), até maxFinalizeTries;
+// esgotadas, a linha é fechada com ended_ns e o que houver. Uma conexão só sai da fila depois do commit.
+// Devolve o primeiro erro, só para o log.
+func (in *Ingestor) finalizeQueued(ctx context.Context) error {
+	if len(in.toFinalize) == 0 {
 		return nil
 	}
-	tx, err := in.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	in.readyEnds = in.readyEnds[:0]
-	for _, c := range conns {
-		if err := in.finalizeOne(ctx, tx, c); err != nil {
-			in.liveBatch = nil
-			return err
+	var fresh, retry []*conn
+	for _, c := range in.toFinalize {
+		if c.finalTries == 0 {
+			fresh = append(fresh, c)
+		} else {
+			retry = append(retry, c)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		in.liveBatch = nil
+	in.toFinalize = nil
+	var first error
+	fail := func(err error) {
+		in.metrics.Add("store_ingest_errors_total", 1)
+		if first == nil {
+			first = err
+		}
+	}
+	if len(fresh) > 0 {
+		if err := in.finalizeTx(ctx, fresh); err != nil {
+			fail(err)
+			for _, c := range fresh {
+				c.finalTries = 1
+			}
+			in.toFinalize = append(in.toFinalize, fresh...)
+		} else {
+			in.flows.finalized(fresh...)
+		}
+	}
+	for _, c := range retry {
+		in.metrics.Add("store_finalize_retries_total", 1)
+		err := in.finalizeTx(ctx, []*conn{c})
+		if err == nil {
+			in.flows.finalized(c)
+			continue
+		}
+		fail(err)
+		c.finalTries++
+		if c.finalTries < maxFinalizeTries {
+			in.toFinalize = append(in.toFinalize, c)
+			continue
+		}
+		in.log.Error("finalize gave up", "conn_id", c.id, "tries", c.finalTries, "err", err)
+		in.closeUnfinalized(ctx, c)
+		in.flows.finalized(c)
+	}
+	return first
+}
+
+// closeUnfinalized fecha a linha de uma conexão cuja finalização falhou maxFinalizeTries vezes: ended_ns e o
+// registro final, sem pcap (os frames ficam em packets e saem com a linha na retenção). Se nem isso grava, a
+// retenção a apaga como órfã (linha aberta fora da memória do ingest).
+func (in *Ingestor) closeUnfinalized(ctx context.Context, c *conn) {
+	end := c.endTs()
+	rec, _ := json.Marshal(c.record(end, "timeout"))
+	if _, err := in.db.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ? WHERE conn_id = ? AND ended_ns IS NULL",
+		end, string(rec), max(end, in.now().UnixNano()), c.id); err != nil {
+		in.log.Error("close unfinalized connection", "conn_id", c.id, "err", err)
+	}
+}
+
+// finalStat é o que a finalização conta nas métricas, aplicado só depois do commit (a nova tentativa não conta
+// duas vezes).
+type finalStat struct {
+	l4, proto string
+	stray     int
+}
+
+// finalizeTx finaliza as conexões numa transação.
+func (in *Ingestor) finalizeTx(ctx context.Context, conns []*conn) error {
+	in.readyEnds = in.readyEnds[:0]
+	in.finalStats = in.finalStats[:0]
+	err := func() error {
+		tx, err := in.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		for _, c := range conns {
+			if err := in.finalizeOne(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}()
+	if err != nil {
+		in.liveBatch = nil // os eventos ao vivo são refeitos na nova tentativa
 		return err
 	}
 	in.publishLive()
+	for _, s := range in.finalStats {
+		if s.stray > 0 {
+			in.metrics.Add("store_stray_total", float64(s.stray))
+			in.prom.strayPackets(s.stray)
+			continue
+		}
+		in.prom.connection(s.l4, s.proto)
+	}
 	if in.prom != nil {
 		now := in.now().UnixNano()
 		for _, e := range in.readyEnds {
@@ -437,6 +572,11 @@ func (in *Ingestor) Finalize(ctx context.Context, conns []*conn) error {
 }
 
 func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error {
+	if c.unstored {
+		// A linha foi desfeita com o lote que a criou e a reentrega não chegou: nada gravado a finalizar.
+		in.log.Warn("connection without stored row dropped", "conn_id", c.id)
+		return nil
+	}
 	rows, err := tx.QueryContext(ctx, "SELECT ts_ns, dir, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", c.id)
 	if err != nil {
 		return err
@@ -473,8 +613,9 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 				return err
 			}
 		}
-		in.metrics.Add("store_stray_total", float64(len(pkts)))
-		in.prom.strayPackets(len(pkts))
+		if len(pkts) > 0 {
+			in.finalStats = append(in.finalStats, finalStat{stray: len(pkts)})
+		}
 		_, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", c.id)
 		return err
 	}
@@ -514,7 +655,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		liveTs = in.now().UnixNano()
 	}
 	in.liveConn(LiveConnClosed, summaryFrom(r), liveTs)
-	in.prom.connection(r.L4, r.Proto)
+	in.finalStats = append(in.finalStats, finalStat{l4: r.L4, proto: r.Proto})
 	in.readyEnds = append(in.readyEnds, readyEnd{end, reason})
 	return nil
 }

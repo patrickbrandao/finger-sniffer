@@ -12,11 +12,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gopacket/gopacket/pcapgo"
+	"github.com/nats-io/nats.go"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -77,10 +79,28 @@ type pkt struct {
 type fakeMsg struct {
 	subject string
 	data    []byte
+	hdr     nats.Header // nil = os cabeçalhos que o capture publica (lote de pacotes)
 }
 
 func (m fakeMsg) Subject() string { return m.subject }
 func (m fakeMsg) Data() []byte    { return m.data }
+
+func (m fakeMsg) Headers() nats.Header {
+	if m.hdr != nil || m.subject != event.SubjectCapturePacket {
+		return m.hdr
+	}
+	n, _ := event.DecodePackets(m.data, func(event.Packet) error { return nil })
+	h := nats.Header{}
+	h.Set(event.HeaderSchemaVersion, strconv.Itoa(event.SchemaVersion))
+	h.Set(event.HeaderFormat, event.FSPBFormat)
+	h.Set(event.HeaderCount, strconv.Itoa(n))
+	return h
+}
+
+// natsMsg monta a mensagem para publicar no NATS com os cabeçalhos de fakeMsg.Headers.
+func natsMsg(subject string, data []byte) *nats.Msg {
+	return &nats.Msg{Subject: subject, Data: data, Header: fakeMsg{subject: subject, data: data}.Headers()}
+}
 
 var base = time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC).UnixNano()
 

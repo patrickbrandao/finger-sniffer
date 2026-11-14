@@ -448,7 +448,7 @@ func TestIntegrationHTTP3(t *testing.T) {
 			env.Ts = event.FormatTime(when.Add(time.Duration(shift)))
 			data, _ = json.Marshal(env)
 		}
-		if _, err := js.Publish(ctx, m.subject, data); err != nil {
+		if _, err := js.PublishMsg(ctx, natsMsg(m.subject, data)); err != nil {
 			t.Fatal(err)
 		}
 	}
