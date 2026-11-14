@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"fmt"
 	"testing"
 
 	"golang.org/x/net/bpf"
@@ -61,7 +62,7 @@ func TestExcludeFilter(t *testing.T) {
 			}
 		})
 	}
-	// ARP e frames curtos são aceitos (o filtro não deve descartar o que não entende).
+	// ARP é aceito (o filtro não deve descartar o que não entende); frames curtos: TestExcludeFilterTruncated.
 	arp := buildFrame(frameOpt{})
 	arp[12], arp[13] = 0x08, 0x06
 	if n, _ := vm.Run(arp); n == 0 {
@@ -69,6 +70,109 @@ func TestExcludeFilter(t *testing.T) {
 	}
 	if _, err := bpf.Assemble(prog); err != nil {
 		t.Fatalf("assemble: %v", err)
+	}
+}
+
+// Frames curtos demais para o filtro ler as portas são aceitos (spec 003 RF-02, "todo o resto entra"): no
+// kernel, uma carga fora do pacote encerra o filtro com 0. As portas excluídas ainda visíveis seguem
+// descartadas.
+func TestExcludeFilterTruncated(t *testing.T) {
+	prog, err := ExcludeFilter(excluded, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := bpf.NewVM(prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := func(o frameOpt, n int) []byte { return buildFrame(o)[:n] }
+	l2 := func(vlan bool) int {
+		if vlan {
+			return 18
+		}
+		return 14
+	}
+	// extLen grava o tamanho declarado do primeiro cabeçalho de extensão IPv6 (byte 1 dele).
+	extLen := func(o frameOpt, v byte) []byte {
+		f := buildFrame(o)
+		f[l2(o.vlan)+40+1] = v
+		return f
+	}
+	type tc struct {
+		name   string
+		frame  []byte
+		accept bool
+	}
+	var tests []tc
+	for _, vlan := range []bool{false, true} {
+		h := l2(vlan)
+		for _, proto := range []byte{6, 17} {
+			// IHL=15 sem nenhum byte de L4 (74 bytes sem VLAN): as portas ficam além do fim.
+			o := frameOpt{vlan: vlan, proto: proto, ihlWords: 15, sport: 1, dport: 48022}
+			tests = append(tests, tc{fmt.Sprintf("v4 ihl15 no l4 p%d vlan=%v", proto, vlan), cut(o, h+60), true})
+			// IHL=5 com 0 a 3 bytes de L4, sem padding.
+			o = frameOpt{vlan: vlan, proto: proto, sport: 48022, dport: 48022}
+			for k := range 4 {
+				tests = append(tests, tc{fmt.Sprintf("v4 l4 %d bytes p%d vlan=%v", k, proto, vlan), cut(o, h+20+k), true})
+			}
+			tests = append(tests, tc{fmt.Sprintf("v4 l4 4 bytes ssh p%d vlan=%v", proto, vlan), cut(o, h+24), false})
+			// IPv6 sem extensões com L4 cortado em menos de 4 bytes.
+			o6 := frameOpt{vlan: vlan, v6: true, proto: proto, sport: 9000, dport: 9000}
+			for k := range 4 {
+				tests = append(tests, tc{fmt.Sprintf("v6 l4 %d bytes p%d vlan=%v", k, proto, vlan), cut(o6, h+40+k), true})
+			}
+			tests = append(tests, tc{fmt.Sprintf("v6 l4 4 bytes 9000 p%d vlan=%v", proto, vlan), cut(o6, h+44), false})
+			// Cada extensão com tamanho declarado além do fim do frame; e L4 cortado depois dela.
+			for _, ext := range []byte{ipv6HopByHop, ipv6Routing, ipv6DstOpts, ipv6AH, ipv6Fragment} {
+				oe := frameOpt{vlan: vlan, v6: true, v6ext: []byte{ext}, proto: proto, sport: 1, dport: 9001}
+				if ext != ipv6Fragment {
+					tests = append(tests, tc{fmt.Sprintf("v6 ext %d too long p%d vlan=%v", ext, proto, vlan), extLen(oe, 255), true})
+				}
+				el := len(v6ExtHeader(ext, proto, 0))
+				for _, k := range []int{0, 1, 3, 7} {
+					if k < el {
+						tests = append(tests, tc{fmt.Sprintf("v6 ext %d cut at %d p%d vlan=%v", ext, k, proto, vlan), cut(oe, h+40+k), true})
+					}
+				}
+				for k := range 4 {
+					tests = append(tests, tc{fmt.Sprintf("v6 ext %d l4 %d bytes p%d vlan=%v", ext, k, proto, vlan), cut(oe, h+40+el+k), true})
+				}
+				tests = append(tests, tc{fmt.Sprintf("v6 ext %d l4 visible 9001 p%d vlan=%v", ext, proto, vlan), cut(oe, h+40+el+4), false})
+			}
+		}
+		// Cabeçalho IP incompleto: IPv4 com menos de l2len+10 bytes, IPv6 com menos de l2len+7.
+		v4 := buildFrame(frameOpt{vlan: vlan, proto: 6, sport: 1, dport: 48022})
+		for n := h; n < h+10; n++ {
+			tests = append(tests, tc{fmt.Sprintf("v4 header %d bytes vlan=%v", n-h, vlan), v4[:n], true})
+		}
+		v6 := buildFrame(frameOpt{vlan: vlan, v6: true, proto: 6, sport: 1, dport: 48022})
+		for n := h; n < h+7; n++ {
+			tests = append(tests, tc{fmt.Sprintf("v6 header %d bytes vlan=%v", n-h, vlan), v6[:n], true})
+		}
+	}
+	// Ethernet incompleta e VLAN sem o tipo interno.
+	tests = append(tests, tc{"eth 13 bytes", buildFrame(frameOpt{proto: 6})[:13], true})
+	tests = append(tests, tc{"vlan 17 bytes", buildFrame(frameOpt{vlan: true, proto: 6})[:17], true})
+	// IHL < 5 é inválido: o parser não vê portas, o filtro aceita.
+	bad := buildFrame(frameOpt{proto: 6, sport: 48022, dport: 48022})
+	bad[14] = 0x42
+	tests = append(tests, tc{"v4 ihl 2", bad, true})
+
+	c := &classifier{excluded: toSet(excluded)}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n, err := vm.Run(tt.frame)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := n > 0; got != tt.accept {
+				t.Fatalf("accept=%v, want %v (ret %d, len %d)", got, tt.accept, n, len(tt.frame))
+			}
+			// O parser em espaço de usuário concorda: só há porta excluída visível no que o filtro descarta.
+			if got := c.excludedPort(parseFrame(tt.frame)); got == tt.accept {
+				t.Fatalf("parser excluded=%v, filter accept=%v", got, tt.accept)
+			}
+		})
 	}
 }
 
@@ -145,6 +249,8 @@ func FuzzExcludeFilter(f *testing.F) {
 	vm, _ := bpf.NewVM(prog)
 	f.Add(buildFrame(frameOpt{proto: 6, sport: 1, dport: 48022}))
 	f.Add(buildFrame(frameOpt{v6: true, v6ext: []byte{0, 44, 51}, proto: 6, sport: 1, dport: 48022}))
+	f.Add(buildFrame(frameOpt{proto: 6, ihlWords: 15, sport: 1, dport: 48022})[:74])
+	f.Add(buildFrame(frameOpt{vlan: true, v6: true, v6ext: []byte{0}, proto: 17, sport: 1, dport: 9000})[:60])
 	c := &classifier{excluded: toSet(excluded)}
 	f.Fuzz(func(t *testing.T, b []byte) {
 		// A VM não pode falhar com nenhum frame (no kernel, leituras fora do pacote viram "drop").
@@ -154,8 +260,14 @@ func FuzzExcludeFilter(f *testing.F) {
 		}
 		// O que o kernel aceita e tem porta excluída visível ao parser só pode ser IPv6 com extensões demais
 		// para o BPF (a conferência em espaço de usuário descarta).
-		if fr := parseFrame(b); n > 0 && c.excludedPort(fr) && !fr.src.Is6() {
+		fr := parseFrame(b)
+		if n > 0 && c.excludedPort(fr) && !fr.src.Is6() {
 			t.Fatalf("bpf accepted excluded frame %+v", fr)
+		}
+		// O que o parser vê sem porta excluída (inclusive truncado, sem portas ou não IP) o filtro aceita
+		// (spec 003 RF-02, "todo o resto entra").
+		if n == 0 && !c.excludedPort(fr) {
+			t.Fatalf("bpf dropped frame without excluded port (len %d) %+v", len(b), fr)
 		}
 	})
 }
