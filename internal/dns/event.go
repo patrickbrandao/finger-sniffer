@@ -169,12 +169,17 @@ func optionTLVs(opt *mdns.OPT) []optionTLV {
 	// único do UDP (task 192).
 	buf := make([]byte, mdns.Len(opt))
 	n, err := mdns.PackRR(opt, buf, 0, nil, false)
-	// Cabeçalho do RR do OPT: nome raiz (1) + tipo (2) + classe (2) + TTL (4) + RDLENGTH (2).
-	const hdr = 11
-	if err != nil || n < hdr {
+	if err != nil {
 		return nil
 	}
-	rd := buf[hdr:n]
+	// A RDATA são os últimos Rdlength bytes (o PackRR atualiza o campo). Não dá para fixar o cabeçalho
+	// em 11 bytes: o nome do OPT deveria ser a raiz, mas o espelho registra o que o resolvedor mandou
+	// (task 210).
+	rdl := int(opt.Hdr.Rdlength)
+	if rdl > n {
+		return nil
+	}
+	rd := buf[n-rdl : n]
 	var out []optionTLV
 	for len(rd) >= 4 {
 		code := binary.BigEndian.Uint16(rd)
