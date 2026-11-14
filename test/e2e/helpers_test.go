@@ -658,7 +658,13 @@ func validateLive() error {
 	if err := os.WriteFile(filepath.Join(dir, "redocly.yaml"), redocly, 0o600); err != nil {
 		return err
 	}
-	cmd := exec.Command("npx", "-y", "@redocly/cli@2.76.0", "lint", "openapi.yaml")
+	bin, err := redoclyBin(root)
+	if err != nil {
+		// sem o Redocly instalado a validação é pulada, como os testes que dependem dele
+		fmt.Printf("pulado: %v\n", err)
+		return nil
+	}
+	cmd := exec.Command(bin, "lint", "openapi.yaml") //nolint:gosec // binário do repositório
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	out, err := cmd.CombinedOutput()
@@ -667,4 +673,15 @@ func validateLive() error {
 	}
 	fmt.Printf("contrato: %d respostas reais do e2e validadas contra o openapi.yaml (%s)\n", total, strings.Join(names, ", "))
 	return nil
+}
+
+// redoclyBin devolve o Redocly travado no package-lock.json de scripts/contracts-tools (o mesmo do verify), a
+// partir da raiz do módulo; sem ele, o erro diz como instalar.
+func redoclyBin(root string) (string, error) {
+	bin := filepath.Join(root, "scripts", "contracts-tools", "node_modules", ".bin", "redocly")
+	if _, err := os.Stat(bin); err != nil {
+		return "", fmt.Errorf("contrato: Redocly ausente (%s): rode npm ci --ignore-scripts --prefix "+
+			"scripts/contracts-tools (ou make verify-full, que instala)", bin)
+	}
+	return bin, nil
 }
