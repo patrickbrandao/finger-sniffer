@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"time"
@@ -53,7 +54,8 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 	health := NewHealth(cfg.Iface, cfg.NetStatus)
 	// Leitura inicial dos offloads (RF-06); o heartbeat (Status) a refaz a cada 5 s.
 	aggOn, aggErr := health.Refresh()
-	cls := &classifier{local: localAddrs(ifc), excluded: toSet(cfg.Exclude), mtu: ifc.MTU, aggregating: health.Aggregating}
+	// Sem endereços no start a direção fica "in" até a próxima releitura (30 s); o serviço sobe assim mesmo.
+	cls := &classifier{local: refreshLocal(svc.Log, cfg.Iface, nil, ifc.Addrs), excluded: toSet(cfg.Exclude), mtu: ifc.MTU, aggregating: health.Aggregating}
 	svc.SetStatus(health.Status)
 	batch := NewBatcher(cfg.BatchMax, cfg.BatchWait, cfg.Iface)
 	m := svc.Metrics
@@ -84,7 +86,7 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 				health.ObserveDrops(uint64(s3.Drops()))
 			}
 		case <-refresh.C:
-			cls.local = localAddrs(ifc)
+			cls.local = refreshLocal(svc.Log, cfg.Iface, cls.local, ifc.Addrs)
 		default:
 		}
 
@@ -142,13 +144,29 @@ func errString(err error) string {
 	return err.Error()
 }
 
-func localAddrs(ifc *net.Interface) map[netip.Addr]bool {
+// localAddrs lê os endereços locais da interface por addrs (ifc.Addrs, que pode falhar por erro de netlink).
+func localAddrs(addrs func() ([]net.Addr, error)) (map[netip.Addr]bool, error) {
+	list, err := addrs()
+	if err != nil {
+		return nil, err
+	}
 	m := map[netip.Addr]bool{}
-	addrs, _ := ifc.Addrs()
-	for _, a := range addrs {
+	for _, a := range list {
 		if p, err := netip.ParsePrefix(a.String()); err == nil {
 			m[p.Addr()] = true
 		}
 	}
-	return m
+	return m, nil
+}
+
+// refreshLocal relê os endereços locais. Erro ou lista vazia não substitui a lista anterior (old), senão todo
+// pacote de saída passaria a sair como "in" até a próxima releitura; registra Warn e devolve old (nil no start).
+func refreshLocal(log *slog.Logger, iface string, old map[netip.Addr]bool, addrs func() ([]net.Addr, error)) map[netip.Addr]bool {
+	fresh, err := localAddrs(addrs)
+	if err != nil || len(fresh) == 0 {
+		log.Warn("capture: local addresses unavailable; keeping previous list", "iface", iface,
+			"err", errString(err), "kept", len(old))
+		return old
+	}
+	return fresh
 }
