@@ -528,15 +528,38 @@ func TestRawReadsTruncated(t *testing.T) {
 	}
 }
 
-// TestRawProbeLine: "PROBE <id>" numa porta web vira raw com probe_line e probe_id.
+// TestRawProbeLine: "PROBE <id>" numa porta web vira raw com probe_id e probe_line como recebida, com o
+// terminador CRLF ou LF, igual ao serviço raw (task 181).
 func TestRawProbeLine(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
+	for _, term := range []string{"\r\n", "\n"} {
+		c := dial(t, h.addr80)
+		_, _ = io.WriteString(c, "PROBE "+testProbe+term+"xyz")
+		_ = c.(*net.TCPConn).CloseWrite()
+		rs := h.events.wait(t, event.SubjectWebRawSession, srcPort(c), 1)[0]
+		if rs.Payload["probe_line"] != "PROBE "+testProbe+term || rs.Env.ProbeID == nil || *rs.Env.ProbeID != testProbe {
+			t.Fatalf("raw session %q %v", rs.Payload["probe_line"], rs.Env.ProbeID)
+		}
+	}
+}
+
+// TestRawSessionTsIsAccept: o fs.v1.web.raw.session de uma sessão de 2 s sai com ts = accept, como o
+// fs.v1.raw.session (ADR 0025, task 180).
+func TestRawSessionTsIsAccept(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	before := time.Now()
 	c := dial(t, h.addr80)
-	_, _ = io.WriteString(c, "PROBE "+testProbe+"\r\nxyz")
+	_, _ = io.WriteString(c, "EHLO x\r\n")
+	time.Sleep(2 * time.Second)
 	_ = c.(*net.TCPConn).CloseWrite()
 	rs := h.events.wait(t, event.SubjectWebRawSession, srcPort(c), 1)[0]
-	if rs.Payload["probe_line"] != "PROBE "+testProbe || rs.Env.ProbeID == nil || *rs.Env.ProbeID != testProbe {
-		t.Fatalf("raw session %v %v", rs.Payload, rs.Env.ProbeID)
+	end := time.Now()
+	ts, err := time.Parse(time.RFC3339Nano, rs.Env.Ts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts.Before(before.Add(-time.Second)) || end.Sub(ts) < 2*time.Second || ts.After(before.Add(time.Second)) {
+		t.Fatalf("ts %v, dial %v, fim %v", ts, before, end)
 	}
 }
 
