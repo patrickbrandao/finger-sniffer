@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
@@ -47,8 +48,13 @@ func TestParseControlsInvalidCap(t *testing.T) {
 
 // TestInvalidKeysRequest: GET /r com ~300 KiB de chaves inválidas → 400 pequeno e o evento publicado
 // dentro do teto (task 130).
+//
+// A ociosidade do servidor sobe de 3 s para 30 s: ela não é o que se testa aqui e, com -race e a suíte inteira
+// disputando a CPU no CI, ler 300 KiB pelo tap (eventos stream.bytes), analisar ~34 mil chaves e publicar o
+// evento chegou a passar de 3 s (task 214). O custo linear da análise continua coberto pelo
+// TestParseControlsInvalidCap (200 mil chaves) e pelo BenchmarkParseControlsInvalidKeys.
 func TestInvalidKeysRequest(t *testing.T) {
-	h := newHarness(t, harnessOpts{})
+	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.IdleDefault, c.IdleMax = 30*time.Second, 60*time.Second }})
 	c := dial(t, h.addr80)
 	cl := newClient(t, c)
 	q := invalidKeysQuery(300 << 10 / 9)
