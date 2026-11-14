@@ -43,9 +43,11 @@ func (c *conn) serveRaw(ic *idleConn, res detect.Result) {
 			if pl, err := probe.ParseLine(line); err == nil {
 				c.setProbe(pl.ID)
 			}
-			sess.ProbeLine = ptr(string(bytes.TrimRight(line, "\r\n")))
+			// como no raw: a linha como recebida, com o terminador CRLF ou LF (spec 006 RF-04, task 181)
+			sess.ProbeLine = ptr(string(line))
 		}
 	}
 	t.flush()
-	c.publish(event.SubjectWebRawSession, s.now(), "", sess)
+	// ts = accept, como no fs.v1.raw.session (ADR 0025, task 180)
+	c.publish(event.SubjectWebRawSession, c.acceptAt, "", sess)
 }

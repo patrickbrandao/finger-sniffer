@@ -524,7 +524,9 @@ ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-pr
   em 2 s, fica `false`, e `half_close.bytes` diz quantos bytes o espelho escreveu (task 083). Um `false` com
   `bytes: 17` quer dizer "o espelho mandou, mas o caminho não entregou".
 - **Estáveis**: `mode`, `banner`, `probe_line`, total de bytes em cada sentido,
-  `half_close.server_sent_after_client_fin`, `close.half_close`.
+  `half_close.server_sent_after_client_fin`, `close.half_close`. `probe_line` é a linha como chegou, **com** o
+  terminador (`"PROBE <id>\r\n"` ou `"PROBE <id>\n"`), igual nas portas cruas e nas portas web (contrato 0.6.0):
+  um proxy que troca CRLF por LF aparece aí.
 - **Diferenças esperadas**: TCP e DNS do proxy. Um túnel que não repassa o meio-fechamento (fecha os dois
   sentidos quando o cliente manda FIN) aparece como `half_close: null`, `server_sent_after_client_fin: false` ou
   `close.how: rst`, e o cliente não recebe `half-close test`: é um achado. A segmentação (`reads_in`) pode mudar; o total de bytes, não.

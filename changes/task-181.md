@@ -1,0 +1,1 @@
+- web: `raw.probe_line` nas portas web guarda a linha como recebida, com o terminador CRLF ou LF, igual ao serviço raw; `docs/probes.md` descreve a forma.

@@ -10,7 +10,7 @@
     "banner": null,
     "half_close": null,
     "mode": "sink",
-    "probe_line": "PROBE abcdefgh",
+    "probe_line": "PROBE abcdefgh\r\n",
     "reads_in": [
       [
         0.046542,
