@@ -278,10 +278,25 @@ func (s *Store) watch() {
 	poll := time.NewTicker(pollInterval)
 	defer poll.Stop()
 
+	// Par que continua ruim (task 170): o atraso da nova tentativa dobra a cada falha e, ao alcançar
+	// pollInterval, só o poll confere; o aviso sai uma vez por erro distinto, não a cada tentativa. Sucesso
+	// ou evento de um dos arquivos zera o atraso, para a correção ser percebida em debounce.
+	retry := retryDelay
+	lastErr := ""
 	doReload := func() {
-		if _, err := s.Reload(); err != nil {
+		_, err := s.Reload()
+		if err == nil {
+			retry, lastErr = retryDelay, ""
+			return
+		}
+		if msg := err.Error(); msg != lastErr {
+			lastErr = msg
 			s.log.Warn("certs: recarga falhou, mantendo o anterior", "err", err)
-			timer.Reset(retryDelay)
+		}
+		if retry < pollInterval {
+			s.log.Debug("certs: nova tentativa agendada", "in", retry)
+			timer.Reset(retry)
+			retry *= 2
 		}
 	}
 
@@ -300,6 +315,7 @@ func (s *Store) watch() {
 				continue
 			}
 			if isOurFile(ev.Name) {
+				retry = retryDelay
 				timer.Reset(debounce)
 			} else if filepath.Clean(ev.Name) == filepath.Clean(s.cfg.Dir) && ev.Has(fsnotify.Remove|fsnotify.Rename) {
 				// O próprio diretório sumiu: recria o watcher no próximo poll.
