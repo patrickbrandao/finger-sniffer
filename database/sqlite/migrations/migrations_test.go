@@ -83,3 +83,47 @@ func TestCascadeDelete(t *testing.T) {
 		}
 	}
 }
+
+// TestDropQUICDCID: a 00002 tira connections.quic_dcid e cria o índice do destino dos avulsos; o Down devolve os
+// dois ao estado da 00001, preservando as linhas (tasks 179 e 177).
+func TestDropQUICDCID(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	p, err := goose.NewProvider(goose.DialectSQLite3, db, FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(q string) bool {
+		t.Helper()
+		var n int
+		if err := db.QueryRowContext(ctx, q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n > 0
+	}
+	const col = "SELECT count(*) FROM pragma_table_info('connections') WHERE name = 'quic_dcid'"
+	const idx = "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'stray_packets_dst'"
+	if _, err := p.UpTo(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if !has(col) || has(idx) {
+		t.Fatal("00001: quic_dcid devia existir e o índice não")
+	}
+	if _, err := p.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if has(col) || !has(idx) {
+		t.Fatal("00002: quic_dcid devia sumir e o índice existir")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port, proto,
+		started_ns, record_json, updated_ns) VALUES ('01JC0X3K8V2T7Q9N4M6P1R5S8W', 'udp', 4, '192.0.2.1', 41234, '172.233.24.85', 443,
+		'quic/h3', 1, '{"http3":{"dcid_hex":"0011"}}', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.DownTo(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if !has(col) || has(idx) || !has("SELECT count(*) FROM connections") {
+		t.Fatal("down para 00001: quic_dcid de volta, índice fora, linhas preservadas")
+	}
+}
