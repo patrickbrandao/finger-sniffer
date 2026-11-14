@@ -94,6 +94,7 @@
           "ttl": 64
         }
       },
+      "src_kind": "other",
       "tos": 0,
       "traffic_class": null,
       "ttl": 64,
@@ -119,6 +120,8 @@
           0
         ]
       ],
+      "mss_reduction": null,
+      "mtu_implied": null,
       "os_guess": null,
       "p0f": "4:64+0:0:0:0,0::id-,seq-:0",
       "psh_used": true,
@@ -150,6 +153,7 @@
         "window": 0
       },
       "syn_cookie_server": false,
+      "syn_mss": null,
       "ts_clock_group": null,
       "ts_clock_hz": null,
       "ts_initial": null,
