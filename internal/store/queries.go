@@ -35,6 +35,15 @@ type Queries struct {
 	blobWrite time.Duration
 	// probeReads conta as leituras completas do probe (record_json); os testes conferem que o wait lê uma vez.
 	probeReads atomic.Int64
+	// openSummary, se definido, dá o resumo ao vivo de uma conexão aberta sem montar o registro inteiro; sem ele,
+	// a lista usa live (task 176).
+	openSummary func(id string) (summaryJSON, bool)
+}
+
+// WithOpenSummary liga o acessor de resumo ao vivo usado por /connections.
+func (q *Queries) WithOpenSummary(f func(string) (summaryJSON, bool)) *Queries {
+	q.openSummary = f
+	return q
 }
 
 // Tetos de /probes/{id} (ADR 0032): esperas simultâneas e itens por lista na resposta.
@@ -140,7 +149,8 @@ func ParseListFilter(get func(string) string) (ListFilter, error) {
 		if err != nil {
 			return f, bad("invalid src_ip %q", v)
 		}
-		f.SrcIP = a.String()
+		// IPv4 mapeado em IPv6 vale o IPv4: o store grava os endereços IPv4 assim (task 177)
+		f.SrcIP = a.Unmap().String()
 	}
 	if v := get("dst_port"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -241,9 +251,28 @@ func (q *Queries) Connections(ctx context.Context, f ListFilter) ([]summaryJSON,
 			s.Ended = tsPtr(ended.Int64)
 		}
 		s.Degraded = degraded == 1
+		if !ended.Valid {
+			// conexão aberta: o record_json do banco é o da criação (spec 004 "Dados"); requests, proto e
+			// probe_id vêm do estado ao vivo, como em GET /connections/{id} e no feed (task 176)
+			if l, ok := q.liveSummary(s.ConnID); ok {
+				s = l
+			}
+		}
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// liveSummary é o resumo ao vivo de uma conexão aberta (false se ela já saiu da tabela do ingest).
+func (q *Queries) liveSummary(id string) (summaryJSON, bool) {
+	if q.openSummary != nil {
+		return q.openSummary(id)
+	}
+	r, ok := q.live(id)
+	if !ok {
+		return summaryJSON{}, false
+	}
+	return summaryFrom(r), true
 }
 
 // Connection devolve o registro completo; conexões abertas vêm do estado ao vivo do ingest.
@@ -348,7 +377,8 @@ func (q *Queries) Packets(ctx context.Context, f ListFilter) ([]json.RawMessage,
 	var where []string
 	var args []any
 	if f.SrcIP != "" {
-		where, args = append(where, "src_ip = ?"), append(args, f.SrcIP)
+		// IP do cliente: a origem quando o pacote entra, o destino quando sai (como o filtro do tempo real)
+		where, args = append(where, "((dir = 0 AND src_ip = ?) OR (dir = 1 AND dst_ip = ?))"), append(args, f.SrcIP, f.SrcIP)
 	}
 	if f.Since != 0 {
 		where, args = append(where, "ts_ns >= ?"), append(args, f.Since)
