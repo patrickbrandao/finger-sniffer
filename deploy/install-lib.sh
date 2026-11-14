@@ -96,9 +96,35 @@ binary_drift() {
 # unit_active <unit>: a unit está ativa?
 unit_active() { systemctl is-active --quiet "$1"; }
 
+# config_hash <dest> <unit>: hashes da configuração que só vale depois de um reinício: o arquivo da unit e o
+# nats.conf (NATS) ou o env (demais). FS_SYSTEMD_DIR para os testes (padrão /etc/systemd/system).
+config_hash() {
+	local extra
+	if [ "$2" = finger-sniffer-nats ]; then
+		extra="$1/eventbus/nats/nats.conf"
+	else
+		extra="$1/etc/finger-sniffer.env"
+	fi
+	printf 'unit=%s conf=%s\n' "$(hash_file "${FS_SYSTEMD_DIR:-/etc/systemd/system}/$2.service")" "$(hash_file "$extra")"
+}
+
+# config_drift <dest> <unit>: verdadeiro se a configuração atual difere da gravada no último reinício da unit
+# (carimbo ausente conta como diferente; task 172, spec 016 RF-11).
+config_drift() {
+	[ "$(cat "$1/etc/applied/$2" 2>/dev/null || true)" != "$(config_hash "$1" "$2")" ]
+}
+
+# mark_applied <dest> <unit>: grava o carimbo da configuração com que a unit acabou de ser reiniciada. Fica em
+# <dest>/etc/applied, fora do rsync (que exclui /etc/).
+mark_applied() {
+	mkdir -p "$1/etc/applied"
+	config_hash "$1" "$2" >"$1/etc/applied/$2"
+}
+
 # plan_restarts <dest> <svc>: units a reiniciar, uma por linha ("<unit>\t<motivo>"). Binário em execução ≠
-# binário em disco reinicia sempre; com SVC, o serviço pedido também; sem SVC, ainda FORCE=1, CHANGED_CONFIG=1
-# (units), ENV_CHANGED=1 (todas menos o NATS), NATS_CONF_CHANGED=1 (só o NATS) ou unit parada.
+# binário em disco reinicia sempre; com SVC, o serviço pedido também (o carimbo dos demais fica desatualizado
+# de propósito); sem SVC, ainda FORCE=1, CHANGED_CONFIG=1 (units), ENV_CHANGED=1 (todas menos o NATS),
+# NATS_CONF_CHANGED=1 (só o NATS), configuração instalada e ainda não aplicada (config_drift) ou unit parada.
 plan_restarts() {
 	local u short why
 	for u in $FS_UNITS; do
@@ -116,6 +142,8 @@ plan_restarts() {
 			why="env mudou"
 		elif [ "$u" = finger-sniffer-nats ] && [ "${NATS_CONF_CHANGED:-0}" = 1 ]; then
 			why="nats.conf mudou"
+		elif config_drift "$1" "$u"; then
+			why="configuração instalada e ainda não aplicada"
 		elif ! unit_active "$u"; then
 			why="parada"
 		fi

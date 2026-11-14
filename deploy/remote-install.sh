@@ -104,7 +104,8 @@ fi
 systemctl restart finger-sniffer-net.service
 
 # 9. Reinícios: binário em execução ≠ binário em disco reinicia sempre (com ou sem SVC); com SVC, o serviço
-#    pedido também; sem SVC, ainda config/env/nats.conf mudados, FORCE=1 ou unit parada.
+#    pedido também; sem SVC, ainda config/env/nats.conf mudados (nesta execução ou instalados por um deploy com
+#    SVC e não aplicados: carimbo em $DEST/etc/applied), FORCE=1 ou unit parada.
 conf_after=$(hash_file "$DEST/eventbus/nats/nats.conf")
 NATS_CONF_CHANGED=0
 [ "$conf_before" = "$conf_after" ] || NATS_CONF_CHANGED=1
@@ -119,6 +120,9 @@ if [ -n "$restart" ]; then
 	log "reiniciando:$restart"
 	# shellcheck disable=SC2086
 	systemctl restart $restart
+	# carimbo da configuração aplicada (task 172): com SVC, o dos outros fica desatualizado e o próximo deploy
+	# completo reinicia quem tiver configuração instalada e ainda não aplicada
+	for u in $restart; do mark_applied "$DEST" "$u"; done
 else
 	log "nada mudou; nenhum serviço reiniciado"
 fi

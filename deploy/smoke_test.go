@@ -84,7 +84,15 @@ func (f *fakeMirror) health(w http.ResponseWriter, _ *http.Request) {
 			v = "test"
 		}
 		match = match && v == "test"
-		services[name] = svc{Status: st, Version: v, Reasons: f.reasons[name], Metrics: m}
+		reasons := f.reasons[name]
+		// como o store (internal/store/health.go): versão diferente da do store degrada com motivo
+		if v != "test" {
+			reasons = append(append([]string(nil), reasons...), "version "+v+" differs from store test")
+			if st == "ok" {
+				st = "degraded"
+			}
+		}
+		services[name] = svc{Status: st, Version: v, Reasons: reasons, Metrics: m}
 	}
 	b, _ := json.MarshalIndent(map[string]any{
 		"ok": true, "version": "test", "versions_match": match, "services": services,
@@ -415,5 +423,63 @@ func TestSmokePassesWhenVersionsMatch(t *testing.T) {
 	out, rc := runSmoke(t, f, "capture")
 	if rc != 0 || !strings.Contains(out, "health versions_match") || strings.Contains(out, "DESENCONTRADAS") {
 		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+}
+
+// task 173 (spec 016 RF-10): degraded sai como AVISO com serviço e motivos; só cert_self_signed é tolerado.
+func TestSmokeDegradedSelfSignedPassesWithWarning(t *testing.T) {
+	f := selfSignedMirror(t)
+	out, rc := runSmoke(t, f, "")
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	for _, want := range []string{"health web", "health store", "AVISO degraded: cert_self_signed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("saída sem %q\n%s", want, out)
+		}
+	}
+}
+
+func TestSmokeDegradedByOtherReasonFails(t *testing.T) {
+	for _, svc := range []string{"", "capture"} {
+		f := selfSignedMirror(t)
+		f.setStatus("store", "degraded", "cert_self_signed", "ntp not synchronized")
+		out, rc := runSmoke(t, f, svc)
+		if rc != 1 {
+			t.Fatalf("SVC=%q: esperava rc=1, veio %d\n%s", svc, rc, out)
+		}
+		for _, want := range []string{
+			"AVISO degraded: cert_self_signed; ntp not synchronized",
+			"degraded por motivo não tolerado: ntp not synchronized", "[smoke] FALHOU",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("SVC=%q: saída sem %q\n%s", svc, want, out)
+			}
+		}
+		if strings.Contains(out, "não tolerado: cert_self_signed") {
+			t.Errorf("SVC=%q: cert_self_signed reprovado\n%s", svc, out)
+		}
+	}
+}
+
+func TestSmokeDegradedWithoutReasonFails(t *testing.T) {
+	f := selfSignedMirror(t)
+	f.setStatus("dns", "degraded")
+	out, rc := runSmoke(t, f, "dns")
+	if rc != 1 || !strings.Contains(out, "não tolerado: (sem motivo)") {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeVersionReasonToleratedOnlyWithSVC(t *testing.T) {
+	f := selfSignedMirror(t)
+	f.setVersion("raw", "old1234")
+	out, rc := runSmoke(t, f, "web")
+	if rc != 0 || !strings.Contains(out, "AVISO degraded: version old1234 differs from store test") {
+		t.Fatalf("SVC=web: rc=%d\n%s", rc, out)
+	}
+	out, rc = runSmoke(t, f, "")
+	if rc != 1 || !strings.Contains(out, "não tolerado: version old1234 differs from store test") {
+		t.Fatalf("sem SVC: rc=%d\n%s", rc, out)
 	}
 }
