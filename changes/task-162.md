@@ -1,0 +1,1 @@
+- raw: `n=` do modo `source` cortado em 64 MiB, com a linha `PROBE` ainda válida (task 162, ADR 0035).

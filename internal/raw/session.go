@@ -223,7 +223,8 @@ func (s *session) applyProbe(line string, pl probe.Line) {
 	s.info.ProbeLine = &line
 	s.probeID = pl.ID
 	if pl.N > 0 {
-		s.sourceN = pl.N
+		// n acima do máximo é cortado e a linha continua válida (spec 006 RF-02, ADR 0035).
+		s.sourceN = min(pl.N, MaxSourceBytes)
 	}
 	if pl.Mode != "" {
 		s.mode = pl.Mode

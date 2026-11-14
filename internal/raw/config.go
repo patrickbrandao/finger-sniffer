@@ -29,9 +29,13 @@ const DefaultPorts = "7:echo,21:banner,22:banner,25:banner,110:banner,143:banner
 
 // Valores padrão.
 const (
-	DefaultIdle        = 120 * time.Second
+	DefaultIdle = 120 * time.Second
+	// DefaultMaxConns é o padrão de FS_MAX_CONNS, o mesmo do web e do store (ADR 0030, ADR 0035).
+	DefaultMaxConns    = 250
 	DefaultSourceBytes = 1 << 20
-	DefaultStreamMax   = event.DefaultRawStreamMaxBytes
+	// MaxSourceBytes é o máximo de n= no modo source (= FS_SIZE_MAX do web); acima, n é cortado (ADR 0035).
+	MaxSourceBytes   = 64 << 20
+	DefaultStreamMax = event.DefaultRawStreamMaxBytes
 	// GenericBanner é o banner das portas em modo banner que não têm um banner próprio na spec.
 	GenericBanner = "220 finger-sniffer ready\r\n"
 	// HalfCloseMessage é o que o servidor manda depois do FIN do cliente (spec 006 RF-05).
@@ -125,6 +129,9 @@ type Config struct {
 	Ports     []PortSpec
 	// Idle é a ociosidade máxima sem atividade (FS_IDLE_DEFAULT, spec 006 RF-07).
 	Idle time.Duration
+	// MaxConns limita as sessões simultâneas somando todos os listeners (FS_MAX_CONNS, spec 006 RF-07a);
+	// <= 0 vira DefaultMaxConns com aviso em New (ADR 0034 item 12).
+	MaxConns int
 	// SourceBytes é o padrão de bytes do modo source (n= da linha PROBE muda).
 	SourceBytes int64
 	// StreamMax é o teto de bytes publicados por sentido (FS_RAW_STREAM_MAX_BYTES, ADR 0018).
@@ -156,6 +163,9 @@ func LoadConfig() (Config, error) {
 	}
 	if c.Idle <= 0 {
 		return c, errors.New("raw: FS_IDLE_DEFAULT must be positive")
+	}
+	if c.MaxConns, err = service.EnvInt("FS_MAX_CONNS", DefaultMaxConns); err != nil {
+		return c, err
 	}
 	streamMax, err := service.EnvInt(event.EnvRawStreamMaxBytes, DefaultStreamMax)
 	if err != nil {
