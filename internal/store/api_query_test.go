@@ -74,6 +74,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 
 	q := NewQueries(db, in.flows.live, 65535)
 	q.pollEvery = 20 * time.Millisecond
+	q.SetHideOpen(in.flows.hide, in.flows.unhide)
 	api := &API{OpenAPI: []byte("x"), Health: func(context.Context, time.Time) Health { return Health{} }, Now: time.Now, Q: q, W: db}
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)

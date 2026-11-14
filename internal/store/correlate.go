@@ -88,6 +88,7 @@ func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after
 	if c.l4 == protoUDP && c.closeAt == 0 && c.app.h3Close != nil {
 		c.closeAt = c.app.h3CloseTs + t.grace.Nanoseconds()
 	}
+	t.refresh(c) // fechou: sai da conta de vivas do modo degradado
 	return probeSet, before, c.app.proto(l4), true
 }
 
@@ -112,6 +113,15 @@ func (t *flowTable) reserveFor(k flowKey, id string, now int64) {
 	t.reserved[k] = reservation{id: id, expires: now + eventOnlyIdle.Nanoseconds()}
 }
 
+// dropReservation apaga a reserva da 5-tupla se ela ainda for do conn_id.
+func (t *flowTable) dropReservation(k flowKey, id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if r, ok := t.reserved[k]; ok && r.id == id {
+		delete(t.reserved, k)
+	}
+}
+
 // locate acha a conexão de um evento: aberta na tabela, criada só por eventos, ou já gravada (até a retenção).
 func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target, bool, error) {
 	k := ev.key()
@@ -119,7 +129,18 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 		return tg, true, nil
 	}
 	if eo := in.eventOnly[k]; eo != nil && ev.ts >= eo.started-eventSlack.Nanoseconds() && ev.ts <= eo.last+eventOnlyIdle.Nanoseconds() {
-		return target{id: eo.id, degraded: eo.degraded, eventOnly: true}, true, nil
+		ok, err := in.eventOnlyStored(ctx, tx, eo.id)
+		if err != nil {
+			return target{}, false, err
+		}
+		if ok {
+			return target{id: eo.id, degraded: eo.degraded, eventOnly: true}, true, nil
+		}
+		// A linha saiu do banco (DELETE do probe, teto de tamanho): sem ela o INSERT do evento falharia na FK e o
+		// lote voltaria por Nak em laço (ADR 0034 item 7). A entrada é esquecida e o evento segue a regra do
+		// evento sem conexão, com um conn_id novo (a reserva para pacotes atrasados também é esquecida).
+		in.setEventOnly(k, nil)
+		in.flows.dropReservation(k, eo.id)
 	}
 	var tg target
 	var degraded int
@@ -136,6 +157,23 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	}
 	tg.degraded = degraded == 1
 	return tg, true, nil
+}
+
+// eventOnlyStored confere se a linha da conexão só de eventos ainda existe; a confirmação vale até o fim do lote
+// (só a API e a retenção apagam linhas, e elas não entram no meio da transação do lote).
+func (in *Ingestor) eventOnlyStored(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+	if _, ok := in.eoChecked[id]; ok {
+		return true, nil
+	}
+	var one int
+	switch err := tx.QueryRowContext(ctx, "SELECT 1 FROM connections WHERE conn_id = ?", id).Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	in.eoChecked[id] = struct{}{}
+	return true, nil
 }
 
 // appMessage trata uma mensagem de aplicação dentro da transação do lote.
@@ -265,6 +303,9 @@ func familyOf(ev appEvent) int {
 
 // applyEvent associa o evento à conexão: app_events, raw_streams, dns_queries, probe e registro.
 func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg target) error {
+	if tg.open && in.flows.isHidden(tg.id) {
+		return nil // conexão de um probe apagado: o evento é descartado (ADR 0034 item 8)
+	}
 	ev, keep, err := in.storeStream(ctx, tx, ev, tg)
 	if err != nil {
 		return err
@@ -377,6 +418,7 @@ func (in *Ingestor) beginBatch() {
 	in.batchCreated = in.batchCreated[:0]
 	in.eoUndo = in.eoUndo[:0]
 	clear(in.batchApp)
+	clear(in.eoChecked)
 }
 
 // commitBatch esquece o que só servia ao rollback: o lote está gravado.

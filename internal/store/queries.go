@@ -38,6 +38,8 @@ type Queries struct {
 	// openSummary, se definido, dá o resumo ao vivo de uma conexão aberta sem montar o registro inteiro; sem ele,
 	// a lista usa live (task 176).
 	openSummary func(id string) (summaryJSON, bool)
+	// hide e unhide avisam o ingest das conexões abertas de um probe apagado (SetHideOpen).
+	hide, unhide func(ids []string)
 }
 
 // WithOpenSummary liga o acessor de resumo ao vivo usado por /connections.
@@ -595,18 +597,48 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 	return p, nil
 }
 
-// DeleteProbe apaga o probe, suas conexões (com pacotes, pcaps e bytes, em cascata) e consultas DNS.
+// SetHideOpen liga o DELETE de probe ao ingest: hide recebe os conn_id abertos do probe apagado, que o ingest
+// passa a descartar até a conexão fechar (ADR 0034 item 8), e unhide desfaz se a transação falhar.
+func (q *Queries) SetHideOpen(hide, unhide func(ids []string)) { q.hide, q.unhide = hide, unhide }
+
+// DeleteProbe apaga, numa transação, o probe, suas conexões (com pacotes, pcaps e bytes, em cascata) e consultas
+// DNS (ADR 0034 item 8). As conexões ainda abertas também saem do banco na hora, e com isso de todas as leituras;
+// o ingest guarda os conn_id delas e descarta os pacotes e eventos que ainda chegarem até a conexão fechar, sem
+// recriar a linha. O escritor tem uma só conexão com o banco: nenhum lote do ingest roda entre a leitura dos
+// conn_id abertos e o commit, e o conjunto do ingest é preenchido antes do commit.
 func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	if !probe.Valid(id) {
 		return bad("invalid probe id %q", id)
 	}
+	tx, err := w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var open []string
+	rows, err := tx.QueryContext(ctx, "SELECT conn_id FROM connections WHERE probe_id = ? AND ended_ns IS NULL", id)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		open = append(open, c)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	var total int64
 	for _, s := range []string{
-		"DELETE FROM connections WHERE probe_id = ? AND ended_ns IS NOT NULL",
+		"DELETE FROM connections WHERE probe_id = ?",
 		"DELETE FROM dns_queries WHERE probe_id = ?",
 		"DELETE FROM probes WHERE probe_id = ?",
 	} {
-		res, err := w.ExecContext(ctx, s, id)
+		res, err := tx.ExecContext(ctx, s, id)
 		if err != nil {
 			return err
 		}
@@ -615,6 +647,15 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	}
 	if total == 0 {
 		return ErrNotFound
+	}
+	if len(open) > 0 && q.hide != nil {
+		q.hide(open)
+	}
+	if err := tx.Commit(); err != nil {
+		if len(open) > 0 && q.unhide != nil {
+			q.unhide(open)
+		}
+		return err
 	}
 	return nil
 }

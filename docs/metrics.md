@@ -127,7 +127,7 @@ CONNECTION_CLOSE do QUIC se vier depois) e o commit do registro completo. O rót
 | --- | --- | --- |
 | `close` | TCP com RST, ou FIN dos dois lados | RST e FIN com o ACK final: na hora (mais o lote do ingest); FIN sem o ACK final: `FS_TCP_CLOSE_GRACE` |
 | `quic_close` | QUIC com CONNECTION_CLOSE, stateless reset ou fim por ociosidade informado pelo web | `FS_TCP_CLOSE_GRACE` contado do evento do web |
-| `idle` | fluxo sem fim visto, fechado pelo store por falta de pacotes | o próprio prazo de ociosidade: `FS_IDLE_DEFAULT` + 30 s no TCP (150 s), 30 s no UDP |
+| `idle` | fluxo sem fim visto, fechado pelo store por falta de pacotes | o próprio prazo de ociosidade: TCP estabelecido `max(FS_IDLE_DEFAULT, FS_IDLE_MAX)` + 30 s (630 s com os padrões, para não fechar antes do web uma conexão com `idle=`), TCP sem handshake completo 10 s (vira avulso), QUIC sem close `FS_IDLE_DEFAULT` + 30 s (150 s), UDP 30 s |
 
 `FS_TCP_CLOSE_GRACE` é a folga para os últimos pacotes do capture: padrão **100 ms**, aceita de 0 a 500 ms (fora
 disso o store não sobe, spec 004 RNF-01). Pacotes que chegam depois do registro gravado (ACK final atrasado, RST

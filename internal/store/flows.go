@@ -1,6 +1,7 @@
 package store
 
 import (
+	"container/list"
 	"encoding/binary"
 	"encoding/hex"
 	"net/netip"
@@ -18,6 +19,19 @@ import (
 const (
 	lateLinger = 2 * time.Second
 	lateKeep   = 10 * time.Second
+)
+
+// Teto da tabela de fluxos (ADR 0034 item 1, spec 004 RF-11a): no máximo maxFlows entradas; TCP que não completou
+// o handshake sai por ociosidade em halfOpenIdle, não na ociosidade do TCP estabelecido.
+const (
+	maxFlows     = 8192
+	halfOpenIdle = 10 * time.Second
+)
+
+// Motivos de fs_store_flows_dropped_total.
+const (
+	dropEvicted   = "evicted"
+	dropTableFull = "table_full"
 )
 
 // DefaultCloseGrace é a folga depois do FIN dos dois lados quando o ACK final não aparece (FS_TCP_CLOSE_GRACE).
@@ -73,6 +87,10 @@ type conn struct {
 	// do lote que a criou (a reentrega cria outra conn); finalTries = finalizações que falharam.
 	unstored   bool
 	finalTries int
+	// Estado da tabela de fluxos (com a trava): halfEl = posição na fila de não estabelecidas (despejo);
+	// countedLive = conta em liveLim (TCP/QUIC vivas do modo degradado).
+	halfEl      *list.Element
+	countedLive bool
 }
 
 // dataSeg é um segmento com dados, guardado para medir a ociosidade antes do fechamento.
@@ -228,6 +246,15 @@ func (c *conn) noteQUICCIDs(fi frameInfo) {
 // closing informa se a conexão já viu o fechamento (FIN dos dois lados ou RST).
 func (c *conn) closing() bool { return c.closeAt != 0 }
 
+// evictable informa se a entrada pode ser despejada com a tabela cheia (ADR 0034 item 1): TCP sem o ACK do
+// cliente depois do SYN-ACK, ou UDP que não é QUIC e não teve resposta. A transição é de mão única.
+func (c *conn) evictable() bool {
+	if c.l4 == protoTCP {
+		return c.established == 0
+	}
+	return !c.limited && !c.serverSeen
+}
+
 // isStray decide o que vira pacote avulso em vez de conexão (spec 004 RF-03): TCP que nunca completou o
 // handshake (SYN sem resposta, SYN recusado com RST, varreduras) e UDP sem nenhuma resposta.
 func (c *conn) isStray() bool {
@@ -246,11 +273,18 @@ type flowTable struct {
 	// finalizing são as conexões que saíram da tabela e esperam a finalização no ingest (ADR 0034): a linha
 	// delas ainda tem ended_ns nulo, mas não é órfã (Retention.Tracked).
 	finalizing map[string]struct{}
+	// hidden são as conexões abertas de um probe apagado pelo DELETE (ADR 0034 item 8): a linha já saiu do banco
+	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
+	hidden     map[string]struct{}
 	reserved   map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
 	newID      func(ts int64) string
 	grace      time.Duration
-	tcpIdle    time.Duration
+	tcpIdle    time.Duration // TCP estabelecido
+	quicIdle   time.Duration // UDP com evento h3 e sem close
 	udpIdle    time.Duration
+	maxFlows   int        // teto de entradas (maxFlows; testes trocam)
+	half       *list.List // entradas despejáveis (evictable), da mais antiga para a mais nova
+	liveLim    int        // TCP e QUIC vivas na tabela (ver overloaded), mantido incrementalmente
 	maxOpen    int
 	maxNewPerS int
 	newTokens  float64 // balde das novas/s (overloaded)
@@ -271,8 +305,13 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 	if db == nil {
 		db = &p0f.DB{} // sem banco: assinatura crua sem palpite de SO
 	}
+	quicIdle := cfg.QUICIdle
+	if quicIdle == 0 {
+		quicIdle = cfg.TCPIdle
+	}
 	return &flowTable{
-		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]struct{}{},
+		quicIdle: quicIdle, maxFlows: maxFlows, half: list.New(),
+		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]struct{}{}, hidden: map[string]struct{}{},
 		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
@@ -285,7 +324,11 @@ func (t *flowTable) finish(c *conn) {
 		return
 	}
 	c.ana.cookieJudged = true
-	c.ana.clockGroup = t.clocks.assign(c, true)
+	// Tentativa que vira avulso (SYN sem resposta, varredura) não registra grupo: o registro não tem tcp, e um
+	// flood de SYNs retransmitidos encheria o registro de relógios (task 141).
+	if !c.isStray() || c.app.events > 0 {
+		c.ana.clockGroup = t.clocks.assign(c, true)
+	}
 	if c.synAck != 0 {
 		c.ana.cookie = c.ana.synCookie(t.cookies.rose(c.synAck))
 	}
@@ -338,6 +381,71 @@ type result struct {
 	created bool  // conexão nova (inserir a linha)
 	ended   *conn // conexão anterior com a mesma 5-tupla que terminou agora (reuso)
 	late    bool  // pacote tardio de uma conexão já gravada (conn é ela)
+	hidden  bool  // conexão de um probe apagado: descartar (ADR 0034 item 8)
+	evicted *conn // entrada despejada pela tabela cheia: apagar a linha dela, sem registro nem avulso
+	dropped bool  // 5-tupla nova recusada pela tabela cheia: nada a gravar
+}
+
+// add põe a conexão na tabela (com a trava).
+func (t *flowTable) add(k flowKey, c *conn) {
+	t.conns[k] = c
+	t.byID[c.id] = c
+	if c.evictable() {
+		c.halfEl = t.half.PushBack(k)
+	}
+	t.syncLive(c, true)
+}
+
+// drop tira a conexão da tabela (com a trava).
+func (t *flowTable) drop(k flowKey, c *conn) {
+	delete(t.conns, k)
+	delete(t.byID, c.id)
+	if c.halfEl != nil {
+		t.half.Remove(c.halfEl)
+		c.halfEl = nil
+	}
+	t.syncLive(c, false)
+}
+
+// refresh atualiza a fila de despejo e a contagem de vivas depois de um pacote ou evento (com a trava).
+func (t *flowTable) refresh(c *conn) {
+	if c.halfEl != nil && !c.evictable() {
+		t.half.Remove(c.halfEl)
+		c.halfEl = nil
+	}
+	t.syncLive(c, true)
+}
+
+// syncLive mantém liveLim: conta a conexão TCP/QUIC que está na tabela e ainda não fechou.
+func (t *flowTable) syncLive(c *conn, inTable bool) {
+	want := inTable && c.limited && !c.closing()
+	if want == c.countedLive {
+		return
+	}
+	c.countedLive = want
+	if want {
+		t.liveLim++
+	} else {
+		t.liveLim--
+	}
+}
+
+// evictOldest despeja a entrada não estabelecida mais antiga e a devolve (nil se não há). A ficha das novas/s
+// volta, como na tentativa que vira avulso.
+func (t *flowTable) evictOldest() *conn {
+	e := t.half.Front()
+	if e == nil {
+		return nil
+	}
+	k, _ := e.Value.(flowKey)
+	c := t.conns[k]
+	if c == nil {
+		t.half.Remove(e) // não acontece: drop tira da fila
+		return nil
+	}
+	t.drop(k, c)
+	t.refund(c)
+	return c
 }
 
 // handle correlaciona um pacote (spec 004 RF-02/RF-03).
@@ -361,8 +469,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		newQUIC = c != nil && isInitial && c.closing() && c.fromClient(fi) && c.newQUICInitial(dcid, ts)
 	}
 	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
-		delete(t.conns, k)
-		delete(t.byID, c.id)
+		t.drop(k, c)
 		t.finalizing[c.id] = struct{}{}
 		t.finish(c)
 		res.ended, c = c, nil
@@ -387,6 +494,12 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		if fi.proto == protoTCP && fi.tcpFlags&tcpRST != 0 {
 			return result{stray: true, ended: res.ended}
 		}
+		// Tabela cheia: despeja a não estabelecida mais antiga ou, sem nenhuma, recusa a 5-tupla nova.
+		if len(t.conns) >= t.maxFlows {
+			if res.evicted = t.evictOldest(); res.evicted == nil {
+				return result{dropped: true, ended: res.ended}
+			}
+		}
 		c = &conn{
 			id: t.takeReserved(k, ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
@@ -394,8 +507,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 		}
 		c.limited = fi.proto == protoTCP || isInitial
 		c.degraded = t.overloaded(ts, c.limited)
-		t.conns[k] = c
-		t.byID[c.id] = c
+		t.add(k, c)
 		res.created = true
 	}
 	if isInitial && c.quicDCID == "" && c.fromClient(fi) {
@@ -406,11 +518,15 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	}
 	c.observe(fi, ts, t.grace)
 	c.analyze(fi, ts, c.fromClient(fi), t)
+	t.refresh(c)
 	// SYN recusado (RST do espelho sem SYN-ACK, porta fechada ou varredura): não é conexão, devolve a ficha.
 	if c.l4 == protoTCP && c.synAck == 0 && c.serverRst != 0 {
 		t.refund(c)
 	}
 	res.conn = c
+	if len(t.hidden) > 0 {
+		_, res.hidden = t.hidden[c.id]
+	}
 	return res
 }
 
@@ -485,16 +601,8 @@ func (t *flowTable) refill(ts int64) {
 	t.tokensAt = ts
 }
 
-// liveLimited conta as conexões TCP e QUIC abertas que ainda não fecharam (ver overloaded).
-func (t *flowTable) liveLimited() int {
-	n := 0
-	for _, c := range t.conns {
-		if c.limited && !c.closing() {
-			n++
-		}
-	}
-	return n
-}
+// liveLimited conta as conexões TCP e QUIC abertas que ainda não fecharam (ver overloaded), em O(1).
+func (t *flowTable) liveLimited() int { return t.liveLim }
 
 // due tira da tabela e devolve as conexões que terminaram (fechamento + folga, ou ociosidade).
 func (t *flowTable) due(now int64) []*conn {
@@ -504,14 +612,17 @@ func (t *flowTable) due(now int64) []*conn {
 	var out []*conn
 	for k, c := range t.conns {
 		idle := t.tcpIdle
-		// UDP com evento h3 e sem close (QUIC não tem FIN) usa a ociosidade do TCP (ADR 0019).
-		if c.l4 == protoUDP && !c.app.isQUIC() {
+		switch {
+		case c.l4 == protoTCP && c.established == 0:
+			idle = halfOpenIdle // não completou o handshake (ADR 0034 item 1)
+		case c.l4 == protoUDP && c.app.isQUIC():
+			idle = t.quicIdle // UDP com evento h3 e sem close (QUIC não tem FIN, ADR 0019)
+		case c.l4 == protoUDP:
 			idle = t.udpIdle
 		}
 		if (c.closing() && now >= c.closeAt) || now-c.lastSeen > idle.Nanoseconds() {
 			out = append(out, c)
-			delete(t.conns, k)
-			delete(t.byID, c.id)
+			t.drop(k, c)
 			t.finalizing[c.id] = struct{}{}
 			t.finish(c)
 			if c.isStray() {
@@ -597,8 +708,7 @@ func (t *flowTable) undoCreated(conns []*conn) {
 		if t.conns[k] != c {
 			continue
 		}
-		delete(t.conns, k)
-		delete(t.byID, c.id)
+		t.drop(k, c)
 		t.refund(c)
 		t.reserved[k] = reservation{id: c.id, expires: c.started + eventOnlyIdle.Nanoseconds()}
 	}
@@ -617,7 +727,38 @@ func (t *flowTable) finalized(conns ...*conn) {
 	defer t.mu.Unlock()
 	for _, c := range conns {
 		delete(t.finalizing, c.id)
+		delete(t.hidden, c.id)
 	}
+}
+
+// hide marca as conexões abertas (ou à espera da finalização) de um probe apagado; as que o ingest não conhece
+// ficam de fora, porque nada as tiraria do conjunto.
+func (t *flowTable) hide(ids []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, id := range ids {
+		_, fin := t.finalizing[id]
+		if _, open := t.byID[id]; open || fin {
+			t.hidden[id] = struct{}{}
+		}
+	}
+}
+
+// unhide desfaz hide (transação do DELETE desfeita).
+func (t *flowTable) unhide(ids []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, id := range ids {
+		delete(t.hidden, id)
+	}
+}
+
+// isHidden informa se a conexão é de um probe apagado (ver hide).
+func (t *flowTable) isHidden(id string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.hidden[id]
+	return ok
 }
 
 // tracked informa se o conn_id está na memória do ingest (aberto ou à espera da finalização): a retenção não

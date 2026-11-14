@@ -12,6 +12,10 @@ import (
 const (
 	clockKeep      = 20 * time.Minute // depois disso um relógio sem conexões novas é esquecido
 	clockTolerance = 0.05             // segundos de folga na previsão do TSval (deriva e quantização)
+	// clockMax é o teto de grupos em memória (ADR 0034 item 5): acima dele, o grupo usado há mais tempo é
+	// esquecido. Limita a memória e a varredura de assign (sob a trava da tabela de fluxos); o agrupamento passa a
+	// ser de melhor esforço sob carga.
+	clockMax = 4096
 )
 
 // nominalHz são as frequências comuns de TSval; a estimativa é arredondada para a mais próxima (±10%).
@@ -69,9 +73,23 @@ func (r *clockRegistry) assign(c *conn, register bool) *string {
 		return nil
 	}
 	e := &clockEntry{id: "clk-" + c.id, hz: hz, t0: s.t, v0: s.v, last: s.t}
+	if len(r.entries) >= clockMax {
+		r.evictLRU()
+	}
 	r.entries = append(r.entries, e)
 	id := e.id
 	return &id
+}
+
+// evictLRU esquece o grupo de menor last (o usado há mais tempo).
+func (r *clockRegistry) evictLRU() {
+	old := 0
+	for i, e := range r.entries {
+		if e.last < r.entries[old].last {
+			old = i
+		}
+	}
+	r.entries = append(r.entries[:old], r.entries[old+1:]...)
 }
 
 func (r *clockRegistry) prune(now int64) {

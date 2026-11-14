@@ -44,7 +44,7 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 | --- | --- |
 | `GET /api/v1/health` | saúde de cada serviço, host, certificados e banco |
 | `GET /api/v1/probes/{id}?wait=10s` | conexões (completas) e consultas DNS do probe, até 1000 de cada (`truncated`) |
-| `DELETE /api/v1/probes/{id}` | apaga o probe (204) |
+| `DELETE /api/v1/probes/{id}` | apaga o probe, inclusive as conexões ainda abertas (204) |
 | `GET /api/v1/connections?src_ip=&dst_port=&since=&until=&probe=&limit=` | lista resumida (`ConnectionSummary`) |
 | `GET /api/v1/connections/{conn_id}` | registro completo (`Connection`) |
 | `GET /api/v1/connections/{conn_id}/pcap` | pcap da conexão, os dois sentidos |
