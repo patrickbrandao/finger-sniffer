@@ -253,6 +253,9 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ
 Os campos HTTP/1 vêm **sem normalização**: `[nome na caixa original, separador literal, valor, terminador]`, na
 ordem em que chegaram. `raw_head_b64` traz o cabeçalho exato e `response_sent_b64` os bytes exatos que o espelho
 mandou. Campos `*_truncated` indicam cortes por teto de tamanho (ADR 0018); os bytes completos ficam em `/raw`.
+Um alvo muito longo não descarta a requisição: `request_line.target` é cortado em `FS_EVENT_INLINE_MAX` bytes (sem
+partir caractere UTF-8; menos, se o evento ainda não couber em 900 KiB) com `request_line.target_truncated: true`
+(ausente = `false`, contrato 0.6.0); o alvo inteiro está no fluxo `in` a partir de `in_offset`.
 
 ### Instantes de cada requisição e resposta
 

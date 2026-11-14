@@ -1,0 +1,1 @@
+- web: alvo HTTP/1 longo não descarta mais o `http1.request`: `request_line.target` é cortado em `FS_EVENT_INLINE_MAX` (sem partir runa UTF-8, e menos se o evento não couber) com `request_line.target_truncated`.

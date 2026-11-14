@@ -104,11 +104,12 @@ func (s *Server) publishRaw(subject string, data []byte) {
 	s.deps.Publish(&nats.Msg{Subject: subject, Data: data})
 }
 
-// fitHTTP1 serializa o evento da requisição dentro do teto de 900 KiB: corta os bytes crus inline em
-// FS_EVENT_INLINE_MAX e, se ainda não couber, reduz as listas analisadas pela metade até caber, marcando
-// fields_truncated (ADR 0018).
+// fitHTTP1 serializa o evento da requisição dentro do teto de 900 KiB: corta os bytes crus inline e o alvo
+// (target_truncated, ADR 0032) em FS_EVENT_INLINE_MAX e, se ainda não couber, reduz as listas analisadas
+// pela metade até caber, marcando fields_truncated (ADR 0018).
 func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h1.Request) []byte {
 	req.LimitInline(s.cfg.EventInlineMax)
+	req.LimitTarget(s.cfg.EventInlineMax)
 	data := s.encode(ts, flow, probeID, req)
 	budget := event.MaxEventBytes / 2
 	inline := s.cfg.EventInlineMax
@@ -143,6 +144,7 @@ func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h
 			req.FieldsTruncated = true
 			inline = max(inline/2, 1)
 			req.LimitInline(inline)
+			req.LimitTarget(inline)
 		}
 		budget /= 2
 		data = s.encode(ts, flow, probeID, req)
