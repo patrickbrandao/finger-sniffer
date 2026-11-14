@@ -1,0 +1,1 @@
+- web: cabeçalho HTTP/1 limitado também a 1024 campos (431, `head_too_large`) e trailers a 1024 campos (400), em vez de reter centenas de milhares de campos de 1 MiB de `a:\n` (ADR 0033).

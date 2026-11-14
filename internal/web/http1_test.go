@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,37 @@ func TestHeadLimit(t *testing.T) {
 	_ = c2.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 	if _, err := cl2.br.ReadByte(); !isTimeout(err) {
 		t.Fatalf("server closed after 431: %v", err)
+	}
+}
+
+// TestHeadFieldLimit (task 131): 1 MiB de linhas "a:\n" passa de 1024 campos → 431 com head_too_large e
+// bytes crus; trailers com 1025 campos → 400.
+func TestHeadFieldLimit(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	prefix := "GET /p/" + testProbe + "/ HTTP/1.1\nHost: x\n"
+	cl.send(prefix + strings.Repeat("a:\n", (1<<20-len(prefix)-1)/3) + "\n")
+	if resp, _ := cl.response("GET"); resp.StatusCode != 431 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	p := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 1)[0].Payload
+	raw, _ := base64.StdEncoding.DecodeString(p["raw_head_b64"].(string))
+	if p["head_too_large"] != true || num(t, p["status"]) != 431 || num(t, p["field_count"]) != 1024 ||
+		!strings.HasPrefix(string(raw), prefix) {
+		t.Fatalf("payload head_too_large=%v field_count=%v status=%v", p["head_too_large"], p["field_count"], p["status"])
+	}
+
+	c2 := dial(t, h.addr80)
+	cl2 := newClient(t, c2)
+	var tr strings.Builder
+	for i := range 1025 {
+		tr.WriteString("t" + strconv.Itoa(i) + ": v\r\n")
+	}
+	cl2.send("POST /p/" + testProbe + "/ HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n0\r\n" +
+		tr.String() + "\r\n")
+	if resp, _ := cl2.response("POST"); resp.StatusCode != 400 {
+		t.Fatalf("trailers status %d", resp.StatusCode)
 	}
 }
 

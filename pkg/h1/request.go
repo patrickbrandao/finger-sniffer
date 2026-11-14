@@ -37,10 +37,14 @@ const (
 // DefaultMaxHeadBytes é o teto do cabeçalho de requisição (RF-10): acima dele o servidor responde 431.
 const DefaultMaxHeadBytes = 1 << 20
 
+// DefaultMaxFields é o teto de campos do cabeçalho e dos trailers (RF-10, ADR 0033): acima dele o cabeçalho
+// vira 431 (head_too_large) e os trailers, 400.
+const DefaultMaxFields = 1024
+
 // Erros do parser. O *Request devolvido junto com eles vem preenchido até onde foi possível ler, para que o
 // servidor registre os bytes crus mesmo quando responde 400 ou 431.
 var (
-	// ErrHeadTooLarge: o cabeçalho passou de MaxHeadBytes (o servidor responde 431).
+	// ErrHeadTooLarge: o cabeçalho passou de MaxHeadBytes ou de MaxFields (o servidor responde 431).
 	ErrHeadTooLarge = errors.New("h1: request head too large")
 	// ErrMalformedRequestLine: linha de requisição sem método, alvo ou versão HTTP/.
 	ErrMalformedRequestLine = errors.New("h1: malformed request line")
@@ -211,6 +215,8 @@ type Reader struct {
 	br *bufio.Reader
 	// MaxHeadBytes é o teto do cabeçalho; 0 usa DefaultMaxHeadBytes.
 	MaxHeadBytes int
+	// MaxFields é o teto de campos do cabeçalho e dos trailers; 0 usa DefaultMaxFields.
+	MaxFields int
 	// consumed conta os bytes já consumidos de br, para o InOffset de cada requisição.
 	consumed int64
 }
@@ -231,6 +237,45 @@ func (r *Reader) maxHead() int {
 		return r.MaxHeadBytes
 	}
 	return DefaultMaxHeadBytes
+}
+
+func (r *Reader) maxFields() int {
+	if r.MaxFields > 0 {
+		return r.MaxFields
+	}
+	return DefaultMaxFields
+}
+
+// folder acumula as continuações obs-fold do último campo num strings.Builder e só grava o valor no campo
+// quando ele termina (próximo campo, fim do cabeçalho ou erro): concatenar a cada linha custaria O(n²).
+type folder struct {
+	b      strings.Builder
+	term   string
+	active bool
+}
+
+// add acrescenta a continuação content (terminada por term) ao valor do campo prev: entra literalmente, com o
+// terminador da linha anterior, sem desdobrar nada.
+func (f *folder) add(prev *Field, content []byte, term string) {
+	if !f.active {
+		f.active = true
+		f.b.WriteString(prev[2])
+		f.term = prev[3]
+	}
+	f.b.WriteString(termBytes(f.term))
+	f.b.Write(content)
+	f.term = term
+}
+
+// flush grava em prev o valor dobrado acumulado, se houver.
+func (f *folder) flush(prev *Field) {
+	if !f.active {
+		return
+	}
+	prev[2] = f.b.String()
+	prev[3] = f.term
+	f.b.Reset()
+	f.active = false
 }
 
 // readLine lê uma linha inteira (com o terminador) sem ultrapassar limit bytes. Devolve a linha crua; a
@@ -288,7 +333,14 @@ func (r *Reader) ReadHead() (*Request, error) {
 		Duplicates:   []string{},
 		ProxySignals: []ProxySignal{},
 	}
+	var fold folder
+	flushFold := func() {
+		if len(req.Fields) > 0 {
+			fold.flush(&req.Fields[len(req.Fields)-1])
+		}
+	}
 	fail := func(err error) (*Request, error) {
+		flushFold()
 		if errors.Is(err, io.EOF) { // EOF limpo no meio do cabeçalho é truncamento
 			err = io.ErrUnexpectedEOF
 		}
@@ -339,18 +391,22 @@ func (r *Reader) ReadHead() (*Request, error) {
 			if len(req.Fields) == 0 {
 				return fail(ErrObsFoldFirst)
 			}
-			prev := &req.Fields[len(req.Fields)-1]
-			prev[2] += termBytes(prev[3]) + string(content)
-			prev[3] = term
+			fold.add(&req.Fields[len(req.Fields)-1], content, term)
 			req.ObsFold = true
 			continue
 		}
+		flushFold()
 		f, err := parseField(content, term)
 		if err != nil {
 			return fail(err)
 		}
+		// Teto de campos (RF-10): o campo excedente não entra e o resto do cabeçalho não é lido (431).
+		if len(req.Fields) >= r.maxFields() {
+			return fail(ErrHeadTooLarge)
+		}
 		req.Fields = append(req.Fields, f)
 	}
+	flushFold()
 
 	req.HeadSize = len(req.RawHead)
 	req.FieldCount = len(req.Fields)
