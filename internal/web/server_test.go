@@ -619,6 +619,22 @@ func TestLoadConfig(t *testing.T) {
 	if got := c.listenAddrs(); len(got) != 2 || got[0] != "127.0.0.1:80" || got[1] != "127.0.0.1:8080" {
 		t.Fatalf("addrs %v", got)
 	}
+	// FS_MAX_CONNS ≤ 0 só degrada o store; o web fica com o padrão e avisa (ADR 0034, task 184)
+	for _, v := range []string{"0", "-1"} {
+		t.Setenv("FS_MAX_CONNS", v)
+		c, err := LoadConfig(base)
+		if err != nil {
+			t.Fatalf("FS_MAX_CONNS=%s: %v", v, err)
+		}
+		if c.MaxConns != DefaultMaxConns || len(c.Warnings) != 2 || !strings.Contains(strings.Join(c.Warnings, "|"), "FS_MAX_CONNS="+v) {
+			t.Fatalf("FS_MAX_CONNS=%s: MaxConns %d warnings %q", v, c.MaxConns, c.Warnings)
+		}
+	}
+	t.Setenv("FS_MAX_CONNS", "300")
+	if c, err := LoadConfig(base); err != nil || c.MaxConns != 300 || len(c.Warnings) != 1 {
+		t.Fatalf("FS_MAX_CONNS=300: %v %+v", err, c)
+	}
+	t.Setenv("FS_MAX_CONNS", "")
 	t.Setenv("FS_WEB_TCP_PORTS", "80,x")
 	if _, err := LoadConfig(base); err == nil {
 		t.Fatal("bad port accepted")

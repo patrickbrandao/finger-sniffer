@@ -1,0 +1,1 @@
+- web: `FS_MAX_CONNS` ≤ 0 (que só degrada o store) não derruba mais o web, que usa o padrão 250 e avisa no log; comentário do `.env.example` (ADR 0034).
