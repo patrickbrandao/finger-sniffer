@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.4.1
+  version: 0.5.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -14,7 +14,8 @@ info:
     Compatibilidade (ADR 0001): `/api/v1` só recebe mudanças aditivas. 0.4.0 (ADR 0029, aditivo): instantes
     de cada requisição e resposta (`request_started_at`, `request_ended_at`, `response_started_at`,
     `response_ended_at`), `ip.packets`, `settle`/`min_conns` no `wait` e `wait_met` no probe. 0.4.1 (documental):
-    quando cada instante é nulo e `wait=0s` como `wait` válido.
+    quando cada instante é nulo e `wait=0s` como `wait` válido. 0.5.0 (ADR 0031, aditivo): `ip.src_kind` e
+    `tcp.syn_mss`, `tcp.mtu_implied`, `tcp.mss_reduction`; ausentes em registros anteriores ao 0.5.0.
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -572,6 +573,18 @@ components:
         SYN; TOS/DSCP/ECN/traffic class do primeiro segmento com dados; padrão de IP ID e fragmentação de todos.
         `packets` traz os dados de cada pacote do handshake e do primeiro com dados (0.4.0, ADR 0029).
       properties:
+        src_kind:
+          type: string
+          enum: [global, private, shared, loopback, link_local, teredo, 6to4, nat64, other]
+          description: |
+            Tipo do endereço de origem (o do cliente), spec 013 RF-05a, ADR 0031; primeira regra que casa:
+            `loopback` (`127.0.0.0/8`, `::1`), `link_local` (`169.254.0.0/16`, `fe80::/10`), `private`
+            (RFC 1918, ULA `fc00::/7`), `shared` (`100.64.0.0/10`, CGNAT), `teredo` (`2001::/32`), `6to4`
+            (`2002::/16`), `nat64` (`64:ff9b::/96`, `64:ff9b:1::/48`), `other` (não unicast e blocos de uso
+            especial: documentação, benchmarking, `0.0.0.0/8`, `240.0.0.0/4`, `192.0.0.0/24`, `100::/64`,
+            `::ffff:0:0/96`) e `global` (o resto). `nat64` só aparece com um tradutor SIIT/NAT46 na frente do
+            servidor (cliente IPv4 traduzido); não indica NAT64 do lado do cliente. A família está em `family`.
+            Ausente em registros anteriores ao 0.5.0.
         ttl: { type: integer, description: TTL (IPv4) ou hop limit (IPv6) observado. }
         ttl_initial: { type: integer, enum: [32, 64, 128, 255] }
         hops: { type: integer }
@@ -639,6 +652,24 @@ components:
       description: Spec 013 RF-06..RF-12.
       properties:
         syn: { $ref: "#/components/schemas/TCPSyn" }
+        syn_mss:
+          type: [integer, "null"]
+          description: |
+            Valor da primeira opção MSS do primeiro SYN do cliente (o que chegou ao espelho, já com qualquer
+            reescrita do caminho), spec 013 RF-06a, ADR 0031. Nulo sem a opção ou sem SYN (UDP). Ausente em
+            registros anteriores ao 0.5.0.
+        mtu_implied:
+          type: [integer, "null"]
+          description: |
+            `syn_mss + 40` (IPv4) ou `syn_mss + 60` (IPv6), os cabeçalhos fixos de IP e TCP; não soma os 12 B
+            de timestamps (o MSS do SYN não os desconta). MTU reduzido e MSS clamping no caminho dão o mesmo
+            valor. Nulo quando `syn_mss` é nulo. Ausente em registros anteriores ao 0.5.0.
+        mss_reduction:
+          type: [integer, "null"]
+          description: |
+            `1460 − syn_mss` (IPv4) ou `1440 − syn_mss` (IPv6): diferença para o MSS de um MTU Ethernet de 1500;
+            negativo acima de 1500 (jumbo). A causa provável é interpretação do cliente (receita em
+            `docs/probes.md`). Nulo quando `syn_mss` é nulo. Ausente em registros anteriores ao 0.5.0.
         ja4t: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
         p0f: { type: [string, "null"] }
         os_guess: { type: [string, "null"] }

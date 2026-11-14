@@ -30,12 +30,23 @@ datagrama do cliente.
 - RF-04: TTL / hop limit observado, TTL inicial estimado (32/64/128/255), distância em saltos.
 - RF-05: IP ID no SYN e padrão na conexão (`zero`, `incremental`, `random`), DF, TOS/DSCP, ECN, opções IP,
   fragmentação; IPv6: flow label e traffic class.
+- RF-05a: **tipo do endereço de origem** (`ip.src_kind`, ADR 0031), do endereço do cliente, em TCP e UDP, pela
+  primeira regra que casa: `loopback`, `link_local`, `private` (RFC 1918, ULA `fc00::/7`), `shared`
+  (`100.64.0.0/10`), `teredo` (`2001::/32`), `6to4` (`2002::/16`), `nat64` (`64:ff9b::/96`, `64:ff9b:1::/48`;
+  só com tradutor SIIT/NAT46 na frente do servidor, não indica NAT64 do cliente), `other` (não unicast e blocos de
+  uso especial da tabela da ADR 0031) e `global` (o resto). Sem valor por família: ela está em `family`.
 
 ### TCP
 - RF-06: SYN completo: porta de origem, ISN, janela, flags (inclusive ECE/CWR), ponteiro urgente, tamanho do
   cabeçalho, **opções na ordem exata com valores** (MSS, NOP, WScale, SACK-permitted, Timestamps val/ecr, TFO, EOL,
   MD5, desconhecidas em hex), payload no SYN (TFO; o espelho concede cookie TFO nos listeners do web e do raw,
   ADR 0029, então um cliente que repete a conexão pode mandar dados no SYN).
+- RF-06a: **MSS e MTU implícito** (ADR 0031), só do primeiro SYN do cliente (retransmissão não substitui):
+  `tcp.syn_mss` (primeira opção MSS), `tcp.mtu_implied` (`syn_mss + 40` no IPv4, `+ 60` no IPv6; sem somar os
+  12 B de timestamps, que o MSS do SYN não desconta) e `tcp.mss_reduction` (`1460 − syn_mss` no IPv4,
+  `1440 − syn_mss` no IPv6; negativo acima de MTU 1500). Os três nulos sem a opção MSS ou sem SYN. É o valor que
+  chegou ao espelho: MTU reduzido e MSS clamping no caminho dão o mesmo número. A causa provável (PPPoE, túnel,
+  VPN) é interpretação do cliente e fica em `docs/probes.md`, não no contrato.
 - RF-07: fingerprints: **JA4T** (`pkg/fingerprint/ja4plus`, FoxIO License), assinatura **p0f** e palpite de SO pelo
   banco `p0f.fp` (`FS_P0F_DB`, arquivo de dados externo, LGPL-2.1, instalado pelo deploy).
 - RF-08: comportamento: janela anunciada ao longo da conexão (escala aplicada), padrão de ACK
@@ -70,12 +81,20 @@ Calculados e guardados pelo store junto do registro.
 - [ ] Mesmo relógio sem deslocamento por IPs de origem diferentes → mesmo `ts_clock_group` (pcap sintético);
       duas conexões Linux pelo mesmo par de IPs → mesmo grupo; macOS com `randomize_timestamps=1` → grupos
       distintos (ADR 0023).
+- [ ] SYN IPv4 com MSS 1460, 1452, 1440 e 1380 → `syn_mss`/`mtu_implied`/`mss_reduction` = 1460/1500/0,
+      1452/1492/8, 1440/1480/20, 1380/1420/80; IPv6 com 1440, 1432 e 1220 → 1440/1500/0, 1432/1492/8,
+      1220/1280/220; SYN sem MSS, conexão sem SYN e UDP → os três nulos; MSS 8960 (jumbo IPv4) → redução −7500.
+- [ ] Um endereço de origem por valor de `ip.src_kind` (tabela da ADR 0031, inclusive as bordas de cada prefixo:
+      `64:ff9b::/96` casa e `64:ff9b:0:0:1::` não; `2001::/32` casa e `2001:1::` não) classificado certo.
 
 ## Fora de escopo
 - Fingerprint TCP do lado servidor (JA4TS).
+- Causa provável da redução do MSS no contrato (`mss_hint`) e decodificação do IPv4 embutido em Teredo/6to4
+  (ADR 0031: interpretação do cliente).
 
 ## Decisões relacionadas
 - specs/decisions/0004-pacotes-pelo-nats.md
 - specs/decisions/0010-licenca-apache-e-ja4plus.md
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0029-campos-da-auditoria-de-requisitos.md
+- specs/decisions/0031-mss-mtu-e-tipo-da-origem.md
