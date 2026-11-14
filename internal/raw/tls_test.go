@@ -7,11 +7,13 @@ import (
 	"io"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/certs"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 	"github.com/patrickbrandao/finger-sniffer/pkg/tlsparse"
 )
 
@@ -360,5 +362,96 @@ func TestMergeAlerts(t *testing.T) {
 	// Erro sem alerta: só os dos bytes.
 	if got := mergeAlerts(nil, errors.New("EOF")); len(got) != 0 {
 		t.Errorf("eof = %+v", got)
+	}
+}
+
+func TestTLSHalfCloseNotDelivered(t *testing.T) {
+	// RF-05 dentro do túnel (task 148): cliente que manda close_notify e fecha o socket inteiro responde RST
+	// ao half-close; a escrita foi aceita pelo kernel, mas o registro diz que a mensagem não chegou.
+	env := startEnv(t, []PortSpec{{Port: 0, Mode: "banner", TLS: true, Banner: BannerFor(993)}}, withTLS(t))
+	c := dialTLS(t, env.addr[0], "", nil)
+	if got := readN(t, c, len(BannerFor(993))); got != BannerFor(993) {
+		t.Fatalf("banner = %q", got)
+	}
+	if _, err := c.Write([]byte("a1 LOGOUT\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := env.waitSession(t)
+	if !r.info.TLS {
+		t.Fatalf("info = %+v", r.info)
+	}
+	if r.info.HalfClose == nil || r.info.HalfClose.ServerSentAfterClientFIN || r.info.HalfClose.Bytes != len(HalfCloseMessage) {
+		t.Errorf("half_close = %+v", r.info.HalfClose)
+	}
+}
+
+func TestAutoTLSHalfCloseNotDelivered(t *testing.T) {
+	// Mesmo caso com TLS automático (RF-03), em que o socket passa antes pelo prefixConn.
+	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo"}}, withTLS(t))
+	c := dialTLS(t, env.addr[0], "", nil)
+	if _, err := c.Write([]byte("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readN(t, c, 5); got != "ping\n" {
+		t.Fatalf("echo = %q", got)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := env.waitSession(t)
+	if !r.info.TLS {
+		t.Fatalf("info = %+v", r.info)
+	}
+	if r.info.HalfClose == nil || r.info.HalfClose.ServerSentAfterClientFIN || r.info.HalfClose.Bytes != len(HalfCloseMessage) {
+		t.Errorf("half_close = %+v", r.info.HalfClose)
+	}
+}
+
+func TestStartTLSKeepsDeliverySocket(t *testing.T) {
+	// Depois do startTLS a conferência de entrega do half-close usa o socket aceito, que expõe SyscallConn,
+	// tanto na porta tls-* (sem prefixo) quanto no TLS automático (com o prefixo já lido).
+	for _, auto := range []bool{false, true} {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			c, err := net.Dial("tcp", ln.Addr().String())
+			if err != nil {
+				return
+			}
+			tc := tls.Client(c, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // autoassinado de teste
+			_ = tc.Handshake()
+			_ = tc.Close()
+		}()
+		conn, err := ln.Accept()
+		_ = ln.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, _ := testSession(probe.ModeEcho)
+		s.conn = conn
+		s.cfg.TLS = testTLS(t)
+		s.tlsCfg = s.cfg.TLS
+		var prefix []byte
+		if auto {
+			prefix = make([]byte, 2)
+			if _, err := io.ReadFull(conn, prefix); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !s.startTLS(prefix) {
+			t.Fatalf("auto=%v: handshake failed", auto)
+		}
+		if _, ok := s.conn.(*tls.Conn); !ok {
+			t.Errorf("auto=%v: conn = %T", auto, s.conn)
+		}
+		if _, ok := s.deliverySock().(syscall.Conn); !ok || s.deliverySock() != conn {
+			t.Errorf("auto=%v: delivery socket = %T", auto, s.deliverySock())
+		}
+		_ = conn.Close()
 	}
 }
