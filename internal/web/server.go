@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -62,6 +63,11 @@ type Server struct {
 	stopped   bool
 	wg        sync.WaitGroup
 
+	// budget é o orçamento global de memória de entrada (budget.go, ADR 0033).
+	budget *inputBudget
+	// wsSessions conta as sessões WebSocket abertas (teto wsMaxSessions, ws.go).
+	wsSessions atomic.Int32
+
 	// h3 são os listeners UDP e as conexões QUIC (h3.go).
 	h3 h3State
 	// h3AnyPort faz qualquer porta UDP contar como "listener 443" para o Alt-Svc (testes com porta efêmera).
@@ -95,6 +101,7 @@ func NewServer(cfg Config, d Deps) *Server {
 		sem:    make(chan struct{}, cfg.MaxConns),
 		failed: map[string]string{},
 		conns:  map[net.Conn]struct{}{},
+		budget: newInputBudget(cfg.InputBudget, d.Metrics),
 	}
 }
 

@@ -67,6 +67,9 @@ type Config struct {
 	Zones []string
 	// RetryListen é o intervalo entre tentativas de abrir um listener que falhou.
 	RetryListen time.Duration
+	// InputBudget é o orçamento global de memória de entrada em bytes (FS_WEB_INPUT_BUDGET, spec 005 RF-12,
+	// ADR 0033); 0 usa o padrão.
+	InputBudget int64
 	// Warnings são avisos da carga (ex.: FS_RAW_BODY_MAX_BYTES reduzido), logados na partida.
 	Warnings []string
 }
@@ -81,6 +84,7 @@ func LoadConfig(base service.Config) (Config, error) {
 		MaxHeadBytes:   h1.DefaultMaxHeadBytes,
 		Zones:          probe.DefaultZones,
 		RetryListen:    defaultRetryListen,
+		InputBudget:    DefaultInputBudget,
 	}
 	var err error
 	if c.TCPPorts, err = parsePorts("FS_WEB_TCP_PORTS", service.Env("FS_WEB_TCP_PORTS", DefaultTCPPorts), false); err != nil {
@@ -112,6 +116,14 @@ func LoadConfig(base service.Config) (Config, error) {
 		c.Warnings = append(c.Warnings, fmt.Sprintf("FS_MAX_CONNS=%d not usable by web; using %d", c.MaxConns, DefaultMaxConns))
 		c.MaxConns = DefaultMaxConns
 	}
+	budget, err := service.EnvInt("FS_WEB_INPUT_BUDGET", DefaultInputBudget)
+	if err != nil {
+		return c, err
+	}
+	if budget < MinInputBudget || budget > MaxInputBudget {
+		return c, fmt.Errorf("web: FS_WEB_INPUT_BUDGET=%d outside [%d, %d]", budget, MinInputBudget, MaxInputBudget)
+	}
+	c.InputBudget = int64(budget)
 	c.Htdocs = service.Env("FS_HTDOCS", DefaultHtdocs)
 	if c.IdleDefault, err = service.EnvDuration("FS_IDLE_DEFAULT", DefaultIdle); err != nil {
 		return c, err

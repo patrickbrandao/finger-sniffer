@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,18 +54,32 @@ func (st *h3Stream) serve() {
 	s.metrics.Add(MetricH3RequestsTotal, 1)
 	st.rs = quicparse.NewRequestStream(uint64(st.str.StreamID()), quicparse.DefaultMaxFieldsPerSection) //nolint:gosec // id >= 0
 	defer st.publish()
+	// HEADERS em espera reservam do teto da conexão e do orçamento global (ADR 0033); o que ficou reservado
+	// num frame incompleto volta no fim do stream, qualquer que seja a saída.
+	hold := h.headersHold
+	st.rs.SetBudget(func(n int) bool { return hold.reserve(int64(n)) }, func(n int) { hold.release(int64(n)) })
+	defer func() { hold.release(int64(st.rs.Held())) }()
+	// Prazo para o primeiro HEADERS completar; removido assim que ele chega (o corpo pode ser lento).
+	_ = st.str.SetReadDeadline(s.now().Add(h3HeadersTimeout))
 	req := &st.rs.Request
 	err := readAll(st.str, st.rs, func() {
 		// request_started_at: o primeiro HEADERS acabou de ser lido inteiro (spec 011 RF-03).
 		if st.rs.HeadersSeen && req.RequestStartedAt == nil {
 			req.RequestStartedAt = instant(s.now())
+			_ = st.str.SetReadDeadline(time.Time{})
 		}
 	})
 	if err == nil {
 		// FIN do stream do cliente: fim da requisição.
 		req.RequestEndedAt = instant(s.now())
 	}
+	var nerr net.Error
 	switch {
+	case errors.Is(err, quicparse.ErrH3Budget), !st.rs.HeadersSeen && errors.As(err, &nerr) && nerr.Timeout():
+		// Sem orçamento para o HEADERS ou HEADERS que não completou no prazo: stream recusado.
+		st.str.CancelRead(h3ExcessiveLoad)
+		st.cancelWrite(h3ExcessiveLoad)
+		return
 	case errors.Is(err, quicparse.ErrH3FrameTooLarge):
 		st.str.CancelRead(h3ExcessiveLoad)
 		st.writeSimple(textResponse(http.StatusRequestHeaderFieldsTooLarge, "request header section too large\n"), false)

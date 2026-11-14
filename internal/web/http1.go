@@ -33,6 +33,9 @@ type h1Session struct {
 	ctl *Controls
 	// h2up é o Upgrade: h2c aceito; o laço HTTP/1 termina e a conexão segue em h2 (spec 010 RF-05).
 	h2up *h2Upgrade
+	// hold é a reserva do orçamento de entrada dos bytes do cabeçalho (e trailers) da requisição atual,
+	// devolvida ao fim de cada requisição (spec 009 RF-10, ADR 0033).
+	hold *budgetHold
 }
 
 // serveHTTP1 atende requisições HTTP/1 em sequência (keep-alive e pipelining) até o cliente fechar ou a
@@ -41,10 +44,13 @@ func (c *conn) serveHTTP1(t *tap, ic *idleConn, handshakeEnd time.Time) {
 	br := bufio.NewReaderSize(t, readBufSize)
 	rd := h1.NewReader(br)
 	rd.MaxHeadBytes = c.srv.cfg.MaxHeadBytes
+	hold := c.srv.budget.newHold(0)
+	rd.Reserve = func(n int) bool { return hold.reserve(int64(n)) }
 	sess := &h1Session{
 		c: c, t: t, ic: ic, br: br, rd: rd,
 		w:            h1.NewResponseWriter(t, c.srv.cfg.EventInlineMax),
 		handshakeEnd: handshakeEnd,
+		hold:         hold,
 	}
 	for idx := 0; ; idx++ {
 		if !sess.serveOne(idx) {
@@ -60,6 +66,9 @@ func (c *conn) serveHTTP1(t *tap, ic *idleConn, handshakeEnd time.Time) {
 
 // serveOne atende uma requisição; false encerra o laço.
 func (s *h1Session) serveOne(idx int) bool {
+	// A reserva do cabeçalho volta ao orçamento em qualquer saída (sucesso, 400, 431, EOF, ociosidade,
+	// upgrade, pânico recuperado mais acima).
+	defer s.hold.releaseAll()
 	srv := s.c.srv
 	buffered := s.br.Buffered() > 0
 	// Em pipeline o começo da requisição já está no buffer: o instante é o da leitura que o trouxe, a
@@ -147,6 +156,8 @@ func (s *h1Session) serveOne(idx int) bool {
 
 	if path, rawQuery, ok := target(req.RequestLine); ok {
 		if isWS, _ := wsRoute(path, rawQuery, srv.controlLimits()); isWS {
+			// A sessão WebSocket dura muito mais que o cabeçalho e tem reserva própria.
+			s.hold.releaseAll()
 			return s.serveWS(req, probeID, outOffset, path)
 		}
 	}
@@ -278,6 +289,8 @@ func (s *h1Session) headError(req *h1.Request, err error) bool {
 	werr := s.write(textResponse(status, http.StatusText(status)+"\n"))
 	s.finish(req, probeID, outOffset, status)
 	if werr == nil {
+		// O registro já saiu: o descarte até o cliente fechar não segura orçamento.
+		s.hold.releaseAll()
 		drain(s.br)
 	}
 	return false
@@ -291,6 +304,7 @@ func (s *h1Session) bodyError(req *h1.Request, probeID string, outOffset int64, 
 		werr := s.write(textResponse(http.StatusBadRequest, "invalid request body framing\n"))
 		s.finish(req, probeID, outOffset, http.StatusBadRequest)
 		if werr == nil {
+			s.hold.releaseAll()
 			drain(s.br)
 		}
 		return false

@@ -243,6 +243,10 @@ type Reader struct {
 	MaxHeadBytes int
 	// MaxFields é o teto de campos do cabeçalho e dos trailers; 0 usa DefaultMaxFields.
 	MaxFields int
+	// Reserve, quando definido, pede n bytes ao orçamento de entrada antes de guardar bytes do cabeçalho ou
+	// dos trailers (spec 009 RF-10, ADR 0033); false encerra a leitura com ErrHeadTooLarge (431 no cabeçalho,
+	// 400 nos trailers) sem guardar o pedaço. Quem define devolve a reserva ao fim da requisição.
+	Reserve func(n int) bool
 	// consumed conta os bytes já consumidos de br, para o InOffset de cada requisição.
 	consumed int64
 }
@@ -305,8 +309,9 @@ func (f *folder) flush(prev *Field) {
 }
 
 // readLine lê uma linha inteira (com o terminador) sem ultrapassar limit bytes. Devolve a linha crua; a
-// fatia é nova (não aponta para o buffer do bufio).
-func (r *Reader) readLine(limit int) ([]byte, error) {
+// fatia é nova (não aponta para o buffer do bufio). Com reserve, cada pedaço é reservado em r.Reserve antes
+// de ser guardado.
+func (r *Reader) readLine(limit int, reserve bool) ([]byte, error) {
 	var line []byte
 	for {
 		chunk, err := r.br.ReadSlice('\n')
@@ -316,6 +321,11 @@ func (r *Reader) readLine(limit int) ([]byte, error) {
 			if keep > 0 {
 				line = append(line, chunk[:keep]...)
 			}
+			r.consumed += int64(len(chunk))
+			return line, ErrHeadTooLarge
+		}
+		if reserve && r.Reserve != nil && len(chunk) > 0 && !r.Reserve(len(chunk)) {
+			// Orçamento de entrada esgotado: trata como cabeçalho grande demais, sem guardar o pedaço.
 			r.consumed += int64(len(chunk))
 			return line, ErrHeadTooLarge
 		}
@@ -381,10 +391,10 @@ func (r *Reader) ReadHead() (*Request, error) {
 	// Linhas vazias antes da linha de requisição são toleradas (RFC 9112 §2.2) e ficam nos bytes crus.
 	var line []byte
 	for {
-		l, err := r.readLine(maxHead - len(req.RawHead))
+		l, err := r.readLine(maxHead-len(req.RawHead), true)
 		req.RawHead = append(req.RawHead, l...)
 		if err != nil {
-			if len(bytes.Trim(req.RawHead, "\r\n")) == 0 {
+			if len(bytes.Trim(req.RawHead, "\r\n")) == 0 && !errors.Is(err, ErrHeadTooLarge) {
 				// Nenhum byte da próxima requisição (no máximo linhas vazias toleradas): EOF limpo, prazo de
 				// leitura vencido (ociosidade) ou erro de leitura. Não há requisição a registrar.
 				return nil, err
@@ -402,7 +412,7 @@ func (r *Reader) ReadHead() (*Request, error) {
 	}
 
 	for {
-		l, err := r.readLine(maxHead - len(req.RawHead))
+		l, err := r.readLine(maxHead-len(req.RawHead), true)
 		req.RawHead = append(req.RawHead, l...)
 		if err != nil {
 			return fail(err)

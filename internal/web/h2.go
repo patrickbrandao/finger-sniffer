@@ -124,7 +124,7 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 	}
 	// IdleTimeout fica 0: a ociosidade é a do idleConn, que não corre com stream em atendimento e muda com
 	// idle= (o IdleTimeout do x/net é fixo por servidor).
-	(&http2.Server{}).ServeConn(&h2NetConn{Conn: t, r: r}, opts) //nolint:staticcheck // ver acima
+	(&http2.Server{MaxConcurrentStreams: h2MaxConcurrentStreams}).ServeConn(&h2NetConn{Conn: t, r: r}, opts) //nolint:staticcheck // ver acima
 
 	// Espera os handlers que ainda estejam rodando (o x/net não espera) antes do evento final.
 	h.mu.Lock()
@@ -134,6 +134,10 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 	h.wg.Wait()
 	h.publishConn()
 }
+
+// h2MaxConcurrentStreams é o MAX_CONCURRENT_STREAMS anunciado no SETTINGS do servidor (spec 010 RF-05a,
+// ADR 0033): acima dele o x/net recusa o stream com RST_STREAM REFUSED_STREAM.
+const h2MaxConcurrentStreams = 100
 
 // h2UpgradeKey marca no contexto a requisição do Upgrade: h2c (stream 1).
 type h2UpgradeKey struct{}
