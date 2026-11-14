@@ -2,7 +2,7 @@ module github.com/patrickbrandao/finger-sniffer
 
 go 1.27
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 // SHA-1 no TLS 1.2 e clientes sem signature_algorithms, para observar clientes antigos (pkg/certs).
 godebug tlssha1=1
