@@ -239,17 +239,31 @@ func TestServerMalformed(t *testing.T) {
 	}
 }
 
+// reservePortPair ocupa a mesma porta em UDP e TCP de 127.0.0.1 sem soltá-la entre as duas reservas. A porta
+// efêmera UDP pode já estar em uso em TCP por outro teste ou processo; nesse caso tenta outra em vez de falhar.
+func reservePortPair(t *testing.T) (net.PacketConn, net.Listener) {
+	t.Helper()
+	var lastErr error
+	for range 50 {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		l, err := net.Listen("tcp", pc.LocalAddr().String())
+		if err == nil {
+			return pc, l
+		}
+		lastErr = err
+		_ = pc.Close()
+	}
+	t.Fatalf("nenhuma porta livre em UDP e TCP ao mesmo tempo: %v", lastErr)
+	return nil, nil
+}
+
 // TestServerListenerFailure: porta já ocupada → degraded com motivo; quando libera, o retry sobe e volta a ok.
 func TestServerListenerFailure(t *testing.T) {
-	busyUDP, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	busyUDP, busyTCP := reservePortPair(t)
 	port := busyUDP.LocalAddr().(*net.UDPAddr).Port
-	busyTCP, err := net.Listen("tcp", busyUDP.LocalAddr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := testConfig()
 	cfg.Port = port
 	z, _ := newTestZone()
