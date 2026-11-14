@@ -6,7 +6,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
+
+// O comentário do stream FS_EVENTS no nats.conf acompanha event.StreamSubjects (ADR 0017, task 183): lista
+// todos os subjects do stream e não volta a descrevê-lo como fs.v1.>.
+func TestNATSConfStreamCommentMatchesStreamSubjects(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "eventbus", "nats", "nats.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conf := string(b)
+	for _, s := range event.StreamSubjects {
+		if !strings.Contains(conf, s) {
+			t.Errorf("nats.conf não cita o subject %q do stream", s)
+		}
+	}
+	for _, line := range strings.Split(conf, "\n") {
+		if strings.Contains(line, "fs.v1.>") && !strings.Contains(line, "Nunca fs.v1.>") {
+			t.Errorf("nats.conf descreve o stream como fs.v1.>: %q", line)
+		}
+	}
+}
 
 // sysctlValues lê "chave = valor" do arquivo de sysctl do projeto.
 func sysctlValues(t *testing.T) map[string]string {
