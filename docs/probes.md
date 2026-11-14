@@ -527,12 +527,13 @@ Por proxy (o túnel até a porta crua): `nc -X connect -x PROXY:PORTA vps602.tms
 ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-proxy,
 `curl -p -x https://PROXY:PORTA telnet://…`.
 
-- **Procurar**: `raw.mode`, `raw.banner`, `raw.probe_line`, `raw.reads_in`/`writes_out` (`[t_ms, bytes]`),
-  `raw.half_close` (depois do FIN do cliente, o espelho manda `half-close test\r\n`) e `close.half_close`. A
-  primeira linha `PROBE` não é ecoada. `half_close.server_sent_after_client_fin` é `true` **só quando o cliente
-  confirmou o recebimento** (ACK dos bytes) da mensagem; se a conexão leva RST depois do envio ou o ACK não chega
-  em 2 s, fica `false`, e `half_close.bytes` diz quantos bytes o espelho escreveu (task 083). Um `false` com
-  `bytes: 17` quer dizer "o espelho mandou, mas o caminho não entregou".
+- **Procurar**: `raw.mode`, `raw.banner`, `raw.probe_line` (a linha como recebida, com o terminador CRLF ou LF),
+  `raw.reads_in`/`writes_out` (`[t_ms, bytes]`), `raw.half_close` (depois do FIN do cliente, o espelho manda
+  `half-close test\r\n`) e `close.half_close`. A primeira linha `PROBE` não é ecoada.
+  `half_close.server_sent_after_client_fin` é `true` **só quando o cliente confirmou o recebimento** (ACK dos
+  bytes) da mensagem; se a conexão leva RST depois do envio ou o ACK não chega em 2 s, fica `false`, e
+  `half_close.bytes` diz quantos bytes o espelho escreveu (task 083). Um `false` com `bytes: 17` quer dizer "o
+  espelho mandou, mas o caminho não entregou".
 - **Modo `source`** (`PROBE <id> mode=source n=N`): o espelho manda `N` bytes e fecha (padrão 1 MiB). O máximo é
   64 MiB: um `n` maior é cortado para 64 MiB e a linha continua valendo; o total enviado aparece em
   `raw.writes_out` e no fluxo `out` (spec 006 RF-02, ADR 0035).
@@ -566,6 +567,8 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 
 - **Procurar**: `websocket.over`, `path`, `extensions`, `subprotocol`, os frames (opcode, FIN, RSV, máscara,
   tamanho, sentido) e `websocket.close` (código, razão, quem fechou); a resposta 101 em `response_sent_b64`.
+  Upgrade aceito sem nenhum frame (o cliente ou o proxy fecha logo depois do 101) aparece com `websocket.frames: []`
+  e `websocket.close: null`, com `over`, `path` e `extensions` preenchidos (contrato 0.6.0).
 - **Fechamento**: `websocket.close` é o close de **quem iniciou** (`by`, `code`, `reason`); o close de resposta do
   outro lado fica só em `frames[]` (`dir`, opcode 8, tamanho), sem código nem razão (spec 012 RF-06). Depois da
   troca de closes o espelho fecha o TCP primeiro (RFC 6455 §7.1.1, exceção da spec 005 RF-08), então o TCP mostra
@@ -819,7 +822,7 @@ $ curl -s -o /dev/null -w '%{http_code}\n' 'https://vps602.tmsoft.com.br:9000/ap
 ```
 
 - **Procurar**: os eventos do probe no `/stream` (SSE) e no `/ws` (filtros `probe`, `src_ip`, `dst_port`,
-  `kind`), `stream.dropped` para um cliente que não lê, 503 acima de 64 clientes, 400 para filtro inválido. A
+  `kind`; `stream.dropped` não entra no `kind`), `stream.dropped` para um cliente que não lê, 503 acima de 64 clientes, 400 para filtro inválido. A
   página `https://<id>.dns-monitor.tmsoft.com.br/` num navegador headless mostra a própria sondagem no feed em
   menos de 1 s, sem requisições a terceiros (só a origem da página e a 9000). Detalhes em
   [realtime.md](realtime.md).

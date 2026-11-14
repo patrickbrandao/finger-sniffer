@@ -204,12 +204,12 @@ func TestHTTP3Fields(t *testing.T) {
 	}
 }
 
-// TestAuditF5Docs: os guias refletem os contratos (0.3.3, hoje 0.5.x) e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
+// TestAuditF5Docs: os guias refletem os contratos (0.3.3, hoje 0.6.x) e as decisões da auditoria F5 (ADR 0023, e a 0026 no lugar da 0024): erros
 // da API, métricas do capture publicadas desde a partida e as diferenças esperadas que a auditoria explicou.
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.5.x", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"versão 0.6.x", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
 			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
 		},
 		"metrics.md": {
@@ -314,12 +314,12 @@ func TestConnectionCloseDocs(t *testing.T) {
 }
 
 // TestContracts04Docs: api.md e probes.md descrevem os campos e parâmetros dos contratos 0.4.x (ADR 0029,
-// mantidos no 0.5.x,
+// mantidos no 0.6.x,
 // task 124): settle/min_conns/wait_met e seus 400, os 4 instantes, ip.packets, TFO, alertas e keepalive.
 func TestContracts04Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.5.x", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
+			"versão 0.6.x", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
 			"settle and min_conns require wait", "`settle` fora de `0s`–`10s`", "`min_conns` fora de 1–1000",
 			"`request_started_at`", "`request_ended_at`", "`response_started_at`", "`response_ended_at`",
 			"Cada instante é **independente**", "RST_STREAM", "`ip.packets`", "`first_data`",
@@ -372,13 +372,13 @@ func TestMSSWindowDocs(t *testing.T) {
 	}
 }
 
-// TestContracts05Docs: api.md e probes.md descrevem os campos do contrato 0.5.x (ADR 0031, task 198): MSS e MTU
+// TestContracts05Docs: api.md e probes.md descrevem os campos do contrato 0.5.0 (ADR 0031, task 198): MSS e MTU
 // pelo SYN, a tabela de referência com a ressalva do clamping, a leitura certa de segments_in e o ip.src_kind;
 // o caso 7 nomeia o HTTPS-proxy sem a porta de um consumidor (task 189).
 func TestContracts05Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.5.x", "contrato (0.5.x)", "ADRs 0029 e 0031", "### MSS, MTU implícito e tipo da origem",
+			"versão 0.6.x", "contrato (0.6.x)", "ADRs 0029, 0031 e 0032", "### MSS, MTU implícito e tipo da origem",
 			"`tcp.syn_mss`", "`tcp.mtu_implied`", "`tcp.mss_reduction`", "`ip.src_kind`",
 			"anteriores ao 0.5.0", "`1460 − syn_mss`", "`1440 − syn_mss`", "MSS clamping",
 			"`shared`", "`teredo`", "`6to4`", "`nat64`", "`other`", "`global`", ".tcp.syn_mss", ".ip.src_kind",
@@ -404,7 +404,53 @@ func TestContracts05Docs(t *testing.T) {
 				t.Errorf("%s sem %q", f, w)
 			}
 		}
-		for _, b := range []string{"4443", "versão 0.4.x", "contrato (0.4.x)"} {
+		for _, b := range []string{"4443", "versão 0.4.x", "contrato (0.4.x)", "versão 0.5.x", "contrato (0.5.x)"} {
+			if strings.Contains(s, b) {
+				t.Errorf("%s ainda diz %q", f, b)
+			}
+		}
+	}
+}
+
+// TestContracts06Docs: os guias descrevem o contrato openapi 0.6.0 / asyncapi 0.5.0 (ADR 0032, task 207): teto do
+// probe com truncated, 503 com Retry-After do wait e dos downloads, as marcas de corte novas, o WebSocket sem
+// frames, e o filtro kind sem stream.dropped (task 178).
+func TestContracts06Docs(t *testing.T) {
+	want := map[string][]string{
+		"api.md": {
+			"versão 0.6.x", "ADR 0032", "**1000 conexões**", "`truncated: true`",
+			"conjunto inteiro", "`GET /api/v1/connections?probe=<id>`", "**64** esperas `wait` simultâneas",
+			"`Retry-After: 1`", "**4** downloads", "**60 s**", "### Marcas de corte e valores especiais (0.6.0)",
+			"**ausente equivale a `false`**", "`http[].request_line.target_truncated`", "`tls.lists_truncated`",
+			"`http3.transport_params_truncated`", "`http3.h3_settings_truncated`",
+			"**continuam calculados\nsobre o ClientHello completo**", "`frames: []`", "`http2.streams[].stream_id` igual a `0`",
+			"`http2.streams[].status` igual a `0`", "**com o terminador**", "só UDP", "IP do **cliente**", "ADR 0034",
+			"suas conexões fechadas", "`http[].head_too_large`", "`http[].body.chunks_truncated`",
+		},
+		"realtime.md": {
+			"`stream.dropped` **não é filtrável**", `invalid kind "stream.dropped"`,
+			"`connection.opened`, `connection.updated`, `connection.closed`, `http.request`, `dns.query`, `packet.stray` |",
+		},
+		"http3.md":  {"`transport_params_truncated`", "`h3_settings_truncated`", "1024 parâmetros", "256 pares"},
+		"probes.md": {"`websocket.frames: []`", "com o terminador CRLF ou LF", "o TCP fica fora desse limite", "não entra no `kind`"},
+	}
+	banned := map[string][]string{
+		"api.md":      {"versão 0.5.x", "contrato (0.5.x)", "todas as conexões (completas)", "| 503 | só em", "<<<<<<<"},
+		"realtime.md": {"lista separada por vírgula de tipos (abaixo)"},
+		"probes.md":   {"ou descarta (`rate_limited: true`)"},
+	}
+	for f, ws := range want {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(data)
+		for _, w := range ws {
+			if !strings.Contains(s, w) {
+				t.Errorf("%s sem %q", f, w)
+			}
+		}
+		for _, b := range banned[f] {
 			if strings.Contains(s, b) {
 				t.Errorf("%s ainda diz %q", f, b)
 			}

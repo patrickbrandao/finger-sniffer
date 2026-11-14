@@ -36,7 +36,10 @@ Aplicados no servidor, antes de enfileirar. Filtro inválido → **400** antes d
 | `probe` | `probe_id` do evento (`[a-z0-9]{8,32}`) |
 | `src_ip` | IP do cliente; em `dns.query`, o IP do resolvedor |
 | `dst_port` | porta do espelho; `dns.query` conta como 53 |
-| `kind` | lista separada por vírgula de tipos (abaixo) |
+| `kind` | lista separada por vírgula dos tipos filtráveis: `connection.opened`, `connection.updated`, `connection.closed`, `http.request`, `dns.query`, `packet.stray` |
+
+`stream.dropped` **não é filtrável**: pedido em `kind`, dá **400** (`invalid kind "stream.dropped"`). Ele chega
+sempre, com ou sem `kind`, ao cliente que perdeu eventos.
 
 ## Eventos
 
@@ -104,6 +107,7 @@ WebSocket primeiro; se não abrir em 3 s, SSE; se cair, reconecta com espera cre
 
 ```js
 const API = "https://vps602.tmsoft.com.br:9000";
+// nomes dos eventos SSE a escutar (stream.dropped inclusive); no filtro kind, stream.dropped não entra
 const KINDS = ["connection.opened", "connection.updated", "connection.closed",
                "http.request", "dns.query", "packet.stray", "stream.dropped"];
 let attempt = 0;
