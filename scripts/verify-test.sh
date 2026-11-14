@@ -168,6 +168,33 @@ check "TERM no meio do passo não deixa diretório" '[ -s "$LOG" ] && [ "$(lefto
 
 check "nenhum caminho fixo /tmp/fs-verify/ no verify.sh" '! grep -q "/tmp/fs-verify/" "$ROOT/scripts/verify.sh"'
 
+# Cadeia de suprimentos (task 175, spec 017 RF-08 e RF-11): CLIs npm só por package-lock + npm ci
+# --ignore-scripts, e toda action fixada por SHA de 40 caracteres com a versão em comentário.
+check "verify.sh sem npx" '! grep -Eq "(^|[^a-z])npx( |$)" "$ROOT/scripts/verify.sh"'
+check "contracts-tools com package-lock" '[ -s "$ROOT/scripts/contracts-tools/package-lock.json" ]'
+check "toda action por SHA com versão em comentário" '! grep -hE "^[[:space:]-]*uses:" "$ROOT"/.github/workflows/*.yml |
+	grep -vE "uses:[[:space:]]+[^@[:space:]]+@[0-9a-f]{40}[[:space:]]+#[[:space:]]*v[0-9]"'
+check "há actions nos workflows" 'grep -qE "uses:" "$ROOT"/.github/workflows/ci.yml'
+
+# npm_deps: npm ci --ignore-scripts uma vez por package-lock.json (stub de npm registra as chamadas)
+cat >"$T/bin/npm" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$STUB_NPM_LOG"
+while [ $# -gt 0 ]; do
+	[ "$1" = --prefix ] && mkdir -p "$2/node_modules"
+	shift
+done
+EOF
+chmod +x "$T/bin/npm"
+export STUB_NPM_LOG="$T/npm.log"
+mkdir -p "$T/npmpkg"
+echo '{"lockfileVersion":3}' >"$T/npmpkg/package-lock.json"
+npm_deps "$T/npmpkg" && npm_deps "$T/npmpkg"
+check "npm_deps roda npm ci --ignore-scripts uma vez" '[ "$(grep -c "^ci --prefix $T/npmpkg --ignore-scripts" "$STUB_NPM_LOG")" = 1 ]'
+echo '{"lockfileVersion":3,"x":1}' >"$T/npmpkg/package-lock.json"
+npm_deps "$T/npmpkg"
+check "npm_deps reinstala quando o lock muda" '[ "$(grep -c "^ci " "$STUB_NPM_LOG")" = 2 ]'
+
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do
 		echo "--- $f"
