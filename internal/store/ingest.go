@@ -23,7 +23,8 @@ import (
 // IngestConfig controla correlação, pcap e modo degradado (spec 004 RF-02..RF-04, RF-11).
 type IngestConfig struct {
 	PcapMax    int64         // FS_PCAP_MAX_BYTES_PER_CONN
-	TCPIdle    time.Duration // FS_IDLE_DEFAULT + 30 s
+	TCPIdle    time.Duration // TCP estabelecido: max(FS_IDLE_DEFAULT, FS_IDLE_MAX) + 30 s (ADR 0034 item 2)
+	QUICIdle   time.Duration // UDP com evento h3 e sem close: FS_IDLE_DEFAULT + 30 s (0 = TCPIdle)
 	UDPIdle    time.Duration // 30 s
 	CloseGrace time.Duration // folga depois do fechamento para pegar o último ACK
 	MaxOpen    int           // FS_MAX_CONNS
@@ -325,6 +326,17 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.Packet) error {
 	fi := parseFrame(p.Frame)
 	res := in.flows.handle(fi, p.TsNs)
+	if res.evicted != nil {
+		// Despejada pela tabela cheia (ADR 0034 item 1): sem registro nem avulso; a linha sai com as filhas.
+		in.prom.flowDropped(dropEvicted)
+		if _, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", res.evicted.id); err != nil {
+			return err
+		}
+	}
+	if res.dropped {
+		in.prom.flowDropped(dropTableFull)
+		return nil // 5-tupla nova recusada com a tabela cheia: nada é gravado
+	}
 	if res.ended != nil {
 		// Já saiu da tabela: entra na fila de finalização mesmo que este lote seja desfeito.
 		in.toFinalize = append(in.toFinalize, res.ended)

@@ -76,6 +76,12 @@ func LoadConfig() (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	// FS_IDLE_MAX é o teto do idle= do web: o TCP estabelecido fica na tabela por max(FS_IDLE_DEFAULT,
+	// FS_IDLE_MAX) + 30 s, para o store nunca fechar antes do web uma conexão mantida por idle= (ADR 0034 item 2).
+	idleMax, err := service.EnvDuration("FS_IDLE_MAX", 600*time.Second)
+	if err != nil {
+		return c, err
+	}
 	pcapMax, err := service.EnvInt("FS_PCAP_MAX_BYTES_PER_CONN", 16<<20)
 	if err != nil {
 		return c, err
@@ -117,7 +123,8 @@ func LoadConfig() (Config, error) {
 		return c, fmt.Errorf("store: FS_TCP_SEGMENTS_TRACKED precisa ser >= 32 (spec 013 RF-09)")
 	}
 	c.Ingest = IngestConfig{
-		PcapMax: int64(pcapMax), TCPIdle: idle + 30*time.Second, UDPIdle: 30 * time.Second,
+		PcapMax: int64(pcapMax), TCPIdle: max(idle, idleMax) + 30*time.Second, QUICIdle: idle + 30*time.Second,
+		UDPIdle:    30 * time.Second,
 		CloseGrace: grace, MaxOpen: maxOpen, MaxNewPerS: maxNew, Snaplen: uint32(snap), //nolint:gosec // snaplen pequeno
 		SegmentsTracked: segs, RawStreamMax: rawMax, Retention: c.RetentionDur,
 	}

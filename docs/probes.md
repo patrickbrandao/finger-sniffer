@@ -414,6 +414,8 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {port: 
 - **Procurar**: `close.by`, `close.how`, `close.idle_before_close_ms` e `times.client_fin`/`server_fin`. Sem
   `idle=`, o espelho mantém a conexão por 120 s: com 30 e 90 s quem fecha é o cliente; com 180 s, o espelho fecha
   aos 120 s (`by: server`, `idle_before_close_ms` ≈ 120000). `idle=5` mostra o espelho fechando aos 5 s.
+  O store mantém o registro TCP estabelecido aberto por `max(FS_IDLE_DEFAULT, FS_IDLE_MAX)` + 30 s sem pacotes
+  (630 s com os padrões), então até `idle=600` o fim registrado é o FIN do espelho, não a ociosidade do store.
 - **Estáveis**: `close.by` e `close.how`; `idle_before_close_ms` dentro de ±1 s do tempo pedido. Repita a
   execução direta para confirmar.
 - **Keepalive TCP**: o web e o raw **não mandam keepalive TCP** (o listener desliga o do Go); a conexão ociosa
@@ -653,7 +655,8 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {ttl: .
   o macOS (`net.inet.tcp.randomize_timestamps=1`) **por conexão** e o Linux (≥ 4.10, `tcp_timestamps=1`) **por par
   de endereços**. Por isso três conexões seguidas do mesmo Mac dão três grupos, e um Linux só repete o grupo pelo
   mesmo par de IPs; grupos distintos nesses casos são o esperado, não erro (spec 013 RF-10, ADR 0023). Só um host
-  que não desloca o TSval aparece no mesmo grupo saindo por IPs diferentes.
+  que não desloca o TSval aparece no mesmo grupo saindo por IPs diferentes. O agrupamento é de melhor esforço sob
+  carga: o store guarda até 4096 relógios vistos nos últimos 20 min e esquece o usado há mais tempo (ADR 0034).
 - **Estáveis**: a linha de IP e de TCP da [tabela](#campos-estáveis-e-o-que-sempre-varia). O RTT é estável só
   em ordem de grandeza (±20%). `ts_initial` e TSval mudam por conexão em Linux e macOS (deslocamento aleatório),
   por isso o agrupamento por relógio usa a frequência e a evolução, não o valor inicial.

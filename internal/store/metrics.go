@@ -47,6 +47,7 @@ type storeMetrics struct {
 	dnsQueries  prometheus.Counter
 	purged      *prometheus.CounterVec
 	recordReady *prometheus.HistogramVec
+	flowsDrop   *prometheus.CounterVec
 	liveDelay   prometheus.Histogram
 	apiRequests *prometheus.CounterVec
 	apiDuration *prometheus.HistogramVec
@@ -92,8 +93,15 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 			Name: "fs_store_api_request_duration_seconds", Help: "API request duration, by mux pattern.", Buckets: apiBuckets,
 		}, []string{"route"}),
 	}
+	m.flowsDrop = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "fs_store_flows_dropped_total",
+		Help: "Flow table cap (8192 entries): unestablished entries evicted, and packets of new 5-tuples refused with no entry to evict.",
+	}, []string{"reason"})
 	reg.MustRegister(m.ingested, m.ingestLag, m.connsTotal, m.degraded, m.stray, m.dnsQueries, m.purged, m.recordReady,
-		m.liveDelay, m.apiRequests, m.apiDuration)
+		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop)
+	for _, r := range []string{dropEvicted, dropTableFull} {
+		m.flowsDrop.WithLabelValues(r)
+	}
 	for _, r := range []string{"age", "size"} {
 		m.purged.WithLabelValues(r)
 	}
@@ -147,6 +155,12 @@ func (m *storeMetrics) strayPackets(n int) {
 func (m *storeMetrics) dnsQuery() {
 	if m != nil {
 		m.dnsQueries.Inc()
+	}
+}
+
+func (m *storeMetrics) flowDropped(reason string) {
+	if m != nil {
+		m.flowsDrop.WithLabelValues(reason).Inc()
 	}
 }
 

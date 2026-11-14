@@ -88,6 +88,7 @@ func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after
 	if c.l4 == protoUDP && c.closeAt == 0 && c.app.h3Close != nil {
 		c.closeAt = c.app.h3CloseTs + t.grace.Nanoseconds()
 	}
+	t.refresh(c) // fechou: sai da conta de vivas do modo degradado
 	return probeSet, before, c.app.proto(l4), true
 }
 
