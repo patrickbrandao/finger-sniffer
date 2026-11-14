@@ -25,6 +25,9 @@ const (
 const (
 	recordMaxParams   = 64
 	recordMaxValueLen = 1024
+	// recordMaxInvalid é o teto de nomes em invalid e de linhas do 400: o nome pode ser a chave crua do
+	// cliente (percent-encoding inválido), então a lista não pode crescer com a query (task 130).
+	recordMaxInvalid = 64
 )
 
 // Valores de frame=, conn=, close= e continue=.
@@ -162,9 +165,16 @@ func (c *Controls) InvalidText() string {
 // closes informa se a resposta termina com o servidor fechando a conexão.
 func (c *Controls) closes() bool { return c.Close != "" || c.Frame == FrameClose }
 
+// invalid registra um parâmetro recusado. Os dois registros têm teto: com a lista limitada, appendOnce
+// custa no máximo recordMaxInvalid comparações por parte e o 400 fica pequeno; Valid continua falso.
 func (c *Controls) invalid(name, value, why string) {
-	c.Record.Invalid = appendOnce(c.Record.Invalid, name)
-	c.errs = append(c.errs, fmt.Sprintf("%s=%s: %s", name, value, why))
+	name, value = clip(name), clip(value)
+	if len(c.Record.Invalid) < recordMaxInvalid {
+		c.Record.Invalid = appendOnce(c.Record.Invalid, name)
+	}
+	if len(c.errs) < recordMaxInvalid {
+		c.errs = append(c.errs, fmt.Sprintf("%s=%s: %s", name, value, why))
+	}
 }
 
 func (c *Controls) clamp(name string) { c.Record.Clamped = appendOnce(c.Record.Clamped, name) }
