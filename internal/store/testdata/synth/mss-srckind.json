@@ -1,0 +1,380 @@
+{
+  "edge-172-15": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "edge-172-32": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "edge-6to4-out": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "edge-link-local-out": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "edge-nat64-out": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "edge-shared-high": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "edge-shared-low": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "edge-teredo-out": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "edge-ula-out": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-6to4": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "6to4",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-global-v4": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-global-v6": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-link-local-v4": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "link_local",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-link-local-v6": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "link_local",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-loopback-v4": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "loopback",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-loopback-v6": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "loopback",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-nat64-local": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "nat64",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-nat64-wkp": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "nat64",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-other-doc-v4": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "other",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-other-doc-v6": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "other",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-other-mapped": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "other",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-other-mcast-v4": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "other",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-other-mcast-v6": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "other",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-private-10": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "private",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-private-172": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "private",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-private-192": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "private",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-private-ula": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "private",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "kind-shared": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "shared",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "kind-teredo": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "teredo",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "v4-mss1380": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1380,
+    "mtu_implied": 1420,
+    "mss_reduction": 80,
+    "syn_options_mss": 1380
+  },
+  "v4-mss1440": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1480,
+    "mss_reduction": 20,
+    "syn_options_mss": 1440
+  },
+  "v4-mss1452": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1452,
+    "mtu_implied": 1492,
+    "mss_reduction": 8,
+    "syn_options_mss": 1452
+  },
+  "v4-mss1460": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "v4-mss8960": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 8960,
+    "mtu_implied": 9000,
+    "mss_reduction": -7500,
+    "syn_options_mss": 8960
+  },
+  "v4-nomss": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": null,
+    "mtu_implied": null,
+    "mss_reduction": null,
+    "syn_options_mss": null
+  },
+  "v4-nosyn": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": null,
+    "mtu_implied": null,
+    "mss_reduction": null,
+    "syn_options_mss": null
+  },
+  "v4-syn-retx": {
+    "family": 4,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1460,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1460
+  },
+  "v4-udp": {
+    "family": 4,
+    "l4": "udp",
+    "src_kind": "global",
+    "syn_mss": null,
+    "mtu_implied": null,
+    "mss_reduction": null,
+    "syn_options_mss": null
+  },
+  "v6-mss1220": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1220,
+    "mtu_implied": 1280,
+    "mss_reduction": 220,
+    "syn_options_mss": 1220
+  },
+  "v6-mss1432": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1432,
+    "mtu_implied": 1492,
+    "mss_reduction": 8,
+    "syn_options_mss": 1432
+  },
+  "v6-mss1440": {
+    "family": 6,
+    "l4": "tcp",
+    "src_kind": "global",
+    "syn_mss": 1440,
+    "mtu_implied": 1500,
+    "mss_reduction": 0,
+    "syn_options_mss": 1440
+  },
+  "v6-udp": {
+    "family": 6,
+    "l4": "udp",
+    "src_kind": "global",
+    "syn_mss": null,
+    "mtu_implied": null,
+    "mss_reduction": null,
+    "syn_options_mss": null
+  }
+}
