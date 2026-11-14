@@ -591,7 +591,32 @@ export function probeTargets(id, pageProtocol) {
 }
 
 // runProbe dispara as sondagens em sequência e devolve o GET /api/v1/probes/<id>?wait=… (null se 404).
-export async function runProbe(id, { api, fetch, WebSocket, pageProtocol, onStep = () => {}, wait = "10s", wsTimeoutMs = 5000 }) {
+// waitMs converte a duração do ?wait ("500ms", "10s") em milissegundos; fora do formato, 10 s.
+export function waitMs(wait) {
+  const m = /^(\d+)(ms|s)$/.exec(String(wait));
+  if (!m) return 10000;
+  return Number(m[1]) * (m[2] === "s" ? 1000 : 1);
+}
+
+// retryAfterMs lê o Retry-After (segundos) do 503: ausente ou inválido → 1 s; teto de 5 s. Sem
+// Access-Control-Expose-Headers o navegador não deixa ler o campo de outra origem, e vale 1 s.
+export function retryAfterMs(res) {
+  let v = null;
+  try {
+    v = res && res.headers && typeof res.headers.get === "function" ? res.headers.get("Retry-After") : null;
+  } catch {
+    v = null;
+  }
+  const n = /^\d+$/.test(String(v || "").trim()) ? Number(String(v).trim()) : 0;
+  return Math.min(5, Math.max(1, n)) * 1000;
+}
+
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function runProbe(
+  id,
+  { api, fetch, WebSocket, pageProtocol, onStep = () => {}, wait = "10s", wsTimeoutMs = 5000, sleep = sleepMs, now = Date.now },
+) {
   for (const t of probeTargets(id, pageProtocol)) {
     if (t.ws) {
       const ok = WebSocket ? await wsProbe(WebSocket, t.url, `hello from probe ${id}`, wsTimeoutMs) : false;
@@ -606,13 +631,21 @@ export async function runProbe(id, { api, fetch, WebSocket, pageProtocol, onStep
       onStep(t.label, false, `${t.url}: ${str(e && e.message)}`);
     }
   }
-  const res = await fetch(`${api}/api/v1/probes/${encodeURIComponent(id)}?wait=${encodeURIComponent(wait)}`, {
-    cache: "no-store",
-    credentials: "omit",
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`the API answered ${res.status}`);
-  return res.json();
+  // 503 = o store está no teto de esperas (ADR 0032): espera o Retry-After e repete até o prazo do wait
+  const url = `${api}/api/v1/probes/${encodeURIComponent(id)}?wait=${encodeURIComponent(wait)}`;
+  const deadline = now() + waitMs(wait);
+  for (;;) {
+    const res = await fetch(url, { cache: "no-store", credentials: "omit" });
+    if (res.status === 503) {
+      const delay = retryAfterMs(res);
+      if (now() + delay > deadline) throw new Error("the API is busy (503); try again in a few seconds");
+      await sleep(delay);
+      continue;
+    }
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`the API answered ${res.status}`);
+    return res.json();
+  }
 }
 
 // summarizeProbe resume o registro do probe em frases curtas.

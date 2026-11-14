@@ -324,13 +324,21 @@ function fakeEnv() {
 }
 
 // ---------------------------------------------------------------- run probe
-async function probeRun(pageProtocol, status) {
+// status é um código ou uma sequência [código, Retry-After] para as respostas seguidas da API.
+async function probeRun(pageProtocol, status, wait = "10s") {
   const requests = [];
   const sockets = [];
+  const sleeps = [];
+  let clock = 0;
+  const answers = Array.isArray(status) ? status.slice() : null;
   const fetch = async (url, opts) => {
     requests.push([url, opts]);
     if (url.includes("/api/v1/probes/")) {
-      return { status, ok: status === 200, json: async () => ({ probe_id: "x", all_closed: true, connections: [], dns: [] }) };
+      let code = status;
+      let ra = null;
+      if (answers) [code, ra] = answers.length > 1 ? answers.shift() : answers[0];
+      const headers = { get: (k) => (k.toLowerCase() === "retry-after" ? ra : null) };
+      return { status: code, ok: code === 200, headers, json: async () => ({ probe_id: "x", all_closed: true, connections: [], dns: [] }) };
     }
     return { status: 0, ok: false, type: "opaque" };
   };
@@ -356,9 +364,14 @@ async function probeRun(pageProtocol, status) {
     WebSocket: WS,
     pageProtocol,
     onStep: (label, ok) => steps.push([label, ok]),
-    wait: "10s",
+    wait,
+    now: () => clock,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      clock += ms;
+    },
   });
-  return { requests, sockets, steps, res };
+  return { requests, sockets, steps, res, sleeps };
 }
 {
   const r = await probeRun("https:", 200);
@@ -395,6 +408,39 @@ async function probeRun(pageProtocol, status) {
   }
   check(threw, "API error is reported");
 }
+
+// ---------------------------------------------------------------- 503 do wait com Retry-After (task 211)
+{
+  const r = await probeRun("https:", [[503, "1"], [200, null]]);
+  eq(r.res.all_closed, true, "503 then 200 succeeds");
+  eq(r.sleeps, [1000], "waits Retry-After before retrying");
+  eq(r.requests.filter((x) => x[0].includes("/api/v1/probes/")).length, 2, "the wait request is repeated");
+}
+{
+  const r = await probeRun("https:", [[503, "99"], [503, "nope"], [503, null], [200, null]]);
+  eq(r.sleeps, [5000, 1000, 1000], "Retry-After capped at 5 s; missing or invalid is 1 s");
+  eq(r.res.all_closed, true, "succeeds after several 503");
+}
+{
+  let msg = "";
+  try {
+    await probeRun("https:", [[503, "2"]], "5s");
+  } catch (e) {
+    msg = String(e && e.message);
+  }
+  check(msg.includes("503"), "503 beyond the deadline becomes an error: " + msg);
+}
+{
+  let threw = false;
+  try {
+    await probeRun("https:", [[500, null]]);
+  } catch {
+    threw = true;
+  }
+  check(threw, "other codes are still errors");
+}
+eq([app.waitMs("10s"), app.waitMs("500ms"), app.waitMs("x")], [10000, 500, 10000], "waitMs");
+eq([app.retryAfterMs({}), app.retryAfterMs(null), app.retryAfterMs({ headers: { get: () => " 3 " } })], [1000, 1000, 3000], "retryAfterMs");
 
 console.log(passed + " checks passed, " + failures + " failed");
 process.exit(failures === 0 ? 0 : 1);
