@@ -32,9 +32,9 @@ COVER_STRICT_MIN=80
 COVER_TOTAL_MIN=60
 OPENAPI_FILE="cmd/finger-sniffer-store/openapi.yaml"
 ASYNCAPI_FILE="eventbus/nats/asyncapi.yaml"
-# Validadores dos contratos (Node, via npx; versões fixadas)
-REDOCLY_CLI="@redocly/cli@2.76.0"
-ASYNCAPI_CLI="@asyncapi/cli@6.3.0"
+# Validadores dos contratos (Redocly CLI e AsyncAPI CLI; dependências travadas no package-lock.json do diretório,
+# instaladas com npm ci --ignore-scripts; task 175)
+CONTRACTS_TOOLS_DIR="scripts/contracts-tools"
 # Validador dos examples do asyncapi (Node; dependências fixadas no package-lock.json do diretório)
 ASYNCAPI_EXAMPLES_DIR="scripts/asyncapi-examples"
 FUZZ_TIME="${FS_FUZZ_TIME:-10s}"
@@ -200,22 +200,24 @@ prepare_test_db() {
 
 # Valida openapi.yaml (Redocly) e asyncapi.yaml (AsyncAPI CLI). Erros falham; avisos não.
 contracts_check() {
-	local rc=0
-	command -v npx >/dev/null || {
-		echo "npx não encontrado (instale Node.js para validar os contratos)"
+	local rc=0 bin="$CONTRACTS_TOOLS_DIR/node_modules/.bin"
+	if ! command -v node >/dev/null || ! command -v npm >/dev/null; then
+		echo "node/npm não encontrados (instale Node.js para validar os contratos)"
 		return 1
-	}
+	fi
+	npm_deps "$CONTRACTS_TOOLS_DIR" || return 1
 	export REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true
-	npx -y "$REDOCLY_CLI" lint --format=summary "$OPENAPI_FILE" || rc=1
+	"$bin/redocly" lint --format=summary "$OPENAPI_FILE" || rc=1
 	# Sem telemetria do AsyncAPI CLI (preferência de privacidade)
-	npx -y "$ASYNCAPI_CLI" config analytics --disable >/dev/null 2>&1 || true
-	npx -y "$ASYNCAPI_CLI" validate "$ASYNCAPI_FILE" --fail-severity=error || rc=1
+	"$bin/asyncapi" config analytics --disable >/dev/null 2>&1 || true
+	"$bin/asyncapi" validate "$ASYNCAPI_FILE" --fail-severity=error || rc=1
 	return $rc
 }
 
-# Instala as dependências do validador de examples (npm ci) só quando o package-lock.json muda.
-asyncapi_examples_deps() {
-	local dir="$ASYNCAPI_EXAMPLES_DIR" stamp want
+# npm_deps <dir>: instala as dependências de <dir> (npm ci --ignore-scripts, só o package-lock.json versionado)
+# quando o package-lock.json muda; o carimbo fica em node_modules/.fs-lock-hash.
+npm_deps() {
+	local dir="$1" stamp want
 	stamp="$dir/node_modules/.fs-lock-hash"
 	want=$(git hash-object "$dir/package-lock.json") || return 1
 	if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ]; then
@@ -234,7 +236,7 @@ asyncapi_examples_check() {
 		return 1
 	fi
 	local rc=0
-	asyncapi_examples_deps || return 1
+	npm_deps "$ASYNCAPI_EXAMPLES_DIR" || return 1
 	node "$ASYNCAPI_EXAMPLES_DIR/check.mjs" "$ASYNCAPI_FILE" || rc=1
 	node --test --test-reporter=dot "$ASYNCAPI_EXAMPLES_DIR/check.test.mjs" || rc=1
 	return $rc
@@ -313,7 +315,7 @@ verify_quick() {
 	pkgs=$(packages_of_dirs $dirs)
 	migrations_changed=$(echo "$files" | grep -c "^$MIGRATIONS_DIR/" || true)
 	gomod_changed=$(echo "$files" | grep -cE '^go\.(mod|sum)$' || true)
-	contracts_changed=$(echo "$files" | grep -cE "^($OPENAPI_FILE|$ASYNCAPI_FILE)\$" || true)
+	contracts_changed=$(echo "$files" | grep -cE "^($OPENAPI_FILE|$ASYNCAPI_FILE|$CONTRACTS_TOOLS_DIR/package(-lock)?\.json)\$" || true)
 	# examples do asyncapi: contratos, goldens referenciados (testdata) ou o próprio validador
 	examples_changed=$(echo "$files" |
 		grep -cE "^($OPENAPI_FILE|$ASYNCAPI_FILE|internal/[^/]+/testdata/.*|pkg/[^/]+/testdata/events/.*|$ASYNCAPI_EXAMPLES_DIR/.*)\$" ||

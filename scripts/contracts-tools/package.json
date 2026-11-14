@@ -1,0 +1,11 @@
+{
+  "name": "finger-sniffer-contracts-tools",
+  "private": true,
+  "description": "Validadores dos contratos (openapi.yaml e asyncapi.yaml) com dependências travadas (spec 017 RF-08).",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@asyncapi/cli": "6.3.0",
+    "@redocly/cli": "2.76.0"
+  }
+}
