@@ -68,6 +68,8 @@ func cors(next http.Handler) http.Handler {
 		h.Set("Access-Control-Allow-Origin", "*")
 		h.Set("Access-Control-Allow-Methods", "GET, DELETE, OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "*")
+		// expõe o Retry-After dos 503 (wait e downloads, ADR 0032) a páginas de outra origem (task 212)
+		h.Set("Access-Control-Expose-Headers", "Retry-After")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
