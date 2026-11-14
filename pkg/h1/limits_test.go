@@ -104,7 +104,8 @@ func TestReadHeadObsFoldLinear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(start); d > time.Second {
+	// ~16 ms sem -race; o custo quadrático antigo levava dezenas de segundos (o teto folgado cobre o -race do CI).
+	if d := time.Since(start); d > 10*time.Second {
 		t.Fatalf("obs-fold of 1 MiB took %v", d)
 	}
 	want := "a" + strings.Repeat("\n ", n)
@@ -153,7 +154,8 @@ func TestTrailersObsFoldLinear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(start); d > time.Second {
+	// ~16 ms sem -race; o custo quadrático antigo levava dezenas de segundos (o teto folgado cobre o -race do CI).
+	if d := time.Since(start); d > 10*time.Second {
 		t.Fatalf("trailer obs-fold took %v", d)
 	}
 	if tr := req.Body.Trailers; len(tr) != 1 || tr[0] != (Field{"T", ": ", "a" + strings.Repeat("\n ", n), TermLF}) {
