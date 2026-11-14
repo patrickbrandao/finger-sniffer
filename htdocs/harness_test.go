@@ -200,6 +200,102 @@ function fakeEnv() {
   check(conns.size <= 4000, "connection map is bounded");
 }
 
+// ---------------------------------------------------------------- pausa (tasks 186) e corte do feed (187)
+{
+  // em pausa, 2000 eventos com payload grande: a fila guarda só linhas resumidas
+  const conns = new Map();
+  const big = "A".repeat(200000);
+  const q = new app.PauseQueue(app.MAX_PENDING);
+  const opened = { kind: "connection.opened", ts: "2026-11-14T00:00:00.000Z", conn_id: "c1", data: { conn_id: "c1", proto: "h1", src: { ip: "192.0.2.1", port: 5000 }, dst: { ip: "198.51.100.1", port: 8080 }, probe_id: "pp11pp11" } };
+  q.push(app.toRow(opened, conns));
+  for (let i = 0; i < app.MAX_PENDING; i++) {
+    q.push(app.toRow({ kind: "http.request", ts: "2026-11-14T00:00:01.000Z", conn_id: "c1", data: { request_line: { method: "GET", target: "/" + i, version: "HTTP/1.1" }, raw_head_b64: big, response_sent_b64: big, body: { raw_b64: big } } }, conns));
+  }
+  eq(q.rows.length, app.MAX_PENDING, "pause queue is bounded");
+  eq(q.lost, 1, "the oldest queued row is counted as lost");
+  eq(q.count, app.MAX_PENDING + 1, "N new counts queue + lost");
+  const json = JSON.stringify(q.rows);
+  check(!json.includes("AAAA") && !json.includes("raw_head_b64") && !json.includes("response_sent_b64") && !json.includes('"data"'), "pause queue keeps only summary rows");
+  check(json.length < app.MAX_PENDING * 400, "pause queue is small: " + json.length + " bytes");
+  check(q.rows.every((r) => typeof r.what === "string"), "queued items are rows");
+  // as requisições na pausa herdam porta e probe da conexão, como sem pausa
+  eq([q.rows[0].dstPort, q.rows[0].probe, q.rows[0].what === "GET /0 HTTP/1.1"], [8080, "pp11pp11", true], "queued request row");
+  const taken = q.take();
+  eq([taken.rows.length, taken.lost, q.count, q.rows.length], [app.MAX_PENDING, 1, 0, 0], "take empties the queue");
+  eq(taken.rows[app.MAX_PENDING - 1].what.startsWith("GET /1999 "), true, "take keeps the arrival order");
+
+  // mesma sequência com e sem pausa produz as mesmas linhas
+  const seq = [
+    opened,
+    { kind: "http.request", ts: "x", conn_id: "c1", data: { request_line: { method: "GET", target: "/a", version: "HTTP/1.1" } } },
+    { kind: "connection.closed", ts: "y", conn_id: "c1", data: Object.assign({}, opened.data, { ended: "y" }) },
+    { kind: "dns.query", ts: "z", data: { qtype: "A", qname: "x.example", resolver: { ip: "203.0.113.5", port: 53 }, proto: "udp" } },
+  ];
+  const live = seq.map((e) => app.toRow(e, new Map(conns)));
+  const c2 = new Map();
+  const paused = new app.PauseQueue(10);
+  for (const e of seq) paused.push(app.toRow(e, c2));
+  const c3 = new Map();
+  eq(paused.take().rows, seq.map((e) => app.toRow(e, c3)), "paused rows equal live rows");
+  check(live.length === 4, "live rows built");
+
+  // texto da linha cortado em MAX_WHAT
+  const long = app.describeEvent({ kind: "http.request", ts: "x", data: { request_line: { method: "GET", target: "/" + "b".repeat(5000), version: "HTTP/1.1" } } }, new Map());
+  eq(long.what.length, app.MAX_WHAT, "row text is capped");
+  check(long.what.endsWith("…"), "capped text ends with an ellipsis");
+}
+{
+  // lista falsa com a mesma interface usada pelo trimFeed (mais nova no topo)
+  function fakeList(items) {
+    const list = { nodes: [] };
+    const node = (it) => ({
+      id: it.id,
+      hidden: it.hidden,
+      get previousElementSibling() {
+        const i = list.nodes.indexOf(this);
+        return i > 0 ? list.nodes[i - 1] : null;
+      },
+      remove() {
+        const i = list.nodes.indexOf(this);
+        if (i >= 0) list.nodes.splice(i, 1);
+      },
+    });
+    list.nodes = items.map(node);
+    Object.defineProperty(list, "children", { get: () => list.nodes });
+    Object.defineProperty(list, "lastElementChild", { get: () => list.nodes[list.nodes.length - 1] || null });
+    return list;
+  }
+  // com filtro de probe: 10 linhas do probe (visíveis, mais antigas) e 600 de outros probes (ocultas, mais novas)
+  const items = [];
+  for (let i = 0; i < 600; i++) items.push({ id: "other" + i, hidden: true });
+  for (let i = 0; i < 10; i++) items.push({ id: "mine" + i, hidden: false });
+  const l1 = fakeList(items);
+  const removed = [];
+  app.trimFeed(l1, app.MAX_ROWS, (li) => removed.push(li.id));
+  eq(l1.children.length, app.MAX_ROWS, "feed never exceeds MAX_ROWS with a filter");
+  eq(l1.nodes.filter((n) => !n.hidden).length, 10, "probe rows survive other probes' traffic");
+  eq(removed.length, 110, "onRemove called for each removed row");
+  check(removed.every((id) => id.startsWith("other")), "only hidden rows removed");
+  eq(removed[0], "other599", "the oldest hidden row goes first");
+  // sem filtro: saem as mais antigas
+  const plain = [];
+  for (let i = 0; i < 600; i++) plain.push({ id: "r" + i, hidden: false });
+  const l2 = fakeList(plain);
+  app.trimFeed(l2, app.MAX_ROWS, () => {});
+  eq([l2.children.length, l2.nodes[0].id, l2.nodes[l2.nodes.length - 1].id], [app.MAX_ROWS, "r0", "r499"], "without a filter the oldest rows go");
+  // poucas ocultas: saem as ocultas e depois as visíveis mais antigas
+  const mixed = [];
+  for (let i = 0; i < 503; i++) mixed.push({ id: "v" + i, hidden: i === 10 });
+  const l3 = fakeList(mixed);
+  const r3 = [];
+  app.trimFeed(l3, app.MAX_ROWS, (li) => r3.push(li.id));
+  eq(r3, ["v10", "v502", "v501"], "hidden first, then the oldest visible");
+  const l4 = fakeList([{ id: "a", hidden: true }]);
+  app.trimFeed(l4, app.MAX_ROWS, () => {});
+  eq(l4.children.length, 1, "nothing removed under the limit");
+  check(typeof app.LiveFeed.prototype.reopen === "undefined", "dead LiveFeed.reopen removed");
+}
+
 // ---------------------------------------------------------------- preferências
 {
   const mem = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };

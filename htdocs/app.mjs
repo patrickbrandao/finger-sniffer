@@ -19,7 +19,8 @@ export const LIVE_KINDS = [
 const FILTER_KEYS = ["port", "proto", "ip", "probe"];
 const STORAGE_KEY = "finger-sniffer.filters";
 const MAX_CONNS = 4000;
-const MAX_PENDING = 2000;
+export const MAX_PENDING = 2000;
+export const MAX_WHAT = 512;
 const ANNOUNCE_EVERY_MS = 60000;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -101,14 +102,6 @@ export class LiveFeed {
     this.drop();
     if (this.retryTimer !== null) this.env.clearTimeout(this.retryTimer);
     this.retryTimer = null;
-  }
-
-  // reopen troca os filtros do servidor (ex.: ?probe=) e reconecta na hora.
-  reopen(filters) {
-    this.filters = filters || {};
-    this.attempt = 0;
-    this.stop();
-    this.start();
   }
 
   connect() {
@@ -354,7 +347,69 @@ export function describeEvent(ev, conns) {
     default:
       row.what = row.kind;
   }
+  // o alvo da requisição vem de terceiros e pode ser longo: a linha guarda no máximo MAX_WHAT caracteres
+  if (row.what.length > MAX_WHAT) row.what = row.what.slice(0, MAX_WHAT - 1) + "…";
   return row;
+}
+
+// toRow reduz o evento à linha do feed na chegada (inclusive na pausa): o payload cru não fica retido.
+// Conexões entram no mapa conns antes, para as requisições seguintes herdarem porta, IP e probe.
+export function toRow(ev, conns) {
+  if (typeof ev.kind === "string" && ev.kind.startsWith("connection.") && ev.data) rememberConn(conns, ev.data);
+  return describeEvent(ev, conns);
+}
+
+// PauseQueue guarda as linhas que chegam com o feed em pausa: no máximo max; as mais antigas saem e contam
+// como perdidas (viram o aviso stream.dropped no "Resume").
+export class PauseQueue {
+  constructor(max = MAX_PENDING) {
+    this.max = max;
+    this.rows = [];
+    this.lost = 0;
+  }
+
+  push(row) {
+    this.rows.push(row);
+    if (this.rows.length > this.max) {
+      this.rows.shift();
+      this.lost++;
+    }
+  }
+
+  // count é o número do aviso "N new": fila + perdidos.
+  get count() {
+    return this.rows.length + this.lost;
+  }
+
+  // take esvazia a fila e devolve as linhas (da mais antiga para a mais nova) e quantas se perderam.
+  take() {
+    const out = { rows: this.rows, lost: this.lost };
+    this.rows = [];
+    this.lost = 0;
+    return out;
+  }
+}
+
+// trimFeed corta a lista do feed (mais nova no topo) para no máximo max itens: saem primeiro as linhas ocultas
+// pelo filtro, da mais antiga para a mais nova; sem ocultas, as mais antigas (spec 014 "Comportamento").
+// Funciona com qualquer lista com children.length, lastElementChild, previousElementSibling, hidden e remove().
+export function trimFeed(list, max, onRemove) {
+  let excess = list.children.length - max;
+  for (let li = list.lastElementChild; li && excess > 0; ) {
+    const prev = li.previousElementSibling;
+    if (li.hidden) {
+      onRemove(li);
+      li.remove();
+      excess--;
+    }
+    li = prev;
+  }
+  while (excess > 0 && list.lastElementChild) {
+    const li = list.lastElementChild;
+    onRemove(li);
+    li.remove();
+    excess--;
+  }
 }
 
 // ------------------------------------------------------------------ filtros locais
@@ -629,8 +684,7 @@ function boot() {
   const connRow = new Map(); // conn_id → li da linha da conexão
   let filters = loadFilters(storage);
   let paused = false;
-  let pending = [];
-  let pendingLost = 0;
+  const pending = new PauseQueue(MAX_PENDING);
   let sinceAnnounce = 0;
   let selected = null;
   let detailID = null;
@@ -685,18 +739,14 @@ function boot() {
   }
 
   function trim() {
-    while (ui.feed.children.length > MAX_ROWS) {
-      const li = ui.feed.lastElementChild;
+    trimFeed(ui.feed, MAX_ROWS, (li) => {
       const row = rowOf.get(li);
       if (row && row.connID && connRow.get(row.connID) === li) connRow.delete(row.connID);
-      li.remove();
-    }
+    });
     ui.empty.hidden = ui.feed.children.length > 0;
   }
 
-  function apply(ev) {
-    if (ev.kind.startsWith("connection.") && ev.data) rememberConn(conns, ev.data);
-    const row = describeEvent(ev, conns);
+  function apply(row) {
     const isConn = row.kind.startsWith("connection.");
     if (isConn && row.connID && connRow.has(row.connID)) {
       // a conexão já tem linha: atualiza no lugar em vez de repetir
@@ -717,23 +767,19 @@ function boot() {
   }
 
   function updatePending() {
-    ui.pending.hidden = !paused || pending.length === 0;
-    const n = pending.length + pendingLost;
-    setText(ui.pending, `${n} new`);
+    ui.pending.hidden = !paused || pending.count === 0;
+    setText(ui.pending, `${pending.count} new`);
   }
 
   function onEvent(ev) {
     if (!LIVE_KINDS.includes(ev.kind)) return;
+    const row = toRow(ev, conns);
     if (paused) {
-      pending.push(ev);
-      if (pending.length > MAX_PENDING) {
-        pending.shift();
-        pendingLost++;
-      }
+      pending.push(row);
       updatePending();
       return;
     }
-    apply(ev);
+    apply(row);
     trim();
   }
 
@@ -742,13 +788,11 @@ function boot() {
     ui.pause.setAttribute("aria-pressed", String(p));
     setText(ui.pause, p ? "Resume" : "Pause");
     if (!p) {
-      const queued = pending;
-      pending = [];
-      if (pendingLost > 0) {
-        apply({ kind: "stream.dropped", ts: new Date().toISOString(), data: { dropped: pendingLost } });
-        pendingLost = 0;
+      const { rows, lost } = pending.take();
+      if (lost > 0) {
+        apply(describeEvent({ kind: "stream.dropped", ts: new Date().toISOString(), data: { dropped: lost } }, conns));
       }
-      for (const ev of queued) apply(ev);
+      for (const row of rows) apply(row);
       trim();
     }
     updatePending();
