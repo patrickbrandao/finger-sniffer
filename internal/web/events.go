@@ -11,6 +11,7 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
+	"github.com/patrickbrandao/finger-sniffer/pkg/tlsparse"
 )
 
 // Métricas do web no heartbeat.
@@ -147,6 +148,13 @@ func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h
 		data = s.encode(ts, flow, probeID, req)
 	}
 	return data
+}
+
+// fitClientHello serializa o evento do ClientHello dentro do teto de 900 KiB: reduz as listas analisadas e
+// corta as strings longas dos fingerprints, marcando lists_truncated (ADR 0032). Os fingerprints já vêm
+// calculados sobre o ClientHello completo.
+func (s *Server) fitClientHello(ts time.Time, flow *event.Flow, probeID string, info *tlsparse.Info) []byte {
+	return info.Fit(func(in *tlsparse.Info) []byte { return s.encode(ts, flow, probeID, in) }, event.MaxEventBytes)
 }
 
 func halve[T any](s []T) []T {

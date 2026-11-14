@@ -20,6 +20,8 @@ import (
 const (
 	MetricSessions       = "raw_sessions_total"
 	MetricActiveSessions = "raw_active_sessions"
+	// MetricEventsOversize conta eventos descartados por passarem de event.MaxEventBytes (ADR 0035).
+	MetricEventsOversize = "raw_events_oversize_total"
 )
 
 // Server escuta as portas cruas e atende cada conexão numa goroutine.
@@ -195,7 +197,7 @@ func (s *Server) closeListeners() {
 
 // serve atende uma conexão aceita.
 func (s *Server) serve(c net.Conn, spec PortSpec, start time.Time) {
-	em := &emitter{pub: s.pub, log: s.log, flow: flowOf(c)}
+	em := &emitter{pub: s.pub, log: s.log, flow: flowOf(c), metrics: s.metrics}
 	sess := newSession(c, &s.cfg, spec, start, em)
 	sess.probes = s.probes
 	sess.run()

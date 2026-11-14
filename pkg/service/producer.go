@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ type pending struct {
 
 // Producer publica no NATS e, quando ele está fora, guarda até maxAge / maxBytes em memória e reenvia na
 // ordem; acima disso descarta os mais antigos e conta em dropped_events_total (spec 003 RF-05, ADR 0003).
+// Mensagem recusada por nats.ErrMaxPayload é descartada e contada na hora, no Publish e no Flush (ADR 0035).
 type Producer struct {
 	conn     publisher
 	maxAge   time.Duration
@@ -52,8 +54,14 @@ func (p *Producer) Publish(msg *nats.Msg) {
 	defer p.mu.Unlock()
 	// Com fila pendente, a nova mensagem vai para o fim para manter a ordem.
 	if len(p.queue) == 0 && p.conn.IsConnected() {
-		if err := p.conn.PublishMsg(msg); err == nil {
+		err := p.conn.PublishMsg(msg)
+		if err == nil {
 			p.metrics.Add(MetricPublished, 1)
+			return
+		}
+		// Acima do max_payload o NATS nunca vai aceitar: descarta em vez de travar a fila (ADR 0035).
+		if errors.Is(err, nats.ErrMaxPayload) {
+			p.metrics.Add(MetricDropped, 1)
 			return
 		}
 	}
@@ -78,7 +86,14 @@ func (p *Producer) Flush() {
 	for len(p.queue) > 0 && p.conn.IsConnected() {
 		head := p.queue[0]
 		if err := p.conn.PublishMsg(head.msg); err != nil {
-			break
+			if !errors.Is(err, nats.ErrMaxPayload) {
+				break
+			}
+			// Mensagem que nunca caberá: sai da fila para não segurar as seguintes.
+			p.metrics.Add(MetricDropped, 1)
+			p.queue = p.queue[1:]
+			p.bytes -= head.size
+			continue
 		}
 		p.metrics.Add(MetricPublished, 1)
 		p.queue = p.queue[1:]

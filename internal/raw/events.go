@@ -9,6 +9,7 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
 // Publisher é o que o raw usa para publicar (service.Producer em produção).
@@ -43,16 +44,24 @@ type Info struct {
 
 // emitter monta os envelopes de uma sessão e publica.
 type emitter struct {
-	pub  Publisher
-	log  *slog.Logger
-	flow *event.Flow
+	pub     Publisher
+	log     *slog.Logger
+	flow    *event.Flow
+	metrics *service.Metrics
 }
 
 func (e *emitter) publish(subject string, ts time.Time, probeID string, payload any) {
+	if data := e.encode(subject, ts, probeID, payload); data != nil {
+		e.publishData(subject, data)
+	}
+}
+
+// encode monta o envelope e serializa; nil em erro (registrado no log).
+func (e *emitter) encode(subject string, ts time.Time, probeID string, payload any) []byte {
 	env, err := event.New(event.ServiceRaw, version.Version, ts, e.flow, payload)
 	if err != nil {
 		e.log.Error("raw: event", "subject", subject, "err", err)
-		return
+		return nil
 	}
 	if probeID != "" {
 		env.ProbeID = &probeID
@@ -60,6 +69,19 @@ func (e *emitter) publish(subject string, ts time.Time, probeID string, payload 
 	data, err := json.Marshal(env)
 	if err != nil {
 		e.log.Error("raw: event", "subject", subject, "err", err)
+		return nil
+	}
+	return data
+}
+
+// publishData publica um evento já serializado. Acima de event.MaxEventBytes o evento é descartado com log e
+// conta em raw_events_oversize_total: o NATS o recusaria e o teto da ADR 0018 vale para todo evento (ADR 0035).
+func (e *emitter) publishData(subject string, data []byte) {
+	if len(data) > event.MaxEventBytes {
+		if e.metrics != nil {
+			e.metrics.Add(MetricEventsOversize, 1)
+		}
+		e.log.Warn("raw: event over size limit dropped", "subject", subject, "bytes", len(data))
 		return
 	}
 	e.pub.Publish(&nats.Msg{Subject: subject, Data: data})

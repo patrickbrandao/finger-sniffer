@@ -14,8 +14,11 @@ const DefaultInlineMax = 128 << 10
 // Os campos ja3*/ja4* são preenchidos por pkg/fingerprint; negotiated, handshake_ms e alerts pelo serviço
 // que fez o handshake; client_hello_segments pelo store (vem dos pacotes).
 type Info struct {
-	ClientHelloB64       []byte          `json:"client_hello_b64"`
-	ClientHelloTruncated bool            `json:"client_hello_truncated,omitempty"`
+	ClientHelloB64       []byte `json:"client_hello_b64"`
+	ClientHelloTruncated bool   `json:"client_hello_truncated,omitempty"`
+	// ListsTruncated marca que as listas analisadas e as strings longas dos fingerprints foram cortadas para
+	// o evento caber no teto (ADR 0032); os fingerprints foram calculados antes do corte.
+	ListsTruncated       bool            `json:"lists_truncated,omitempty"`
 	ClientHelloRecords   int             `json:"client_hello_records"`
 	ClientHelloSegments  int             `json:"client_hello_segments,omitempty"`
 	RecordVersion        int             `json:"record_version"`
@@ -184,6 +187,85 @@ func NewInfo(ch *ClientHello, records []byte, inlineMax int) *Info {
 		in.RecordSizeLimit = &v
 	}
 	return in
+}
+
+// Pisos do corte de Fit: abaixo deles as strings dos fingerprints e o inline não encolhem mais.
+const (
+	minFingerprintText = 256
+	fitMaxRounds       = 64
+)
+
+// Fit serializa o Info com encode e, enquanto o resultado passar de limit bytes, reduz as listas analisadas
+// pela metade e corta as strings longas ja3, ja3n, ja4_r e ja4_o, marcando lists_truncated; quando as listas
+// já estão curtas, corta também o inline client_hello_b64 (client_hello_truncated). Os hashes (ja3_md5, ja4
+// etc.) não mudam: vêm do ClientHello completo, calculados antes (ADR 0032, spec 008 RF-02). Devolve o
+// último resultado de encode (nil se encode falhou); acima de limit só se nem o mínimo couber.
+func (in *Info) Fit(encode func(*Info) []byte, limit int) []byte {
+	data := encode(in)
+	n := in.longestList() / 2
+	text := 64 << 10
+	for i := 0; i < fitMaxRounds && data != nil && len(data) > limit; i++ {
+		in.limitLists(n)
+		in.limitText(text)
+		if n < 64 && len(in.ClientHelloB64) > 0 {
+			// Listas já curtas e ainda acima do teto: o inline também encolhe.
+			in.ClientHelloB64 = in.ClientHelloB64[:len(in.ClientHelloB64)/2]
+			in.ClientHelloTruncated = true
+		}
+		n /= 2
+		text = max(text/2, minFingerprintText)
+		data = encode(in)
+	}
+	return data
+}
+
+func (in *Info) longestList() int {
+	return max(len(in.CipherSuites), len(in.CompressionMethods), len(in.Extensions), len(in.ALPN),
+		len(in.SupportedGroups), len(in.ECPointFormats), len(in.SignatureAlgorithms), len(in.SupportedVersions),
+		len(in.KeyShare), len(in.PSKKeyExchangeModes), len(in.CompressCertificate), len(in.ALPS),
+		len(in.DelegatedCredentials))
+}
+
+// limitLists corta cada lista analisada em no máximo n itens; as listas continuam não nulas.
+func (in *Info) limitLists(n int) {
+	n = max(n, 0)
+	cut := false
+	in.CipherSuites = limitList(in.CipherSuites, n, &cut)
+	in.CompressionMethods = limitList(in.CompressionMethods, n, &cut)
+	in.Extensions = limitList(in.Extensions, n, &cut)
+	in.ALPN = limitList(in.ALPN, n, &cut)
+	in.SupportedGroups = limitList(in.SupportedGroups, n, &cut)
+	in.ECPointFormats = limitList(in.ECPointFormats, n, &cut)
+	in.SignatureAlgorithms = limitList(in.SignatureAlgorithms, n, &cut)
+	in.SupportedVersions = limitList(in.SupportedVersions, n, &cut)
+	in.KeyShare = limitList(in.KeyShare, n, &cut)
+	in.PSKKeyExchangeModes = limitList(in.PSKKeyExchangeModes, n, &cut)
+	in.CompressCertificate = limitList(in.CompressCertificate, n, &cut)
+	in.ALPS = limitList(in.ALPS, n, &cut)
+	in.DelegatedCredentials = limitList(in.DelegatedCredentials, n, &cut)
+	if cut {
+		in.ListsTruncated = true
+	}
+}
+
+// limitText corta as strings longas dos fingerprints (texto ASCII) em no máximo n bytes.
+func (in *Info) limitText(n int) {
+	for _, p := range []*string{&in.JA3, &in.JA3N, &in.JA4R, &in.JA4O} {
+		if len(*p) > n {
+			*p = (*p)[:n]
+			in.ListsTruncated = true
+		}
+	}
+}
+
+// limitList devolve s com no máximo n itens (capacidade junto, para não reaproveitar o resto) e liga *cut
+// quando cortou.
+func limitList[T any](s []T, n int, cut *bool) []T {
+	if len(s) <= n {
+		return s
+	}
+	*cut = true
+	return s[:n:n]
 }
 
 func nonNil(s []string) []string {

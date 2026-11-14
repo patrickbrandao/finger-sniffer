@@ -236,7 +236,13 @@ func (c *conn) publishClientHello(tc *tlsparse.Conn) {
 			c.setProbe(h.ID)
 		}
 	}
-	c.publish(event.SubjectWebTLSClientHello, c.srv.now(), probeID, info)
+	if probeID == "" {
+		probeID = c.probe()
+	}
+	// Listas cortadas para caber no teto em vez de descartar o evento (ADR 0032).
+	if data := c.srv.fitClientHello(c.srv.now(), c.flow, probeID, info); data != nil {
+		c.srv.publishRaw(event.SubjectWebTLSClientHello, data)
+	}
 }
 
 // publishHandshake publica fs.v1.web.tls.handshake (negociado, tempo, alertas). seen são os alertas em
