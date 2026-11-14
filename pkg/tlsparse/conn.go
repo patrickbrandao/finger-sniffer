@@ -23,11 +23,22 @@ type Conn struct {
 	buf  []byte
 	done bool
 	err  error
+
+	// Estado incremental da captura (task 166): Reassemble só roda quando o resultado é definitivo, e cada
+	// Read examina só os registros novos. off é o fim dos registros completos já vistos, nrec quantos são,
+	// have soma os bytes de handshake deles, hdr/hdrLen guardam o cabeçalho do handshake (que pode vir
+	// espalhado em registros) e need é o tamanho total da mensagem quando o cabeçalho chegou (-1 antes).
+	off    int
+	nrec   int
+	have   int
+	hdr    [handshakeHeaderLen]byte
+	hdrLen int
+	need   int
 }
 
 // NewConn envolve c.
 func NewConn(c net.Conn) *Conn {
-	return &Conn{Conn: c}
+	return &Conn{Conn: c, need: -1}
 }
 
 // Read lê do net.Conn de baixo e guarda a cópia enquanto o ClientHello não termina.
@@ -46,6 +57,15 @@ func (c *Conn) capture(p []byte) {
 		return
 	}
 	c.buf = append(c.buf, p...)
+	if !c.advance() {
+		// Reassemble daria ErrIncomplete: só o teto encerra a captura
+		if len(c.buf) >= maxCapture {
+			c.buf = c.buf[:maxCapture:maxCapture]
+			c.done = true
+			c.err = ErrTooLarge
+		}
+		return
+	}
 	r, err := Reassemble(c.buf)
 	switch {
 	case err == nil:
@@ -61,6 +81,48 @@ func (c *Conn) capture(p []byte) {
 	default:
 		c.done = true
 		c.err = err
+	}
+}
+
+// advance percorre só os registros ainda não vistos e informa se Reassemble(c.buf) já tem resultado
+// definitivo (ClientHello completo ou erro definitivo); falso equivale a ErrIncomplete. Custa os bytes
+// novos, não o buffer inteiro. As checagens seguem a ordem de Reassemble, para que o erro definitivo seja
+// detectado no mesmo byte.
+func (c *Conn) advance() bool {
+	for {
+		if c.need >= 0 && c.have >= c.need {
+			return true
+		}
+		rest := c.buf[c.off:]
+		if len(rest) < RecordHeaderLen {
+			return false
+		}
+		if rest[0] != RecordTypeHandshake || (c.nrec == 0 && rest[1] != 0x03) {
+			return true
+		}
+		n := int(rest[3])<<8 | int(rest[4])
+		body := rest[RecordHeaderLen:]
+		cut := len(body) < n
+		if !cut {
+			body = body[:n]
+		}
+		// cabeçalho do handshake: vale também o pedaço que já chegou de um registro cortado
+		hdr, hdrLen, need := c.hdr, c.hdrLen, c.need
+		hdrLen += copy(hdr[hdrLen:], body)
+		if need < 0 && hdrLen == handshakeHeaderLen {
+			l := int(hdr[1])<<16 | int(hdr[2])<<8 | int(hdr[3])
+			if hdr[0] != HandshakeTypeClientHello || l > MaxClientHelloLen {
+				return true
+			}
+			need = handshakeHeaderLen + l
+		}
+		if cut {
+			return false
+		}
+		c.hdr, c.hdrLen, c.need = hdr, hdrLen, need
+		c.have += n
+		c.off += RecordHeaderLen + n
+		c.nrec++
 	}
 }
 
