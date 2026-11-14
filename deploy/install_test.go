@@ -15,10 +15,10 @@ set -euo pipefail
 . ./install-lib.sh
 T=$1
 shift
-export FS_PROC_ROOT=$T/proc
+export FS_PROC_ROOT=$T/proc FS_SYSTEMD_DIR=$T/systemd
 main_pid() { cat "$T/pids/$1" 2>/dev/null || echo 0; }
 unit_active() { [ "$(main_pid "$1")" != 0 ]; }
-mkdir -p "$T/staging/bin" "$T/dest/bin" "$T/pids" "$T/proc"
+mkdir -p "$T/staging/bin" "$T/dest/bin" "$T/pids" "$T/proc" "$T/systemd"
 [ -f "$T/dest/bin/nats-server" ] || printf 'nats' >"$T/dest/bin/nats-server"
 [ -f "$T/nextpid" ] || echo 100 >"$T/nextpid"
 
@@ -34,6 +34,7 @@ deploy() {
 		mkdir -p "$T/proc/$pid"
 		cp "$(unit_binary "$T/dest" "$u")" "$T/proc/$pid/exe"
 		echo "$pid" >"$T/pids/$u"
+		mark_applied "$T/dest" "$u"
 	done <"$T/plan"
 	echo "restart: $(cut -f1 "$T/plan" | sed 's/finger-sniffer-//' | tr '\n' ' ')"
 }
@@ -48,6 +49,17 @@ versions() {
 
 "$@"
 `
+
+// putFile grava p (criando os diretórios) ou falha o teste.
+func putFile(t *testing.T, p, s string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // harness roda um comando do installHarness no sandbox t.
 func harness(t *testing.T, sandbox string, args ...string) string {
@@ -145,6 +157,66 @@ plan_restarts "$T/dest" "$SVCX" | cut -f1 | sed 's/finger-sniffer-//' | tr '\n' 
 			t.Errorf("env=%v svc=%q: %q, quer %q", c.env, c.svc, got, c.want)
 		}
 	}
+}
+
+// Configuração instalada por um deploy com SVC (nats.conf, unit de outro serviço, env) e não aplicada é
+// aplicada pelo deploy completo seguinte, mesmo com binários idênticos (task 172, spec 016 RF-11).
+func TestDeploySVCThenFullAppliesPendingConfig(t *testing.T) {
+	T := t.TempDir()
+	putFile(t, filepath.Join(T, "dest/eventbus/nats/nats.conf"), "# v1\n")
+	putFile(t, filepath.Join(T, "dest/etc/finger-sniffer.env"), "FS_A=1\n")
+	for _, u := range []string{"nats", "store", "capture", "web", "raw", "dns"} {
+		putFile(t, filepath.Join(T, "systemd/finger-sniffer-"+u+".service"), "[Service] "+u+" v1\n")
+	}
+	if got := harness(t, T, "deploy", "A", ""); got != "restart: nats store capture web raw dns" {
+		t.Fatalf("primeiro deploy: %q", got)
+	}
+	if got := harness(t, T, "deploy", "A", ""); got != "restart:" {
+		t.Fatalf("deploy completo repetido: %q", got)
+	}
+
+	steps := []struct {
+		name   string
+		change func()
+		want   string
+	}{
+		{"nats.conf", func() { putFile(t, filepath.Join(T, "dest/eventbus/nats/nats.conf"), "# v2\n") }, "nats"},
+		{"unit do NATS", func() {
+			putFile(t, filepath.Join(T, "systemd/finger-sniffer-nats.service"), "[Service] nats v2\n")
+		}, "nats"},
+		{"unit do raw", func() {
+			putFile(t, filepath.Join(T, "systemd/finger-sniffer-raw.service"), "[Service] raw v2\n")
+		}, "raw"},
+		// o web reinicia no próprio SVC=web; o deploy completo pega os outros quatro
+		{"chave nova de env", func() {
+			putFile(t, filepath.Join(T, "dest/etc/finger-sniffer.env"), "FS_A=1\nFS_B=2\n")
+		}, "store capture raw dns"},
+	}
+	for _, st := range steps {
+		st.change()
+		if got := harness(t, T, "deploy", "A", "web"); got != "restart: web" {
+			t.Fatalf("%s: SVC=web reiniciou além do web: %q", st.name, got)
+		}
+		if got := harness(t, T, "deploy", "A", ""); got != "restart: "+st.want {
+			t.Fatalf("%s: deploy completo seguinte: %q, quer %q", st.name, got, st.want)
+		}
+		if !strings.Contains(slurp(t, filepath.Join(T, "plan")), "configuração instalada e ainda não aplicada") {
+			t.Errorf("%s: motivo ausente do plano:\n%s", st.name, slurp(t, filepath.Join(T, "plan")))
+		}
+		if got := harness(t, T, "deploy", "A", ""); got != "restart:" {
+			t.Fatalf("%s: segundo deploy completo: %q", st.name, got)
+		}
+	}
+}
+
+// slurp devolve o conteúdo de p ou falha o teste.
+func slurp(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestBinariesFor(t *testing.T) {

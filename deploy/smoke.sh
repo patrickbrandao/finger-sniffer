@@ -4,8 +4,11 @@
 #   SVC=""      todos os passos
 #   SVC=<svc>   só os passos daquele serviço + health (capture, store e nats só têm o health)
 #
-# Passos: health :9001 com os 5 serviços ok/degraded e versions_match=true (sem SVC: falha; com SVC: AVISO em
-# vermelho, porque implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :80/ e GET :443/ (TLS estrito, salvo quando o
+# Passos: health :9001 com os 5 serviços presentes e nenhum down; degraded sai como AVISO com os reasons e só
+# passa por motivo tolerado (reason_tolerated: cert_self_signed; com SVC, também a versão desencontrada), e
+# reprova por qualquer outro (task 173); versions_match=true (sem SVC: falha; com SVC: AVISO em vermelho, porque
+# implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :80/ e GET :443/
+# (TLS estrito, salvo quando o
 # health do web aponta cert_self_signed: aí aceita com aviso); dns A de <probe>.<zona> com o IP do espelho e
 # example.com → REFUSED; raw eco na 7 e banner 220 na 25; store GET https://:9000/api/v1/health.
 # h3 (com o web): só quando o heartbeat do web anuncia h3_listening=1 (antes da task 057 o passo é pulado com aviso):
@@ -56,6 +59,7 @@ fi
 
 fail=0
 HEALTH=""
+HEALTH_RAW=""
 
 pass() { printf "  %-28s ok %s\n" "$1" "${2:-}"; }
 warn() { printf "  %-28s AVISO %s\n" "$1" "$2"; }
@@ -75,9 +79,42 @@ red_warn() {
 # selected <svc>: o passo do serviço roda nesta seleção?
 selected() { [ -z "$SVC" ] || [ "$SVC" = "$1" ]; }
 
-# health_compact: o JSON do health sem espaços nem quebras de linha ("" se não respondeu).
-health_compact() {
-	curl -fsS -m "$TIMEOUT" "http://$HOST:$API_HTTP_PORT/api/v1/health" 2>/dev/null | tr -d ' \t\r\n'
+# health_fetch: lê o health em HEALTH_RAW (sem quebras de linha) e HEALTH (também sem espaços), "" se não
+# respondeu.
+health_fetch() {
+	HEALTH_RAW=$(curl -fsS -m "$TIMEOUT" "http://$HOST:$API_HTTP_PORT/api/v1/health" 2>/dev/null | tr -d '\r\n')
+	HEALTH=$(printf '%s' "$HEALTH_RAW" | tr -d ' \t')
+}
+
+# svc_reasons <svc>: motivos do health do serviço, um por linha, com os espaços originais (de HEALTH_RAW;
+# reasons vem antes de metrics, então fica antes do primeiro "}" do objeto).
+svc_reasons() {
+	printf '%s' "$HEALTH_RAW" | grep -o "\"$1\":[[:space:]]*{[^}]*" | head -n1 |
+		grep -o '"reasons":[[:space:]]*\[[^]]*\]' | sed -E 's/^"reasons":[[:space:]]*\[//; s/\]$//' |
+		grep -o '"[^"]*"' | tr -d '"' || true
+}
+
+# svc_intolerable <svc>: motivos de degraded fora da lista de tolerados, um por linha; degraded sem motivo
+# também não é tolerado.
+svc_intolerable() {
+	local r n=0
+	while IFS= read -r r; do
+		n=$((n + 1))
+		reason_tolerated "$r" || printf '%s\n' "$r"
+	done < <(svc_reasons "$1")
+	[ "$n" -gt 0 ] || echo "(sem motivo)"
+}
+
+# reason_tolerated <motivo>: o motivo de degraded passa no smoke (com AVISO)? Lista de tolerados (spec 016
+# RF-10): cert_self_signed (certificado autoassinado até a emissão ACME, ADR 0008); com SVC, também a versão
+# desencontrada do store, esperada ao implantar um serviço de outro commit (o passo versions_match avisa; sem
+# SVC ele reprova).
+reason_tolerated() {
+	case "$1" in
+	cert_self_signed) return 0 ;;
+	"version "*" differs from store "*) [ -n "$SVC" ] ;;
+	*) return 1 ;;
+	esac
 }
 
 # svc_block <svc>: trecho do objeto do serviço até o primeiro "}" (status e reasons vêm antes de metrics).
@@ -107,19 +144,26 @@ curl_tls_flags() { if self_signed "$1"; then echo -k; fi; }
 curl_has_http3() { curl --version 2>/dev/null | grep -i '^features:' | grep -qw HTTP3; }
 
 step_health() {
-	local deadline=$((SECONDS + HEALTH_WAIT)) s st bad_list
+	local deadline=$((SECONDS + HEALTH_WAIT)) s st r bad_list intolerable
 	while :; do
-		HEALTH=$(health_compact)
+		health_fetch
 		bad_list=""
+		intolerable=""
 		for s in capture web raw dns store; do
 			st=$(svc_status "$s")
 			case "$st" in
-			ok | degraded) ;;
+			ok) ;;
+			degraded)
+				while IFS= read -r r; do
+					intolerable="$intolerable $s=\"$r\""
+				done < <(svc_intolerable "$s")
+				;;
 			*) bad_list="$bad_list $s=${st:-ausente}" ;;
 			esac
 		done
-		# o heartbeat do serviço recém-reiniciado leva alguns segundos: espera também o versions_match
-		[ -n "$HEALTH" ] && [ -z "$bad_list" ] && versions_match && break
+		# o heartbeat do serviço recém-reiniciado leva alguns segundos: espera também o versions_match e que
+		# saiam as degradações não toleradas (transitórias logo depois do reinício)
+		[ -n "$HEALTH" ] && [ -z "$bad_list" ] && [ -z "$intolerable" ] && versions_match && break
 		if [ "$SECONDS" -ge "$deadline" ]; then
 			[ -n "$HEALTH" ] || bad_list=" sem resposta"
 			[ -z "$bad_list" ] || {
@@ -135,7 +179,19 @@ step_health() {
 		summary="$summary $s=$(svc_status "$s")"
 		versions="$versions $s=$(svc_version "$s")"
 	done
-	pass "health :$API_HTTP_PORT" "$summary"
+	if [ -n "$intolerable" ]; then
+		bad "health :$API_HTTP_PORT" "$summary"
+	else
+		pass "health :$API_HTTP_PORT" "$summary"
+	fi
+	# degraded sempre sai como AVISO com os motivos (spec 016 RF-10); o motivo fora da lista reprova
+	for s in capture web raw dns store; do
+		[ "$(svc_status "$s")" = degraded ] || continue
+		warn "health $s" "degraded: $(svc_reasons "$s" | paste -sd ';' - | sed 's/;/; /g')"
+		while IFS= read -r r; do
+			bad "health $s" "degraded por motivo não tolerado: $r"
+		done < <(svc_intolerable "$s")
+	done
 	if versions_match; then
 		pass "health versions_match" "$(svc_version store)"
 	elif [ -z "$SVC" ]; then
