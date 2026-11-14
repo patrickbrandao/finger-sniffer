@@ -5,6 +5,18 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+## [0.2.1] - 2026-11-14
+
+### Adicionado
+- Contrato openapi 0.5.0 (ADR 0031, aditivo; asyncapi segue 0.4.1): `tcp.syn_mss`, `tcp.mtu_implied` e `tcp.mss_reduction` derivados do primeiro SYN (spec 013 RF-06a) e `ip.src_kind` com o tipo do endereço de origem (`global`, `private`, `shared`, `loopback`, `link_local`, `teredo`, `6to4`, `nat64`, `other`; RF-05a). **Só spec e contrato nesta versão**: o store ainda não produz os campos (tasks 196–198) e eles ficam ausentes nos registros, como em registros anteriores ao 0.5.0 (tasks 193 e 194).
+- docs: `docs/probes.md` ensina a ler o MSS do SYN, o MTU implícito (com a tabela de reduções e o aviso de MSS clamping) e o teto de throughput pela janela e pelo RTT, só com campos do contrato (task 195).
+
+### Corrigido
+- infra: toolchain Go 1.27.4, corrige GO-2026-6859 (queda do servidor HTTP/1 em `net/http`, na API do store e no ACME do web) achada pelo govulncheck (task 199).
+
+### Decidido
+- MSS/MTU derivados do SYN e tipo da origem no contrato; causa provável da redução do MSS (`mss_hint`) fora do contrato, como receita em `docs/probes.md`; sem campo de MSS máximo visto (ADR 0031).
+
 ## [0.2.0] - 2026-11-10
 
 ### Adicionado
