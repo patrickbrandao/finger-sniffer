@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/netip"
 	"regexp"
 	"strconv"
@@ -63,6 +64,25 @@ type ListFilter struct {
 	Limit   int
 }
 
+// Limites de time.Time representáveis em nanossegundos Unix num int64 (cerca de 1677 a 2262).
+var (
+	minUnixNanoTime = time.Unix(0, math.MinInt64)
+	maxUnixNanoTime = time.Unix(0, math.MaxInt64)
+)
+
+// saturatedUnixNano devolve t.UnixNano() saturado nos limites do int64. Fora da faixa o UnixNano é indefinido
+// (estoura): uma data muito antiga vira o mínimo e uma muito futura o máximo, então until=9999-... equivale a
+// "sem limite superior" e since=9999-... não casa com nada (task 159).
+func saturatedUnixNano(t time.Time) int64 {
+	switch {
+	case t.Before(minUnixNanoTime):
+		return math.MinInt64
+	case t.After(maxUnixNanoTime):
+		return math.MaxInt64
+	}
+	return t.UnixNano()
+}
+
 // ParseListFilter valida os parâmetros de consulta.
 func ParseListFilter(get func(string) string) (ListFilter, error) {
 	f := ListFilter{DstPort: -1, Limit: 100}
@@ -89,7 +109,7 @@ func ParseListFilter(get func(string) string) (ListFilter, error) {
 			if err != nil {
 				return f, bad("invalid %s %q (RFC 3339)", p.name, v)
 			}
-			*p.dst = t.UnixNano()
+			*p.dst = saturatedUnixNano(t)
 		}
 	}
 	if v := get("probe"); v != "" {

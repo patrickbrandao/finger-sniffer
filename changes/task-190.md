@@ -1,0 +1,1 @@
+- `pkg/service`: `Run` espera o fim do Drain do NATS (ClosedHandler, teto de 10 s) antes de retornar e registra em log as falhas do Drain; os últimos eventos publicados não se perdem mais no encerramento (task 190).
