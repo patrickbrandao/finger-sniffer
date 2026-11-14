@@ -24,6 +24,9 @@ const (
 	DefaultRawBodyMax = 128 << 10
 	// DefaultMaxChunks é quantos pedaços chunked são registrados um a um; os seguintes só entram no total.
 	DefaultMaxChunks = 4096
+	// maxChunkExtTotal é o teto agregado de bytes de extensão dos pedaços registrados por requisição (RF-03,
+	// ADR 0033): acima dele a lista para no prefixo e chunks_truncated fica true.
+	maxChunkExtTotal = 256 << 10
 	// maxChunkLine é o teto de uma linha de tamanho de pedaço (com extensões).
 	maxChunkLine = 64 << 10
 	// maxChunkSize evita estouro: 15 dígitos hexadecimais.
@@ -58,8 +61,9 @@ type Body struct {
 	Raw          []byte  `json:"raw_b64"`
 	RawTruncated bool    `json:"raw_truncated"`
 	Chunks       []Chunk `json:"chunks,omitempty"`
-	// ChunksTruncated indica que só os primeiros MaxChunks pedaços foram registrados (ou que a lista foi
-	// cortada para caber no teto do evento); tamanho e SHA-256 seguem do corpo inteiro.
+	// ChunksTruncated indica que só os primeiros pedaços foram registrados (MaxChunks pedaços ou 256 KiB de
+	// extensões somadas), ou que a lista foi cortada para caber no teto do evento; tamanho e SHA-256 seguem do
+	// corpo inteiro.
 	ChunksTruncated bool    `json:"chunks_truncated"`
 	Trailers        []Field `json:"trailers,omitempty"`
 
@@ -242,6 +246,7 @@ func (r *Reader) readChunked(req *Request, sink *bodySink, opts BodyOptions) err
 	if maxChunks == 0 {
 		maxChunks = DefaultMaxChunks
 	}
+	extTotal := 0
 	for {
 		line, err := r.readLine(maxChunkLine)
 		sink.wire(line)
@@ -258,10 +263,18 @@ func (r *Reader) readChunked(req *Request, sink *bodySink, opts BodyOptions) err
 		if err != nil {
 			return err
 		}
-		if len(b.Chunks) < maxChunks {
-			b.Chunks = append(b.Chunks, ch)
-		} else {
-			b.ChunksTruncated = true
+		if !b.ChunksTruncated {
+			ext := 0
+			if ch.Ext != nil {
+				ext = len(*ch.Ext)
+			}
+			if len(b.Chunks) < maxChunks && extTotal+ext <= maxChunkExtTotal {
+				extTotal += ext
+				b.Chunks = append(b.Chunks, ch)
+			} else {
+				// A lista fica no prefixo: nenhum pedaço posterior entra depois do corte.
+				b.ChunksTruncated = true
+			}
 		}
 		if ch.Size == 0 {
 			break
@@ -341,6 +354,14 @@ func (r *Reader) readTrailers(b *Body, sink *bodySink, opts BodyOptions) error {
 		limit = r.maxHead()
 	}
 	used := 0
+	var fold folder
+	flushFold := func() {
+		if len(b.Trailers) > 0 {
+			fold.flush(&b.Trailers[len(b.Trailers)-1])
+		}
+	}
+	// O valor dobrado parcial fica gravado no último trailer em qualquer saída.
+	defer flushFold()
 	for {
 		line, err := r.readLine(limit - used)
 		used += len(line)
@@ -359,14 +380,17 @@ func (r *Reader) readTrailers(b *Body, sink *bodySink, opts BodyOptions) error {
 			if len(b.Trailers) == 0 {
 				return ErrObsFoldFirst
 			}
-			prev := &b.Trailers[len(b.Trailers)-1]
-			prev[2] += termBytes(prev[3]) + string(content)
-			prev[3] = term
+			fold.add(&b.Trailers[len(b.Trailers)-1], content, term)
 			continue
 		}
+		flushFold()
 		f, err := parseField(content, term)
 		if err != nil {
 			return err
+		}
+		// Teto de campos dos trailers (RF-10): acima dele, 400 (o servidor trata ErrHeadTooLarge no corpo).
+		if len(b.Trailers) >= r.maxFields() {
+			return ErrHeadTooLarge
 		}
 		b.Trailers = append(b.Trailers, f)
 	}
