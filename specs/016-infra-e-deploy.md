@@ -51,8 +51,11 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
   `root@vps602.tmsoft.com.br:/finger-sniffer` (porta 48022), excluindo `.git/`, `tasks/`, `tmp/`, `var/`, `.grill/`,
   `etc/*.env` → instala usuário, units, sysctl, journald, NATS → aplica rede → `systemctl daemon-reload` →
   reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 5 serviços presentes e nenhum
-  `down`; `degraded` só passa por motivo da lista de tolerados do smoke — hoje `cert_self_signed` —, com `AVISO`
-  e os `reasons` no log, e reprova por qualquer outro; `GET :80/`,
+  `down`; `degraded` só passa por motivo da lista de tolerados do smoke — hoje `cert_self_signed` e, só com
+  `SVC=<svc>`, a versão desencontrada (`version X differs from store Y`, que o store marca em quem roda outra
+  versão; implantar um serviço só desencontra as versões de propósito) —, com `AVISO` e os `reasons` no log, e
+  reprova por qualquer outro; `versions_match` falso reprova o deploy completo e, com `SVC`, sai como `AVISO`;
+  `GET :80/`,
   `GET :443/` com TLS válido, `Alt-Svc: h3` na resposta da 443 e listener UDP 443 do web de pé — `ss -Hlun` na
   vps602; com um cliente h3 disponível no Mac, também um `GET` por h3).
 - RF-11: idempotente; trava remota `flock /run/finger-sniffer/deploy.lock` (espera até 5 min). O deploy grava, por
