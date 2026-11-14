@@ -53,7 +53,7 @@ func samples(t *testing.T) []string {
 	return out
 }
 
-func readSample(t *testing.T, name string) []byte {
+func readSample(t testing.TB, name string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", name+".bin"))
 	if err != nil {
