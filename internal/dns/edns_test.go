@@ -12,15 +12,15 @@ import (
 )
 
 // optionTLVsReference é a leitura anterior à task 192 (buffer de mdns.MaxMsgSize), mantida só como
-// referência: o resultado de optionTLVs tem de ser idêntico ao dela.
+// referência: o resultado de optionTLVs tem de ser idêntico ao dela. Desde a task 210 a RDATA sai do
+// Rdlength, não de um cabeçalho fixo de 11 bytes (que lia lixo com nome do OPT fora da raiz).
 func optionTLVsReference(opt *mdns.OPT) []optionTLV {
 	buf := make([]byte, mdns.MaxMsgSize)
 	n, err := mdns.PackRR(opt, buf, 0, nil, false)
-	const hdr = 11
-	if err != nil || n < hdr {
+	if err != nil || int(opt.Hdr.Rdlength) > n {
 		return nil
 	}
-	rd := buf[hdr:n]
+	rd := buf[n-int(opt.Hdr.Rdlength) : n]
 	var out []optionTLV
 	for len(rd) >= 4 {
 		code := binary.BigEndian.Uint16(rd)
@@ -93,6 +93,52 @@ func TestOptionTLVsMatchesReference(t *testing.T) {
 				t.Fatalf("OPT sem opções gerou %+v", e)
 			}
 		})
+	}
+}
+
+// optNonRoot monta uma consulta crua cujo OPT tem nome fora da raiz ("aaaaaaaaaa00.") e a RDATA dada.
+func optNonRoot(rdata []byte) []byte {
+	raw := []byte{0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 12}
+	raw = append(raw, "aaaaaaaaaa00"...)
+	raw = append(raw, 0, 0, 41, 0x04, 0xd0, 0, 0, 0, 0)
+	raw = binary.BigEndian.AppendUint16(raw, uint16(len(rdata)))
+	return append(raw, rdata...)
+}
+
+// TestOptionTLVsNonRootName: com nome do OPT fora da raiz, as opções saem da RDATA (não do cabeçalho)
+// e a opção desconhecida com dados vazios aparece em options (task 210).
+func TestOptionTLVsNonRootName(t *testing.T) {
+	cases := map[string]struct {
+		rdata []byte
+		want  []EDNSOption
+	}{
+		"sem-opcoes":             {nil, []EDNSOption{}},
+		"desconhecida-vazia":     {[]byte{0x30, 0x30, 0, 0}, []EDNSOption{{Code: 0x3030, DataHex: ""}}},
+		"desconhecida-com-dados": {[]byte{0xfd, 0xe9, 0, 2, 0xab, 0xcd}, []EDNSOption{{Code: 0xfde9, DataHex: "abcd"}}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			var m mdns.Msg
+			if err := m.Unpack(optNonRoot(c.rdata)); err != nil {
+				t.Fatal(err)
+			}
+			opt := m.IsEdns0()
+			if opt == nil || opt.Hdr.Name != "aaaaaaaaaa00." {
+				t.Fatalf("OPT = %+v", opt)
+			}
+			if e := ednsInfo(opt); !reflect.DeepEqual(e.Options, c.want) {
+				t.Fatalf("options = %+v, esperado %+v", e.Options, c.want)
+			}
+		})
+	}
+}
+
+// TestOptionTLVsUnknownEmpty: opção desconhecida com dados vazios aparece em options do evento.
+func TestOptionTLVsUnknownEmpty(t *testing.T) {
+	opt := ednsQuery(t, &mdns.EDNS0_LOCAL{Code: 0x3030}).IsEdns0()
+	want := []EDNSOption{{Code: 0x3030, DataHex: ""}}
+	if e := ednsInfo(opt); !reflect.DeepEqual(e.Options, want) {
+		t.Fatalf("options = %+v, esperado %+v", e.Options, want)
 	}
 }
 
