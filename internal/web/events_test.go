@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
@@ -100,6 +101,62 @@ func TestFitHTTP1(t *testing.T) {
 	if len(data) > event.MaxEventBytes || !req.FieldsTruncated || !req.RawHeadTruncated || req.FieldCount != 60000 {
 		t.Fatalf("size %d truncated %v", len(data), req.FieldsTruncated)
 	}
+}
+
+// TestFitHTTP1Target: alvo de 2 MiB (multibyte) ou de 160 KiB só de `&` (6 bytes por caractere no JSON)
+// cabe no evento com target_truncated e UTF-8 válido (task 160).
+func TestFitHTTP1Target(t *testing.T) {
+	srv := NewServer(testConfig(t.TempDir()), Deps{})
+	for name, target := range map[string]string{
+		"2MiB":   "/r?x=" + strings.Repeat("ação", (2<<20)/6),
+		"ampers": "/r?" + strings.Repeat("&", 160<<10),
+	} {
+		req := &h1.Request{
+			RequestLine: h1.RequestLine{Method: "GET", Target: target}, Fields: []h1.Field{},
+			Duplicates: []string{},
+		}
+		data := srv.fitHTTP1(time.Now(), &event.Flow{L4: "tcp"}, "", req)
+		if data == nil || len(data) > event.MaxEventBytes || !req.RequestLine.TargetTruncated ||
+			!utf8.ValidString(req.RequestLine.Target) || !strings.HasPrefix(target, req.RequestLine.Target) {
+			t.Fatalf("%s: %d bytes truncated=%v", name, len(data), req.RequestLine.TargetTruncated)
+		}
+		var env struct {
+			Payload struct {
+				RequestLine map[string]any `json:"request_line"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(data, &env); err != nil || env.Payload.RequestLine["target_truncated"] != true {
+			t.Fatalf("%s: request_line %v %v", name, env.Payload.RequestLine["target_truncated"], err)
+		}
+	}
+}
+
+// TestHTTP1LongTargetRecorded: requisição real com alvo de ~1 MiB (abaixo do teto do cabeçalho) sai no
+// http1.request com target_truncated e in_offset certo; nada é descartado por tamanho (task 160).
+func TestHTTP1LongTargetRecorded(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	cl.send(get("/p/"+testProbe+"/", "x"))
+	cl.response("GET")
+	off := cl.sent.Len()
+	long := "/p/" + testProbe + "/?q=" + strings.Repeat("a", (1<<20)-4096)
+	cl.send(get(long, "x"))
+	cl.response("GET")
+	evs := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 2)
+	p := evs[1].Payload
+	rl, _ := p["request_line"].(map[string]any)
+	if rl == nil || rl["target_truncated"] != true || num(t, p["in_offset"]) != off ||
+		len(rl["target"].(string)) > event.DefaultEventInlineMax {
+		t.Fatalf("evento: in_offset %v truncated %v", p["in_offset"], rl["target_truncated"])
+	}
+	if _, ok := evs[0].Payload["request_line"].(map[string]any)["target_truncated"]; ok {
+		t.Fatal("marca num alvo curto")
+	}
+	if n := h.srv.metrics.Get(MetricEventsOversize); n != 0 {
+		t.Fatalf("%v eventos descartados", n)
+	}
+	checkContract(t, contractBlocks(t), evs[1])
 }
 
 // ------------------------------------------------------------------ contrato

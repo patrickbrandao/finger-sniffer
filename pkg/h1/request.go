@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 // Terminadores de linha registrados em cada campo.
@@ -73,6 +74,8 @@ type RequestLine struct {
 	Form       string `json:"form"`
 	Version    string `json:"version"`
 	Terminator string `json:"terminator"`
+	// TargetTruncated: Target cortado para caber no evento (ADR 0032); o alvo completo fica no fluxo `in`.
+	TargetTruncated bool `json:"target_truncated,omitempty"`
 }
 
 // ExpectContinue registra o comportamento do cliente com `Expect: 100-continue` (RF-04); preenchido pelo
@@ -190,6 +193,29 @@ func (r *Request) LimitInline(maxBytes int) {
 		r.Body.Raw = r.Body.Raw[:maxBytes:maxBytes]
 		r.Body.RawTruncated = true
 	}
+}
+
+// LimitTarget corta request_line.target em no máximo maxBytes bytes, sem partir uma runa UTF-8 válida
+// (bytes que não são UTF-8 são cortados no teto exato), e marca target_truncated (ADR 0032).
+func (r *Request) LimitTarget(maxBytes int) {
+	t := r.RequestLine.Target
+	if maxBytes <= 0 || len(t) <= maxBytes {
+		return
+	}
+	n := maxBytes
+	if !utf8.RuneStart(t[n]) {
+		// o corte cai no meio de uma sequência: recua até o início dela se for uma runa válida
+		for back := 1; back < utf8.UTFMax && back <= n; back++ {
+			if start := n - back; utf8.RuneStart(t[start]) {
+				if c, size := utf8.DecodeRuneInString(t[start:]); (c != utf8.RuneError || size > 1) && start+size > n {
+					n = start
+				}
+				break
+			}
+		}
+	}
+	r.RequestLine.Target = t[:n]
+	r.RequestLine.TargetTruncated = true
 }
 
 // LimitFields mantém só os primeiros campos cuja soma de tamanhos cabe em maxBytes, marcando
