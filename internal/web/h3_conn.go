@@ -195,7 +195,7 @@ func (h *h3Conn) readUni(str *quic.ReceiveStream) {
 			u.Feed(buf[:n])
 			if !reported && u.Typed && u.StreamType == quicparse.StreamTypeControl && u.SettingsSeen {
 				reported = true
-				h.onSettings(u.Settings)
+				h.onSettings(u.Settings, u.SettingsTruncated)
 			}
 		}
 		if err != nil {
@@ -205,7 +205,7 @@ func (h *h3Conn) readUni(str *quic.ReceiveStream) {
 }
 
 // onSettings guarda o SETTINGS do primeiro stream de controle do cliente e publica o segundo evento.
-func (h *h3Conn) onSettings(settings [][2]uint64) {
+func (h *h3Conn) onSettings(settings [][2]uint64, truncated bool) {
 	h.mu.Lock()
 	if h.ctlSeen {
 		h.mu.Unlock()
@@ -213,6 +213,7 @@ func (h *h3Conn) onSettings(settings [][2]uint64) {
 	}
 	h.ctlSeen = true
 	h.info.H3Settings = slices.Clone(settings)
+	h.info.H3SettingsTruncated = truncated
 	h.info.H3ControlStreamSeen = true
 	h.mu.Unlock()
 	close(h.ctlReady)

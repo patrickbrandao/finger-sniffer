@@ -62,9 +62,11 @@ ganha o prefixo `tls/`. O campo `http3`:
 | `coalesced_packets` | quantos pacotes QUIC vieram no primeiro datagrama |
 | `client_hello_datagrams` | quantos datagramas Initial foram precisos para o ClientHello (2 com ML-KEM, por exemplo) |
 | `initial_frames` | tipos de frame dos Initials até o ClientHello completo, na ordem (`CRYPTO`, `PADDING`, `PING`…) |
-| `transport_params` | `[id, nome, valor_hex]` na ordem recebida, GREASE incluído (nome `GREASE`) |
-| `client_hello` | o ClientHello decifrado, no mesmo formato do `tls` do TCP; `ja4` começa com `q` |
-| `h3_settings` | `[id, valor]` do SETTINGS do cliente, na ordem |
+| `transport_params` | `[id, nome, valor_hex]` na ordem recebida, GREASE incluído (nome `GREASE`); no máximo 1024 itens |
+| `transport_params_truncated` | `true` quando o parser parou em 1024 parâmetros ou a lista foi reduzida para caber no evento; ausente = `false` (contrato 0.6.0) |
+| `client_hello` | o ClientHello decifrado, no mesmo formato do `tls` do TCP; `ja4` começa com `q`. Com erro de análise do ClientHello (lista cortada, mensagem que não é ClientHello) os campos `ja3*`/`ja4*` ficam ausentes, como no TCP |
+| `h3_settings` | `[id, valor]` do SETTINGS do cliente, na ordem; no máximo 256 pares |
+| `h3_settings_truncated` | `true` quando o parser parou em 256 pares ou a lista foi reduzida para caber no evento; ausente = `false` (contrato 0.6.0) |
 | `h3_control_stream_seen` | o cliente abriu o stream de controle h3 (unidirecional tipo `0x00`) e o SETTINGS foi lido. `false` com `h3_settings: []`: o cliente não abriu (ou não completou) o stream de controle antes do fim da conexão; `true` com `h3_settings: []`: SETTINGS vazio. Ausente em registros anteriores ao contrato 0.3.2 |
 | `close` | fim visto pelo web: `by`, `how` (`connection_close`, `application_close`, `idle_timeout`, `stateless_reset`, `handshake_failed`), `error_code`, `reason`; `null` enquanto aberta |
 | `requests` | uma entrada por requisição (`HTTP3Request`) |

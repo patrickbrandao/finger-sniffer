@@ -1,0 +1,1 @@
+- quicparse: JA3/JA4 do QUIC só são calculados sobre ClientHello analisado sem erro, como no TCP (spec 008 RF-03).

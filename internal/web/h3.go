@@ -359,8 +359,14 @@ func (s *Server) fitH3Conn(flow *event.Flow, probeID string, info *quicparse.Inf
 			ch.ClientHelloB64 = ch.ClientHelloB64[:len(ch.ClientHelloB64)/2]
 			ch.ClientHelloTruncated = true
 		} else {
-			info.TransportParams = halve(info.TransportParams)
-			info.H3Settings = halve(info.H3Settings)
+			if len(info.TransportParams) > 0 {
+				info.TransportParams = halve(info.TransportParams)
+				info.TransportParamsTruncated = true
+			}
+			if len(info.H3Settings) > 0 {
+				info.H3Settings = halve(info.H3Settings)
+				info.H3SettingsTruncated = true
+			}
 		}
 		data = s.encode(ts, flow, probeID, info)
 	}
