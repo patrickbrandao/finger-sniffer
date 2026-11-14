@@ -9,6 +9,56 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
+## Orçamento de memória de entrada do web (task 214; critério da task 155, spec 005 RF-12, ADR 0033)
+
+Rodada de 2026-11-14, 23:01:55–23:06:05 UTC (250 s), contra a `main` implantada `v0.2.1-42-gb76caec`
+(`FS_WEB_INPUT_BUDGET=41943040`, `MemoryMax=96M`, `GOMEMLIMIT=80MiB`), com a vps602 só para esta carga
+(`/tmp/fs-load-running`). Brutos em [`results/budget-214/`](results/budget-214/).
+
+```sh
+OUT=tmp/load/raw/budget-official test/load/budget.sh -duration 4m   # padrão: -h1 220 -ws 16 -h3 14
+```
+
+Perfil (`test/load/cmd/budgetload`, do Mac pela internet), 250 trabalhadores ao mesmo tempo:
+- **h1**: 220 conexões nas portas 80/8080, cada uma com cabeçalho parcial de 999 424 bytes (linhas de 1,1 KiB,
+  abaixo do teto de 1 MiB e de 1024 campos) mandado em pedaços de 64 KiB a cada 250 ms e depois 1 byte a cada 5 s,
+  sem nunca fechar o cabeçalho; reabre 1 s depois da resposta ou do fechamento;
+- **WebSocket**: 16 sessões `/p/<id>/ws` mandando mensagens de 1 MiB − 64 sem ler o eco (janela zerada);
+- **h3**: 14 conexões QUIC com 2 streams cada, HEADERS declarado de 1 MiB − 1024 e só 1 MiB − 2048 enviados.
+
+| Medida | Valor |
+| --- | --- |
+| `web_input_budget_used_bytes` (health a cada 1 s) | máx. 41 943 037 (o orçamento inteiro), em 168 de 236 amostras ≥ 41 MB |
+| `web_input_budget_denied_total` | 0 → **2540** |
+| h1 | 4633 conexões; 40 seguraram o cabeçalho inteiro; **220 × 431**; 4220 fechadas sem resposta |
+| WebSocket | 305 tentativas; 16 × 101 (as sessões iniciais); 289 fechadas sem resposta; 0 × 503 |
+| h3 | 14 conexões, **2613 streams recusados com `H3_EXCESSIVE_LOAD`** (orçamento ou prazo de 10 s) |
+| web `NRestarts` / PID | 0 → 0; `MainPID` 58179 antes e depois (**não reiniciou**) |
+| web `memory.events` | `oom` 0, `oom_kill` 0; **`max` 0 → 47 403** |
+| web `memory.peak` | 78 999 552 antes (desde o deploy) → **104 382 464** depois |
+| web `memory.current` (amostras de 1 s) | máx. **100 773 888** (= 96,1 MiB); > 90 MiB em 131 de 251 amostras |
+| web `anon` (amostras de 1 s) | máx. **92 909 568** (88,6 MiB, acima do `GOMEMLIMIT` de 80 MiB) |
+
+Memória do web por janela de 30 s (máximo de `memory.current` / `anon`, MiB): 0–30 s 96,1/77,4; 30–60 s
+96,0/71,1; 60–90 s 96,0/81,3; 90–120 s 96,0/87,5; 120–150 s 96,0/88,6; 150–180 s 81,1/74,5; 180–210 s 82,5/75,1;
+210–240 s 89,7/81,5; 240–270 s 90,5/82,2.
+
+**Leitura.** O orçamento faz o que a ADR 0033 pede: o contador encosta nos 40 MiB e para ali, as recusas sobem
+(431 no h1, `H3_EXCESSIVE_LOAD` no h3) e o processo **não morreu nem reiniciou** (sem `oom_kill`, mesmo PID).
+Mas **o web não ficou abaixo do `MemoryMax=96M`**: nos primeiros 150 s o `memory.current` ficou colado no teto
+(96,0 MiB) e o cgroup registrou 47 403 eventos `max` (o kernel recuperando memória do cgroup no limite); o
+`memory.peak` passou o `MemoryMax` (104 MB contra 100,7 MB) e o `anon` chegou a 88,6 MiB, acima do `GOMEMLIMIT`.
+A conta da ADR 0033 (40 MiB de orçamento + 8 MiB do tracker QUIC, ~32 MiB para o resto) não deixou margem com
+este perfil: o que não é reservado do orçamento (buffers de leitura das 250 conexões, quic-go com 28 streams de
+~1 MiB em voo, eco WebSocket travado, eventos e fluxos `stream.bytes` de 800 MB de entrada h1) consumiu o resto.
+Não corrigido aqui (papel tester): registrado para o architect decidir (rever o padrão de `FS_WEB_INPUT_BUDGET`
+ou o que fica fora dele).
+
+Observações do cliente: os 4220 fechamentos h1 sem resposta e os 289 do WebSocket devem ser (não conferido no log do web) as
+conexões acima de `FS_MAX_CONNS=250` e de `FS_MAX_NEW_CONNS_PER_S=60` (os trabalhadores reabrem 1 s depois de
+cada recusa); o 503 do WebSocket por orçamento não apareceu porque as 16 sessões iniciais ficaram de pé e as
+seguintes nem chegaram ao Upgrade. O cenário mede o orçamento sob saturação, não a capacidade do RNF-01.
+
 ## Como reproduzir
 
 ```sh

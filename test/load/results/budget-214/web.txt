@@ -1,0 +1,23 @@
+# antes (2026-11-14T23:01:53Z)
+MainPID=58179
+NRestarts=0
+MemoryMax=100663296
+ActiveEnterTimestamp=Sat 2026-11-14 22:40:49 UTC
+memory.peak=78999552
+memory.current=47841280
+max=0
+oom=0
+oom_kill=0
+# depois (2026-11-14T23:06:08Z)
+MainPID=58179
+NRestarts=0
+MemoryMax=100663296
+ActiveEnterTimestamp=Sat 2026-11-14 22:40:49 UTC
+memory.peak=104382464
+memory.current=63741952
+max=47403
+oom=0
+oom_kill=0
+# pico do memory.current do web nas amostras de 1 s (bytes)
+mem_current_max=100773888
+# journal do web durante a carga (OOM, reinício, pânico)

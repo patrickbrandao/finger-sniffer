@@ -54,8 +54,8 @@ func insertConn(ctx context.Context, tx *sql.Tx, id string, st int64, rec string
 }
 
 // TestRetentionDoesNotStallIngest: com o banco cheio de registros vencidos, o expurgo do laço do store (lotes,
-// orçamento e vacuum fora do regime) não segura o escritor: cada transação do ingest durante o expurgo espera
-// menos de 200 ms (task 105).
+// orçamento e vacuum fora do regime) não segura o escritor: cada comando apaga no máximo um lote e cada transação
+// do ingest espera no máximo o passo do expurgo em curso (sem -race, também menos de 200 ms; tasks 105 e 214).
 func TestRetentionDoesNotStallIngest(t *testing.T) {
 	if testing.Short() {
 		t.Skip("enche o banco")
@@ -105,12 +105,27 @@ func TestRetentionDoesNotStallIngest(t *testing.T) {
 
 	r := NewRetention(db, 10*time.Minute, 2<<30)
 	r.Budget = DefaultRetentionBudget
+	// passos do expurgo medidos no mesmo processo (e com o mesmo -race): cada intervalo entre lotes apagados e o
+	// resto da rodada depois do último lote (tabelas avulsas e vacuum)
+	var (
+		mark              time.Time
+		maxBatch, maxTail time.Duration
+		maxRows           int64
+	)
+	r.OnPurge = func(_ string, n int64) {
+		now := time.Now()
+		maxBatch = max(maxBatch, now.Sub(mark))
+		maxRows = max(maxRows, n)
+		mark = now
+	}
 	var total int64
 	for range 1000 {
+		mark = time.Now()
 		n, err := r.RunOnce(ctx, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
+		maxTail = max(maxTail, time.Since(mark))
 		total += n
 		if total >= expired {
 			break
@@ -134,8 +149,22 @@ func TestRetentionDoesNotStallIngest(t *testing.T) {
 		t.Fatal("no ingest transaction ran during the purge")
 	}
 	p99, worst := lats[len(lats)*99/100], lats[len(lats)-1]
-	t.Logf("ingest tx during purge: %d tx, p50 %v p99 %v max %v", len(lats), lats[len(lats)/2], p99, worst)
-	if worst >= 200*time.Millisecond {
+	t.Logf("ingest tx during purge: %d tx, p50 %v p99 %v max %v; purge batch max %v (%d rows), tail max %v", len(lats), lats[len(lats)/2], p99, worst, maxBatch, maxRows, maxTail)
+	// Nenhum comando do expurgo apaga mais que um lote: um DELETE sem lote seguraria o escritor pelo expurgo
+	// inteiro (com 2500 conexões, ~25 vezes o lote).
+	if maxRows > DefaultRetentionBatch {
+		t.Fatalf("one purge command deleted %d connections (batch %d)", maxRows, DefaultRetentionBatch)
+	}
+	// A transação do ingest espera no máximo o passo do expurgo em curso (um lote, ou o resto da rodada com o
+	// vacuum) mais o próprio commit. O limite é relativo aos passos medidos neste mesmo processo: com -race o
+	// SQLite em Go puro fica 5 a 10 vezes mais lento e um lote de 100 chega a 400 ms, então um teto fixo de
+	// tempo de parede só mede a máquina. Margem de 2x o maior passo + 20 ms para o commit e o escalonador.
+	step := max(maxBatch, maxTail)
+	if limit := 2*step + 20*time.Millisecond; worst > limit {
+		t.Fatalf("ingest stalled %v during the purge (limit %v = 2 x longest purge step %v + 20ms)", worst, limit, step)
+	}
+	// Sem -race, vale também o teto absoluto da task 105 (medido: < 60 ms).
+	if !raceEnabled && worst >= 200*time.Millisecond {
 		t.Fatalf("ingest stalled %v during the purge (limit 200ms)", worst)
 	}
 }
