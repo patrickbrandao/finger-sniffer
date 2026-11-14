@@ -48,6 +48,8 @@ const (
 var (
 	ErrH3FrameTooLarge = errors.New("quicparse: frame h3 acima do teto")
 	ErrH3Settings      = errors.New("quicparse: SETTINGS h3 inválido")
+	// ErrH3Budget: o reserve do leitor recusou guardar mais bytes do frame (orçamento de entrada esgotado).
+	ErrH3Budget = errors.New("quicparse: frame h3 sem orçamento")
 )
 
 // IsGREASEH3 informa se o tipo (de frame, stream ou setting) é reservado para GREASE: 0x1f * N + 0x21
@@ -92,7 +94,12 @@ type frameReader struct {
 	buffered  func(t uint64) bool
 	onFrame   func(t, length uint64, payload []byte)
 	onData    func(t uint64, n int)
-	err       error
+	// reserve e release, quando definidos, pedem e devolvem ao orçamento de entrada os bytes do payload
+	// guardado (ADR 0033); held é quanto do frame atual está reservado.
+	reserve func(n int) bool
+	release func(n int)
+	held    int
+	err     error
 }
 
 func (r *frameReader) feed(b []byte) {
@@ -127,6 +134,13 @@ func (r *frameReader) feed(b []byte) {
 		}
 		n := int(min(uint64(len(b)), r.remaining)) //nolint:gosec // limitado por len(b)
 		if r.keep {
+			if n > 0 && r.reserve != nil {
+				if !r.reserve(n) {
+					r.err = fmt.Errorf("%w: %s", ErrH3Budget, H3FrameName(r.typ))
+					return
+				}
+				r.held += n
+			}
 			r.buf = append(r.buf, b[:n]...)
 		} else if n > 0 && r.onData != nil {
 			r.onData(r.typ, n)
@@ -141,6 +155,14 @@ func (r *frameReader) feed(b []byte) {
 			}
 			if r.onFrame != nil {
 				r.onFrame(r.typ, r.length, p)
+			}
+			if r.keep {
+				// O payload já foi decodificado (os campos são cópias): solta o buffer e devolve a reserva.
+				r.buf = nil
+				if r.held > 0 && r.release != nil {
+					r.release(r.held)
+				}
+				r.held = 0
 			}
 		}
 	}
@@ -282,6 +304,16 @@ func NewRequestStream(id uint64, maxFields int) *RequestStream {
 
 // Feed entrega mais bytes do stream.
 func (s *RequestStream) Feed(b []byte) { s.fr.feed(b) }
+
+// SetBudget liga o orçamento de entrada (ADR 0033): reserve é chamado antes de guardar cada pedaço do
+// payload de HEADERS (false encerra a leitura com ErrH3Budget) e release devolve os bytes quando o frame
+// completa. O que estiver reservado num frame incompleto fica com quem chamou devolver (Held).
+func (s *RequestStream) SetBudget(reserve func(n int) bool, release func(n int)) {
+	s.fr.reserve, s.fr.release = reserve, release
+}
+
+// Held devolve quantos bytes do HEADERS incompleto estão reservados agora.
+func (s *RequestStream) Held() int { return s.fr.held }
 
 func (s *RequestStream) onFrame(t, _ uint64, p []byte) {
 	r := &s.Request

@@ -29,6 +29,10 @@ const (
 	wsMaxFrameEvents = 1001
 	// wsReadLimit é a maior mensagem ecoada; acima disso o coder/websocket fecha com 1009.
 	wsReadLimit = 1 << 20
+	// wsMaxSessions é o teto de sessões WebSocket simultâneas (HTTP/1 e h2 somados); cada uma reserva
+	// wsSessionBudget do orçamento de entrada no Upgrade (spec 012 RF-07, ADR 0033). Sem vaga, 503.
+	wsMaxSessions   = 32
+	wsSessionBudget = wsReadLimit
 	// wsDummyKey é a Sec-WebSocket-Key usada para o coder/websocket aceitar o CONNECT estendido do h2, que não
 	// tem chave (RFC 8441 §5); a Sec-WebSocket-Accept calculada com ela não vai para o cliente.
 	wsDummyKey = "dGhlIHNhbXBsZSBub25jZQ=="
@@ -39,6 +43,34 @@ const (
 	wsOverHTTP1 = "http1.1"
 	wsOverH2    = "h2"
 )
+
+// wsWriteTimeout é o prazo de escrita de cada eco: vencido, a sessão e o TCP são encerrados (exceção da
+// spec 005 RF-08, ADR 0033).
+var wsWriteTimeout = 30 * time.Second
+
+// wsBusyText é o corpo do 503 de WebSocket sem vaga ou sem orçamento.
+const wsBusyText = "too many websocket sessions, try again later\n"
+
+// acquireWS reserva a vaga e o orçamento de uma sessão WebSocket, antes do 101; release devolve os dois
+// (idempotente). ok false: sem vaga ou sem orçamento (503).
+func (s *Server) acquireWS() (release func(), ok bool) {
+	if s.wsSessions.Add(1) > wsMaxSessions {
+		s.wsSessions.Add(-1)
+		return nil, false
+	}
+	hold := s.budget.newHold(0)
+	if !hold.reserve(wsSessionBudget) {
+		s.wsSessions.Add(-1)
+		return nil, false
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			hold.releaseAll()
+			s.wsSessions.Add(-1)
+		})
+	}, true
+}
 
 // wsSession é o registro de um WebSocket: o coder/websocket fala o protocolo e o parser próprio lê a cópia
 // dos bytes dos dois sentidos (spec 012 RF-03/RF-04).
@@ -196,7 +228,9 @@ func acceptOptions(r *http.Request) *websocket.AcceptOptions {
 }
 
 // echo ecoa as mensagens até o cliente fechar ou a ociosidade vencer (idle = 0: só os prazos da conexão).
-func (ws *wsSession) echo(ctx context.Context, wc *websocket.Conn, idle func() time.Duration) {
+// Um eco que não termina de escrever em wsWriteTimeout chama kill, que encerra o TCP: no h2 a escrita
+// presa no controle de fluxo do stream só solta com a conexão fechada.
+func (ws *wsSession) echo(ctx context.Context, wc *websocket.Conn, idle func() time.Duration, kill func()) {
 	wc.SetReadLimit(wsReadLimit)
 	for {
 		rctx, cancel := ctx, context.CancelFunc(func() {})
@@ -213,7 +247,16 @@ func (ws *wsSession) echo(ctx context.Context, wc *websocket.Conn, idle func() t
 			_ = wc.CloseNow()
 			return
 		}
-		if err := wc.Write(ctx, typ, data); err != nil {
+		wctx, wcancel := context.WithTimeout(ctx, wsWriteTimeout)
+		stop := context.AfterFunc(wctx, func() {
+			if errors.Is(wctx.Err(), context.DeadlineExceeded) {
+				kill()
+			}
+		})
+		err = wc.Write(wctx, typ, data)
+		stop()
+		wcancel()
+		if err != nil {
 			_ = wc.CloseNow()
 			return
 		}
@@ -262,6 +305,14 @@ func wsRequestOf(req *h1.Request, c *conn) *http.Request {
 // http1.request e eco até o fim. Handshake recusado (426/400/405) vira uma resposta normal e o laço segue.
 func (s *h1Session) serveWS(req *h1.Request, probeID string, outOffset int64, path string) bool {
 	c := s.c
+	// Vaga e orçamento antes do 101 (ADR 0033): sem eles, 503 como resposta normal e o laço segue.
+	release, ok := c.srv.acquireWS()
+	if !ok {
+		werr := s.write(textResponse(http.StatusServiceUnavailable, wsBusyText))
+		s.finish(req, probeID, outOffset, http.StatusServiceUnavailable)
+		return werr == nil
+	}
+	defer release()
 	hr := wsRequestOf(req, c)
 	ws := newWSSession(c, probeID, wsOverHTTP1, path)
 	wc := &wsConn{
@@ -293,7 +344,7 @@ func (s *h1Session) serveWS(req *h1.Request, probeID string, outOffset int64, pa
 	}
 	c.srv.metrics.Add(MetricWSConnsTotal, 1)
 	// A ociosidade é a do idleConn (prazos da conexão); o laço HTTP/1 termina com o WebSocket.
-	ws.echo(c.ctx, conn, func() time.Duration { return 0 })
+	ws.echo(c.ctx, conn, func() time.Duration { return 0 }, func() { _ = s.t.Close() })
 	return false
 }
 
@@ -357,6 +408,12 @@ func (st *h2Stream) websocket() {
 		st.writeResponse(textResponse(http.StatusNotFound, "websocket is served on /p/<id>/ws and /r?upgrade=ws\n"))
 		return
 	}
+	release, ok := h.c.srv.acquireWS()
+	if !ok {
+		st.writeResponse(textResponse(http.StatusServiceUnavailable, wsBusyText))
+		return
+	}
+	defer release()
 	if ctl != nil && ctl.Idle > 0 {
 		h.ic.SetIdle(ctl.Idle)
 	}
@@ -419,5 +476,6 @@ func (st *h2Stream) websocket() {
 		return
 	}
 	h.c.srv.metrics.Add(MetricWSConnsTotal, 1)
-	ws.echo(r.Context(), conn, func() time.Duration { return time.Duration(h.ic.idle.Load()) })
+	ws.echo(r.Context(), conn, func() time.Duration { return time.Duration(h.ic.idle.Load()) },
+		func() { _ = h.c.raw.Close() })
 }

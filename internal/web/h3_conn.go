@@ -35,7 +35,16 @@ type h3Conn struct {
 	ctlDeadline time.Time
 	ctlReady    chan struct{} // fechado quando o SETTINGS do cliente foi lido
 	wg          sync.WaitGroup
+	// headersHold é a reserva dos HEADERS em espera dos streams da conexão: até h3HeadersConnMax, dentro do
+	// orçamento global de entrada (spec 011, ADR 0033).
+	headersHold *budgetHold
 }
+
+// Tetos dos HEADERS h3 em espera (spec 011, ADR 0033).
+const h3HeadersConnMax = 2 << 20
+
+// h3HeadersTimeout é o prazo para o primeiro HEADERS de um stream completar; vencido, H3_EXCESSIVE_LOAD.
+var h3HeadersTimeout = 10 * time.Second
 
 // h3SettingsWait é quanto uma requisição espera, antes de responder, o SETTINGS do cliente ainda não lido.
 // O quic-go descarta os bytes ainda não lidos dos streams e os streams ainda não aceitos quando a conexão
@@ -47,7 +56,12 @@ var h3SettingsWait = 50 * time.Millisecond
 
 // handleQUIC atende uma conexão do accept ao fim e publica os até três http3.connection.
 func (s *Server) handleQUIC(ctx context.Context, qc *quic.Conn) {
-	h := &h3Conn{srv: s, ctx: ctx, qc: qc, start: s.now(), ctlReady: make(chan struct{})}
+	h := &h3Conn{
+		srv: s, ctx: ctx, qc: qc, start: s.now(), ctlReady: make(chan struct{}),
+		headersHold: s.budget.newHold(h3HeadersConnMax),
+	}
+	// Cada stream devolve o que reservou; isto cobre qualquer caminho que tenha escapado.
+	defer h.headersHold.releaseAll()
 	flow := udpFlow(qc.LocalAddr(), qc.RemoteAddr())
 	h.flow = &flow
 	if t := s.h3.tracker; t != nil {

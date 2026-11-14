@@ -248,7 +248,7 @@ func (r *Reader) readChunked(req *Request, sink *bodySink, opts BodyOptions) err
 	}
 	extTotal := 0
 	for {
-		line, err := r.readLine(maxChunkLine)
+		line, err := r.readLine(maxChunkLine, false)
 		sink.wire(line)
 		if err != nil {
 			if errors.Is(err, ErrHeadTooLarge) {
@@ -363,7 +363,7 @@ func (r *Reader) readTrailers(b *Body, sink *bodySink, opts BodyOptions) error {
 	// O valor dobrado parcial fica gravado no último trailer em qualquer saída.
 	defer flushFold()
 	for {
-		line, err := r.readLine(limit - used)
+		line, err := r.readLine(limit-used, true)
 		used += len(line)
 		sink.wire(line)
 		if err != nil {
