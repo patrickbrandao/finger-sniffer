@@ -73,6 +73,7 @@ func (s *session) startTLS(prefix []byte) bool {
 		return false
 	}
 	s.conn = ts
+	s.sock = tcp
 	s.tlsOn = true
 	// Dentro do túnel tudo recomeça: a linha PROBE é a primeira linha em claro, o banner vem depois do
 	// handshake e a espera do source conta a partir dele.

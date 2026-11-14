@@ -1,7 +1,6 @@
 package raw
 
 import (
-	"crypto/tls"
 	"errors"
 	"net"
 	"syscall"
@@ -46,18 +45,24 @@ func (s *session) halfClose() {
 	hc := &HalfClose{}
 	if err == nil {
 		hc.Bytes = len(HalfCloseMessage)
-		hc.ServerSentAfterClientFIN = waitDelivered(s.conn, halfCloseWait)
+		hc.ServerSentAfterClientFIN = waitDelivered(s.deliverySock(), halfCloseWait)
 	}
 	s.info.HalfClose = hc
 	_ = closeWrite(s.conn)
 }
 
+// deliverySock é a conexão onde a entrega dos bytes escritos é conferida: em TLS a fila de envio e o
+// SO_ERROR são do socket TCP de baixo, não do *tls.Conn.
+func (s *session) deliverySock() net.Conn {
+	if s.sock != nil {
+		return s.sock
+	}
+	return s.conn
+}
+
 // waitDelivered espera até max pelo ACK (ou RST) dos bytes já escritos em c. Sem acesso ao socket (ex.:
 // net.Pipe) não há como saber e vale a escrita aceita.
 func waitDelivered(c net.Conn, maxWait time.Duration) bool {
-	if tc, ok := c.(*tls.Conn); ok {
-		c = tc.NetConn()
-	}
 	sc, ok := c.(syscall.Conn)
 	if !ok {
 		return true

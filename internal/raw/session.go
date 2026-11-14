@@ -31,7 +31,10 @@ var sourceBlock = func() []byte {
 
 // session é uma conexão aceita numa porta crua.
 type session struct {
-	conn  net.Conn
+	conn net.Conn
+	// sock é o socket TCP aceito quando conn virou *tls.Conn (startTLS); nil em TCP claro. A conferência de
+	// entrega do half-close precisa dele: os wrappers do TLS não expõem SyscallConn.
+	sock  net.Conn
 	cfg   *Config
 	port  PortSpec
 	start time.Time
