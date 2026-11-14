@@ -36,6 +36,10 @@ type Server struct {
 	listeners []listener
 	conns     map[net.Conn]struct{}
 	wg        sync.WaitGroup
+	// sem são as vagas de FS_MAX_CONNS, globais entre os listeners (spec 006 RF-07a); done libera o accept que
+	// espera uma vaga quando o Run termina.
+	sem  chan struct{}
+	done chan struct{}
 }
 
 type listener struct {
@@ -48,9 +52,15 @@ func New(cfg Config, pub Publisher, log *slog.Logger, metrics *service.Metrics) 
 	if metrics == nil {
 		metrics = service.NewMetrics()
 	}
+	if cfg.MaxConns <= 0 {
+		// Só o store dá significado ao 0 (modo degradado); no raw vale o padrão (ADR 0034 item 12).
+		log.Warn("raw: FS_MAX_CONNS <= 0, using default", "value", cfg.MaxConns, "default", DefaultMaxConns)
+		cfg.MaxConns = DefaultMaxConns
+	}
 	return &Server{
 		cfg: cfg, pub: pub, log: log, metrics: metrics, probes: probe.NewExtractor(),
 		conns: map[net.Conn]struct{}{},
+		sem:   make(chan struct{}, cfg.MaxConns), done: make(chan struct{}),
 	}
 }
 
@@ -129,6 +139,7 @@ func (s *Server) Run(ctx context.Context) error {
 		accepting.Go(func() { s.acceptLoop(ln) })
 	}
 	<-ctx.Done()
+	close(s.done)
 	s.closeListeners()
 	accepting.Wait()
 	s.mu.Lock()
@@ -156,11 +167,23 @@ func (s *Server) acceptLoop(ln listener) {
 		}
 		delay = 0
 		start := time.Now()
+		// Vaga de FS_MAX_CONNS: sem vaga, o laço espera com a conexão aceita sem atendê-la e não aceita mais
+		// nada, então o excedente fica no backlog do kernel; nenhuma sessão é fechada antes da hora (spec 006
+		// RF-07a, ADR 0035). A vaga não é pega antes do accept para um listener ocioso não segurar vagas das
+		// outras portas.
+		select {
+		case s.sem <- struct{}{}:
+		case <-s.done:
+			_ = c.Close()
+			return
+		}
 		if !s.track(c) {
+			<-s.sem
 			_ = c.Close()
 			return
 		}
 		s.wg.Go(func() {
+			defer func() { <-s.sem }()
 			defer s.untrack(c)
 			s.serve(c, ln.spec, start)
 		})

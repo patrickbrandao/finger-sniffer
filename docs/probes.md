@@ -523,6 +523,11 @@ ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-pr
   confirmou o recebimento** (ACK dos bytes) da mensagem; se a conexão leva RST depois do envio ou o ACK não chega
   em 2 s, fica `false`, e `half_close.bytes` diz quantos bytes o espelho escreveu (task 083). Um `false` com
   `bytes: 17` quer dizer "o espelho mandou, mas o caminho não entregou".
+- **Modo `source`** (`PROBE <id> mode=source n=N`): o espelho manda `N` bytes e fecha (padrão 1 MiB). O máximo é
+  64 MiB: um `n` maior é cortado para 64 MiB e a linha continua valendo; o total enviado aparece em
+  `raw.writes_out` e no fluxo `out` (spec 006 RF-02, ADR 0035).
+- **Vagas**: o raw atende no máximo `FS_MAX_CONNS` (250) sessões ao mesmo tempo, somando todas as portas; acima
+  disso a conexão não é recusada, só espera no backlog e é atendida quando uma vaga abre (spec 006 RF-07a).
 - **Estáveis**: `mode`, `banner`, `probe_line`, total de bytes em cada sentido,
   `half_close.server_sent_after_client_fin`, `close.half_close`. `probe_line` é a linha como chegou, **com** o
   terminador (`"PROBE <id>\r\n"` ou `"PROBE <id>\n"`), igual nas portas cruas e nas portas web (contrato 0.6.0):

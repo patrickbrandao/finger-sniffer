@@ -71,9 +71,13 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_RAW_PORTS", "")
 	t.Setenv("FS_IDLE_DEFAULT", "")
 	t.Setenv("FS_RAW_STREAM_MAX_BYTES", "")
+	t.Setenv("FS_MAX_CONNS", "")
 	c, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if c.MaxConns != DefaultMaxConns {
+		t.Errorf("MaxConns = %d", c.MaxConns)
 	}
 	if len(c.ListenIPs) != 1 || c.ListenIPs[0].String() != "192.0.2.10" {
 		t.Errorf("ListenIPs = %v", c.ListenIPs)
@@ -85,16 +89,17 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_RAW_PORTS", "7007:echo")
 	t.Setenv("FS_IDLE_DEFAULT", "3s")
 	t.Setenv("FS_RAW_STREAM_MAX_BYTES", "1024")
+	t.Setenv("FS_MAX_CONNS", "7")
 	c, err = LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Ports) != 1 || c.Idle != 3*time.Second || c.StreamMax != 1024 {
+	if len(c.Ports) != 1 || c.Idle != 3*time.Second || c.StreamMax != 1024 || c.MaxConns != 7 {
 		t.Errorf("env = %+v", c)
 	}
 
 	for k, v := range map[string]string{
-		"FS_RAW_PORTS": "bad", "FS_IDLE_DEFAULT": "-1s", "FS_RAW_STREAM_MAX_BYTES": "0",
+		"FS_RAW_PORTS": "bad", "FS_IDLE_DEFAULT": "-1s", "FS_RAW_STREAM_MAX_BYTES": "0", "FS_MAX_CONNS": "x",
 	} {
 		t.Run(k, func(t *testing.T) {
 			t.Setenv(k, v)
