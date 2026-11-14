@@ -39,6 +39,7 @@ const (
 type timedLen [2]float64
 
 type ipJSON struct {
+	SrcKind      string `json:"src_kind"`
 	TTL          int    `json:"ttl"`
 	TTLInitial   int    `json:"ttl_initial"`
 	Hops         int    `json:"hops"`
@@ -92,6 +93,9 @@ type tcpSynJSON struct {
 
 type tcpJSON struct {
 	Syn             *tcpSynJSON `json:"syn,omitempty"`
+	SynMSS          *int        `json:"syn_mss"`
+	MTUImplied      *int        `json:"mtu_implied"`
+	MSSReduction    *int        `json:"mss_reduction"`
 	JA4T            *string     `json:"ja4t"`
 	P0F             *string     `json:"p0f"`
 	OSGuess         *string     `json:"os_guess"`
@@ -137,6 +141,8 @@ type analysis struct {
 	packets    ipPacketsJSON
 
 	syn        *tcpSynJSON
+	synMSS     *int // primeira opção MSS do primeiro SYN do cliente (spec 013 RF-06a)
+	synFamily  int
 	ja4t       *string
 	p0fSig     *string
 	osGuess    *string
@@ -331,6 +337,12 @@ func (a *analysis) ipPacket(fi frameInfo) {
 	a.ipSet = true
 	a.dataTOS = fi.payload > 0
 	r := &a.ip
+	// O primeiro pacote analisado é do cliente: a origem dele é o endereço do cliente da conexão.
+	src := fi.src
+	if fi.family == 4 {
+		src = src.Unmap()
+	}
+	r.SrcKind = srcKind(src)
 	if fi.family == 4 {
 		r.TTL = int(ip[8])
 		id := int(binary.BigEndian.Uint16(ip[4:6]))
@@ -484,6 +496,11 @@ func (a *analysis) synPacket(fi frameInfo, o tcpOpts, t *flowTable) {
 		s.PayloadB64 = &b
 	}
 	a.syn = s
+	a.synFamily = fi.family
+	if o.mss >= 0 {
+		m := o.mss
+		a.synMSS = &m
+	}
 	if v, err := ja4plus.JA4T(tcp); err == nil {
 		a.ja4t = &v
 	}
@@ -507,12 +524,13 @@ type tcpOpts struct {
 	sackPerm bool
 	sack     bool
 	tfo      bool
+	mss      int // primeira opção MSS; -1 = sem a opção
 }
 
 // parseOpts lê as opções TCP na ordem, no formato do openapi (TCPOption). Opção malformada vira
 // ["unknown", código, "<hex do resto>"] e encerra a leitura.
 func parseOpts(b []byte) tcpOpts {
-	o := tcpOpts{list: [][]any{}, ws: -1}
+	o := tcpOpts{list: [][]any{}, ws: -1, mss: -1}
 	for i := 0; i < len(b); {
 		k := b[i]
 		switch k {
@@ -532,7 +550,11 @@ func parseOpts(b []byte) tcpOpts {
 		v := b[i+2 : i+l]
 		switch {
 		case k == optMSS && l == 4:
-			o.list = append(o.list, []any{"mss", int(binary.BigEndian.Uint16(v))})
+			m := int(binary.BigEndian.Uint16(v))
+			if o.mss < 0 {
+				o.mss = m
+			}
+			o.list = append(o.list, []any{"mss", m})
 		case k == optWScale && l == 3:
 			o.ws = int(v[0])
 			o.list = append(o.list, []any{"wscale", int(v[0])})
@@ -625,6 +647,7 @@ func (a *analysis) tcpJSON(c *conn) *tcpJSON {
 		TSInitial: a.tsInitial, TSClockGroup: a.clockGroup, SynCookieServer: a.cookie,
 		RetransmitsIn: a.dir[0].retrans,
 	}
+	r.SynMSS, r.MTUImplied, r.MSSReduction = mssDerived(a.synMSS, a.synFamily)
 	if hz := a.clockHz(); hz > 0 {
 		v := math.Round(hz*100) / 100
 		r.TSClockHz = &v
@@ -638,6 +661,21 @@ func (a *analysis) tcpJSON(c *conn) *tcpJSON {
 		r.RTTAppMs = &v
 	}
 	return r
+}
+
+// mssDerived calcula syn_mss, mtu_implied e mss_reduction (spec 013 RF-06a, ADR 0031): cabeçalhos fixos de IP e
+// TCP (40 B no IPv4, 60 B no IPv6), sem os 12 B de timestamps, que o MSS do SYN não desconta; referência = MSS de
+// um MTU Ethernet de 1500. Os três nulos sem a opção MSS ou sem SYN.
+func mssDerived(mss *int, family int) (synMSS, mtu, reduction *int) {
+	if mss == nil {
+		return nil, nil, nil
+	}
+	hdr, ref := 40, 1460
+	if family == 6 {
+		hdr, ref = 60, 1440
+	}
+	m, u, d := *mss, *mss+hdr, ref-*mss
+	return &m, &u, &d
 }
 
 func (a *analysis) ipJSON() *ipJSON {
