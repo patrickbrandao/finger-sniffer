@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -223,6 +224,18 @@ func (s *Store) Run(ctx context.Context) error {
 	if s.certs != nil {
 		defer func() { _ = s.certs.Close() }()
 	}
+	// Os bancos só fecham depois que o ingest, a retenção e o tempo real pararam (task 206): o ingest termina o
+	// lote corrente (commit + ack ou rollback + nak) e grava os pendentes; o prazo fica abaixo dos 10 s do Drain
+	// do NATS em pkg/service.
+	var wg sync.WaitGroup
+	defer func() {
+		if !waitFor(&wg, shutdownWait) {
+			s.svc.Log.Warn("background loops still running at shutdown", "waited", shutdownWait)
+		}
+	}()
+	// Saída por erro da API também para os laços (cancel roda antes da espera acima).
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	sub, err := s.svc.NC.Subscribe(event.SubjectHeartbeat, func(m *nats.Msg) {
 		if err := s.tracker.Observe(m.Data, time.Now()); err != nil {
@@ -242,7 +255,9 @@ func (s *Store) Run(ctx context.Context) error {
 	defer func() { _ = cid.Unsubscribe() }()
 
 	// O stream é criado em segundo plano (o NATS pode ainda estar subindo); depois começa o ingest.
+	wg.Add(3)
 	go func() {
+		defer wg.Done()
 		cons := s.ensureStream(ctx)
 		if cons == nil {
 			return
@@ -251,8 +266,8 @@ func (s *Store) Run(ctx context.Context) error {
 			s.svc.Log.Error("ingest stopped", "err", err)
 		}
 	}()
-	go s.retentionLoop(ctx)
-	go s.live.Run(ctx.Done())
+	go func() { defer wg.Done(); s.retentionLoop(ctx) }()
+	go func() { defer wg.Done(); s.live.Run(ctx.Done()) }()
 
 	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom}
 	srv := &http.Server{
@@ -295,6 +310,21 @@ func (s *Store) Run(ctx context.Context) error {
 	case err := <-tlsErr:
 		_ = shutdown()
 		return err
+	}
+}
+
+// shutdownWait é quanto o Run espera os laços de fundo antes de fechar os bancos.
+const shutdownWait = 8 * time.Second
+
+// waitFor espera o WaitGroup por até d; false se o prazo venceu.
+func waitFor(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
 	}
 }
 
