@@ -363,6 +363,9 @@ $ tshark -r c.pcap | head -4
   Nos dois casos o registro marca `pcap_truncated: true`, e os contadores, o fechamento e o RTT do registro
   continuam contando todos os pacotes (ADR 0034).
 - Conexão `degraded` ou criada só por eventos (o capture estava fora do ar) não tem pcap: 404.
+- No máximo **4** downloads de `/pcap` e `/raw` em andamento no store (as duas rotas somadas): acima disso a
+  resposta é `503` com `Retry-After: 1`. Cada download tem **60 s** para ser escrito; um cliente que não lê nesse
+  prazo tem a conexão encerrada (ADR 0032).
 
 ### Bytes crus: `/raw?dir=in|out`
 
@@ -471,7 +474,7 @@ Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada
 | --- | --- |
 | 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, `settle` ou `min_conns` sem `wait`, `settle` fora de `0s`–`10s` ou mal formado, `min_conns` fora de 1–1000, filtro de tempo real inválido |
 | 404 | ID no formato certo mas desconhecido ou expirado (retenção), e qualquer rota inexistente |
-| 503 | em `/stream` e `/ws`, acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo; em `/probes/{id}?wait=`, acima de 64 esperas simultâneas (com `Retry-After: 1`) |
+| 503 | em `/stream` e `/ws`, acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo; em `/probes/{id}?wait=`, acima de 64 esperas simultâneas, e em `/pcap` e `/raw`, acima de 4 downloads em andamento (esses dois com `Retry-After: 1`) |
 | 500 | erro interno nas rotas de consulta |
 
 `OPTIONS` em qualquer caminho responde **204** sem corpo (pré-voo CORS, com `Access-Control-Allow-Origin: *` e

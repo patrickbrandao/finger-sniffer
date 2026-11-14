@@ -289,10 +289,14 @@ func TestAPIErrorContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { hubFull.leave(hold) })
-	// e com as vagas de ?wait ocupadas (503, ADR 0032)
+	// e com as vagas de ?wait e de download ocupadas (503, ADR 0032)
 	waitFull := newAPIFixture(t)
 	for range probeWaitMax {
 		waitFull.q.waiters <- struct{}{}
+	}
+	blobFull := newAPIFixture(t)
+	for range blobMax {
+		blobFull.q.blobs <- struct{}{}
 	}
 
 	var bodies [][]byte
@@ -307,6 +311,8 @@ func TestAPIErrorContract(t *testing.T) {
 				base = full.URL
 			case "probe_wait_full":
 				base = waitFull.srv.URL
+			case "blob_full":
+				base = blobFull.srv.URL
 			default:
 				t.Fatalf("fault desconhecida %q", c.Fault)
 			}

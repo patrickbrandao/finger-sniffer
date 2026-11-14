@@ -1,0 +1,1 @@
+- store: no máximo 4 downloads de `/pcap` e `/raw` em andamento (acima, `503` com `Retry-After: 1`) e prazo de escrita de 60 s por resposta, sem prazo global (SSE, WS e long-poll seguem sem); `/raw` reserva o tamanho final de uma vez (ADR 0032).

@@ -1,5 +1,5 @@
 {
-  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (vps602). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
+  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (vps602). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full, blob_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
   "cases": [
     {"name": "connection id not ULID", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/bad", "want": 400},
     {"name": "connection id lowercase", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01jc0000000000000000000000", "want": 400},
@@ -9,6 +9,7 @@
 
     {"name": "pcap id not ULID", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/bad/pcap", "want": 400},
     {"name": "pcap unknown", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 404},
+    {"name": "pcap too many downloads", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 503, "fault": "blob_full"},
     {"name": "pcap db error", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 500, "fault": "db_closed"},
 
     {"name": "raw id not ULID", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/bad/raw?dir=in", "want": 400},
@@ -16,6 +17,7 @@
     {"name": "raw invalid dir", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=both", "want": 400},
     {"name": "raw unknown in", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=in", "want": 404},
     {"name": "raw unknown out", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=out", "want": 404},
+    {"name": "raw too many downloads", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=in", "want": 503, "fault": "blob_full"},
     {"name": "raw db error", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw?dir=in", "want": 500, "fault": "db_closed"},
 
     {"name": "list limit 0", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?limit=0", "want": 400},
@@ -80,8 +82,6 @@
   ],
   "untestable": {
     "getHealth 500": "o handler não tem caminho de erro (monta e serializa o Health em memória); 500 só viria de pânico, que o net/http transforma em conexão derrubada",
-    "getOpenAPI 500": "o contrato é embutido no binário e escrito direto; não há erro a provocar",
-    "getConnectionPcap 503": "teto de downloads de BLOB simultâneos ainda não implementado (task 129, ADR 0032); a tarefa troca este motivo por um caso na tabela",
-    "getConnectionRaw 503": "teto de downloads de BLOB simultâneos ainda não implementado (task 129, ADR 0032); a tarefa troca este motivo por um caso na tabela"
+    "getOpenAPI 500": "o contrato é embutido no binário e escrito direto; não há erro a provocar"
   }
 }
