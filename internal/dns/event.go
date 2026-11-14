@@ -162,7 +162,12 @@ type optionTLV struct {
 
 // optionTLVs reempacota o OPT e lê as opções (código, tamanho, dados) da RDATA, na ordem.
 func optionTLVs(opt *mdns.OPT) []optionTLV {
-	buf := make([]byte, mdns.MaxMsgSize)
+	if len(opt.Option) == 0 {
+		return nil
+	}
+	// Buffer do tamanho exato do OPT (cabeçalho + opções), em vez de 64 KiB zerados por consulta no laço
+	// único do UDP (task 192).
+	buf := make([]byte, mdns.Len(opt))
 	n, err := mdns.PackRR(opt, buf, 0, nil, false)
 	// Cabeçalho do RR do OPT: nome raiz (1) + tipo (2) + classe (2) + TTL (4) + RDLENGTH (2).
 	const hdr = 11
