@@ -1,0 +1,1 @@
+- web: stream h2 à espera do corpo não segura mais a ociosidade: conexão que envia HEADERS sem END_STREAM e se cala fecha depois de `idle` e devolve a vaga de `FS_MAX_CONNS`; upload lento ativo e `delay_*` seguem (ADR 0033).
