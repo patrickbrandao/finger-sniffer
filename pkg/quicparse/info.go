@@ -22,8 +22,14 @@ type Info struct {
 	InitialFrames          []string         `json:"initial_frames"`
 	InitialFramesTruncated bool             `json:"initial_frames_truncated"`
 	TransportParams        []TransportParam `json:"transport_params"`
-	ClientHello            *tlsparse.Info   `json:"client_hello"`
-	H3Settings             [][2]uint64      `json:"h3_settings"`
+	// TransportParamsTruncated: o parser parou em MaxTransportParams ou a lista foi reduzida para caber no
+	// evento (ADR 0032, task 171).
+	TransportParamsTruncated bool           `json:"transport_params_truncated,omitempty"`
+	ClientHello              *tlsparse.Info `json:"client_hello"`
+	H3Settings               [][2]uint64    `json:"h3_settings"`
+	// H3SettingsTruncated: o parser parou em DefaultMaxSettings pares ou a lista foi reduzida para caber no
+	// evento (ADR 0032, task 171).
+	H3SettingsTruncated bool `json:"h3_settings_truncated,omitempty"`
 	// H3ControlStreamSeen: o cliente abriu o stream de controle h3 (tipo 0x00) e o SETTINGS foi lido.
 	H3ControlStreamSeen bool           `json:"h3_control_stream_seen"`
 	Close               *Close         `json:"close"`

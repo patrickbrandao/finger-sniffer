@@ -210,12 +210,16 @@ func (a *Assembler) finish(msg []byte) {
 	ch, err := tlsparse.ParseMessage(msg)
 	a.ch = ch
 	a.info.ClientHello = tlsparse.NewInfo(ch, msg, a.opts.InlineMax)
-	ja3.Fill(a.info.ClientHello, ch)
-	ja4.Fill(a.info.ClientHello, ch, ja4.QUIC)
+	if err == nil {
+		// como no TCP: fingerprints só sobre ClientHello analisado sem erro (spec 008 RF-03, task 167)
+		ja3.Fill(a.info.ClientHello, ch)
+		ja4.Fill(a.info.ClientHello, ch, ja4.QUIC)
+	}
 	for _, e := range ch.Extensions {
 		if e.Type == ExtQUICTransportParams || e.Type == ExtQUICTransportParamsDraft {
-			tp, _, tperr := ParseTransportParams(e.Data)
+			tp, trunc, tperr := ParseTransportParams(e.Data)
 			a.info.TransportParams = tp
+			a.info.TransportParamsTruncated = trunc
 			if err == nil {
 				err = tperr
 			}
