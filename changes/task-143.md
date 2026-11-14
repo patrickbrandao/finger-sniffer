@@ -1,0 +1,1 @@
+- web: tracker de Initials QUIC despeja, com a tabela cheia, a entrada não reclamada encerrada mais antiga (preferindo as sem ClientHello, que agora saem em 2 s) e conta `web_h3_init_table_full_total`; o Initial legítimo continua analisado sob inundação de UDP forjado.

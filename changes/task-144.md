@@ -1,0 +1,1 @@
+- quicparse: remontagem do CRYPTO do Initial com no máximo 64 fragmentos pendentes (`ErrCryptoTooLarge` acima disso), duplicata exata descartada e inserção ordenada; o pior caso de frames de 1 byte cai de ~86 ms para ~11 µs.

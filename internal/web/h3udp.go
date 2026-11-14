@@ -1,6 +1,7 @@
 package web
 
 import (
+	"container/list"
 	"context"
 	"encoding/hex"
 	"net"
@@ -25,8 +26,12 @@ const (
 	initSweepEvery = time.Second
 )
 
-// initOrphanAfter: 5-tupla com Initial e sem conexão aceita depois disso vira handshake_failed (variável
-// para os testes).
+// MetricH3InitTableFull conta as 5-tuplas novas que acharam a tabela de Initials cheia (com ou sem despejo;
+// spec 011, task 143).
+const MetricH3InitTableFull = "web_h3_init_table_full_total"
+
+// initOrphanAfter: 5-tupla com ClientHello completo e sem conexão aceita depois disso vira handshake_failed
+// (variável para os testes). Sem ClientHello completo, a entrada não reclamada sai ao fim de initWindow.
 var initOrphanAfter = 10 * time.Second
 
 // udpConn envolve o socket UDP e entrega cada datagrama ao tracker antes do quic-go. Só implementa
@@ -71,6 +76,8 @@ type initEntry struct {
 	closed  bool
 	// orphan: já publicado como handshake_failed sem conexão.
 	orphan bool
+	// evict é o lugar da entrada na fila de despejo (não reclamada e com a análise encerrada); nil fora dela.
+	evict *list.Element
 }
 
 func (e *initEntry) stop() {
@@ -89,6 +96,11 @@ type initTracker struct {
 	m         map[string]*initEntry
 	bytes     int
 	lastSweep time.Time
+	// evictNoCH e evictCH são as entradas não reclamadas com a análise encerrada, na ordem em que
+	// encerraram (a da frente é a mais antiga): sem e com ClientHello completo. Com a tabela cheia, a 5-tupla
+	// nova despeja a da frente, preferindo evictNoCH (spec 011, task 143), sem varrer a tabela.
+	evictNoCH list.List
+	evictCH   list.List
 	// orphans recebe as entradas sem conexão aceita (handshake recusado antes do quic-go devolver a
 	// conexão); o web publica handshake_failed para elas.
 	orphans func(e *initEntry, info *quicparse.Info)
@@ -138,10 +150,20 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 	}
 	if e == nil {
 		// só um cabeçalho longo abre uma 5-tupla nova (o quic-go cuida do resto)
-		if b[0]&0x80 == 0 || len(t.m) >= initMaxEntries {
+		if b[0]&0x80 == 0 {
 			t.mu.Unlock()
 			t.publishOrphans(orphans)
 			return
+		}
+		if len(t.m) >= initMaxEntries {
+			// tabela cheia: despeja a não reclamada encerrada mais antiga; sem nenhuma, a 5-tupla fica sem
+			// análise do Initial (o h3 continua)
+			t.srv.metrics.Add(MetricH3InitTableFull, 1)
+			if !t.evictLocked(&orphans) {
+				t.mu.Unlock()
+				t.publishOrphans(orphans)
+				return
+			}
 		}
 		e = &initEntry{key: key, first: now, asm: quicparse.NewAssembler(quicparse.Options{
 			InlineMax: t.srv.cfg.EventInlineMax,
@@ -156,13 +178,13 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 	if !e.stopped {
 		switch {
 		case now.Sub(e.first) > initWindow || t.bytes+len(b) > initMaxBytes:
-			e.stop()
+			t.stopLocked(e)
 		default:
 			e.asm.Add(b)
 			e.bytes += len(b)
 			t.bytes += len(b)
 			if e.asm.Done() {
-				e.stop()
+				t.stopLocked(e)
 			}
 		}
 	}
@@ -170,30 +192,81 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 	t.publishOrphans(orphans)
 }
 
-// sweepLocked tira as entradas fechadas e as sem conexão há muito tempo; devolve as órfãs a publicar.
+// sweepLocked tira as entradas fechadas, as não reclamadas sem ClientHello depois de initWindow e as não
+// reclamadas com ClientHello depois de initOrphanAfter; devolve as órfãs a publicar.
 func (t *initTracker) sweepLocked(now time.Time) []*initEntry {
 	t.lastSweep = now
 	var orphans []*initEntry
 	for _, e := range t.m {
 		age := now.Sub(e.first)
-		switch {
-		case e.closed:
+		if e.closed {
 			t.dropLocked(e)
-		case !e.claimed && age > initOrphanAfter:
-			if !e.orphan && e.asm.Version() != 0 {
-				e.orphan = true
-				e.stop()
-				orphans = append(orphans, e)
-			}
+			continue
+		}
+		if age > initWindow {
+			t.stopLocked(e)
+		}
+		if !e.claimed && (age > initOrphanAfter || (age > initWindow && !e.asm.Complete())) {
+			t.orphanLocked(e, &orphans)
 			t.dropLocked(e)
-		case age > initWindow:
-			e.stop()
 		}
 	}
 	return orphans
 }
 
+// stopLocked encerra a análise da entrada e, se ninguém a reclamou, a põe na fila de despejo.
+func (t *initTracker) stopLocked(e *initEntry) {
+	e.stop()
+	if e.claimed || e.evict != nil || t.m[e.key] != e {
+		return
+	}
+	if e.asm.Complete() {
+		e.evict = t.evictCH.PushBack(e)
+	} else {
+		e.evict = t.evictNoCH.PushBack(e)
+	}
+}
+
+// unevictLocked tira a entrada da fila de despejo.
+func (t *initTracker) unevictLocked(e *initEntry) {
+	if e.evict == nil {
+		return
+	}
+	if e.asm.Complete() {
+		t.evictCH.Remove(e.evict)
+	} else {
+		t.evictNoCH.Remove(e.evict)
+	}
+	e.evict = nil
+}
+
+// evictLocked despeja a entrada não reclamada encerrada mais antiga, preferindo as sem ClientHello; a
+// despejada com versão legível vira handshake_failed, como na limpeza. false se não há candidata.
+func (t *initTracker) evictLocked(orphans *[]*initEntry) bool {
+	el := t.evictNoCH.Front()
+	if el == nil {
+		el = t.evictCH.Front()
+	}
+	if el == nil {
+		return false
+	}
+	e := el.Value.(*initEntry) //nolint:forcetypeassert // a fila só guarda *initEntry
+	t.orphanLocked(e, orphans)
+	t.dropLocked(e)
+	return true
+}
+
+// orphanLocked marca a entrada sem conexão aceita como handshake_failed (uma vez, só com versão legível).
+func (t *initTracker) orphanLocked(e *initEntry, orphans *[]*initEntry) {
+	if !e.orphan && e.asm.Version() != 0 {
+		e.orphan = true
+		t.stopLocked(e)
+		*orphans = append(*orphans, e)
+	}
+}
+
 func (t *initTracker) dropLocked(e *initEntry) {
+	t.unevictLocked(e)
 	if t.m[e.key] == e {
 		delete(t.m, e.key)
 	}
@@ -224,6 +297,7 @@ func (t *initTracker) claim(remote net.Addr, wait time.Duration) (*initEntry, *q
 	e := t.m[remote.String()]
 	if e != nil {
 		e.claimed = true
+		t.unevictLocked(e) // reclamada nunca é despejada
 	}
 	t.mu.Unlock()
 	if e == nil {
@@ -237,7 +311,7 @@ func (t *initTracker) claim(remote net.Addr, wait time.Duration) (*initEntry, *q
 	timer.Stop()
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	e.stop()
+	t.stopLocked(e)
 	return e, snapshotInfo(e.asm)
 }
 

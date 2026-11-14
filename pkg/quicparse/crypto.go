@@ -9,7 +9,13 @@ import (
 // do tlsparse: 64 KiB).
 const MaxCryptoLen = 64 << 10
 
-// ErrCryptoTooLarge indica um CRYPTO com offset ou tamanho acima de MaxCryptoLen.
+// MaxCryptoFragments limita os fragmentos pendentes (fora do prefixo contíguo desde o offset 0): sem ele,
+// frames de 1 byte que nunca encaixam custam memória e CPU sem teto (spec 011, ADR 0033, task 144). Um
+// ClientHello legítimo, mesmo embaralhado pelo Chrome, vem em poucos frames.
+const MaxCryptoFragments = 64
+
+// ErrCryptoTooLarge indica um CRYPTO com offset ou tamanho acima de MaxCryptoLen, mais bytes guardados
+// que o teto ou mais fragmentos pendentes que MaxCryptoFragments.
 var ErrCryptoTooLarge = errors.New("quicparse: CRYPTO acima do teto")
 
 type fragment struct {
@@ -18,8 +24,10 @@ type fragment struct {
 }
 
 // CryptoStream remonta o fluxo CRYPTO por offset, aceitando frames fora de ordem, sobrepostos e
-// duplicados; o primeiro byte recebido para cada posição vale.
+// duplicados; para cada posição vale o fragmento de menor offset (entre iguais, o que chegou primeiro).
+// Depois de um erro de teto, Add não faz nada.
 type CryptoStream struct {
+	// frags são os fragmentos pendentes, ordenados por offset (estável: entre iguais, ordem de chegada).
 	frags []fragment
 	// prefix são os bytes contíguos desde o offset 0.
 	prefix []byte
@@ -27,9 +35,10 @@ type CryptoStream struct {
 	err    error
 }
 
-// Add acrescenta um frame CRYPTO. Os dados são copiados.
+// Add acrescenta um frame CRYPTO. Os dados são copiados. O custo é O(log n + n) no pior caso por chamada,
+// com n <= MaxCryptoFragments.
 func (c *CryptoStream) Add(off uint64, data []byte) {
-	if len(data) == 0 {
+	if len(data) == 0 || c.err != nil {
 		return
 	}
 	end := off + uint64(len(data))
@@ -41,46 +50,50 @@ func (c *CryptoStream) Add(off uint64, data []byte) {
 	if end <= have {
 		return // já temos tudo isso
 	}
-	if off < have {
-		data = data[have-off:]
-		off = have
+	if off <= have {
+		// encosta no prefixo: estende direto e funde os pendentes que passaram a encaixar
+		c.prefix = append(c.prefix, data[have-off:]...)
+		c.merge()
+		return
 	}
-	if c.stored+len(data) > 2*MaxCryptoLen {
-		// duplicatas sem fim: guarda no máximo o dobro do teto
+	// pendente: primeira posição com offset maior (mantém a ordem de chegada entre offsets iguais)
+	i, _ := slices.BinarySearchFunc(c.frags, off+1, func(f fragment, t uint64) int {
+		if f.off < t {
+			return -1
+		}
+		return 1
+	})
+	for j := i - 1; j >= 0 && c.frags[j].off == off; j-- {
+		if len(c.frags[j].data) >= len(data) {
+			return // duplicata (ou parte) de um pendente com o mesmo offset: os bytes dele valem
+		}
+	}
+	if len(c.frags) >= MaxCryptoFragments || c.stored+len(data) > 2*MaxCryptoLen {
+		// fragmentos sem fim ou duplicatas sobrepostas: guarda no máximo o teto
 		c.err = ErrCryptoTooLarge
 		return
 	}
-	c.frags = append(c.frags, fragment{off: off, data: append([]byte(nil), data...)})
+	c.frags = slices.Insert(c.frags, i, fragment{off: off, data: append([]byte(nil), data...)})
 	c.stored += len(data)
-	c.merge()
 }
 
+// merge consome, do início da lista ordenada, os pendentes que encostam no prefixo.
 func (c *CryptoStream) merge() {
-	slices.SortStableFunc(c.frags, func(a, b fragment) int {
-		switch {
-		case a.off < b.off:
-			return -1
-		case a.off > b.off:
-			return 1
-		}
-		return 0
-	})
-	keep := c.frags[:0]
+	n := 0
 	for _, f := range c.frags {
 		have := uint64(len(c.prefix))
-		end := f.off + uint64(len(f.data))
-		switch {
-		case end <= have:
-			c.stored -= len(f.data)
-		case f.off <= have:
-			c.prefix = append(c.prefix, f.data[have-f.off:]...)
-			c.stored -= len(f.data)
-		default:
-			keep = append(keep, f)
+		if f.off > have {
+			break
 		}
+		if end := f.off + uint64(len(f.data)); end > have {
+			c.prefix = append(c.prefix, f.data[have-f.off:]...)
+		}
+		c.stored -= len(f.data)
+		n++
 	}
-	clear(c.frags[len(keep):])
-	c.frags = keep
+	if n > 0 {
+		c.frags = slices.Delete(c.frags, 0, n)
+	}
 }
 
 // Prefix devolve os bytes contíguos desde o offset 0.
