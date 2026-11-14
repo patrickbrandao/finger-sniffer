@@ -276,12 +276,12 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		*ended = append(*ended, res.ended)
 	}
 	if c := res.conn; c != nil {
-		// flags do capture: offload suspeito e frame cortado pelo snaplen (pcap incompleto)
-		if p.Flags&event.FlagOffloadSuspect != 0 {
-			c.offloadSuspect = true
-		}
-		if p.Flags&event.FlagTruncated != 0 {
-			c.truncated = true
+		// flags do capture: offload suspeito e frame cortado pelo snaplen (pcap incompleto); sob a trava da
+		// tabela, que a API usa para ler o registro ao vivo (task 158)
+		off := p.Flags&event.FlagOffloadSuspect != 0 && !c.offloadSuspect
+		cut := p.Flags&event.FlagTruncated != 0 && !c.truncated
+		if off || cut {
+			in.flows.mark(c, cut, off)
 		}
 	}
 	if res.late {
@@ -290,8 +290,12 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		if c.degraded {
 			return nil
 		}
+		frame, keep := in.pcapFrame(c, fi, p.Frame)
+		if !keep {
+			return nil
+		}
 		// a conexão pode ter saído do banco (retenção, DELETE): o tardio é descartado, sem derrubar o lote
-		if _, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), in.pcapFrame(c, fi, p.Frame)); err != nil {
+		if _, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), frame); err != nil {
 			in.metrics.Add("store_late_dropped_total", 1)
 			return nil //nolint:nilerr // descarte deliberado
 		}
@@ -325,20 +329,35 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if c.degraded {
 		return nil // modo degradado: sem pcap nem bytes crus
 	}
-	_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), in.pcapFrame(c, fi, p.Frame))
+	frame, keep := in.pcapFrame(c, fi, p.Frame)
+	if !keep {
+		return nil
+	}
+	_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), frame)
 	return err
 }
 
-// pcapFrame conta o frame no pcap da conexão e o corta nos cabeçalhos depois do limite.
-func (in *Ingestor) pcapFrame(c *conn, fi frameInfo, frame []byte) []byte {
-	c.pcapBytes += int64(len(frame)) + 16
-	if c.pcapBytes > in.cfg.PcapMax {
-		c.truncated = true
-		if fi.headers > 0 && fi.headers < len(frame) {
-			frame = frame[:fi.headers]
-		}
+// pcapFrame conta o frame no pcap da conexão. Até PcapMax o frame entra inteiro; depois, só os cabeçalhos, com
+// orçamento próprio de mais PcapMax bytes; esgotado, o pacote não entra em packets (keep false) e o pcap fica
+// com no máximo ~2×PcapMax (spec 004 RF-04, ADR 0034). A análise IP/TCP já rodou em handle.
+func (in *Ingestor) pcapFrame(c *conn, fi frameInfo, frame []byte) (out []byte, keep bool) {
+	size := int64(len(frame)) + 16 // registro do pcap: cabeçalho de 16 bytes + frame
+	if c.pcapHdrBytes == 0 && c.pcapBytes+size <= in.cfg.PcapMax {
+		c.pcapBytes += size
+		return frame, true
 	}
-	return frame
+	if !c.truncated {
+		in.flows.mark(c, true, false)
+	}
+	if fi.headers > 0 && fi.headers < len(frame) {
+		frame = frame[:fi.headers]
+	}
+	size = int64(len(frame)) + 16
+	if c.pcapHdrBytes+size > in.cfg.PcapMax {
+		return nil, false
+	}
+	c.pcapHdrBytes += size
+	return frame, true
 }
 
 // readyEnd é o fim de uma conexão finalizada e o motivo, para fs_store_record_ready_seconds.
@@ -545,29 +564,23 @@ func (in *Ingestor) recoverOrphans(ctx context.Context) error {
 		if end == 0 {
 			end = now
 		}
-		r.Ended, r.Close = tsPtr(end), closeJSON{By: "unknown", How: "timeout"}
-		rec, _ := json.Marshal(r)
-		pcap := pcapHeader(in.cfg.Snaplen)
-		prow, err := in.db.QueryContext(ctx, "SELECT ts_ns, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", o.id)
+		pcap, truncated, err := in.orphanPcap(ctx, o.id)
 		if err != nil {
 			return err
 		}
-		for prow.Next() {
-			var ts int64
-			var wl int
-			var f []byte
-			if prow.Scan(&ts, &wl, &f) == nil {
-				pcap = appendPcapRecord(pcap, ts, wl, f)
-			}
-		}
-		_ = prow.Close()
+		r.Ended, r.Close = tsPtr(end), closeJSON{By: "unknown", How: "timeout"}
+		r.PcapTruncated = r.PcapTruncated || truncated
+		rec, _ := json.Marshal(r)
 		for _, q := range []struct {
 			sql  string
 			args []any
 		}{
-			{"INSERT OR REPLACE INTO pcaps (conn_id, data, truncated) VALUES (?, ?, 0)", []any{o.id, pcap}},
+			{"INSERT OR REPLACE INTO pcaps (conn_id, data, truncated) VALUES (?, ?, ?)", []any{o.id, pcap, boolInt(r.PcapTruncated)}},
 			{"DELETE FROM packets WHERE conn_id = ?", []any{o.id}},
-			{"UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ? WHERE conn_id = ?", []any{end, string(rec), max(end, now), o.id}},
+			{
+				"UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, updated_ns = ? WHERE conn_id = ?",
+				[]any{end, boolInt(r.PcapTruncated), string(rec), max(end, now), o.id},
+			},
 		} {
 			if _, err := in.db.ExecContext(ctx, q.sql, q.args...); err != nil {
 				return err
@@ -578,6 +591,43 @@ func (in *Ingestor) recoverOrphans(ctx context.Context) error {
 		in.log.Info("recovered orphan connections", "count", len(list))
 	}
 	return nil
+}
+
+// orphanPcap monta o pcap de uma conexão órfã com o mesmo orçamento do ingest (pcapFrame): frames até PcapMax e
+// registros "só cabeçalhos" até mais PcapMax; o que passa disso fica fora, e a leitura para ali (memória
+// limitada mesmo com mais linhas em packets). truncated vem de um frame menor que o fio (snaplen ou corte nos
+// cabeçalhos) ou do orçamento esgotado (task 137).
+func (in *Ingestor) orphanPcap(ctx context.Context, id string) (pcap []byte, truncated bool, err error) {
+	pcap = pcapHeader(in.cfg.Snaplen)
+	rows, err := in.db.QueryContext(ctx, "SELECT ts_ns, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", id)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = rows.Close() }()
+	var full, hdr int64
+	for rows.Next() {
+		var ts int64
+		var wl int
+		var f []byte
+		if rows.Scan(&ts, &wl, &f) != nil {
+			continue
+		}
+		size := int64(len(f)) + 16
+		switch {
+		case hdr == 0 && full+size <= in.cfg.PcapMax:
+			full += size
+		case hdr+size <= in.cfg.PcapMax:
+			hdr += size
+			truncated = true
+		default:
+			return pcap, true, nil
+		}
+		if wl > len(f) {
+			truncated = true
+		}
+		pcap = appendPcapRecord(pcap, ts, wl, f)
+	}
+	return pcap, truncated, rows.Err()
 }
 
 func (in *Ingestor) publishMetrics() {

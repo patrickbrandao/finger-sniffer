@@ -56,9 +56,10 @@ type conn struct {
 	dataAfterFin                               bool
 	inSegs, outSegs, inData, outData           int
 	inBytes, outBytes                          int64
-	pcapBytes                                  int64
-	truncated                                  bool
-	offloadSuspect                             bool // algum pacote veio com FlagOffloadSuspect (spec 003 RF-06)
+	pcapBytes                                  int64 // frames inteiros no pcap, até PcapMax
+	pcapHdrBytes                               int64 // registros "só cabeçalhos" depois de PcapMax (orçamento próprio)
+	truncated                                  bool  // lido pela API (live, sob t.mu): só muda por flowTable.mark (task 158)
+	offloadSuspect                             bool  // algum pacote veio com FlagOffloadSuspect (spec 003 RF-06); idem
 	closeAt                                    int64
 	finEnd                                     [2]uint32 // seq depois do FIN (cliente, espelho)
 	finAcked                                   [2]bool   // o outro lado já confirmou o FIN
@@ -292,6 +293,15 @@ func (t *flowTable) sampleCookies(ts, v int64) {
 // newULID gera o conn_id com o instante do primeiro pacote.
 func newULID(ts int64) string {
 	return ulid.MustNew(ulid.Timestamp(time.Unix(0, ts)), ulid.DefaultEntropy()).String()
+}
+
+// mark liga truncated e/ou offloadSuspect da conexão sob a trava: a API lê os dois em live (task 158). Só o laço
+// de ingest escreve nesses campos, então ele pode lê-los sem trava para evitar a trava quando já estão ligados.
+func (t *flowTable) mark(c *conn, truncated, offloadSuspect bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	c.truncated = c.truncated || truncated
+	c.offloadSuspect = c.offloadSuspect || offloadSuspect
 }
 
 // live devolve o registro atual de uma conexão ainda aberta.

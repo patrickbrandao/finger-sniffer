@@ -1,0 +1,1 @@
+- store: pcap "só cabeçalhos" com orçamento próprio de mais `FS_PCAP_MAX_BYTES_PER_CONN` (esgotado, o pacote não entra em `packets`, pcap de no máximo ~2× o teto); `recoverOrphans` usa o mesmo teto e grava `pcap_truncated` certo (ADR 0034).
