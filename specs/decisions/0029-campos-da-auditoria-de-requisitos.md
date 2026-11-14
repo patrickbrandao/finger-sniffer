@@ -1,6 +1,6 @@
 # 0029 — Campos para a auditoria de requisitos (instantes por requisição, IP por pacote, TFO, alertas, `settle`)
 
-Status: aceita
+Status: aceita (teto de esperas simultâneas e do tamanho da resposta do probe: ver 0032)
 Data: 2026-11-09
 
 ## Contexto

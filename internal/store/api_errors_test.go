@@ -345,9 +345,9 @@ func TestParseOpenAPIOps(t *testing.T) {
 		got[op.ID] = fmt.Sprintf("%s %s %v", op.Method, op.Path, codes)
 	}
 	for id, want := range map[string]string{
-		"getProbe":         "GET /api/v1/probes/{id} [200 400 404 500]",
+		"getProbe":         "GET /api/v1/probes/{id} [200 400 404 500 503]",
 		"deleteProbe":      "DELETE /api/v1/probes/{id} [204 400 404 500]",
-		"getConnectionRaw": "GET /api/v1/connections/{conn_id}/raw [200 400 404 500]",
+		"getConnectionRaw": "GET /api/v1/connections/{conn_id}/raw [200 400 404 500 503]",
 		"websocketEvents":  "GET /api/v1/ws [101 400 503]",
 	} {
 		if got[id] != want {

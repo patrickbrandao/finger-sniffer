@@ -1,6 +1,6 @@
 # 0015 — Lote de pacotes em formato binário (FSPB v1)
 
-Status: aceita
+Status: aceita (cabeçalhos do lote conferidos pelo store: ver 0034)
 Data: 2026-11-07
 
 ## Contexto

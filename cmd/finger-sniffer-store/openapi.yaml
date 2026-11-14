@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.5.0
+  version: 0.6.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -15,7 +15,13 @@ info:
     de cada requisição e resposta (`request_started_at`, `request_ended_at`, `response_started_at`,
     `response_ended_at`), `ip.packets`, `settle`/`min_conns` no `wait` e `wait_met` no probe. 0.4.1 (documental):
     quando cada instante é nulo e `wait=0s` como `wait` válido. 0.5.0 (ADR 0031, aditivo): `ip.src_kind` e
-    `tcp.syn_mss`, `tcp.mtu_implied`, `tcp.mss_reduction`; ausentes em registros anteriores ao 0.5.0.
+    `tcp.syn_mss`, `tcp.mtu_implied`, `tcp.mss_reduction`; ausentes em registros anteriores ao 0.5.0. 0.6.0
+    (ADR 0032, aditivo): `Probe.truncated` (teto de 1000 conexões e 1000 consultas DNS), `503` com `Retry-After`
+    no `wait` acima de 64 esperas e em `/pcap`/`/raw` acima de 4 downloads, `request_line.target_truncated`,
+    `TLSInfo.lists_truncated`, `HTTP3Info.transport_params_truncated`/`h3_settings_truncated`, `websocket` com
+    `frames` vazio (upgrade sem frames) e descrições de `stream_id` 0, `status` 0, `src_ip` de `/packets`,
+    `kind`, `probe_line`, `head_too_large`, `chunks_truncated`, `rate_limited` e do `DELETE` de probe. Todo
+    booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0).
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -72,6 +78,10 @@ paths:
       tags: [probes]
       operationId: getProbe
       summary: Conexões e consultas DNS de um probe
+      description: |
+        Até 1000 conexões (as mais antigas primeiro) e 1000 consultas DNS (pela ordem de chegada); acima disso
+        `truncated: true` e o restante fica em `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`
+        (ADR 0032, decisão do humano). O critério do `wait` e `all_closed` olham o conjunto inteiro.
       parameters:
         - name: wait
           in: query
@@ -82,7 +92,8 @@ paths:
             `all_closed` refletindo as conexões existentes) ou 404 se o probe ainda não tem nada. Sem `wait`,
             responde na hora. `wait=0s` é um `wait` válido: avalia o critério uma vez, responde na hora e traz
             `wait_met`. Com `min_conns` e `settle` (ADR 0029) o critério fica mais estrito; a resposta traz
-            `wait_met`.
+            `wait_met`. No máximo 64 esperas simultâneas no store: acima disso, `503` na hora, com `Retry-After`
+            (ADR 0032).
           schema: { type: string, pattern: "^[0-9]+(ms|s)$", examples: ["10s"] }
         - name: settle
           in: query
@@ -111,10 +122,15 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Busy" }
     delete:
       tags: [probes]
       operationId: deleteProbe
       summary: Apaga o probe, suas conexões e consultas DNS
+      description: |
+        Apaga numa transação as conexões fechadas do probe, as consultas DNS e o probe. Conexões ainda abertas
+        somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo real) e são apagadas quando
+        fecham (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
       responses:
         "204": { description: Apagado. }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -182,6 +198,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/BlobBusy" }
 
   /api/v1/connections/{conn_id}/raw:
     parameters:
@@ -204,6 +221,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/BlobBusy" }
 
   /api/v1/dns:
     get:
@@ -235,7 +253,10 @@ paths:
       parameters:
         - { name: since, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
         - { name: until, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
-        - { name: src_ip, in: query, schema: { type: string } }
+        - name: src_ip
+          in: query
+          description: IP do cliente, isto é, a origem com `dir=in` e o destino com `dir=out` (ADR 0032).
+          schema: { type: string }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
         "200":
@@ -322,7 +343,10 @@ components:
     LiveKind:
       name: kind
       in: query
-      description: Lista separada por vírgula de `LiveEvent.kind`.
+      description: |
+        Lista separada por vírgula dos tipos filtráveis de `LiveEvent.kind`: `connection.opened`,
+        `connection.updated`, `connection.closed`, `http.request`, `dns.query`, `packet.stray`. `stream.dropped`
+        não é filtrável (400 se pedido) e é sempre entregue ao cliente que perdeu eventos (ADR 0032).
       schema: { type: string }
 
   responses:
@@ -343,6 +367,24 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     InternalError:
       description: Erro interno.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Busy:
+      description: Acima de 64 esperas `wait` simultâneas no store (ADR 0032); tente de novo depois do `Retry-After`.
+      headers:
+        Retry-After:
+          description: Segundos até tentar de novo.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BlobBusy:
+      description: Acima de 4 downloads de `/pcap` e `/raw` simultâneos (as duas rotas somadas, ADR 0032); tente de novo depois do `Retry-After`.
+      headers:
+        Retry-After:
+          description: Segundos até tentar de novo.
+          schema: { type: integer, minimum: 1 }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -469,7 +511,12 @@ components:
       required: [probe_id, connections, dns]
       properties:
         probe_id: { $ref: "#/components/schemas/ProbeID" }
-        all_closed: { type: boolean, description: true quando todas as conexões do probe terminaram. }
+        all_closed: { type: boolean, description: "true quando todas as conexões do probe terminaram (o conjunto inteiro, mesmo com `truncated`)." }
+        truncated:
+          type: boolean
+          description: |
+            `true` quando `connections` (1000) ou `dns` (1000) foi cortada (ADR 0032); o restante fica em
+            `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`. Ausente = `false`.
         wait_met:
           type: boolean
           description: |
@@ -708,6 +755,12 @@ components:
         client_hello_b64: { $ref: "#/components/schemas/Base64" }
         client_hello_truncated: { type: boolean, description: "Inline cortado em FS_EVENT_INLINE_MAX (ADR 0018)." }
         client_hello_records: { type: integer }
+        lists_truncated:
+          type: boolean
+          description: |
+            Listas analisadas (cipher suites, extensões, grupos, algoritmos etc.) reduzidas e `ja3`, `ja3n`,
+            `ja4_r`, `ja4_o` cortados para o evento caber em 900 KiB (ADR 0032). Os fingerprints são calculados
+            sobre o ClientHello completo, antes do corte. Ausente = `false`.
         client_hello_segments: { type: integer }
         record_version: { type: integer }
         handshake_version: { type: integer }
@@ -817,13 +870,20 @@ components:
             form: { type: string, enum: [origin, absolute, authority, asterisk] }
             version: { type: string }
             terminator: { type: string, enum: [crlf, lf] }
+            target_truncated:
+              type: boolean
+              description: |
+                `target` cortado em FS_EVENT_INLINE_MAX bytes (ou menos, para o evento caber em 900 KiB), numa
+                fronteira de runa; o alvo completo está no fluxo `in` (ADR 0032). Ausente = `false`.
         fields: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
         fields_truncated: { type: boolean, description: "Lista cortada para caber no teto do evento (ADR 0018)." }
         field_count: { type: integer }
         head_size: { type: integer }
         obs_fold: { type: boolean }
         duplicates: { type: array, items: { type: string } }
-        head_too_large: { type: boolean }
+        head_too_large:
+          type: boolean
+          description: "Cabeçalho acima de 1 MiB, de 1024 campos ou do orçamento de entrada do web (ADR 0033); a resposta foi 431."
         body:
           type: object
           properties:
@@ -842,7 +902,7 @@ components:
                   ext: { type: [string, "null"] }
             chunks_truncated:
               type: boolean
-              description: "Só os primeiros 4096 pedaços estão em `chunks` (teto do parser; tamanho e SHA-256 seguem do corpo inteiro)."
+              description: "`chunks` cortada: acima de 4096 pedaços ou de 256 KiB de extensões somadas na requisição, só o prefixo está listado (teto do parser, ADR 0033); tamanho e SHA-256 seguem do corpo inteiro."
             trailers: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
         expect_continue:
           type: [object, "null"]
@@ -895,7 +955,13 @@ components:
     HTTP2Stream:
       type: object
       properties:
-        stream_id: { type: integer }
+        stream_id:
+          type: integer
+          description: |
+            Stream do cliente. `0` = o web não conseguiu ligar o handler a um stream (stream não identificado); o
+            store sempre acrescenta esses itens, nunca os substitui. A ligação é heurística (pseudo-cabeçalhos e,
+            no empate, campos regulares do primeiro bloco); requisições idênticas em todos os campos podem trocar
+            de stream (spec 010, ADR 0032).
         pseudo_order: { type: array, items: { type: string } }
         fields: { type: array, items: { $ref: "#/components/schemas/HPACKField" } }
         fields_truncated: { type: boolean, description: "Lista de campos cortada para caber no teto do evento (ADR 0018)." }
@@ -910,7 +976,9 @@ components:
             weight: { type: integer }
         end_stream: { type: boolean }
         ja4h: { type: [string, "null"], description: "FoxIO License 1.1 (ADR 0010)." }
-        status: { type: integer }
+        status:
+          type: integer
+          description: "Status da resposta do handler. `0` com RST_STREAM, 400 ou 431 do servidor em `http2.frames` = stream recusado pelo `x/net/http2` antes do handler (ADR 0032)."
         controls: { $ref: "#/components/schemas/Controls" }
         request_started_at:
           $ref: "#/components/schemas/NullableTimestamp"
@@ -985,6 +1053,9 @@ components:
           description: Tipos de frame dos Initials do cliente até o ClientHello completo, na ordem (ex. `CRYPTO`, `PADDING`, `PING`).
           items: { type: string }
         initial_frames_truncated: { type: boolean, description: "Lista cortada em 256 itens." }
+        transport_params_truncated:
+          type: boolean
+          description: "`transport_params` cortada: o parser parou em 1024 parâmetros ou a lista foi reduzida para caber no evento (ADR 0032). Ausente = `false`."
         transport_params:
           type: array
           description: "`[id, nome, valor_hex]` na ordem recebida (GREASE incluído, nome `GREASE`)."
@@ -1010,6 +1081,9 @@ components:
             O cliente abriu o stream de controle h3 (unidirecional tipo 0x00) e o SETTINGS foi lido. `false` com
             `h3_settings: []` = o cliente não abriu (ou não completou) o stream de controle antes do fim; `true` com
             `h3_settings: []` = SETTINGS vazio. Ausente em eventos anteriores ao contrato 0.3.2.
+        h3_settings_truncated:
+          type: boolean
+          description: "`h3_settings` cortada: o parser parou em 256 pares ou a lista foi reduzida para caber no evento (ADR 0032). Ausente = `false`."
         close:
           type: [object, "null"]
           description: Fim da conexão QUIC visto pelo web; nulo enquanto aberta.
@@ -1064,7 +1138,9 @@ components:
     # ------------------------------------------------------------------ WebSocket e raw
     WebSocketInfo:
       type: object
-      description: Spec 012.
+      description: |
+        Spec 012. Preenchido a partir do primeiro evento com `upgrade`; um Upgrade aceito sem nenhum frame (o
+        cliente fechou logo depois do 101) aparece com `frames: []` e `close: null` (ADR 0032).
       properties:
         over: { type: string, enum: [http1.1, h2] }
         path: { type: string }
@@ -1102,7 +1178,9 @@ components:
         mode: { type: string, enum: [echo, banner, sink, source] }
         tls: { type: boolean }
         banner: { type: [string, "null"] }
-        probe_line: { type: [string, "null"] }
+        probe_line:
+          type: [string, "null"]
+          description: "Linha `PROBE` como recebida, incluindo o terminador (CRLF ou LF), no raw e no web (ADR 0032)."
         reads_in: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
         writes_out: { type: array, items: { $ref: "#/components/schemas/TimedLength" } }
         reads_in_truncated: { type: boolean, description: "Só as primeiras 8192 leituras estão em `reads_in` (ADR 0018); os bytes seguem no fluxo `in`." }
@@ -1171,7 +1249,9 @@ components:
                   type: { type: string }
                   ttl: { type: integer }
                   data: { type: string }
-        rate_limited: { type: boolean }
+        rate_limited:
+          type: boolean
+          description: "Resposta UDP limitada pelo RRL (TC=1). Só UDP: o TCP fica fora do RRL (ADR 0035)."
         raw_b64: { $ref: "#/components/schemas/Base64" }
 
     StrayPacket:

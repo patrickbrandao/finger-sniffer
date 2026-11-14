@@ -32,19 +32,31 @@ o Initial.
 - Leitura: um wrapper de `net.PacketConn` entrega ao `quic.Transport` cada datagrama e, antes, guarda os
   datagramas Initial (long header tipo 0) de cada 5-tupla até o ClientHello completar (no máximo 8 datagramas ou
   2 s). Sem `OOBCapablePacketConn`: quic-go sem GSO/GRO/ECN.
+- Tracker dos Initials: no máximo 4096 entradas e 8 MiB de datagramas guardados; uma entrada não reclamada pelo
+  quic-go e sem ClientHello completo sai ao fim dos 2 s. Com a tabela cheia, uma 5-tupla nova despeja a entrada não
+  reclamada já encerrada mais antiga, preferindo as sem ClientHello; sem nenhuma, a 5-tupla nova fica sem análise
+  do Initial (o h3 continua funcionando) e conta em `web_h3_init_table_full_total` no heartbeat. Sem Retry e sem
+  limite por prefixo (RF-06, ADR 0001).
 - `pkg/quicparse`: cabeçalho longo (versão, DCID/SCID, token, Length, número do pacote), remoção da proteção de
   cabeçalho e decifragem com as chaves Initial derivadas do DCID (QUIC v1 RFC 9001 e v2 RFC 9369), frames na
-  ordem, remontagem do CRYPTO por offset (fora de ordem, em vários pacotes e datagramas, como o Chrome faz),
+  ordem, remontagem do CRYPTO por offset (fora de ordem, em vários pacotes e datagramas, como o Chrome faz; no
+  máximo 64 fragmentos pendentes, duplicata exata descartada, acima disso a análise para com erro),
   parâmetros de transporte na ordem (GREASE incluído), coalescência e padding. O ClientHello remontado vai para
   `pkg/tlsparse` e `pkg/fingerprint` (JA3/JA4 com `q`). Versão desconhecida: registra só o cabeçalho
-  (`client_hello` nulo) e o quic-go responde Version Negotiation.
+  (`client_hello` nulo) e o quic-go responde Version Negotiation. Parâmetros de transporte até 1024 e SETTINGS do
+  h3 até 256 pares; acima, ou quando reduzidos para caber no evento, `transport_params_truncated` e
+  `h3_settings_truncated` (ADR 0032).
+- Memória (ADR 0033): o HEADERS de cada stream de requisição em espera tem teto de 2 MiB por conexão, reservado
+  do orçamento de entrada do web (spec 005 RF-12) e devolvido quando o frame completa; o buffer é solto depois do
+  frame. Acima do teto, sem orçamento ou sem HEADERS completo em 10 s, o stream é recusado com
+  `H3_EXCESSIVE_LOAD` (0x0107).
 - Frames h3: o web lê os bytes do stream de controle do cliente (tipo, SETTINGS na ordem; `h3_control_stream_seen`
   distingue "o cliente não abriu o stream de controle", comum no curl/nghttp3, de "SETTINGS vazio";
   entra no contrato junto com o produtor, task 073) e de cada stream de
   requisição (HEADERS com a representação QPACK de cada linha, DATA contado em `body_len`), sem normalizar.
 - Eventos: `fs.v1.web.http3.connection` até 3 vezes (handshake terminado/falho, SETTINGS do cliente, fim com
   `close`); `fs.v1.web.http3.request` quando cada resposta termina. Tetos da ADR 0018 (`fields_truncated`,
-  `values_truncated`, `initial_frames_truncated`).
+  `values_truncated`, `initial_frames_truncated`, `transport_params_truncated`, `h3_settings_truncated`).
 - Controles (RF-04): `status`, `size`, `delay_head`, `delay_body`, `h=`, `alt_svc` e `date` iguais aos do h2 (`Date` em toda resposta final, spec 005 RF-07a); os demais
   (`ver`, `frame`, `conn`, `ka`, `close`, `rst`, `idle`, `hsize`, `continue`, `upgrade`) não se aplicam e
   respondem 400 com explicação, registrado.
@@ -76,3 +88,5 @@ o Initial.
 - specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md
 - specs/decisions/0021-date-nas-respostas.md
 - specs/decisions/0029-campos-da-auditoria-de-requisitos.md
+- specs/decisions/0032-campos-da-auditoria-de-2026-11.md
+- specs/decisions/0033-orcamento-de-memoria-de-entrada-do-web.md

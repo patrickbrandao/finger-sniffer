@@ -72,6 +72,8 @@ type WebSocketFrame struct {
 	Length     int64             `json:"length"`
 	Upgrade    *WebSocketUpgrade `json:"upgrade"`
 	Close      *WebSocketClose   `json:"close"`
+	// UpgradeOnly: sessão sem nenhum frame; o evento leva só o Upgrade e o store não acrescenta frame (ADR 0032).
+	UpgradeOnly bool `json:"upgrade_only,omitempty"`
 }
 
 // WebSocketUpgrade traz os dados do Upgrade e as extensões negociadas (só no primeiro frame).
@@ -131,9 +133,13 @@ type HTTP3Info struct {
 	InitialFrames          []string         `json:"initial_frames"`
 	InitialFramesTruncated bool             `json:"initial_frames_truncated"`
 	TransportParams        []TransportParam `json:"transport_params"`
+	// TransportParamsTruncated: o parser parou em 1024 parâmetros ou a lista foi reduzida (ADR 0032).
+	TransportParamsTruncated bool `json:"transport_params_truncated,omitempty"`
 	// ClientHello segue o schema TLSInfo (pkg/tlsparse); fica cru aqui para pkg/event não depender do parser.
 	ClientHello json.RawMessage `json:"client_hello,omitempty"`
 	H3Settings  [][2]uint64     `json:"h3_settings"`
+	// H3SettingsTruncated: o parser parou em 256 pares ou a lista foi reduzida (ADR 0032).
+	H3SettingsTruncated bool `json:"h3_settings_truncated,omitempty"`
 	// H3ControlStreamSeen: o cliente abriu o stream de controle h3 e o SETTINGS foi lido (contrato 0.3.2).
 	H3ControlStreamSeen bool           `json:"h3_control_stream_seen"`
 	Close               *HTTP3Close    `json:"close"`

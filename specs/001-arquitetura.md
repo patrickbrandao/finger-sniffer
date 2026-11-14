@@ -77,7 +77,10 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 - Stream JetStream `FS_EVENTS` com lista explícita de subjects de eventos (`fs.v1.capture.>`, `fs.v1.web.>`,
   `fs.v1.raw.>`, `fs.v1.dns.query`, `fs.v1.svc.>` — ADR 0017), em memória, `max_age` 60 s, `max_bytes` 32 MiB,
   consumidor durável `store` (ADR 0016). Request/reply fica fora do stream.
-- Nenhum evento JSON passa de 900 KiB; bytes grandes vão pelo fluxo de aplicação (ADR 0018).
+- Nenhum evento JSON passa de 900 KiB; bytes grandes vão pelo fluxo de aplicação (ADR 0018). Listas e strings
+  cortadas para caber levam marca `*_truncated` (ADR 0032).
+- Desligamento: cada serviço para de aceitar entrada, escoa o NATS (`Drain`, com prazo) e só então sai, para
+  não perder os eventos já publicados e ainda no buffer do cliente.
 - Contrato: [eventbus/nats/asyncapi.yaml](../eventbus/nats/asyncapi.yaml); configuração:
   [eventbus/nats/nats.conf](../eventbus/nats/nats.conf).
 
@@ -113,10 +116,14 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 ## Ameaças e controles
 | Ameaça | Controle | Verificação |
 | --- | --- | --- |
-| Exaustão em 1 vCPU (slowloris, flood PRIORITY h2, cabeçalhos gigantes, SYN flood) | tetos de idle/delay/size/hsize, limite global `FS_MAX_CONNS`, limite de frames PRIORITY, syncookies=1 com backlog alto. **Sem limite por IP** | testes de carga e fuzz |
+| Exaustão em 1 vCPU (slowloris, flood PRIORITY h2, cabeçalhos gigantes, SYN flood) | tetos de idle/delay/size/hsize, limite global `FS_MAX_CONNS` (web e raw, ADR 0035), limite de frames PRIORITY, syncookies=1 com backlog alto. **Sem limite por IP** | testes de carga e fuzz |
+| Memória do web esgotada por entrada retida (cabeçalho h1 de 1 MiB × conexões, campos HPACK, HEADERS h3 em espera, mensagens WebSocket) | orçamento global `FS_WEB_INPUT_BUDGET` (40 MiB) reservado e devolvido por h1/h2/h3/WebSocket, mais tetos por conexão: h1 1 MiB e 1024 campos, h2 1 MiB e 100 streams, h3 2 MiB e 10 s, WebSocket 32 sessões e eco com prazo de 30 s; estouro → 431, `fields_truncated`, `H3_EXCESSIVE_LOAD`, 503 (ADR 0033) | teste de cada caminho com o contador voltando a zero; medição do heap sob ataque |
+| Tabela de Initials QUIC ocupada por datagramas forjados; CRYPTO fragmentado | tracker com 4096 entradas e 8 MiB, entrada sem ClientHello sai em 2 s, despejo da mais antiga encerrada; no máximo 64 fragmentos CRYPTO pendentes (spec 011) | teste com relógio falso e benchmark |
+| Store saturado por 5-tuplas novas (SYN flood de origens mudas, UDP solto) | tabela de fluxos com 8192 entradas, meio-aberto ocioso em 10 s, despejo do não estabelecido mais antigo, `fs_store_flows_dropped_total` (ADR 0034) | unitário com 100 mil SYNs; carga com flood |
+| Memória do store esgotada por leitura (probe enorme, `wait` em laço, downloads de BLOB, cliente ao vivo lento, pcap truncado) | probe com até 1000 conexões e 1000 consultas e `truncated`; até 64 `wait` e 4 downloads simultâneos, 503 acima, prazo de escrita de 60 s (ADR 0032); filas ao vivo com 4 MiB por cliente e 64 MiB no hub; orçamento de "só cabeçalhos" no pcap (ADR 0034) | testes de alocação e de 503 |
 | Disco cheio por BLOBs | teto `FS_STORE_MAX_BYTES`, expurgo do mais antigo | teste de retenção |
 | Parser travando/estourando com entrada maliciosa | `go test -fuzz` em todos os parsers | fuzz no verify-full (tempo curto), longo sob pedido |
-| DNS usado para amplificação | sem recursão, só zona própria, REFUSED fora dela, rate limit de respostas por IP | teste do dns |
+| DNS usado para amplificação | sem recursão, só zona própria, REFUSED fora dela, rate limit de respostas UDP por IP (IPv6 por /64, balde de transbordo com a tabela cheia; TCP fora do RRL, ADR 0035) | teste do dns |
 | Privilégios | capabilities mínimas, ProtectSystem=strict, usuário dedicado | revisão das units |
 | Dependências vulneráveis | govulncheck no verify-full e CI | CI |
 | Dados de terceiros expostos | aceito (ADR 0007); retenção curta | — |
@@ -142,3 +149,7 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 - specs/decisions/0016-stream-em-memoria.md
 - specs/decisions/0017-request-reply-e-conn-id.md
 - specs/decisions/0018-tamanho-dos-eventos.md
+- specs/decisions/0032-campos-da-auditoria-de-2026-11.md
+- specs/decisions/0033-orcamento-de-memoria-de-entrada-do-web.md
+- specs/decisions/0034-tetos-e-falhas-do-store.md
+- specs/decisions/0035-tetos-do-raw-e-do-dns.md

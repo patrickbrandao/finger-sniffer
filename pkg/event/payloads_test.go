@@ -90,7 +90,7 @@ func TestPayloadsMatchAsyncAPI(t *testing.T) {
 		{"WebSocketFramePayload", WebSocketFrame{
 			MaskKeyHex: &s,
 			Upgrade:    &WebSocketUpgrade{Over: "h2", Extensions: &s, Subprotocol: &s},
-			Close:      &WebSocketClose{By: "client", Code: &n, Reason: &s},
+			Close:      &WebSocketClose{By: "client", Code: &n, Reason: &s}, UpgradeOnly: true,
 		}},
 		{"TLSHandshakePayload", TLSHandshake{
 			Negotiated: &TLSNegotiated{ALPN: &s}, HandshakeMs: &f, Alerts: []TLSAlert{{Dir: DirectionOut}},
@@ -101,6 +101,7 @@ func TestPayloadsMatchAsyncAPI(t *testing.T) {
 		{"HTTP3Info", HTTP3Info{
 			InitialFrames: []string{"CRYPTO"}, TransportParams: []TransportParam{{ID: 1, Name: "max_idle_timeout", ValueHex: "00"}},
 			ClientHello: json.RawMessage(`{}`), H3Settings: [][2]uint64{{1, 0}}, H3ControlStreamSeen: true,
+			TransportParamsTruncated: true, H3SettingsTruncated: true,
 			Close: &HTTP3Close{By: "client", How: QUICCloseConnection, ErrorCode: &u, Reason: &s}, Requests: []HTTP3Request{},
 		}},
 		{"HTTP3Request", HTTP3Request{PseudoOrder: []string{":method"}, Fields: []QPACKField{}, JA4H: &s, Controls: json.RawMessage(`{}`)}},

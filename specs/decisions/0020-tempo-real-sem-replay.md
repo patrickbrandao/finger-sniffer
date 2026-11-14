@@ -1,6 +1,6 @@
 # 0020 — Tempo real em memória, sem replay, com descarte por cliente
 
-Status: aceita
+Status: aceita (teto de bytes das filas, SSE sem prazo e prazo de 30 s do WebSocket: ver 0034)
 Data: 2026-11-09
 
 ## Contexto
