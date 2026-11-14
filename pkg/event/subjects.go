@@ -1,6 +1,6 @@
 package event
 
-// Subjects do barramento (fs.v1.<origem>.<tipo>), conforme eventbus/nats/asyncapi.yaml 0.3.0.
+// Subjects do barramento (fs.v1.<origem>.<tipo>), conforme eventbus/nats/asyncapi.yaml.
 const (
 	SubjectCapturePacket      = "fs.v1.capture.packet"
 	SubjectWebTLSClientHello  = "fs.v1.web.tls.client_hello"
