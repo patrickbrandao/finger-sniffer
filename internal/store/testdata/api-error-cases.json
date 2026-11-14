@@ -79,6 +79,9 @@
   ],
   "untestable": {
     "getHealth 500": "o handler não tem caminho de erro (monta e serializa o Health em memória); 500 só viria de pânico, que o net/http transforma em conexão derrubada",
-    "getOpenAPI 500": "o contrato é embutido no binário e escrito direto; não há erro a provocar"
+    "getOpenAPI 500": "o contrato é embutido no binário e escrito direto; não há erro a provocar",
+    "getProbe 503": "teto de esperas `wait` simultâneas ainda não implementado (task 152, ADR 0032); a tarefa troca este motivo por um caso na tabela",
+    "getConnectionPcap 503": "teto de downloads de BLOB simultâneos ainda não implementado (task 129, ADR 0032); a tarefa troca este motivo por um caso na tabela",
+    "getConnectionRaw 503": "teto de downloads de BLOB simultâneos ainda não implementado (task 129, ADR 0032); a tarefa troca este motivo por um caso na tabela"
   }
 }

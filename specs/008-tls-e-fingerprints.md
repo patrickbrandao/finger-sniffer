@@ -17,10 +17,14 @@ TLS (web e raw) e para o ClientHello dentro do QUIC Initial (spec 011). Técnica
   signature_algorithms, supported_versions, key_share (grupos e tamanhos), psk_key_exchange_modes,
   pre_shared_key/early_data (retomada, 0-RTT), padding (tamanho), compress_certificate, record_size_limit,
   application_settings (ALPS), encrypted_client_hello (presença), session_ticket, status_request,
-  delegated_credentials; nomes legíveis pela tabela IANA própria (`pkg/iana`).
+  delegated_credentials; nomes legíveis pela tabela IANA própria (`pkg/iana`). Para o evento caber em 900 KiB
+  (ADR 0018), o produtor (web e raw) reduz as listas analisadas e corta as strings longas `ja3`, `ja3n`, `ja4_r` e
+  `ja4_o`, marcando `lists_truncated`; o evento nunca é descartado por tamanho, e o ClientHello cru segue em
+  `client_hello_b64` e no fluxo `in` (ADR 0032).
 - RF-03: fingerprints (`pkg/fingerprint`): **JA3** (texto e MD5), **JA3N** (extensões ordenadas), **JA4**,
   **JA4_r**, **JA4_o**, **JA4 stable** (sem extensões dependentes de estado, como no fingerproxy). Prefixo `t` para
-  TCP, `q` para QUIC.
+  TCP, `q` para QUIC. Calculados sempre sobre o ClientHello completo, antes de qualquer corte da RF-02, e só
+  quando ele foi analisado sem erro, em TCP e em QUIC; com erro de parse os fingerprints ficam vazios.
 - RF-04: resultado do handshake: versão, cifra, grupo e ALPN negociados, retomada, tempo de handshake (`handshake_ms`, milissegundos em float, como as demais durações do contrato),
   alertas (nível e descrição) dos dois sentidos durante o handshake (ADR 0029): primeiro todo registro de alerta
   (tipo `0x15`) em texto claro visto nos bytes de cada sentido, com nível e descrição exatos dos bytes, na ordem
@@ -53,3 +57,4 @@ Pertencem ao registro da conexão (store).
 - specs/decisions/0010-licenca-apache-e-ja4plus.md
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0029-campos-da-auditoria-de-requisitos.md
+- specs/decisions/0032-campos-da-auditoria-de-2026-11.md

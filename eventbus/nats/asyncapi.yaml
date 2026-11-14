@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.4.1
+  version: 0.5.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
@@ -27,7 +27,11 @@ info:
     `LiveEvent.ts` lá, ADR 0025; 0.4.0, aditivo nas duas: `request_started_at`, `request_ended_at`,
     `response_started_at` e `response_ended_at` nos payloads de `http1.request`, `http2.stream` e
     `http3.request`, e a origem dos `alerts` do `tls.handshake` descrita, ADR 0029; 0.4.1, documental nas duas:
-    quando cada instante é nulo, descrito nos esquemas do openapi).
+    quando cada instante é nulo, descrito nos esquemas do openapi; o openapi 0.5.0 não mexeu em payload daqui;
+    0.5.0, aditivo, com o openapi 0.6.0, ADR 0032: `upgrade_only` no `WebSocketFramePayload`,
+    `request_line.target_truncated` no `HTTP1Request`, `lists_truncated` no `TLSInfo`,
+    `transport_params_truncated` e `h3_settings_truncated` no `HTTP3Info`, e as descrições de `stream_id` 0 e
+    `status` 0 no `HTTP2Stream`, de `probe_line` no `RawInfo` e de `rate_limited` no `DNSQuery`).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -252,6 +256,8 @@ components:
         reserved: { type: boolean, description: "true se o ID foi reservado (a conexão ainda não existia no store)." }
     WebSocketFramePayload:
       type: object
+      description: |
+        Um frame visto pelo web, ou (com `upgrade_only`) só o Upgrade de uma sessão que terminou sem nenhum frame.
       properties:
         dir: { type: string, enum: [in, out] }
         opcode: { type: integer }
@@ -268,6 +274,13 @@ components:
             path: { type: string }
             extensions: { type: [string, "null"] }
             subprotocol: { type: [string, "null"] }
+        upgrade_only:
+          type: boolean
+          description: |
+            `true` quando a sessão terminou sem nenhum frame que levasse o `upgrade` (o cliente fechou logo depois
+            do 101): o evento traz só `upgrade` e campos de frame zerados (`dir: in`, `opcode: 0`, `length: 0`,
+            `close: null`); o store preenche o `websocket` e não acrescenta frame (ADR 0032). Implantar o store
+            antes do web ou junto. Ausente = `false`.
         close:
           type: [object, "null"]
           description: |
@@ -356,7 +369,8 @@ components:
         | frame | cap_len bytes | frame Ethernet completo (L2) |
 
         Cabeçalho do registro: 20 bytes. A mensagem não tem cabeçalho de arquivo; o número de registros
-        vai no cabeçalho NATS `Fs-Count`.
+        vai no cabeçalho NATS `Fs-Count`. O store confere `Fs-Format` e `Fs-Schema-Version` antes de decodificar
+        (divergência → lote descartado e contado) e compara `Fs-Count` com os registros lidos (ADR 0034).
       headers:
         type: object
         required: [Fs-Schema-Version, Fs-Service, Fs-Service-Version, Fs-Format, Fs-Count]

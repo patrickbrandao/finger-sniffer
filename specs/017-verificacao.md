@@ -27,7 +27,8 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 
 ### Nível completo (sob pedido, antes de PR e de release; CI sempre)
 - RF-08: `golangci-lint run ./...`, `gofumpt -l`, `go vet ./...`, validação dos contratos (`openapi.yaml` com
-  Redocly CLI e `asyncapi.yaml` com AsyncAPI CLI, via `npx`, versões fixadas; erros falham, avisos não; os
+  Redocly CLI e `asyncapi.yaml` com AsyncAPI CLI, com as dependências travadas por `package-lock.json` e instaladas com
+  `npm ci --ignore-scripts`; erros falham, avisos não; os
   `examples` de cada mensagem do asyncapi validados contra o payload por um script próprio (JSON Schema 2020-12),
   porque o AsyncAPI CLI só confere exemplos de documentos 2.x — no quick, só quando um dos dois contratos ou um
   exemplo referenciado mudou), `go test -race -cover ./...` (banco isolado:
@@ -37,7 +38,9 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
   build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados na vps602 por ssh.
 - RF-09: `--e2e` acrescenta a matriz abaixo contra a vps602 (exige deploy da versão em teste).
 - RF-10: para na primeira falha.
-- RF-11: CI (GitHub Actions) roda `verify-full` sem `--e2e` e sem `linux_priv` em todo PR e na `main`.
+- RF-11: CI (GitHub Actions) roda `verify-full` sem `--e2e` e sem `linux_priv` em todo PR e na `main`. Toda action
+  dos workflows é fixada pelo SHA de 40 caracteres do commit da release, com a tag em comentário (nunca tag nem
+  branch, que são mutáveis).
 
 ### Níveis de teste
 - RF-12: unidade com golden files: pcaps da FoxIO (portados do `ja4pcap`) e capturas próprias de curl, Go, Chrome e

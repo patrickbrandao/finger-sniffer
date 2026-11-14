@@ -21,18 +21,22 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   avulsos", consultáveis por janela de tempo. Regra: fluxo TCP que nunca completou o handshake (sem SYN-ACK — inclui
   SYN recusado com RST e varreduras) e fluxo UDP sem nenhuma resposta viram avulsos quando terminam.
 - RF-04: pcap por conexão (dois sentidos), teto `FS_PCAP_MAX_BYTES_PER_CONN` (16 MiB); acima disso guarda só os
-  cabeçalhos dos pacotes e marca `pcap_truncated`.
+  cabeçalhos dos pacotes e marca `pcap_truncated`. Os registros "só cabeçalhos" têm orçamento próprio de mais
+  `FS_PCAP_MAX_BYTES_PER_CONN` bytes; esgotado, o pacote não entra no pcap (a análise IP/TCP já o contou). A
+  recuperação de órfãs do reinício aplica o mesmo teto e grava `pcap_truncated` correto (ADR 0034).
 - RF-05: persistência em SQLite (modernc, WAL) — registros, índices e **BLOBs** (pcap, bytes crus de cada sentido).
   Schema em [database/sqlite/migrations/](../database/sqlite/migrations/) aplicado por goose embutido no start.
 - RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (2 GiB): o primeiro atingido expurga o mais
-  antigo, em lotes, com `incremental_vacuum`.
+  antigo, em lotes, com `incremental_vacuum`. O expurgo por tamanho cobre `connections` (com as filhas),
+  `dns_queries` e `stray_packets`, do mais antigo para o mais novo, e só desiste quando nada mais pode ser apagado
+  (ADR 0034).
 - RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
   e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês. Escuta em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`
   e em `127.0.0.1` (diagnóstico local), nunca em `*` (ADR 0001, ADR 0023).
 - RF-08: tempo real: SSE `GET /api/v1/stream` e WebSocket `GET /api/v1/ws`, filtros `probe`, `src_ip`,
   `dst_port`, `kind`; sem filtro = feed global. Hub em memória após o commit, sem replay, fila por cliente
-  `FS_LIVE_BUFFER` (1024) com descarte e `stream.dropped`, até `FS_LIVE_MAX_CLIENTS` (64) clientes (ADR 0020).
-  Detalhes em "Tempo real".
+  `FS_LIVE_BUFFER` (1024) com descarte e `stream.dropped`, até `FS_LIVE_MAX_CLIENTS` (64) clientes (ADR 0020);
+  fila também limitada em bytes, 4 MiB por cliente e 64 MiB somando todas (ADR 0034). Detalhes em "Tempo real".
 - RF-09: health agregado: heartbeat de cada serviço (5 s; `down` após 15 s sem heartbeat), versões
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
@@ -48,7 +52,14 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     pacotes fora de ordem não recarregam; tentativa que vira avulso (SYN recusado ou sem resposta) devolve a ficha;
   - o limite de simultâneas só degrada quando o excesso (vivas ≥ `FS_MAX_CONNS`) dura mais de 200 ms no tempo de
     captura (ADR 0027): a rajada de SYNs à frente dos FINs depois de uma pausa da rede não degrada; o excesso
-    dentro da janela fica limitado pelo balde de novas/s; `FS_MAX_CONNS=0` degrada tudo, sem janela.
+    dentro da janela fica limitado pelo balde de novas/s; `FS_MAX_CONNS=0` degrada tudo, sem janela. O zero só
+    tem esse significado no store: o web e o raw, que leem o mesmo env, tratam `FS_MAX_CONNS` ≤ 0 como o padrão
+    deles (250), com aviso no log (ADR 0034).
+- RF-11a: tabela de fluxos com teto (ADR 0034): no máximo 8192 conexões e fluxos em memória. Com a tabela cheia,
+  uma 5-tupla nova despeja a entrada não estabelecida mais antiga (TCP sem o ACK do handshake, UDP não-QUIC sem
+  resposta), sem gravar registro nem avulso dela; sem entrada a despejar, a 5-tupla nova é recusada (nenhuma
+  linha em `connections`, `packets` ou `stray_packets`). Os dois casos contam em
+  `fs_store_flows_dropped_total{reason=evicted|table_full}`. Sem limite por IP.
 - RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95, TCP e QUIC; no QUIC
   o fim é o `http3.connection` com `close`, ADR 0026); evento ao vivo < 1 s (p99), medidos como na
   ADR 0022 (`ts` do evento ao vivo pela ADR 0025). Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
@@ -57,7 +68,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 ## Comportamento
 - Fim de conexão (ADR 0026): RST fecha na hora; FIN dos dois lados fecha no ACK final (os dois FIN confirmados)
   ou, sem ele, depois de `FS_TCP_CLOSE_GRACE` (padrão 100 ms; aceita 0–500 ms, fora disso o store não sobe);
-  ociosidade > `idle` + 30 s sem pacotes.
+  ociosidade sem pacotes: TCP estabelecido, `max(FS_IDLE_DEFAULT, FS_IDLE_MAX)` + 30 s (630 s com os padrões, para
+  não fechar antes do web uma conexão com `idle=`); TCP que não completou o handshake, 10 s (ADR 0034); UDP e
+  QUIC como abaixo.
 - Pacotes tardios: até 2 s depois do fim (instante de captura), pacotes da mesma 5-tupla (TCP: ACK, RST depois do
   FIN; QUIC: datagramas da mesma 5-tupla/DCID) entram no pcap e nos totais do registro já gravado e contam em
   `fs_store_late_packets_total`; não viram conexão nova nem avulso. SYN novo (TCP) ou Initial com DCID novo (QUIC)
@@ -68,6 +81,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   - evento sem conexão ainda: espera até 2 s numa fila pendente; depois disso, cria a conexão só com os dados do
     evento (sem pacotes: `times.syn` nulo, sem `ip`/`tcp`, sem pcap) — é o caso do capture fora do ar;
   - evento de conexão já finalizada (até `FS_RETENTION`): atualiza o registro gravado;
+  - evento cuja conexão não existe mais no banco (expurgada): segue a regra do evento sem conexão; evento de
+    conexão de um probe apagado pelo `DELETE` é descartado (ADR 0034);
   - todo evento é guardado em `app_events`; os fluxos (`stream.bytes`, `raw.read`) vão para `raw_streams`.
 - Montagem do registro a partir dos eventos:
 
@@ -77,10 +92,10 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 | `web.tls.handshake` | `tls.negotiated`, `tls.handshake_ms`, `tls.alerts`, `times.tls_done` | funde no `tls` |
 | `web.http1.request` | `http[]` | acrescenta, ordenado por `index`; `requests` = total h1+h2+h3 |
 | `web.http2.connection` | `http2` (nível de conexão) | a última versão vale; preserva `streams` |
-| `web.http2.stream` | `http2.streams[]` | acrescenta ou substitui por `stream_id` |
+| `web.http2.stream` | `http2.streams[]` | acrescenta ou substitui por `stream_id`; `stream_id` 0 (stream não identificado pelo web) sempre acrescenta (ADR 0032) |
 | `web.http3.connection` | `http3` (nível de conexão), `tls` (= `http3.client_hello`), `times.tls_done` | a última versão vale; preserva `requests`; com `close` preenchido, fecha a conexão `FS_TCP_CLOSE_GRACE` depois (ADR 0026) |
 | `web.http3.request` | `http3.requests[]` | acrescenta ou substitui por `stream_id`; conta em `requests` |
-| `web.websocket.frame` | `websocket` | o primeiro frame com `upgrade` preenche `over/path/extensions/subprotocol`; frames acrescentados (teto da ADR 0018, `frames_truncated`); `close` preenche `websocket.close` |
+| `web.websocket.frame` | `websocket` | o primeiro frame com `upgrade` preenche `over/path/extensions/subprotocol`; frames acrescentados (teto da ADR 0018, `frames_truncated`); `close` preenche `websocket.close`; `upgrade_only` (sessão sem frames) preenche `over/path/extensions/subprotocol` e não acrescenta frame (`frames: []`, ADR 0032) |
 | `raw.session`, `web.raw.session` | `raw` | substitui |
 | `web.stream.bytes`, `raw.read` | `raw_streams`, `raw_truncated` | grava o pedaço pelo `offset`; `truncated` marca o sentido |
 | `dns.query` | tabela `dns_queries` | `conn_id` preenchido quando `proto=tcp` e houver conexão |
@@ -104,6 +119,12 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   primeira conexão aparecer e fechar (ex.: o resolvedor do cliente ou de um proxy já consultou o nome, mas a
   conexão ainda não chegou). No fim do prazo: 200 com o estado atual (`all_closed` = nenhuma conexão aberta) ou 404 se o probe não tem nada. Sem
   `wait`, responde na hora como antes.
+  - Teto da resposta (ADR 0032, decisão do humano): no máximo as 1000 primeiras conexões (por início) e as 1000
+    primeiras consultas DNS (por instante), com `truncated: true` quando alguma lista foi cortada; o restante fica
+    em `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`. O critério do `wait` e `all_closed` olham o
+    conjunto inteiro.
+  - No máximo 64 `wait` simultâneos no store; acima, `503` na hora com `Retry-After: 1`. A volta do laço lê só o
+    estado das conexões; o registro completo é lido uma vez, ao sair.
   - Parâmetros do critério (ADR 0029): `min_conns` (1–1000, padrão 1) exige ao menos essa quantidade de
     conexões; `settle` (duração Go `0s`–`10s`, padrão `0s`) exige também que nenhuma conexão do probe tenha sido
     criada, correlacionada ao probe ou fechada nos últimos `settle` (relógio do store, do instante em que ele
@@ -112,14 +133,36 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     presença do parâmetro: `wait=0s` é um `wait` válido, avalia o critério uma vez, responde na hora e traz
     `wait_met`. Para
     o conjunto completo de uma sondagem, o uso recomendado é `wait=30s&settle=1s` (acima dos 500 ms do RNF-04).
+- `DELETE /api/v1/probes/{id}` (ADR 0034): numa transação, apaga as conexões fechadas do probe (com as filhas),
+  as consultas DNS e o probe. As conexões abertas do probe somem na hora de todas as leituras (por probe, lista,
+  detalhe e tempo real) e a linha é apagada quando a conexão fecha; até lá o store guarda esses `conn_id` em
+  memória e descarta eventos e pacotes que chegarem para eles. Tráfego novo com o mesmo probe ID cria um probe
+  novo.
+- Downloads de BLOB (`/pcap`, `/raw`; ADR 0032): no máximo 4 em andamento somando as duas rotas; acima, `503`
+  com `Retry-After: 1`. Cada resposta tem prazo de escrita de 60 s (por resposta, nunca global).
+- Falha no ingest (ADR 0034):
+  - erro de SQL em qualquer item aborta a transação do lote (rollback) e o lote volta por `Nak`; só o lote FSPB
+    malformado (curto, ou `Fs-Format`/`Fs-Schema-Version` diferentes de `fspb1`/`1`, conferidos antes de
+    decodificar) é descartado com `Ack` e conta em `store_bad_batches_total`; `Fs-Count` diferente dos registros
+    lidos só gera aviso e `store_batch_count_mismatch_total`;
+  - o rollback desfaz também a tabela de fluxos: conexões criadas pelo lote são reinseridas na reentrega;
+  - conexões que fecharam no lote só saem da fila de finalização depois do commit; falha na finalização → nova
+    tentativa uma a uma, até 5, depois a linha é fechada com `ended_ns` e o que houver;
+  - erro depois do commit nunca vira `Nak` (só log; o lote já está gravado);
+  - a retenção expurga também linhas com `ended_ns` nulo que já não estão na tabela de fluxos e são mais velhas
+    que `FS_RETENTION` + a ociosidade máxima do TCP;
+  - sem `MaxDeliver`/`BackOff` no consumidor (ADR 0016 mantida).
 - Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
   openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
-  ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno. Toda rota do
+  ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno; 503 com
+  `Retry-After` acima do teto de `wait` (`/probes/{id}`) ou de downloads (`/pcap`, `/raw`). Toda rota do
   openapi declara os códigos que devolve (contrato 0.3.3; 0.3.4 descreve o `LiveEvent.ts`; 0.3.5, o `ts` do `packet.stray`, ADR 0026;
   0.4.0, aditivo: instantes por requisição, `ip.packets`, `settle`/`min_conns`/`wait_met`, ADR 0029; 0.4.1,
   documental: nulos dos instantes e `wait=0s`; 0.5.0, aditivo: `ip.src_kind`, `tcp.syn_mss`, `tcp.mtu_implied`,
-  `tcp.mss_reduction`, ADR 0031).
+  `tcp.mss_reduction`, ADR 0031; 0.6.0, aditivo: `truncated` no probe, os 503, `target_truncated`,
+  `lists_truncated`, `transport_params_truncated`, `h3_settings_truncated`, `websocket` sem frames e descrições,
+  ADR 0032; asyncapi 0.5.0 com `upgrade_only`).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
@@ -145,10 +188,15 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   `stream.dropped` → envio. Os tempos do fato ficam em `data.started`/`data.ended`.
 - `conn_id` e `probe_id` do envelope do `LiveEvent` preenchidos quando houver. Filtros: `probe` (= `probe_id`),
   `src_ip` (cliente; para `dns.query`, o resolvedor), `dst_port` (porta do espelho; `dns.query` = 53), `kind`
-  (lista por vírgula). Filtro inválido → 400 antes do upgrade/stream.
+  (lista por vírgula dos 6 tipos filtráveis; `stream.dropped` não é filtrável, é sempre entregue a quem perdeu
+  eventos e pedi-lo dá 400). Filtro inválido → 400 antes do upgrade/stream.
 - SSE: `event: <kind>`, `data: <JSON>`, comentário `: ping` a cada 15 s, `Cache-Control: no-store`, flush por
   evento. WS: uma mensagem de texto por evento, ping a cada 30 s, mensagens do cliente ignoradas, fecha com 1001
   no desligamento.
+- Fila por cliente (ADR 0034): além de `FS_LIVE_BUFFER` eventos, no máximo 4 MiB por cliente e 64 MiB somando as
+  filas de todos (cada evento conta em cada fila em que está); acima, o evento é descartado para aquele cliente e
+  entra no `stream.dropped`. O SSE não tem prazo de escrita (cliente lento perde eventos, não a conexão, ADR 0020);
+  o WebSocket encerra o cliente que não aceita uma escrita em 30 s.
 - Mais de `FS_LIVE_MAX_CLIENTS` clientes → 503. A latência ingest → cliente entra na métrica
   `fs_store_live_delay_seconds` (`ts` do `LiveEvent` até o envio).
 
@@ -162,6 +210,8 @@ Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no h
 `quic_close` = close do web, `idle` = ociosidade; os três pré-criados; a meta RNF-01 é lida em `close` e
 `quic_close`, ADR 0026), `fs_store_live_clients{transport=sse|ws}`, `fs_store_live_events_total{kind}`,
 `fs_store_live_dropped_total`, `fs_store_live_delay_seconds` (histograma),
+`fs_store_flows_dropped_total{reason=evicted|table_full}`, `fs_store_ingest_errors_total`,
+`fs_store_finalize_retries_total`, `fs_store_batch_count_mismatch_total` (ADR 0034),
 `fs_store_api_requests_total{route,code}` e `fs_store_api_request_duration_seconds{route}` (histograma; `route` =
 padrão do mux, nunca o caminho com IDs).
 
@@ -172,14 +222,14 @@ Contrato: [cmd/finger-sniffer-store/openapi.yaml](../cmd/finger-sniffer-store/op
 | Método e caminho | Retorno |
 | --- | --- |
 | `GET /api/v1/health` | `{"ok":true,"version":"...","services":{...},"host":{...}}` |
-| `GET /api/v1/probes/{id}?wait=10s` | todas as conexões e consultas DNS do probe, completas |
+| `GET /api/v1/probes/{id}?wait=10s` | conexões e consultas DNS do probe, completas, até 1000 de cada (`truncated` acima; ADR 0032) |
 | `GET /api/v1/connections?src_ip=&dst_port=&since=&until=&probe=&limit=` | lista resumida |
 | `GET /api/v1/connections/{conn_id}` | registro completo (specs 008–013) |
-| `GET /api/v1/connections/{conn_id}/pcap` | pcap da conexão (`application/vnd.tcpdump.pcap`) |
-| `GET /api/v1/connections/{conn_id}/raw?dir=in\|out` | bytes de aplicação de cada sentido (`out` = o que o espelho mandou) |
+| `GET /api/v1/connections/{conn_id}/pcap` | pcap da conexão (`application/vnd.tcpdump.pcap`); 503 acima de 4 downloads |
+| `GET /api/v1/connections/{conn_id}/raw?dir=in\|out` | bytes de aplicação de cada sentido (`out` = o que o espelho mandou); 503 acima de 4 downloads |
 | `GET /api/v1/dns?probe=&since=` | consultas DNS |
-| `GET /api/v1/packets?since=&until=&src_ip=` | pacotes avulsos |
-| `DELETE /api/v1/probes/{id}` | apaga o probe e suas conexões |
+| `GET /api/v1/packets?since=&until=&src_ip=` | pacotes avulsos; `src_ip` = IP do cliente (origem com `dir=in`, destino com `dir=out`) |
+| `DELETE /api/v1/probes/{id}` | apaga o probe, suas conexões e consultas DNS (abertas: ocultas já, apagadas ao fechar) |
 | `GET /api/v1/stream` | SSE |
 | `GET /api/v1/ws` | WebSocket |
 | `GET /api/v1/openapi.yaml` | contrato |
@@ -204,7 +254,9 @@ para clientes da API.
 Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql)): `probes`, `connections`
 (registro completo em `record_json`), `packets` (BLOB por pacote até a conexão fechar), `pcaps` (BLOB),
 `app_events`, `raw_streams` (BLOB), `dns_queries`, `stray_packets`. Tabelas filhas com `ON DELETE CASCADE`
-sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme RF-06. O store abre o banco com
+sobre `connections`, para o expurgo apagar tudo de uma vez. O `record_json` de uma conexão aberta é o da criação
+(ou da última mudança de `proto`/`probe`); a API sobrepõe o estado ao vivo da tabela de fluxos em toda leitura
+de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06. O store abre o banco com
 `foreign_keys=ON`, `journal_mode=WAL` e `auto_vacuum=INCREMENTAL`.
 
 ## Critérios de aceite
@@ -246,3 +298,5 @@ sobre `connections`, para o expurgo apagar tudo de uma vez. Retenção conforme 
 - specs/decisions/0025-ts-dos-eventos-ao-vivo.md
 - specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md
 - specs/decisions/0030-margem-do-modo-degradado.md
+- specs/decisions/0032-campos-da-auditoria-de-2026-11.md
+- specs/decisions/0034-tetos-e-falhas-do-store.md

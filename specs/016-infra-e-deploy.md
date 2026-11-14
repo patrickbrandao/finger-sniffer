@@ -50,10 +50,15 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
 - RF-10: compila os 5 binários (linux/amd64, ldflags com versão/commit) → rsync do repositório inteiro para
   `root@vps602.tmsoft.com.br:/finger-sniffer` (porta 48022), excluindo `.git/`, `tasks/`, `tmp/`, `var/`, `.grill/`,
   `etc/*.env` → instala usuário, units, sysctl, journald, NATS → aplica rede → `systemctl daemon-reload` →
-  reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 5 serviços `ok`, `GET :80/`,
+  reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 5 serviços presentes e nenhum
+  `down`; `degraded` só passa por motivo da lista de tolerados do smoke — hoje `cert_self_signed` —, com `AVISO`
+  e os `reasons` no log, e reprova por qualquer outro; `GET :80/`,
   `GET :443/` com TLS válido, `Alt-Svc: h3` na resposta da 443 e listener UDP 443 do web de pé — `ss -Hlun` na
   vps602; com um cliente h3 disponível no Mac, também um `GET` por h3).
-- RF-11: idempotente; trava remota `flock /run/finger-sniffer/deploy.lock` (espera até 5 min).
+- RF-11: idempotente; trava remota `flock /run/finger-sniffer/deploy.lock` (espera até 5 min). O deploy grava, por
+  unit, o hash da configuração aplicada (unit + env ou `nats.conf`); um deploy com `SVC` reinicia só o serviço
+  pedido, e a configuração que ele instalou para os demais é aplicada no deploy completo seguinte, que reinicia
+  toda unit cujo hash mudou.
 - RF-12: sem aprovação (servidor de testes).
 
 ## Interfaces e contratos

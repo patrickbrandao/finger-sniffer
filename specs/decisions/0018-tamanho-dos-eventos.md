@@ -1,6 +1,6 @@
 # 0018 — Tamanho dos eventos de aplicação e bytes completos pelo fluxo
 
-Status: aceita
+Status: aceita (cortes do alvo HTTP/1, das listas do ClientHello e das listas do h3 marcados: ver 0032)
 Data: 2026-11-08
 
 ## Contexto

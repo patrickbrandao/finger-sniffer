@@ -12,7 +12,8 @@ NATS para o store correlacionar e analisar. Não analisa nada além do necessár
   (`FS_CAPTURE_SNAPLEN`, padrão 65535), nos dois sentidos, na interface `FS_CAPTURE_IFACE` (eth0).
 - RF-02: filtro BPF exclui as portas `FS_CAPTURE_EXCLUDE_PORTS` (padrão 48022, 48161, 9000, 9001) em TCP e UDP,
   origem ou destino. Todo o resto entra: TCP, UDP, ICMP/ICMPv6, fragmentos, inclusive fluxos iniciados pelo próprio
-  servidor (ACME, NTP, apt).
+  servidor (ACME, NTP, apt), e inclusive frames truncados pelo snaplen (o filtro não pode depender de bytes além
+  do capturado para descartar).
 - RF-03: cada pacote vira um registro do lote `fs.v1.capture.packet` em formato binário FSPB v1 (ADR 0015):
   timestamp do kernel (ns UTC), direção (`in`/`out`), flags, tamanho no fio e o frame Ethernet completo. A
   5-tupla é extraída do frame pelo store.

@@ -23,7 +23,9 @@ navegadores. Somos autoritativos de `dns-monitor`, então o DNS-01 é respondido
   Web, raw e store leem só `FS_CERT_DIR`, pelo pacote comum `pkg/certs`, com recarga a quente (fsnotify, técnica do
   certwatcher do fingerproxy). `pkg/certs` também tem a configuração TLS fixa do servidor (spec 008 RF-06), a
   escolha por SNI (RF-07), o autoassinado em memória quando falta arquivo e o estado dos certificados para o
-  health (`host.certificates`, `host.tls_server`).
+  health (`host.certificates`, `host.tls_server`). Um par que continua inválido é relido com espera dobrando (de
+  0,5 s até o intervalo de varredura), zerada na recarga bem-sucedida ou em evento de um dos arquivos, e o aviso
+  sai uma vez por erro distinto.
 - RF-05: renovação automática (30 dias antes). Falha: mantém o anterior; sem nenhum, gera autoassinado; tenta de
   novo com backoff até 1 h. Health `degraded` se faltar < 14 dias para expirar ou se estiver autoassinado.
 - RF-06: no máximo 3 emissões de produção por semana sem perguntar ao humano (spec 002); testes automatizados

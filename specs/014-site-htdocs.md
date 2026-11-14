@@ -27,8 +27,10 @@ ao vivo o feed global, sem que o fluxo de informação gere novo tráfego captur
 - A API fica em `https://vps602.tmsoft.com.br:9000` (constante no JS; com `?api=<origem>` na URL da página para
   testes, aceita só `https://` ou `http://` com porta 9000/9001). WebSocket primeiro; se falhar em 3 s, SSE; se
   cair, reconecta com espera crescente (1, 2, 4… até 30 s) e mostra o estado (live, reconnecting, paused).
-- O feed guarda no máximo 500 linhas (as mais antigas saem); pausa congela a lista sem fechar o WS (eventos que
-  chegam na pausa contam num aviso "N new"); `stream.dropped` aparece como linha de aviso.
+- O feed guarda no máximo 500 linhas (saem primeiro as linhas ocultas pelo filtro, depois as mais antigas); pausa
+  congela a lista sem fechar o WS (eventos que chegam na pausa contam num aviso "N new" e a página guarda só a
+  linha resumida de cada um, no máximo 2000, com o texto cortado em 512 caracteres); `stream.dropped` aparece como
+  linha de aviso.
 - Filtros locais (porta, protocolo, IP, probe) só escondem linhas; o filtro de probe do "run probe" pode também
   reabrir o WS com `?probe=`.
 - "run probe": probe ID de 12 caracteres `[a-z0-9]` por `crypto.getRandomValues`; dispara, em sequência,
