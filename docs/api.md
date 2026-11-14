@@ -217,7 +217,11 @@ nem bytes crus dessa conexão.
 `totals`, `ip`, `tcp` (SYN, JA4T, p0f, RTT, janela), `tls` (ClientHello cru e analisado, JA3/JA4, negociação),
 `http` (HTTP/1), `http2`, `http3`, `websocket` e `raw`. `times` é a linha do tempo TCP: num fluxo UDP o primeiro
 datagrama é o `started` e o fim é o `ended`, e `times` vem `null`, exceto no QUIC, em que traz só `tls_done`
-(spec 013 RF-01, ADR 0023). Trecho real de uma conexão `tls/http1.1` feita com curl:
+(spec 013 RF-01, ADR 0023). Um ClientHello fabricado com listas enormes (milhares de cifras, extensões ou
+grupos) não some do registro: para o evento caber em 900 KiB, o web e o raw reduzem as listas analisadas e cortam
+as strings `ja3`, `ja3n`, `ja4_r` e `ja4_o`, com `tls.lists_truncated: true`; os hashes (`ja3_md5`, `ja4` etc.)
+são sempre do ClientHello completo, que segue cru em `client_hello_b64` e no fluxo `in` (ADR 0032). Trecho real
+de uma conexão `tls/http1.1` feita com curl:
 
 ```console
 $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG | jq '{

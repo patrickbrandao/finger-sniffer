@@ -101,7 +101,15 @@ func (s *session) publishClientHello(tc *tlsparse.Conn) {
 			s.probeID = h.ID
 		}
 	}
-	s.em.publish(event.SubjectWebTLSClientHello, time.Now(), s.probeID, info)
+	// Listas cortadas para caber no teto, com lists_truncated; os fingerprints já vêm do ClientHello
+	// completo (ADR 0032). O que ainda passar do teto é descartado em publishData.
+	ts, probeID := time.Now(), s.probeID
+	data := info.Fit(func(in *tlsparse.Info) []byte {
+		return s.em.encode(event.SubjectWebTLSClientHello, ts, probeID, in)
+	}, event.MaxEventBytes)
+	if data != nil {
+		s.em.publishData(event.SubjectWebTLSClientHello, data)
+	}
 }
 
 // publishHandshake publica o resultado do handshake: negociado, tempo e alertas.
