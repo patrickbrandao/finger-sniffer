@@ -3,6 +3,7 @@ package h2passive
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"golang.org/x/net/http2/hpack"
@@ -41,14 +42,20 @@ func FuzzParse(f *testing.F) {
 }
 
 // FuzzHPACK confere o decodificador contra o do x/net: quando os dois aceitam o bloco, nomes e valores
-// têm de ser iguais.
+// têm de ser iguais; e o passivo não pode aceitar um bloco que o x/net recusa por inteiro longo demais
+// (as outras recusas só do x/net, como a do teto de campos, continuam toleradas).
 func FuzzHPACK(f *testing.F) {
+	f.Add([]byte{0x0f, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x7f, 0x00})
+	f.Add([]byte{0x0f, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00, 0x00})
 	f.Add([]byte{0x82, 0x86, 0x84, 0x41, 0x8c, 0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff})
 	f.Add([]byte{0x40, 0x01, 'a', 0x01, 'b', 0xbe, 0x10, 0x01, 'c', 0x00})
 	f.Add([]byte{0x3f, 0x09, 0x0f, 0x2b, 0x01, 'x'})
 	f.Fuzz(func(t *testing.T, b []byte) {
 		got, err := newHPACKDecoder(4096, 1<<16).decode(b)
 		want, refErr := hpack.NewDecoder(4096, nil).DecodeFull(b)
+		if err == nil && refErr != nil && strings.Contains(refErr.Error(), "varint integer overflow") {
+			t.Fatalf("passivo aceitou %d campos, x/net: %v", len(got), refErr)
+		}
 		if err != nil || refErr != nil {
 			return
 		}
