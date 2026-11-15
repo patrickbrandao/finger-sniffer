@@ -132,8 +132,9 @@ var caseFields = map[string][]string{
 		"dns.*.response.answers", "dns.*.rate_limited", "dns.*.raw_b64+",
 	},
 	"10/conn": {"proto+"},
-	// 11. TCP: relógio TSval e RTT (os campos comuns já trazem JA4T, p0f, TTL e RTT do handshake)
-	"11": {"tcp.ts_initial", "tcp.ts_clock_hz", "tcp.ts_clock_group+", "tcp.os_guess"},
+	// 11. TCP: relógio TSval e RTT (os campos comuns já trazem JA4T, p0f, TTL e RTT do handshake); ts_clock_hz pode
+	// vir null quando o erro da estimativa passaria de 5% (task 201): o caso 11 confere o valor em checkCase11
+	"11": {"tcp.ts_initial", "tcp.ts_clock_group+", "tcp.os_guess"},
 	// 12. HTTP/3
 	"12": h3Fields,
 	// 13. tempo real: cada evento do /ws com probe; conexões com o resumo

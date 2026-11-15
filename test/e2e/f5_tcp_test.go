@@ -171,8 +171,8 @@ func checkCase11(t *testing.T, runs []tcpRun) {
 		if r.rttHS <= 0 {
 			t.Errorf("execução %d: rtt_handshake_ms = %v", i+1, r.rttHS)
 		}
-		if r.hz == nil || r.tsInitial == nil || r.group == "" {
-			t.Errorf("execução %d: relógio TSval sem estimativa (hz=%s ts_initial=%s grupo=%q)", i+1, fmtF(r.hz), fmtF(r.tsInitial), r.group)
+		if r.tsInitial == nil || r.group == "" {
+			t.Errorf("execução %d: relógio TSval sem ts_initial/grupo (ts_initial=%s grupo=%q)", i+1, fmtF(r.tsInitial), r.group)
 		}
 	}
 	// RTT do handshake estável entre execuções (mesmo caminho): a maior não passa de 3× a menor + 5 ms
@@ -188,11 +188,13 @@ func checkCase11(t *testing.T, runs []tcpRun) {
 	// Cada valor publicado fica a até 5% de uma frequência nominal, a mesma em todas as execuções.
 	t.Run("ts_clock_hz", func(t *testing.T) {
 		var want float64
+		published := 0
 		for i, r := range runs {
 			if r.hz == nil {
 				t.Logf("execução %d sem ts_clock_hz (conexão curta com jitter)", i+1)
 				continue
 			}
+			published++
 			n := nearestNominalHz(*r.hz)
 			if math.Abs(*r.hz-n) > n*0.05 {
 				t.Errorf("execução %d: ts_clock_hz %.2f a mais de 5%% de %v Hz", i+1, *r.hz, n)
@@ -203,6 +205,10 @@ func checkCase11(t *testing.T, runs []tcpRun) {
 			if n != want {
 				t.Errorf("execução %d: ts_clock_hz %.2f (~%v Hz), a anterior deu ~%v Hz", i+1, *r.hz, n, want)
 			}
+		}
+		// nulo numa execução é aceito; em todas, a estimativa deixou de funcionar (task 217)
+		if published == 0 {
+			t.Errorf("nenhuma das %d execuções publicou ts_clock_hz", len(runs))
 		}
 	})
 
