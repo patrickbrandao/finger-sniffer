@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test do deploy (spec 016 RF-10), executado na vps602 pelo remote-install.sh depois dos reinícios.
+# Smoke test do deploy (spec 016 RF-10), executado no finger-01 pelo remote-install.sh depois dos reinícios.
 #
 #   SVC=""      todos os passos
 #   SVC=<svc>   só os passos daquele serviço + health (capture, store e nats só têm o health)
@@ -7,18 +7,23 @@
 # Passos: health :9001 com os 5 serviços presentes e nenhum down; degraded sai como AVISO com os reasons e só
 # passa por motivo tolerado (reason_tolerated: cert_self_signed; com SVC, também a versão desencontrada), e
 # reprova por qualquer outro (task 173); versions_match=true (sem SVC: falha; com SVC: AVISO em vermelho, porque
-# implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :80/ e GET :443/
-# (TLS estrito, salvo quando o
-# health do web aponta cert_self_signed: aí aceita com aviso); dns A de <probe>.<zona> com o IP do espelho e
-# example.com → REFUSED; raw eco na 7 e banner 220 na 25; store GET https://:9000/api/v1/health.
-# h3 (com o web): só quando o heartbeat do web anuncia h3_listening=1 (antes da task 057 o passo é pulado com aviso):
-# Alt-Svc h3 na resposta da 443, listener UDP 443 (ss -Hlun) e, se o curl local tiver HTTP3, um GET por h3.
+# implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :8080/ e GET :8443/
+# (TLS estrito, salvo quando o health do web aponta cert_self_signed: aí aceita com aviso; ADR 0038: 80/443 são do
+# traefik); dns A de <probe>.<zona> com o IP do espelho e example.com → REFUSED; raw eco na 7 e banner 220 na 25;
+# store GET https://:9000/api/v1/health.
+# h3 (com o web): só quando o heartbeat do web anuncia h3_listening=1 (senão o passo é pulado com aviso):
+# Alt-Svc h3=":8443" na resposta da 8443 (a porta é a do listener UDP, SMOKE_H3_PORT), listener UDP 8443
+# (ss -Hlun) e, se o curl local tiver HTTP3, um GET por h3 na 8443.
+# traefik (com o web): GET https://<nome>/ na 443, que o traefik encaminha por passthrough para o web (ADR 0038
+# item 6); enquanto a rota não existir sai como AVISO, e com SMOKE_TRAEFIK_REQUIRED=1 reprova (task 232).
 # Roda todos os passos selecionados e sai com 1 se algum falhar.
 #
 # Variáveis (os padrões vêm do env instalado; os testes de deploy/smoke_test.go apontam para servidores falsos):
-#   FS_ENV_FILE, SMOKE_HOST (IPv4), SMOKE_NAME (nome do certificado), SMOKE_ZONE, SMOKE_DNS_EXPECT,
-#   SMOKE_*_PORT, SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os
-#   passos selecionados, sem executar), SMOKE_H3_GET=0 (não tenta o GET por h3 mesmo com curl HTTP3).
+#   FS_ENV_FILE, SMOKE_HOST (IPv4), SMOKE_NAME (nome do certificado B; padrão: o primeiro de FS_CERT_NAMES_HTTP01),
+#   SMOKE_ZONE, SMOKE_DNS_EXPECT, SMOKE_*_PORT (SMOKE_H3_PORT: padrão a primeira de FS_WEB_UDP_PORTS),
+#   SMOKE_TRAEFIK_NAME, SMOKE_TRAEFIK_PORT (443), SMOKE_TRAEFIK_REQUIRED=1 (o passo do traefik reprova em vez de
+#   avisar), SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os passos
+#   selecionados, sem executar), SMOKE_CONFIG=1 (só mostra os alvos resolvidos), SMOKE_H3_GET=0 (não tenta o GET por h3 mesmo com curl HTTP3).
 set -uo pipefail
 
 SVC="${SVC:-}"
@@ -31,14 +36,23 @@ env_get() {
 }
 
 HOST="${SMOKE_HOST:-$(env_get FS_LISTEN_IPV4)}"
-NAME="${SMOKE_NAME:-vps602.tmsoft.com.br}"
+# first_of <lista separada por vírgula>: primeiro item, sem espaços.
+first_of() { printf '%s' "$1" | cut -d, -f1 | tr -d ' '; }
+
+NAME="${SMOKE_NAME:-$(first_of "$(env_get FS_CERT_NAMES_HTTP01)")}"
+NAME="${NAME:-finger-01.badblock.net.br}"
 ZONE="${SMOKE_ZONE:-$(env_get FS_DNS_ZONE)}"
-ZONE="${ZONE:-dns-monitor.tmsoft.com.br}"
+ZONE="${ZONE:-finger-west-01.badblock.net.br}"
 DNS_EXPECT="${SMOKE_DNS_EXPECT:-$HOST}"
 API_HTTP_PORT="${SMOKE_API_HTTP_PORT:-9001}"
 API_HTTPS_PORT="${SMOKE_API_HTTPS_PORT:-9000}"
-HTTP_PORT="${SMOKE_HTTP_PORT:-80}"
-HTTPS_PORT="${SMOKE_HTTPS_PORT:-443}"
+HTTP_PORT="${SMOKE_HTTP_PORT:-8080}"
+HTTPS_PORT="${SMOKE_HTTPS_PORT:-8443}"
+H3_PORT="${SMOKE_H3_PORT:-$(first_of "$(env_get FS_WEB_UDP_PORTS)")}"
+H3_PORT="${H3_PORT:-8443}"
+TRAEFIK_NAME="${SMOKE_TRAEFIK_NAME:-$NAME}"
+TRAEFIK_PORT="${SMOKE_TRAEFIK_PORT:-443}"
+TRAEFIK_REQUIRED="${SMOKE_TRAEFIK_REQUIRED:-0}"
 DNS_PORT="${SMOKE_DNS_PORT:-53}"
 ECHO_PORT="${SMOKE_ECHO_PORT:-7}"
 BANNER_PORT="${SMOKE_BANNER_PORT:-25}"
@@ -131,7 +145,7 @@ versions_match() { printf '%s' "$HEALTH" | grep -q '"versions_match":true'; }
 # self_signed <svc>: o health do serviço aponta certificado autoassinado?
 self_signed() { svc_block "$1" | grep -q '"cert_self_signed"'; }
 
-# h3_listening: o heartbeat do web anuncia o listener UDP 443 de pé (métrica h3_listening, task 057)?
+# h3_listening: o heartbeat do web anuncia o listener UDP de pé (métrica h3_listening, task 057)?
 h3_listening() { svc_block web | grep -Eq '"(web_)?h3_listening":1([,}]|$)'; }
 
 # h3_down: o web reporta o listener h3 caído (spec 005 RF-04)?
@@ -245,33 +259,53 @@ step_h3() {
 	hdrs=$(curl -sS $tls -o /dev/null -D - -m "$TIMEOUT" \
 		--resolve "$NAME:$HTTPS_PORT:$HOST" "https://$NAME:$HTTPS_PORT/" 2>&1) || true
 	alt=$(printf '%s\n' "$hdrs" | tr -d '\r' | grep -i '^alt-svc:' | head -n1)
-	if printf '%s' "$alt" | grep -Eqi 'h3=":?[0-9]*"'; then
+	# a porta anunciada é a do listener UDP (ADR 0038 item 3: h3=":8443" no finger-01)
+	if [ -z "$alt" ] || ! printf '%s' "$alt" | grep -qi 'h3='; then
+		bad "h3 Alt-Svc :$HTTPS_PORT" "sem Alt-Svc h3 na resposta"
+	elif printf '%s' "$alt" | grep -qiF "h3=\":$H3_PORT\""; then
 		pass "h3 Alt-Svc :$HTTPS_PORT" "${alt#*: }"
 	else
-		bad "h3 Alt-Svc :$HTTPS_PORT" "sem Alt-Svc h3 na resposta"
+		bad "h3 Alt-Svc :$HTTPS_PORT" "esperado h3=\":$H3_PORT\", veio ${alt#*: }"
 	fi
 	if command -v ss >/dev/null 2>&1; then
-		if [ -n "$(ss -Hlun "sport = :$HTTPS_PORT" 2>/dev/null)" ]; then
-			pass "h3 listener udp :$HTTPS_PORT" "ss -Hlun"
+		if [ -n "$(ss -Hlun "sport = :$H3_PORT" 2>/dev/null)" ]; then
+			pass "h3 listener udp :$H3_PORT" "ss -Hlun"
 		else
-			bad "h3 listener udp :$HTTPS_PORT" "nenhum socket UDP em :$HTTPS_PORT"
+			bad "h3 listener udp :$H3_PORT" "nenhum socket UDP em :$H3_PORT"
 		fi
 	else
-		warn "h3 listener udp :$HTTPS_PORT" "sem ss neste host: pulado"
+		warn "h3 listener udp :$H3_PORT" "sem ss neste host: pulado"
 	fi
 	if [ "${SMOKE_H3_GET:-1}" = 0 ]; then
-		warn "h3 GET :$HTTPS_PORT/" "SMOKE_H3_GET=0: pulado"
+		warn "h3 GET :$H3_PORT/" "SMOKE_H3_GET=0: pulado"
 	elif ! curl_has_http3; then
-		warn "h3 GET :$HTTPS_PORT/" "curl local sem HTTP3: pulado"
+		warn "h3 GET :$H3_PORT/" "curl local sem HTTP3: pulado"
 	else
 		# shellcheck disable=SC2086
 		out=$(curl --http3-only -sS $tls -o /dev/null -w '%{http_code} %{http_version}' -m "$TIMEOUT" \
-			--resolve "$NAME:$HTTPS_PORT:$HOST" "https://$NAME:$HTTPS_PORT/" 2>&1) || true
+			--resolve "$NAME:$H3_PORT:$HOST" "https://$NAME:$H3_PORT/" 2>&1) || true
 		if [ "$out" = "200 3" ]; then
-			pass "h3 GET :$HTTPS_PORT/" "HTTP/3 200"
+			pass "h3 GET :$H3_PORT/" "HTTP/3 200"
 		else
-			bad "h3 GET :$HTTPS_PORT/" "$out"
+			bad "h3 GET :$H3_PORT/" "$out"
 		fi
+	fi
+}
+
+# step_traefik: a página pelo traefik (passthrough TCP na 443 até o web na 8443, ADR 0038 item 6). Sem a rota
+# (antes da task 232) o traefik responde com o próprio certificado ou 404: AVISO, salvo SMOKE_TRAEFIK_REQUIRED=1.
+step_traefik() {
+	local label="traefik GET https :$TRAEFIK_PORT/" tls code
+	tls=$(curl_tls_flags web)
+	# shellcheck disable=SC2086
+	code=$(curl -sS $tls -o /dev/null -w '%{http_code}' -m "$TIMEOUT" \
+		--resolve "$TRAEFIK_NAME:$TRAEFIK_PORT:$HOST" "https://$TRAEFIK_NAME:$TRAEFIK_PORT/" 2>&1) || true
+	if [ "$code" = 200 ]; then
+		pass "$label" "HTTP 200 ($TRAEFIK_NAME${tls:+, sem validação})"
+	elif [ "$TRAEFIK_REQUIRED" = 1 ]; then
+		bad "$label" "$TRAEFIK_NAME: $code"
+	else
+		warn "$label" "$TRAEFIK_NAME: $code (rota do traefik ainda não existe? task 232)"
 	fi
 }
 
@@ -324,13 +358,18 @@ step_store() {
 }
 
 steps="health"
-selected web && steps="$steps web h3"
+selected web && steps="$steps web h3 traefik"
 selected dns && steps="$steps dns"
 selected raw && steps="$steps raw"
 selected store && steps="$steps store"
 
 if [ "${SMOKE_LIST:-0}" = 1 ]; then
 	echo "$steps"
+	exit 0
+fi
+# SMOKE_CONFIG=1: só mostra os alvos resolvidos (padrões e env instalado), para os testes
+if [ "${SMOKE_CONFIG:-0}" = 1 ]; then
+	echo "host=$HOST name=$NAME zone=$ZONE http=$HTTP_PORT https=$HTTPS_PORT h3=$H3_PORT traefik=$TRAEFIK_NAME:$TRAEFIK_PORT required=$TRAEFIK_REQUIRED"
 	exit 0
 fi
 

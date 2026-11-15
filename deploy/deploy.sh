@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Deploy na vps602 a partir do Mac (spec 016 RF-10..RF-12). Sem aprovação: servidor de testes.
+# Deploy no finger-01 a partir do Mac (spec 016 RF-10..RF-12, ADR 0038). Sem aprovação: servidor de testes; o
+# destino padrão é root@finger-01.tmsoft.com.br:48022 (FS_VPS_SSH/FS_VPS_PORT mudam).
 #
 #   make deploy            # todos os serviços (reinicia só o que mudou)
 #   make deploy SVC=web    # reinicia só o web
@@ -12,7 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-HOST="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
+HOST="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
 PORT="${FS_VPS_PORT:-48022}"
 SVC="${SVC:-}"
 FORCE="${FORCE:-0}"
@@ -26,6 +27,15 @@ case "$SVC" in
 	exit 2
 	;;
 esac
+
+# GET por h3 do Mac (fim do script): nome do certificado B e UDP 8443, porque a 443 é do traefik (ADR 0038)
+H3_NAME="${FS_SMOKE_NAME:-finger-01.badblock.net.br}"
+H3_PORT="${FS_SMOKE_H3_PORT:-8443}"
+if [ "${FS_DEPLOY_PRINT_TARGETS:-0}" = 1 ]; then
+	# só para os testes (deploy/deploy_test.go): alvos resolvidos, sem build nem ssh
+	echo "host=$HOST port=$PORT h3=$H3_NAME:$H3_PORT"
+	exit 0
+fi
 
 echo "== build"
 make -s build
@@ -42,16 +52,15 @@ echo "== instalação remota (com trava)"
 	env SVC='$SVC' FORCE='$FORCE' bash '$STAGING/deploy/remote-install.sh' '$STAGING'; rc=\$?; rm -rf '$STAGING'; exit \$rc"
 
 # GET por h3 a partir do Mac (spec 016 RF-10): só com o web anunciando h3 e um curl local com HTTP3.
-# O smoke remoto já confere Alt-Svc, o listener UDP 443 e um GET por h3 de dentro da vps602.
+# O smoke remoto já confere Alt-Svc, o listener UDP e um GET por h3 de dentro do servidor.
 if [ -z "$SVC" ] || [ "$SVC" = web ]; then
-	H3_NAME="${FS_SMOKE_NAME:-vps602.tmsoft.com.br}"
 	if ! curl -fsS -m 5 "http://$H3_NAME:9001/api/v1/health" 2>/dev/null | tr -d ' \t\r\n' |
 		grep -Eq '"(web_)?h3_listening":1([,}]|$)'; then
 		echo "== h3 do Mac: AVISO web sem h3_listening no heartbeat: pulado"
 	elif ! curl --version 2>/dev/null | grep -i '^features:' | grep -qw HTTP3; then
 		echo "== h3 do Mac: AVISO curl local sem HTTP3: pulado"
 	else
-		out=$(curl --http3-only -sS -o /dev/null -w '%{http_code} %{http_version}' -m 10 "https://$H3_NAME/" 2>&1) || true
+		out=$(curl --http3-only -sS -o /dev/null -w '%{http_code} %{http_version}' -m 10 "https://$H3_NAME:$H3_PORT/" 2>&1) || true
 		if [ "$out" = "200 3" ]; then
 			echo "== h3 do Mac: ok HTTP/3 200"
 		else

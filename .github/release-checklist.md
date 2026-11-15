@@ -6,7 +6,7 @@ Quem conduz: architect (task 072 para a `v0.1.0`). Infra mantém o processo (tas
 ## Antes
 - [ ] Tarefas da fase concluídas e mergeadas; `./tasks/` sem nada `em-andamento` para esta versão.
 - [ ] `main` local atualizada (`git checkout main && git pull`), árvore limpa.
-- [ ] `make verify-full ARGS="--e2e"` verde (inclui `linux_priv` na vps602 e a matriz da spec 017).
+- [ ] `make verify-full ARGS="--e2e"` verde (inclui `linux_priv` no finger-01 e a matriz da spec 017).
 - [ ] CI verde na `main` (jobs `verify-full` e `release-build`).
 - [ ] Teste de carga de 10 min (spec 017, ADR 0022) com as metas de RNF da spec 000 atingidas; relatório em `test/load/RESULTS.md`.
 - [ ] Conferência FoxIO `ja4`/`tshark` (JA3, JA4, JA4T, Akamai) de curl, Go, Chrome e Firefox registrada.
@@ -35,7 +35,7 @@ Quem conduz: architect (task 072 para a `v0.1.0`). Infra mantém o processo (tas
 
 ## Deploy e smoke
 - [ ] `git checkout --detach vX.Y.Z && make deploy` (o `git describe` dá `vX.Y.Z`, sem `-dirty`).
-- [ ] `ssh -p 48022 root@vps602.tmsoft.com.br /finger-sniffer/bin/finger-sniffer-web -version` mostra `vX.Y.Z`
+- [ ] `ssh -p 48022 root@finger-01.tmsoft.com.br /finger-sniffer/bin/finger-sniffer-web -version` mostra `vX.Y.Z`
       (idem para os outros 4).
-- [ ] Smoke do deploy ok e `GET http://vps602.tmsoft.com.br:9001/api/v1/health` com os 5 serviços `ok`.
+- [ ] Smoke do deploy ok e `GET http://finger-01.badblock.net.br:9001/api/v1/health` com os 5 serviços `ok`.
 - [ ] Voltar à `main` (`git checkout main`).

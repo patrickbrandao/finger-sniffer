@@ -4,7 +4,7 @@
 #   - a lista de pacotes linux_priv também ignora tmp/;
 #   - os testes linux_priv usam um diretório remoto próprio por execução e apagam só ele, inclusive com duas
 #     execuções simultâneas, falha de compilação, falha de scp e sinal.
-# O ssh/scp da vps602 é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
+# O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -165,6 +165,12 @@ done
 kill -TERM "$pe" 2>/dev/null
 wait "$pe"
 check "TERM no meio do passo não deixa diretório" '[ -s "$LOG" ] && [ "$(leftovers)" = 0 ]'
+
+# ADR 0038: o padrão do linux_priv é o finger-01 e nenhum script cita o servidor nem a zona antigos (o padrão
+# do grep é escrito com classes para não casar com esta linha)
+check "linux_priv no finger-01 por padrão" '[ "$(env -u FS_VPS_SSH -u FS_VPS_PORT bash -c ". \"\$1/scripts/verify.sh\" lib; echo \$VPS_SSH \$VPS_PORT \$VPS_LABEL" _ "$ROOT")" = "root@finger-01.tmsoft.com.br 48022 finger-01" ]'
+check "FS_VPS_SSH muda o destino e o rótulo" '[ "$(FS_VPS_SSH=root@outro.example bash -c ". \"\$1/scripts/verify.sh\" lib; echo \$VPS_SSH \$VPS_LABEL" _ "$ROOT")" = "root@outro.example outro" ]'
+check "nenhum script com o servidor ou a zona antigos" '! grep -rnE "vps[6]02|dns[-]monitor" "$ROOT/Makefile" "$ROOT/deploy" "$ROOT/scripts" "$ROOT/.github" "$ROOT/.env.example"'
 
 check "nenhum caminho fixo /tmp/fs-verify/ no verify.sh" '! grep -q "/tmp/fs-verify/" "$ROOT/scripts/verify.sh"'
 

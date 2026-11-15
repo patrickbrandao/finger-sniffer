@@ -133,15 +133,29 @@ func TestWebUnitQUIC(t *testing.T) {
 	}
 }
 
-func TestEnvExampleLiveAndUDP(t *testing.T) {
+// .env.example com os valores do finger-01 (ADRs 0038 e 0039, task 224).
+func TestEnvExampleFinger01(t *testing.T) {
 	vals, count := envMap(t, "../.env.example")
 	want := map[string]string{
 		"FS_LIVE_BUFFER":      "1024",
 		"FS_LIVE_MAX_CLIENTS": "64",
-		"FS_WEB_UDP_PORTS":    "443",
-		// limites do modo degradado com margem sobre a garantia do RNF-01 (ADR 0030)
-		"FS_MAX_CONNS":           "250",
-		"FS_MAX_NEW_CONNS_PER_S": "60",
+		// endereços, NIC e zona do finger-01 (ADR 0038 itens 1 e 2)
+		"FS_LISTEN_IPV4":           "170.247.40.86",
+		"FS_LISTEN_IPV6":           "2804:231c:e500:cafe::86",
+		"FS_CAPTURE_IFACE":         "ens192",
+		"FS_CAPTURE_EXCLUDE_PORTS": "48022,48161,9000,9001",
+		"FS_DNS_ZONE":              "finger-west-01.badblock.net.br",
+		// web fora de 80/443, que são do traefik (ADR 0038 item 3)
+		"FS_WEB_TCP_PORTS": "8080,8443",
+		"FS_WEB_UDP_PORTS": "8443",
+		// certificados A e B (ADR 0038 item 5); ACME ligado só no servidor (task 231)
+		"FS_CERT_NAMES_DNS01":  "finger-west-01.badblock.net.br,*.finger-west-01.badblock.net.br",
+		"FS_CERT_NAMES_HTTP01": "finger-01.badblock.net.br,finger-01.tmsoft.com.br",
+		"FS_ACME_ENABLE":       "0",
+		// modo degradado e teto do banco (ADR 0039 item 5)
+		"FS_MAX_CONNS":           "1000",
+		"FS_MAX_NEW_CONNS_PER_S": "250",
+		"FS_STORE_MAX_BYTES":     "8589934592",
 	}
 	for k, v := range want {
 		if vals[k] != v {
@@ -153,9 +167,10 @@ func TestEnvExampleLiveAndUDP(t *testing.T) {
 			t.Errorf("%s repetida %d vezes", k, n)
 		}
 	}
-	// o BPF do capture exclui só gerência e API: 80/443 (TCP e UDP) seguem capturados
+	// o BPF do capture exclui só gerência e API: 80/443 do traefik e as portas do web seguem capturadas
 	for _, p := range strings.Split(vals["FS_CAPTURE_EXCLUDE_PORTS"], ",") {
-		if p == "443" || p == "80" {
+		switch p {
+		case "80", "443", "8080", "8443":
 			t.Errorf("FS_CAPTURE_EXCLUDE_PORTS exclui %s", p)
 		}
 	}

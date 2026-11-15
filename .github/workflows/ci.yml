@@ -1,5 +1,5 @@
 # CI: verify-full em todo PR e na main (spec 017 RF-11, ADR 0013).
-# Sem --e2e e sem testes linux_priv (precisam da vps602).
+# Sem --e2e e sem testes linux_priv (precisam do finger-01, ADR 0038).
 name: ci
 
 on:
