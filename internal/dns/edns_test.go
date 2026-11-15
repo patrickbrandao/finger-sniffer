@@ -37,7 +37,7 @@ func optionTLVsReference(opt *mdns.OPT) []optionTLV {
 // ednsQuery monta uma consulta A com OPT e as opções dadas, empacota e desempacota como o servidor faz.
 func ednsQuery(t testing.TB, opts ...mdns.EDNS0) *mdns.Msg {
 	t.Helper()
-	m := query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA)
+	m := query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeA)
 	m.SetEdns0(1232, true)
 	opt := m.IsEdns0()
 	opt.Option = append(opt.Option, opts...)

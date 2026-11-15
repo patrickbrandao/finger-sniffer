@@ -27,7 +27,7 @@
       "cd": true,
       "ad": true
     },
-    "qname": "AbCdEfGh.dns-monitor.TMSOFT.com.br.",
+    "qname": "AbCdEfGh.finger-west-01.BADBLOCK.net.br.",
     "qtype": "A",
     "qclass": "IN",
     "edns": {
@@ -54,7 +54,7 @@
       "truncated": false,
       "answers": [
         {
-          "name": "AbCdEfGh.dns-monitor.TMSOFT.com.br.",
+          "name": "AbCdEfGh.finger-west-01.BADBLOCK.net.br.",
           "type": "A",
           "ttl": 5,
           "data": "172.233.24.85"
@@ -62,6 +62,6 @@
       ]
     },
     "rate_limited": false,
-    "raw_b64": "EjQBMAABAAAAAAABCEFiQ2RFZkdoC2Rucy1tb25pdG9yBlRNU09GVANjb20CYnIAAAEAAQAAKQTQAACAAAArAAgABwABGADIAQIACgAIAQIDBAUGBwgAAwAAAAwADAAAAAAAAAAAAAAAAA=="
+    "raw_b64": "EjQBMAABAAAAAAABCEFiQ2RFZkdoDmZpbmdlci13ZXN0LTAxCEJBREJMT0NLA25ldAJicgAAAQABAAApBNAAAIAAACsACAAHAAEYAMgBAgAKAAgBAgMEBQYHCAADAAAADAAMAAAAAAAAAAAAAAAA"
   }
 }

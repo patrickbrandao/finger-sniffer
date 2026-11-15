@@ -51,7 +51,7 @@ func goldenQueries(t *testing.T) map[string]*Query {
 	srv.RRL = nil
 
 	// 1. UDP A com caixa 0x20, EDNS com ECS, cookie, padding e uma opção sem tratamento próprio (NSID).
-	m := query("AbCdEfGh.dns-monitor.TMSOFT.com.br.", mdns.TypeA)
+	m := query("AbCdEfGh.finger-west-01.BADBLOCK.net.br.", mdns.TypeA)
 	m.Id = 0x1234
 	m.CheckingDisabled = true
 	m.AuthenticatedData = true
@@ -65,8 +65,8 @@ func goldenQueries(t *testing.T) map[string]*Query {
 	)
 	out := map[string]*Query{"udp-a-ecs": eventCase(t, srv, "udp", "198.51.100.7:40123", pack(t, m))}
 
-	// 2. TCP HTTPS sem EDNS, IPv6, com rótulo de controle.
-	m = query("t1a2b3c4.v4.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS)
+	// 2. TCP HTTPS com prefixo de porta (ADR 0038), sem EDNS, IPv6, com rótulo de controle: probe t1a2b3c4.
+	m = query("_8443._https.t1a2b3c4.v4.finger-west-01.badblock.net.br.", mdns.TypeHTTPS)
 	m.Id = 7
 	out["tcp-https-v4"] = eventCase(t, srv, "tcp", "[2001:db8::53]:51000", pack(t, m))
 
@@ -77,7 +77,7 @@ func goldenQueries(t *testing.T) map[string]*Query {
 
 	// 4. Acima do RRL: TC=1 sem dados.
 	srv.RRL = NewRRL(1, func() time.Time { return eventT0 })
-	m = query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA)
+	m = query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeAAAA)
 	m.Id = 9
 	_ = eventCase(t, srv, "udp", "198.51.100.8:5353", pack(t, m))
 	out["udp-rate-limited"] = eventCase(t, srv, "udp", "198.51.100.8:5353", pack(t, m))
@@ -134,7 +134,7 @@ func TestQueryEventFields(t *testing.T) {
 	z := newDualZone()
 	qs := goldenQueries(t)
 	d := z.BuildQuery(qs["udp-a-ecs"])
-	if d.Qname != "AbCdEfGh.dns-monitor.TMSOFT.com.br." || d.ProbeID == nil || *d.ProbeID != "abcdefgh" {
+	if d.Qname != "AbCdEfGh.finger-west-01.BADBLOCK.net.br." || d.ProbeID == nil || *d.ProbeID != "abcdefgh" {
 		t.Fatalf("qname/probe %q %v", d.Qname, d.ProbeID)
 	}
 	if d.ID != 0x1234 || !d.Flags.RD || !d.Flags.CD || !d.Flags.AD || d.Qtype != "A" || d.Qclass != "IN" {

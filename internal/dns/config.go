@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,8 +19,14 @@ import (
 
 // Valores fixos do serviço.
 const (
-	// DefaultNS é o servidor de nomes da zona (delegação no udns, ADR 0008).
-	DefaultNS = "vps602.tmsoft.com.br."
+	// DefaultZone é a zona dos probes (FS_DNS_ZONE, ADR 0038).
+	DefaultZone = "finger-west-01.badblock.net.br"
+	// DefaultNS é o servidor de nomes da zona (delegação no udns, ADR 0038).
+	DefaultNS = "finger-01.badblock.net.br."
+	// DefaultWebTCPPorts e DefaultWebUDPPorts são os padrões do web para FS_WEB_TCP_PORTS e FS_WEB_UDP_PORTS
+	// (ADR 0038), usados quando o env compartilhado não traz a variável.
+	DefaultWebTCPPorts = "8080,8443"
+	DefaultWebUDPPorts = "8443"
 	// ACMEValueTTL é por quanto tempo cada valor TXT do DNS-01 fica vivo após o set (spec 007).
 	ACMEValueTTL = 10 * time.Minute
 	// DefaultPort é a porta do autoritativo.
@@ -43,16 +50,19 @@ type Config struct {
 	RRLPerIP int
 	// ACMETTL é a validade de cada valor TXT do DNS-01.
 	ACMETTL time.Duration
-	// H3 diz se o web atende UDP 443 (FS_WEB_UDP_PORTS contém 443): o HTTPS RR anuncia alpn="h3,h2"; senão
-	// alpn="h2" (spec 007 RF-02, ADR 0019). Lido só na partida.
-	H3 bool
+	// WebTCPPorts são as portas TCP do web (FS_WEB_TCP_PORTS): cada uma ganha o HTTPS RR em _<P>._https.<nome>;
+	// a 443 o ganha no próprio <nome> (spec 007 RF-02, ADR 0038). Lido só na partida.
+	WebTCPPorts []int
+	// WebUDPPorts são as portas UDP do h3 (FS_WEB_UDP_PORTS): porta TCP também presente aqui anuncia
+	// alpn="h3,h2"; senão alpn="h2".
+	WebUDPPorts []int
 }
 
 // LoadConfig lê a configuração das variáveis FS_* (modelo em .env.example).
 func LoadConfig() (Config, error) {
 	c := Config{NS: DefaultNS, Port: DefaultPort, ACMETTL: ACMEValueTTL}
 	var err error
-	c.Zone = mdns.CanonicalName(service.Env("FS_DNS_ZONE", "dns-monitor.tmsoft.com.br"))
+	c.Zone = mdns.CanonicalName(service.Env("FS_DNS_ZONE", DefaultZone))
 	if _, ok := mdns.IsDomainName(c.Zone); !ok || c.Zone == "." {
 		return c, fmt.Errorf("dns: FS_DNS_ZONE invalid: %q", c.Zone)
 	}
@@ -68,7 +78,10 @@ func LoadConfig() (Config, error) {
 	if c.IPv6, err = parseIP("FS_LISTEN_IPV6", false); err != nil {
 		return c, err
 	}
-	if c.H3, err = webUDP443(); err != nil {
+	if c.WebTCPPorts, err = webPorts("FS_WEB_TCP_PORTS", DefaultWebTCPPorts); err != nil {
+		return c, err
+	}
+	if c.WebUDPPorts, err = webPorts("FS_WEB_UDP_PORTS", DefaultWebUDPPorts); err != nil {
 		return c, err
 	}
 	if !c.IPv4.IsValid() && !c.IPv6.IsValid() {
@@ -77,14 +90,14 @@ func LoadConfig() (Config, error) {
 	return c, nil
 }
 
-// webUDP443 diz se FS_WEB_UDP_PORTS (env compartilhado com o web) contém a porta 443. Ausente vale o padrão do
-// web (443); presente e vazio quer dizer que o web não escuta UDP.
-func webUDP443() (bool, error) {
-	v, ok := os.LookupEnv("FS_WEB_UDP_PORTS")
+// webPorts lê uma lista de portas do env compartilhado com o web. Ausente vale o padrão do web; presente e vazia
+// quer dizer nenhuma porta. Devolve as portas sem repetição, em ordem crescente.
+func webPorts(key, def string) ([]int, error) {
+	v, ok := os.LookupEnv(key)
 	if !ok {
-		return true, nil
+		v = def
 	}
-	found := false
+	out := []int{}
 	for f := range strings.SplitSeq(v, ",") {
 		f = strings.TrimSpace(f)
 		if f == "" {
@@ -92,11 +105,12 @@ func webUDP443() (bool, error) {
 		}
 		n, err := strconv.Atoi(f)
 		if err != nil || n < 1 || n > 65535 {
-			return false, fmt.Errorf("dns: FS_WEB_UDP_PORTS invalid: %q", v)
+			return nil, fmt.Errorf("dns: %s invalid: %q", key, v)
 		}
-		found = found || n == 443
+		out = append(out, n)
 	}
-	return found, nil
+	slices.Sort(out)
+	return slices.Compact(out), nil
 }
 
 // parseIP lê um IP opcional da família pedida.

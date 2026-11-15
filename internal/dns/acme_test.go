@@ -59,7 +59,7 @@ func TestACMERequestReply(t *testing.T) {
 	if err != nil || len(subs) != 2 {
 		t.Fatal(err)
 	}
-	const name = "_acme-challenge.dns-monitor.tmsoft.com.br."
+	const name = "_acme-challenge.finger-west-01.badblock.net.br."
 	for _, v := range []string{"tokenA", "tokenB", "tokenA"} {
 		if r := acmeCall(t, nc, SubjectACMESet, name, v); !r.OK || r.Error != nil {
 			t.Fatalf("set %s: %+v", v, r)
@@ -106,7 +106,7 @@ func TestHandleACMEUnknownSubject(t *testing.T) {
 		t.Fatal(string(out))
 	}
 	// Resposta de sucesso: error é null (o contrato aceita string ou null).
-	out = z.HandleACME(SubjectACMESet, []byte(`{"name":"_acme-challenge.dns-monitor.tmsoft.com.br","value":"b"}`))
+	out = z.HandleACME(SubjectACMESet, []byte(`{"name":"_acme-challenge.finger-west-01.badblock.net.br","value":"b"}`))
 	if string(out) != `{"ok":true,"error":null}` {
 		t.Fatal(string(out))
 	}
@@ -186,7 +186,7 @@ func TestACMEReplyGolden(t *testing.T) {
 		req     ACMERequest
 		ok      bool
 	}{
-		{"dns.acme.reply.ok.json", SubjectACMESet, ACMERequest{Name: "_acme-challenge.dns-monitor.tmsoft.com.br.", Value: "tokenA"}, true},
+		{"dns.acme.reply.ok.json", SubjectACMESet, ACMERequest{Name: "_acme-challenge.finger-west-01.badblock.net.br.", Value: "tokenA"}, true},
 		{"dns.acme.reply.error.json", SubjectACMESet, ACMERequest{Name: "_acme-challenge.example.com.", Value: "tokenA"}, false},
 	}
 	for _, c := range cases {
