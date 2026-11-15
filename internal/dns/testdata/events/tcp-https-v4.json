@@ -27,7 +27,7 @@
       "cd": false,
       "ad": false
     },
-    "qname": "t1a2b3c4.v4.dns-monitor.tmsoft.com.br.",
+    "qname": "_8443._https.t1a2b3c4.v4.finger-west-01.badblock.net.br.",
     "qtype": "HTTPS",
     "qclass": "IN",
     "edns": null,
@@ -36,14 +36,14 @@
       "truncated": false,
       "answers": [
         {
-          "name": "t1a2b3c4.v4.dns-monitor.tmsoft.com.br.",
+          "name": "_8443._https.t1a2b3c4.v4.finger-west-01.badblock.net.br.",
           "type": "HTTPS",
           "ttl": 5,
-          "data": "1 . alpn=\"h3,h2\" ipv4hint=\"172.233.24.85\""
+          "data": "1 t1a2b3c4.v4.finger-west-01.badblock.net.br. alpn=\"h3,h2\" ipv4hint=\"172.233.24.85\""
         }
       ]
     },
     "rate_limited": false,
-    "raw_b64": "AAcBAAABAAAAAAAACHQxYTJiM2M0AnY0C2Rucy1tb25pdG9yBnRtc29mdANjb20CYnIAAEEAAQ=="
+    "raw_b64": "AAcBAAABAAAAAAAABV84NDQzBl9odHRwcwh0MWEyYjNjNAJ2NA5maW5nZXItd2VzdC0wMQhiYWRibG9jawNuZXQCYnIAAEEAAQ=="
   }
 }

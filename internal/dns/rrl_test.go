@@ -147,7 +147,7 @@ func TestServerRRL(t *testing.T) {
 	c := &mdns.Client{Net: "udp", Timeout: 2 * time.Second}
 	full, tc := 0, 0
 	for range 100 {
-		r, _, err := c.Exchange(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), udp)
+		r, _, err := c.Exchange(query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeA), udp)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,7 +170,7 @@ func TestServerRRL(t *testing.T) {
 	// TCP do mesmo IP com o balde UDP esgotado: resposta completa, sem rate_limited.
 	ct := &mdns.Client{Net: "tcp", Timeout: 2 * time.Second}
 	for range 3 {
-		r, _, err := ct.ExchangeContext(context.Background(), query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), tcp)
+		r, _, err := ct.ExchangeContext(context.Background(), query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeA), tcp)
 		if err != nil {
 			t.Fatalf("TCP com o balde UDP esgotado: %v", err)
 		}
@@ -185,7 +185,7 @@ func TestServerRRL(t *testing.T) {
 		t.Fatalf("TCP marcado rate_limited %d vezes", n)
 	}
 	// O UDP continua limitado depois das consultas TCP.
-	r, _, err := c.Exchange(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeA), udp)
+	r, _, err := c.Exchange(query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeA), udp)
 	if err != nil || !r.Truncated || len(r.Answer) != 0 {
 		t.Fatalf("UDP depois do TCP: %v %v", r, err)
 	}

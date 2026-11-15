@@ -32,9 +32,10 @@ func (c *fakeClock) advance(d time.Duration) {
 
 func testConfig() Config {
 	return Config{
-		Zone: "dns-monitor.tmsoft.com.br.", NS: DefaultNS, TTL: 5 * time.Second,
+		Zone: "finger-west-01.badblock.net.br.", NS: DefaultNS, TTL: 5 * time.Second,
 		IPv4: netip.MustParseAddr("127.0.0.1"), Port: 0, RRLPerIP: 20, ACMETTL: ACMEValueTTL,
-		H3: true,
+		// 443 nas duas listas: o nome sem prefixo tem HTTPS com h3 (regra antiga, ainda válida com 443).
+		WebTCPPorts: []int{443, 8080, 8443}, WebUDPPorts: []int{443, 8443},
 	}
 }
 
@@ -52,31 +53,31 @@ func query(name string, qtype uint16) *mdns.Msg {
 
 func TestZoneApexSOAandNS(t *testing.T) {
 	z, _ := newTestZone()
-	r := z.Answer(query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA))
+	r := z.Answer(query("finger-west-01.badblock.net.br.", mdns.TypeSOA))
 	if r.Rcode != mdns.RcodeSuccess || !r.Authoritative || r.RecursionAvailable || len(r.Answer) != 1 {
 		t.Fatalf("SOA: %v", r)
 	}
 	soa := r.Answer[0].(*mdns.SOA)
-	if soa.Ns != DefaultNS || soa.Mbox != "hostmaster.dns-monitor.tmsoft.com.br." || soa.Minttl != 5 || soa.Hdr.Ttl != 5 {
+	if soa.Ns != DefaultNS || soa.Mbox != "hostmaster.finger-west-01.badblock.net.br." || soa.Minttl != 5 || soa.Hdr.Ttl != 5 {
 		t.Fatalf("SOA fields: %v", soa)
 	}
 	if soa.Serial != uint32(time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC).Unix()) {
 		t.Fatalf("serial %d", soa.Serial)
 	}
 
-	r = z.Answer(query("DNS-Monitor.TMSoft.com.br.", mdns.TypeNS))
+	r = z.Answer(query("Finger-West-01.BadBlock.net.br.", mdns.TypeNS))
 	if r.Rcode != mdns.RcodeSuccess || !r.Authoritative || len(r.Answer) != 1 {
 		t.Fatalf("NS: %v", r)
 	}
 	ns := r.Answer[0].(*mdns.NS)
-	if ns.Ns != "vps602.tmsoft.com.br." || ns.Hdr.Name != "DNS-Monitor.TMSoft.com.br." {
+	if ns.Ns != "finger-01.badblock.net.br." || ns.Hdr.Name != "Finger-West-01.BadBlock.net.br." {
 		t.Fatalf("NS: %v (a caixa da pergunta deve ser preservada)", ns)
 	}
 	if !r.RecursionDesired {
 		t.Fatal("RD deve ser copiado")
 	}
 
-	r = z.Answer(query("dns-monitor.tmsoft.com.br.", mdns.TypeANY))
+	r = z.Answer(query("finger-west-01.badblock.net.br.", mdns.TypeANY))
 	// SOA, NS, A e HTTPS (a zona de teste não tem IPv6).
 	if len(r.Answer) != 4 {
 		t.Fatalf("ANY apex: %v", r)
@@ -89,12 +90,12 @@ func TestZoneNoData(t *testing.T) {
 		name  string
 		qtype uint16
 	}{
-		{"dns-monitor.tmsoft.com.br.", mdns.TypeCAA},
-		{"abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeCAA},
-		{"x.y.dns-monitor.tmsoft.com.br.", mdns.TypeMX},
-		{"abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeNS},
-		{"_acme-challenge.dns-monitor.tmsoft.com.br.", mdns.TypeTXT},
-		{"abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeSOA},
+		{"finger-west-01.badblock.net.br.", mdns.TypeCAA},
+		{"abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeCAA},
+		{"x.y.finger-west-01.badblock.net.br.", mdns.TypeMX},
+		{"abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeNS},
+		{"_acme-challenge.finger-west-01.badblock.net.br.", mdns.TypeTXT},
+		{"abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeSOA},
 	}
 	for _, c := range cases {
 		r := z.Answer(query(c.name, c.qtype))
@@ -109,31 +110,31 @@ func TestZoneNoData(t *testing.T) {
 
 func TestZoneRefused(t *testing.T) {
 	z, _ := newTestZone()
-	for _, n := range []string{"example.com.", "tmsoft.com.br.", "xdns-monitor.tmsoft.com.br.", "."} {
+	for _, n := range []string{"example.com.", "badblock.net.br.", "xfinger-west-01.badblock.net.br.", "."} {
 		r := z.Answer(query(n, mdns.TypeA))
 		if r.Rcode != mdns.RcodeRefused || r.Authoritative || r.RecursionAvailable || len(r.Answer) != 0 {
 			t.Fatalf("%s: %v", n, r)
 		}
 	}
 	// Classe CHAOS e transferência de zona também são recusadas.
-	q := query("dns-monitor.tmsoft.com.br.", mdns.TypeTXT)
+	q := query("finger-west-01.badblock.net.br.", mdns.TypeTXT)
 	q.Question[0].Qclass = mdns.ClassCHAOS
 	if r := z.Answer(q); r.Rcode != mdns.RcodeRefused {
 		t.Fatalf("CH: %v", r)
 	}
-	if r := z.Answer(query("dns-monitor.tmsoft.com.br.", mdns.TypeAXFR)); r.Rcode != mdns.RcodeRefused {
+	if r := z.Answer(query("finger-west-01.badblock.net.br.", mdns.TypeAXFR)); r.Rcode != mdns.RcodeRefused {
 		t.Fatalf("AXFR: %v", r)
 	}
 }
 
 func TestZoneOpcodeAndQuestions(t *testing.T) {
 	z, _ := newTestZone()
-	q := query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA)
+	q := query("finger-west-01.badblock.net.br.", mdns.TypeSOA)
 	q.Opcode = mdns.OpcodeUpdate
 	if r := z.Answer(q); r.Rcode != mdns.RcodeNotImplemented {
 		t.Fatalf("UPDATE: %v", r)
 	}
-	q = query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA)
+	q = query("finger-west-01.badblock.net.br.", mdns.TypeSOA)
 	q.Question = nil
 	if r := z.Answer(q); r.Rcode != mdns.RcodeFormatError {
 		t.Fatalf("sem pergunta: %v", r)
@@ -142,13 +143,13 @@ func TestZoneOpcodeAndQuestions(t *testing.T) {
 
 func TestZoneACMESetClearExpire(t *testing.T) {
 	z, clk := newTestZone()
-	const name = "_acme-challenge.dns-monitor.tmsoft.com.br."
+	const name = "_acme-challenge.finger-west-01.badblock.net.br."
 	if err := z.SetACME(name, "valueA"); err != nil {
 		t.Fatal(err)
 	}
 	clk.advance(4 * time.Minute)
 	// Mesmo nome sem ponto final e com outra caixa; set repetido é idempotente.
-	if err := z.SetACME("_ACME-Challenge.dns-monitor.tmsoft.com.br", "valueB"); err != nil {
+	if err := z.SetACME("_ACME-Challenge.finger-west-01.badblock.net.br", "valueB"); err != nil {
 		t.Fatal(err)
 	}
 	if err := z.SetACME(name, "valueB"); err != nil {
@@ -158,7 +159,7 @@ func TestZoneACMESetClearExpire(t *testing.T) {
 		t.Fatalf("valores %v", got)
 	}
 
-	r := z.Answer(query("_Acme-Challenge.dns-monitor.tmsoft.com.br.", mdns.TypeTXT))
+	r := z.Answer(query("_Acme-Challenge.finger-west-01.badblock.net.br.", mdns.TypeTXT))
 	if len(r.Answer) != 2 || r.Answer[0].Header().Ttl != 5 || len(r.Ns) != 0 {
 		t.Fatalf("TXT: %v", r)
 	}
@@ -190,7 +191,7 @@ func TestZoneACMESetClearExpire(t *testing.T) {
 	}
 
 	// Subdomínio do curinga também é aceito.
-	if err := z.SetACME("_acme-challenge.abcdefgh.dns-monitor.tmsoft.com.br.", "x"); err != nil {
+	if err := z.SetACME("_acme-challenge.abcdefgh.finger-west-01.badblock.net.br.", "x"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -198,8 +199,8 @@ func TestZoneACMESetClearExpire(t *testing.T) {
 func TestZoneACMEInvalid(t *testing.T) {
 	z, _ := newTestZone()
 	for _, n := range []string{
-		"_acme-challenge.example.com.", "dns-monitor.tmsoft.com.br.", "foo.dns-monitor.tmsoft.com.br.",
-		"x._acme-challenge.dns-monitor.tmsoft.com.br.", "", "bad..name.dns-monitor.tmsoft.com.br.",
+		"_acme-challenge.example.com.", "finger-west-01.badblock.net.br.", "foo.finger-west-01.badblock.net.br.",
+		"x._acme-challenge.finger-west-01.badblock.net.br.", "", "bad..name.finger-west-01.badblock.net.br.",
 	} {
 		if err := z.SetACME(n, "v"); err == nil {
 			t.Fatalf("set %q devia falhar", n)
@@ -208,7 +209,7 @@ func TestZoneACMEInvalid(t *testing.T) {
 			t.Fatalf("clear %q devia falhar", n)
 		}
 	}
-	const name = "_acme-challenge.dns-monitor.tmsoft.com.br."
+	const name = "_acme-challenge.finger-west-01.badblock.net.br."
 	if err := z.SetACME(name, ""); err == nil {
 		t.Fatal("valor vazio")
 	}
@@ -231,24 +232,26 @@ func TestConfigHelpers(t *testing.T) {
 }
 
 func TestLoadConfig(t *testing.T) {
-	t.Setenv("FS_DNS_ZONE", "Dns-Monitor.TMSoft.com.br")
+	t.Setenv("FS_DNS_ZONE", "Finger-West-01.BadBlock.net.br")
 	t.Setenv("FS_DNS_TTL", "7s")
 	t.Setenv("FS_DNS_RRL_PER_IP", "30")
 	t.Setenv("FS_LISTEN_IPV4", "192.0.2.1")
 	t.Setenv("FS_LISTEN_IPV6", "2001:db8::1")
 	// Ausente (não só vazio): t.Setenv registra a restauração e o Unsetenv tira a chave do ambiente.
-	t.Setenv("FS_WEB_UDP_PORTS", "")
-	if err := os.Unsetenv("FS_WEB_UDP_PORTS"); err != nil {
-		t.Fatal(err)
+	for _, k := range []string{"FS_WEB_TCP_PORTS", "FS_WEB_UDP_PORTS"} {
+		t.Setenv(k, "")
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatal(err)
+		}
 	}
 	c, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.H3 {
-		t.Fatal("FS_WEB_UDP_PORTS ausente devia valer 443 (h3)")
+	if !slices.Equal(c.WebTCPPorts, []int{8080, 8443}) || !slices.Equal(c.WebUDPPorts, []int{8443}) {
+		t.Fatalf("portas ausentes deviam valer os padrões do web: %v %v", c.WebTCPPorts, c.WebUDPPorts)
 	}
-	if c.Zone != "dns-monitor.tmsoft.com.br." || c.TTL != 7*time.Second || c.RRLPerIP != 30 || c.Port != 53 ||
+	if c.Zone != "finger-west-01.badblock.net.br." || c.TTL != 7*time.Second || c.RRLPerIP != 30 || c.Port != 53 ||
 		c.IPv4.String() != "192.0.2.1" || c.IPv6.String() != "2001:db8::1" || c.NS != DefaultNS || c.ACMETTL != 10*time.Minute {
 		t.Fatalf("%+v", c)
 	}
@@ -260,6 +263,7 @@ func TestLoadConfig(t *testing.T) {
 		"FS_DNS_RRL_PER_IP": "x",
 		"FS_DNS_ZONE":       "bad..zone",
 		"FS_WEB_UDP_PORTS":  "443,abc",
+		"FS_WEB_TCP_PORTS":  "8080,70000",
 	}
 	for k, v := range bad {
 		t.Run(k, func(t *testing.T) {
@@ -305,23 +309,23 @@ func TestZoneAddressRecords(t *testing.T) {
 		want  []string
 		rcode int
 	}{
-		{"dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
-		{"AbCdEfGh.dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
-		{"x.y.z.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, []string{"AAAA " + v6}, mdns.RcodeSuccess},
-		{"abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, []string{"HTTPS " + https}, mdns.RcodeSuccess},
-		{"dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, []string{"HTTPS " + https}, mdns.RcodeSuccess},
+		{"finger-west-01.badblock.net.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"AbCdEfGh.finger-west-01.badblock.net.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"x.y.z.finger-west-01.badblock.net.br.", mdns.TypeAAAA, []string{"AAAA " + v6}, mdns.RcodeSuccess},
+		{"abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeHTTPS, []string{"HTTPS " + https}, mdns.RcodeSuccess},
+		{"finger-west-01.badblock.net.br.", mdns.TypeHTTPS, []string{"HTTPS " + https}, mdns.RcodeSuccess},
 		// Rótulos de controle à direita do probe, em qualquer posição.
-		{"abcdefgh.noh3.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
-		{"abcdefgh.noh3.dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
-		{"abcdefgh.v4.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, nil, mdns.RcodeSuccess},
-		{"abcdefgh.x.V4.dns-monitor.tmsoft.com.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
-		{"abcdefgh.v4.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS, []string{`HTTPS 1 . alpn="h3,h2" ipv4hint="` + v4 + `"`}, mdns.RcodeSuccess},
-		{"abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeA, nil, mdns.RcodeSuccess},
-		{"abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, []string{"AAAA " + v6}, mdns.RcodeSuccess},
-		{"abcdefgh.nodata.dns-monitor.tmsoft.com.br.", mdns.TypeA, nil, mdns.RcodeSuccess},
-		{"abcdefgh.nx.dns-monitor.tmsoft.com.br.", mdns.TypeA, nil, mdns.RcodeNameError},
-		{"nx.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA, nil, mdns.RcodeNameError},
-		{"abcdefgh.noh3.v6.dns-monitor.tmsoft.com.br.", mdns.TypeANY, []string{"AAAA " + v6}, mdns.RcodeSuccess},
+		{"abcdefgh.noh3.finger-west-01.badblock.net.br.", mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"abcdefgh.noh3.finger-west-01.badblock.net.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"abcdefgh.v4.finger-west-01.badblock.net.br.", mdns.TypeAAAA, nil, mdns.RcodeSuccess},
+		{"abcdefgh.x.V4.finger-west-01.badblock.net.br.", mdns.TypeA, []string{"A " + v4}, mdns.RcodeSuccess},
+		{"abcdefgh.v4.finger-west-01.badblock.net.br.", mdns.TypeHTTPS, []string{`HTTPS 1 . alpn="h3,h2" ipv4hint="` + v4 + `"`}, mdns.RcodeSuccess},
+		{"abcdefgh.v6.finger-west-01.badblock.net.br.", mdns.TypeA, nil, mdns.RcodeSuccess},
+		{"abcdefgh.v6.finger-west-01.badblock.net.br.", mdns.TypeAAAA, []string{"AAAA " + v6}, mdns.RcodeSuccess},
+		{"abcdefgh.nodata.finger-west-01.badblock.net.br.", mdns.TypeA, nil, mdns.RcodeSuccess},
+		{"abcdefgh.nx.finger-west-01.badblock.net.br.", mdns.TypeA, nil, mdns.RcodeNameError},
+		{"nx.finger-west-01.badblock.net.br.", mdns.TypeAAAA, nil, mdns.RcodeNameError},
+		{"abcdefgh.noh3.v6.finger-west-01.badblock.net.br.", mdns.TypeANY, []string{"AAAA " + v6}, mdns.RcodeSuccess},
 	}
 	for _, c := range cases {
 		r := z.Answer(query(c.name, c.qtype))
@@ -339,7 +343,7 @@ func TestZoneAddressRecords(t *testing.T) {
 			t.Errorf("%s: sem SOA na autoridade", c.name)
 		}
 	}
-	if z.ProbeID("AbCdEfGh.v4.dns-monitor.tmsoft.com.br.") != "abcdefgh" || z.ProbeID("dns-monitor.tmsoft.com.br.") != "" {
+	if z.ProbeID("AbCdEfGh.v4.finger-west-01.badblock.net.br.") != "abcdefgh" || z.ProbeID("finger-west-01.badblock.net.br.") != "" {
 		t.Fatal("ProbeID")
 	}
 }
@@ -347,46 +351,147 @@ func TestZoneAddressRecords(t *testing.T) {
 // TestZoneNoIPv6: sem FS_LISTEN_IPV6 o AAAA é NODATA e o HTTPS não leva ipv6hint.
 func TestZoneNoIPv6(t *testing.T) {
 	z, _ := newTestZone()
-	if r := z.Answer(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeAAAA)); len(r.Answer) != 0 {
+	if r := z.Answer(query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeAAAA)); len(r.Answer) != 0 {
 		t.Fatal(r)
 	}
-	r := z.Answer(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS))
+	r := z.Answer(query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeHTTPS))
 	if got := rrTypes(r.Answer); !slices.Equal(got, []string{`HTTPS 1 . alpn="h3,h2" ipv4hint="127.0.0.1"`}) {
 		t.Fatal(got)
 	}
 	// v6 sem IPv6 configurado: nada de endereço, nem HTTPS.
-	if r := z.Answer(query("abcdefgh.v6.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS)); len(r.Answer) != 0 {
+	if r := z.Answer(query("abcdefgh.v6.finger-west-01.badblock.net.br.", mdns.TypeHTTPS)); len(r.Answer) != 0 {
 		t.Fatal(r)
 	}
 }
 
-// TestLoadConfigWebUDPPorts: o alpn do HTTPS RR segue FS_WEB_UDP_PORTS (spec 007 RF-02, ADR 0019).
-func TestLoadConfigWebUDPPorts(t *testing.T) {
+// TestLoadConfigWebPorts: as listas do env compartilhado com o web (vazio = nenhuma, sem repetição, ordenadas).
+func TestLoadConfigWebPorts(t *testing.T) {
 	t.Setenv("FS_LISTEN_IPV4", "192.0.2.1")
 	t.Setenv("FS_LISTEN_IPV6", "")
-	cases := map[string]bool{"443": true, "443,8443": true, " 8443 , 443 ": true, "": false, "8443": false, "4430": false}
+	cases := map[string][]int{"": {}, "8443": {8443}, " 8443 , 443 ,8443": {443, 8443}, ",": {}}
 	for v, want := range cases {
 		t.Run("v="+v, func(t *testing.T) {
+			t.Setenv("FS_WEB_TCP_PORTS", v)
 			t.Setenv("FS_WEB_UDP_PORTS", v)
 			c, err := LoadConfig()
 			if err != nil {
 				t.Fatal(err)
 			}
-			if c.H3 != want {
-				t.Fatalf("H3=%v, want %v", c.H3, want)
-			}
-			wantRR := `HTTPS 1 . alpn="h2" ipv4hint="192.0.2.1"`
-			if want {
-				wantRR = `HTTPS 1 . alpn="h3,h2" ipv4hint="192.0.2.1"`
-			}
-			r := NewZone(c, nil).Answer(query("abcdefgh.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS))
-			if got := rrTypes(r.Answer); !slices.Equal(got, []string{wantRR}) {
-				t.Fatal(got)
-			}
-			// noh3 continua suprimindo o HTTPS RR inteiro.
-			if r := NewZone(c, nil).Answer(query("abcdefgh.noh3.dns-monitor.tmsoft.com.br.", mdns.TypeHTTPS)); len(r.Answer) != 0 {
-				t.Fatal(r.Answer)
+			if !slices.Equal(c.WebTCPPorts, want) || !slices.Equal(c.WebUDPPorts, want) {
+				t.Fatalf("%v %v, want %v", c.WebTCPPorts, c.WebUDPPorts, want)
 			}
 		})
+	}
+}
+
+// finger01Zone é a zona com os padrões do finger-01: TCP 8080,8443 e UDP 8443, dupla pilha (ADR 0038).
+func finger01Zone(t *testing.T) *Zone {
+	t.Helper()
+	for _, k := range []string{"FS_WEB_TCP_PORTS", "FS_WEB_UDP_PORTS", "FS_DNS_ZONE"} {
+		t.Setenv(k, "")
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("FS_LISTEN_IPV4", "170.247.40.86")
+	t.Setenv("FS_LISTEN_IPV6", "2804:231c:e500:cafe::86")
+	c, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewZone(c, nil)
+}
+
+// TestZoneHTTPSPortPrefix: HTTPS RR em _<P>._https.<nome> (RFC 9460 §2.3, spec 007 RF-02, ADR 0038).
+func TestZoneHTTPSPortPrefix(t *testing.T) {
+	z := finger01Zone(t)
+	const v4, v6 = "170.247.40.86", "2804:231c:e500:cafe::86"
+	const hints = ` ipv4hint="` + v4 + `" ipv6hint="` + v6 + `"`
+	const zone = "finger-west-01.badblock.net.br."
+	cases := []struct {
+		name  string
+		qtype uint16
+		want  []string
+		rcode int
+	}{
+		{"_8443._https.abcdefgh." + zone, mdns.TypeHTTPS, []string{`HTTPS 1 abcdefgh.` + zone + ` alpn="h3,h2"` + hints}, mdns.RcodeSuccess},
+		{"_8443._HTTPS.AbCdEfGh." + zone, mdns.TypeHTTPS, []string{`HTTPS 1 abcdefgh.` + zone + ` alpn="h3,h2"` + hints}, mdns.RcodeSuccess},
+		{"_8080._https.abcdefgh." + zone, mdns.TypeHTTPS, []string{`HTTPS 1 abcdefgh.` + zone + ` alpn="h2"` + hints}, mdns.RcodeSuccess},
+		{"_8443._https." + zone, mdns.TypeHTTPS, []string{`HTTPS 1 ` + zone + ` alpn="h3,h2"` + hints}, mdns.RcodeSuccess},
+		{"_8443._https.abcdefgh." + zone, mdns.TypeANY, []string{`HTTPS 1 abcdefgh.` + zone + ` alpn="h3,h2"` + hints}, mdns.RcodeSuccess},
+		// Sem prefixo é a origem da 443 (do traefik no finger-01): NODATA.
+		{"abcdefgh." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"abcdefgh." + zone, mdns.TypeANY, []string{"A " + v4, "AAAA " + v6}, mdns.RcodeSuccess},
+		// Porta fora da lista, porta não canônica e outros rótulos "_": NODATA.
+		{"_9999._https.abcdefgh." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_08443._https.abcdefgh." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_8443._tcp.abcdefgh." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_8443._https.abcdefgh." + zone, mdns.TypeA, nil, mdns.RcodeSuccess},
+		{"_foo.abcdefgh." + zone, mdns.TypeA, nil, mdns.RcodeSuccess},
+		{"x._8443._https.abcdefgh." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_8443._https.x._y." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_acme-challenge.abcdefgh." + zone, mdns.TypeA, nil, mdns.RcodeSuccess},
+		// Controles à direita do probe valem para o nome com prefixo.
+		{"_8443._https.abcdefgh.noh3." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_8443._https.abcdefgh.v4." + zone, mdns.TypeHTTPS, []string{`HTTPS 1 abcdefgh.v4.` + zone + ` alpn="h3,h2" ipv4hint="` + v4 + `"`}, mdns.RcodeSuccess},
+		{"_8443._https.abcdefgh.v6." + zone, mdns.TypeHTTPS, []string{`HTTPS 1 abcdefgh.v6.` + zone + ` alpn="h3,h2" ipv6hint="` + v6 + `"`}, mdns.RcodeSuccess},
+		{"_8443._https.abcdefgh.nodata." + zone, mdns.TypeHTTPS, nil, mdns.RcodeSuccess},
+		{"_8443._https.abcdefgh.nx." + zone, mdns.TypeHTTPS, nil, mdns.RcodeNameError},
+		// Fora da zona.
+		{"_8443._https.abcdefgh.example.com.", mdns.TypeHTTPS, nil, mdns.RcodeRefused},
+	}
+	for _, c := range cases {
+		r := z.Answer(query(c.name, c.qtype))
+		got := rrTypes(r.Answer)
+		if r.Rcode != c.rcode || !slices.Equal(got, c.want) {
+			t.Errorf("%s %s: rcode %d %v, want %d %v", c.name, mdns.TypeToString[c.qtype], r.Rcode, got, c.rcode, c.want)
+			continue
+		}
+		if c.rcode == mdns.RcodeSuccess && len(r.Answer) == 0 && (len(r.Ns) != 1 || r.Ns[0].Header().Rrtype != mdns.TypeSOA) {
+			t.Errorf("%s: sem SOA na autoridade", c.name)
+		}
+	}
+	// Probe = primeiro rótulo depois dos "_" à esquerda.
+	for n, want := range map[string]string{
+		"_8443._https.AbCdEfGh." + zone:    "abcdefgh",
+		"_acme-challenge.abcdefgh." + zone: "abcdefgh",
+		"_9999._https.abcdefgh.v4." + zone: "abcdefgh",
+		"_8443._https." + zone:             "",
+		"_8443._https.abcdefgh.example.":   "",
+	} {
+		if got := z.ProbeID(n); got != want {
+			t.Errorf("ProbeID(%s) = %q, want %q", n, got, want)
+		}
+	}
+	// SOA e NS do apex em finger-01.badblock.net.br.
+	r := z.Answer(query(zone, mdns.TypeNS))
+	if ns, ok := r.Answer[0].(*mdns.NS); !ok || ns.Ns != "finger-01.badblock.net.br." {
+		t.Fatal(r.Answer)
+	}
+	r = z.Answer(query(zone, mdns.TypeSOA))
+	if soa, ok := r.Answer[0].(*mdns.SOA); !ok || soa.Ns != "finger-01.badblock.net.br." {
+		t.Fatal(r.Answer)
+	}
+}
+
+// TestZoneHTTPSWithout443: alpn do nome sem prefixo só com 443 na lista TCP, e h3 só com 443 também em UDP.
+func TestZoneHTTPSWithout443(t *testing.T) {
+	c := testConfig()
+	for _, tc := range []struct {
+		tcp, udp []int
+		want     []string
+	}{
+		{[]int{443}, []int{443}, []string{`HTTPS 1 . alpn="h3,h2" ipv4hint="127.0.0.1"`}},
+		{[]int{443}, []int{8443}, []string{`HTTPS 1 . alpn="h2" ipv4hint="127.0.0.1"`}},
+		{[]int{443}, []int{}, []string{`HTTPS 1 . alpn="h2" ipv4hint="127.0.0.1"`}},
+		{[]int{8443}, []int{443, 8443}, nil},
+		{[]int{}, []int{}, nil},
+	} {
+		c.WebTCPPorts, c.WebUDPPorts = tc.tcp, tc.udp
+		r := NewZone(c, nil).Answer(query("abcdefgh.finger-west-01.badblock.net.br.", mdns.TypeHTTPS))
+		if got := rrTypes(r.Answer); !slices.Equal(got, tc.want) {
+			t.Errorf("tcp %v udp %v: %v, want %v", tc.tcp, tc.udp, got, tc.want)
+		}
 	}
 }

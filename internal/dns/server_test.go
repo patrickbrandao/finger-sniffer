@@ -54,7 +54,7 @@ func TestServerACMEIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, udp, tcp := startServer(t, z)
-	const name = "_acme-challenge.dns-monitor.tmsoft.com.br."
+	const name = "_acme-challenge.finger-west-01.badblock.net.br."
 
 	for _, v := range []string{"first-token", "second-token"} {
 		if r := acmeCall(t, nc, SubjectACMESet, name, v); !r.OK {
@@ -101,11 +101,11 @@ func TestServerACMEIntegration(t *testing.T) {
 		if r.Rcode != mdns.RcodeRefused || r.RecursionAvailable || r.Authoritative {
 			t.Fatalf("%s example.com: %v", proto, r)
 		}
-		r = exchange(t, proto, addr, query("dns-monitor.tmsoft.com.br.", mdns.TypeCAA))
+		r = exchange(t, proto, addr, query("finger-west-01.badblock.net.br.", mdns.TypeCAA))
 		if r.Rcode != mdns.RcodeSuccess || !r.Authoritative || len(r.Answer) != 0 || len(r.Ns) != 1 {
 			t.Fatalf("%s CAA: %v", proto, r)
 		}
-		r = exchange(t, proto, addr, query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA))
+		r = exchange(t, proto, addr, query("finger-west-01.badblock.net.br.", mdns.TypeSOA))
 		if r.Rcode != mdns.RcodeSuccess || !r.Authoritative || len(r.Answer) != 1 {
 			t.Fatalf("%s SOA: %v", proto, r)
 		}
@@ -116,7 +116,7 @@ func TestServerEDNS(t *testing.T) {
 	z, _ := newTestZone()
 	_, udp, _ := startServer(t, z)
 
-	m := query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA)
+	m := query("finger-west-01.badblock.net.br.", mdns.TypeSOA)
 	m.SetEdns0(4096, true)
 	r := exchange(t, "udp", udp, m)
 	opt := r.IsEdns0()
@@ -125,7 +125,7 @@ func TestServerEDNS(t *testing.T) {
 	}
 
 	// Versão EDNS desconhecida → BADVERS.
-	m = query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA)
+	m = query("finger-west-01.badblock.net.br.", mdns.TypeSOA)
 	m.SetEdns0(1232, false)
 	m.IsEdns0().SetVersion(1)
 	r = exchange(t, "udp", udp, m)
@@ -137,7 +137,7 @@ func TestServerEDNS(t *testing.T) {
 // TestServerTruncation: 40 valores TXT longos não cabem em 512 bytes → TC=1 em UDP; inteiros em TCP.
 func TestServerTruncation(t *testing.T) {
 	z, _ := newTestZone()
-	const name = "_acme-challenge.dns-monitor.tmsoft.com.br."
+	const name = "_acme-challenge.finger-west-01.badblock.net.br."
 	for i := range 40 {
 		if err := z.SetACME(name, strings.Repeat(string(rune('a'+i%26)), 60)+string(rune('A'+i/26))); err != nil {
 			t.Fatal(err)
@@ -190,7 +190,7 @@ func TestServerMalformed(t *testing.T) {
 
 	// Curto e QR=1: nada volta.
 	_, _ = conn.Write([]byte{1, 2, 3})
-	reply := query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA)
+	reply := query("finger-west-01.badblock.net.br.", mdns.TypeSOA)
 	reply.Response = true
 	pk, _ := reply.Pack()
 	_, _ = conn.Write(pk)
@@ -206,7 +206,7 @@ func TestServerMalformed(t *testing.T) {
 	}
 	defer func() { _ = tc.Close() }()
 	for _, id := range []uint16{7, 8} {
-		q := query("dns-monitor.tmsoft.com.br.", mdns.TypeNS)
+		q := query("finger-west-01.badblock.net.br.", mdns.TypeNS)
 		q.Id = id
 		pk, _ := q.Pack()
 		frame := binary.BigEndian.AppendUint16(nil, uint16(len(pk)))
@@ -295,7 +295,7 @@ func TestServerListenerFailure(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	r := exchange(t, "udp", busyUDP.LocalAddr().String(), query("dns-monitor.tmsoft.com.br.", mdns.TypeSOA))
+	r := exchange(t, "udp", busyUDP.LocalAddr().String(), query("finger-west-01.badblock.net.br.", mdns.TypeSOA))
 	if !r.Authoritative {
 		t.Fatal(r)
 	}

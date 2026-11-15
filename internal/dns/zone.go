@@ -3,6 +3,7 @@ package dns
 import (
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +23,35 @@ const (
 	acmeLabel = "_acme-challenge"
 	// maxTXTValue é o maior valor TXT aceito (uma string de caracteres do DNS).
 	maxTXTValue = 255
+	// httpsLabel é o segundo rótulo do prefixo de porta do HTTPS RR (_<P>._https, RFC 9460 §2.3).
+	httpsLabel = "_https"
+	// defaultHTTPSPort é a porta da origem de um nome sem prefixo.
+	defaultHTTPSPort = 443
 )
+
+// nameKind classifica um nome da zona pelos rótulos iniciados por "_" (spec 007 RF-02, ADR 0038).
+type nameKind int
+
+const (
+	// namePlain: nenhum rótulo "_"; A/AAAA, SOA/NS no apex e HTTPS da porta 443.
+	namePlain nameKind = iota
+	// nameHTTPSPort: _<P>._https.<nome> com P em FS_WEB_TCP_PORTS; só HTTPS.
+	nameHTTPSPort
+	// nameACME: _acme-challenge.<nome>; só TXT do DNS-01.
+	nameACME
+	// nameUnderscore: outro nome com rótulo "_" sem registro próprio; sempre NODATA.
+	nameUnderscore
+)
+
+// qname é um nome canônico da zona já classificado.
+type qname struct {
+	kind nameKind
+	// base é o nome sem os rótulos "_" à esquerda (canônico, com ponto final): dele sai o probe, e é o
+	// TargetName do HTTPS RR com prefixo de porta.
+	base string
+	// port é a porta do prefixo (nameHTTPSPort).
+	port int
+}
 
 // Zone responde às consultas da zona. É segura para uso concorrente.
 type Zone struct {
@@ -183,8 +212,8 @@ func (z *Zone) Answer(req *mdns.Msg) *mdns.Msg {
 	}
 
 	name := mdns.CanonicalName(q.Name)
-	apex := name == z.cfg.Zone
-	info, _ := z.probes.Host(name)
+	qn := z.classify(name)
+	info, _ := z.probes.Host(qn.base)
 	// Rótulos de controle (spec 007 RF-03).
 	if info.Has(probe.ControlNX) {
 		resp.Rcode = mdns.RcodeNameError
@@ -192,7 +221,7 @@ func (z *Zone) Answer(req *mdns.Msg) *mdns.Msg {
 		return resp
 	}
 	if !info.Has(probe.ControlNoData) {
-		resp.Answer = z.records(q, name, apex, info)
+		resp.Answer = z.records(q, name, qn, info)
 	}
 	// Todo nome da zona existe: sem resposta é NOERROR/NODATA com o SOA na autoridade (o Let's Encrypt
 	// consulta CAA e precisa disso, nunca REFUSED ou SERVFAIL).
@@ -202,14 +231,62 @@ func (z *Zone) Answer(req *mdns.Msg) *mdns.Msg {
 	return resp
 }
 
-// ProbeID devolve o probe ID do qname ("" se não houver).
-func (z *Zone) ProbeID(qname string) string {
-	info, _ := z.probes.Host(qname)
+// ProbeID devolve o probe ID do qname ("" se não houver): o primeiro rótulo à esquerda depois de pular os
+// rótulos iniciados por "_" (spec 007).
+func (z *Zone) ProbeID(name string) string {
+	n := mdns.CanonicalName(name)
+	if !z.InZone(n) {
+		return ""
+	}
+	info, _ := z.probes.Host(z.classify(n).base)
 	return info.ID
 }
 
+// classify separa os rótulos "_" à esquerda do nome canônico (que precisa estar na zona) e diz que registros ele
+// pode ter.
+func (z *Zone) classify(name string) qname {
+	rel := strings.TrimSuffix(strings.TrimSuffix(name, z.cfg.Zone), ".")
+	if rel == "" {
+		return qname{kind: namePlain, base: name}
+	}
+	labels := strings.Split(rel, ".")
+	k := 0
+	for k < len(labels) && strings.HasPrefix(labels[k], "_") {
+		k++
+	}
+	base := z.cfg.Zone
+	if k < len(labels) {
+		base = strings.Join(labels[k:], ".") + "." + z.cfg.Zone
+	}
+	qn := qname{kind: nameUnderscore, base: base}
+	if slices.ContainsFunc(labels[k:], func(l string) bool { return strings.HasPrefix(l, "_") }) {
+		return qn
+	}
+	switch {
+	case k == 0:
+		qn.kind = namePlain
+	case k == 1 && labels[0] == acmeLabel:
+		qn.kind = nameACME
+	case k == 2 && labels[1] == httpsLabel:
+		if p, ok := parsePortLabel(labels[0]); ok && slices.Contains(z.cfg.WebTCPPorts, p) {
+			qn.kind, qn.port = nameHTTPSPort, p
+		}
+	}
+	return qn
+}
+
+// parsePortLabel lê "_<P>" com P decimal canônico (sem zeros à esquerda) entre 1 e 65535.
+func parsePortLabel(l string) (int, bool) {
+	d := strings.TrimPrefix(l, "_")
+	n, err := strconv.Atoi(d)
+	if err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != d {
+		return 0, false
+	}
+	return n, true
+}
+
 // records devolve os RRs da resposta para a pergunta, já com o dono na caixa da pergunta (0x20).
-func (z *Zone) records(q mdns.Question, name string, apex bool, info probe.HostInfo) []mdns.RR {
+func (z *Zone) records(q mdns.Question, name string, qn qname, info probe.HostInfo) []mdns.RR {
 	ttl := z.cfg.ttlSeconds()
 	hdr := func(t uint16) mdns.RR_Header {
 		return mdns.RR_Header{Name: q.Name, Rrtype: t, Class: mdns.ClassINET, Ttl: ttl}
@@ -217,7 +294,25 @@ func (z *Zone) records(q mdns.Question, name string, apex bool, info probe.HostI
 	v4 := z.cfg.IPv4.IsValid() && !info.Has(probe.ControlV6)
 	v6 := z.cfg.IPv6.IsValid() && !info.Has(probe.ControlV4)
 	all := q.Qtype == mdns.TypeANY
+	wantHTTPS := (all || q.Qtype == mdns.TypeHTTPS) && !info.Has(probe.ControlNoH3) && (v4 || v6)
 	var out []mdns.RR
+	switch qn.kind {
+	case nameHTTPSPort:
+		if wantHTTPS {
+			out = append(out, z.https(hdr(mdns.TypeHTTPS), qn.base, qn.port, v4, v6))
+		}
+		return out
+	case nameACME:
+		if all || q.Qtype == mdns.TypeTXT {
+			for _, v := range z.ACMEValues(name) {
+				out = append(out, &mdns.TXT{Hdr: hdr(mdns.TypeTXT), Txt: []string{v}})
+			}
+		}
+		return out
+	case nameUnderscore:
+		return nil
+	}
+	apex := name == z.cfg.Zone
 	if apex && (all || q.Qtype == mdns.TypeSOA) {
 		soa := z.SOA()
 		soa.Hdr.Name = q.Name
@@ -234,25 +329,27 @@ func (z *Zone) records(q mdns.Question, name string, apex bool, info probe.HostI
 	if v6 && (all || q.Qtype == mdns.TypeAAAA) {
 		out = append(out, &mdns.AAAA{Hdr: hdr(mdns.TypeAAAA), AAAA: z.cfg.IPv6.AsSlice()})
 	}
-	if (all || q.Qtype == mdns.TypeHTTPS) && !info.Has(probe.ControlNoH3) && (v4 || v6) {
-		rr := &mdns.HTTPS{SVCB: mdns.SVCB{Hdr: hdr(mdns.TypeHTTPS), Priority: 1, Target: "."}}
-		alpn := []string{"h2"}
-		if z.cfg.H3 {
-			alpn = []string{"h3", "h2"}
-		}
-		rr.Value = append(rr.Value, &mdns.SVCBAlpn{Alpn: alpn})
-		if v4 {
-			rr.Value = append(rr.Value, &mdns.SVCBIPv4Hint{Hint: []net.IP{z.cfg.IPv4.AsSlice()}})
-		}
-		if v6 {
-			rr.Value = append(rr.Value, &mdns.SVCBIPv6Hint{Hint: []net.IP{z.cfg.IPv6.AsSlice()}})
-		}
-		out = append(out, rr)
-	}
-	if all || q.Qtype == mdns.TypeTXT {
-		for _, v := range z.ACMEValues(name) {
-			out = append(out, &mdns.TXT{Hdr: hdr(mdns.TypeTXT), Txt: []string{v}})
-		}
+	// Nome sem prefixo é a origem da 443: só tem HTTPS se o web atende a 443.
+	if wantHTTPS && slices.Contains(z.cfg.WebTCPPorts, defaultHTTPSPort) {
+		out = append(out, z.https(hdr(mdns.TypeHTTPS), ".", defaultHTTPSPort, v4, v6))
 	}
 	return out
+}
+
+// https monta o HTTPS RR em ServiceMode (prioridade 1) para a origem na porta TCP port: alpn="h3,h2" se o web
+// atende a mesma porta em UDP, senão alpn="h2"; hints das famílias pedidas.
+func (z *Zone) https(hdr mdns.RR_Header, target string, port int, v4, v6 bool) *mdns.HTTPS {
+	rr := &mdns.HTTPS{SVCB: mdns.SVCB{Hdr: hdr, Priority: 1, Target: target}}
+	alpn := []string{"h2"}
+	if slices.Contains(z.cfg.WebUDPPorts, port) {
+		alpn = []string{"h3", "h2"}
+	}
+	rr.Value = append(rr.Value, &mdns.SVCBAlpn{Alpn: alpn})
+	if v4 {
+		rr.Value = append(rr.Value, &mdns.SVCBIPv4Hint{Hint: []net.IP{z.cfg.IPv4.AsSlice()}})
+	}
+	if v6 {
+		rr.Value = append(rr.Value, &mdns.SVCBIPv6Hint{Hint: []net.IP{z.cfg.IPv6.AsSlice()}})
+	}
+	return rr
 }
