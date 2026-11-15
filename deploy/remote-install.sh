@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instalação idempotente na vps602, executada pelo deploy.sh como root e sob trava.
+# Instalação idempotente no finger-01 (ADR 0038), executada pelo deploy.sh como root e sob trava.
 # Argumento: diretório de staging com o repositório e bin/.
 set -euo pipefail
 

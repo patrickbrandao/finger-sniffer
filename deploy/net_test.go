@@ -10,7 +10,7 @@ import (
 )
 
 // ethtoolK imita a saída de `ethtool -k` de uma virtio: alguns offloads ligados, sub-features indentadas e
-// tx-udp-segmentation [fixed] (como na vps602).
+// tx-udp-segmentation [fixed] (como na VM antiga, virtio).
 const ethtoolK = `Features for eth0:
 rx-checksumming: on [fixed]
 tx-checksumming: off

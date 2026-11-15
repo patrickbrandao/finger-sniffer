@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -215,12 +216,15 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 		"SMOKE_API_HTTPS_PORT="+port(t, f.tls.Listener.Addr().String()),
 		"SMOKE_HTTP_PORT="+port(t, f.plain.Listener.Addr().String()),
 		"SMOKE_HTTPS_PORT="+port(t, f.tls.Listener.Addr().String()),
+		// UDP do h3 no mesmo número do TLS (como 8443 no finger-01) e o "traefik" falso é o próprio TLS
+		"SMOKE_H3_PORT="+port(t, f.tls.Listener.Addr().String()),
+		"SMOKE_TRAEFIK_PORT="+port(t, f.tls.Listener.Addr().String()),
 		"SMOKE_DNS_PORT="+strconv.Itoa(f.dnsPort),
 		"SMOKE_ECHO_PORT="+port(t, f.echo.Addr().String()),
 		"SMOKE_BANNER_PORT="+port(t, f.banner.Addr().String()),
 		"SMOKE_HEALTH_WAIT=2",
 		"SMOKE_TIMEOUT=2",
-		// o espelho falso não fala h3; o GET por h3 é coberto só contra a vps602
+		// o espelho falso não fala h3; o GET por h3 é coberto só contra o servidor (finger-01)
 		"SMOKE_H3_GET=0",
 	)
 	cmd.Env = append(cmd.Env, extra...)
@@ -236,8 +240,8 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 
 func TestSmokeListSelectsStepsBySVC(t *testing.T) {
 	cases := map[string]string{
-		"":        "health web h3 dns raw store",
-		"web":     "health web h3",
+		"":        "health web h3 traefik dns raw store",
+		"web":     "health web h3 traefik",
 		"dns":     "health dns",
 		"raw":     "health raw",
 		"store":   "health store",
@@ -350,13 +354,14 @@ func TestSmokeH3SkippedWithoutHeartbeat(t *testing.T) {
 func TestSmokeH3PassesWithAltSvcAndListener(t *testing.T) {
 	f := selfSignedMirror(t)
 	f.setMetric("web", "h3_listening", 1)
-	f.setAltSvc(`h3=":443"; ma=60`)
+	alt := `h3=":` + port(t, f.tls.Listener.Addr().String()) + `"; ma=60`
+	f.setAltSvc(alt)
 	listenUDPOnTLSPort(t, f)
 	out, rc := runSmoke(t, f, "web")
 	if rc != 0 {
 		t.Fatalf("rc=%d\n%s", rc, out)
 	}
-	for _, want := range []string{"h3 Alt-Svc", `h3=":443"; ma=60`, "h3 listener udp", "SMOKE_H3_GET=0"} {
+	for _, want := range []string{"h3 Alt-Svc", alt, "h3 listener udp", "SMOKE_H3_GET=0"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("saída sem %q\n%s", want, out)
 		}
@@ -382,7 +387,7 @@ func TestSmokeH3FailsWithoutUDPListener(t *testing.T) {
 	}
 	f := selfSignedMirror(t)
 	f.setMetric("web", "h3_listening", 1)
-	f.setAltSvc(`h3=":443"; ma=60`)
+	f.setAltSvc(`h3=":` + port(t, f.tls.Listener.Addr().String()) + `"; ma=60`)
 	out, rc := runSmoke(t, f, "web")
 	if rc == 0 || !strings.Contains(out, "nenhum socket UDP") {
 		t.Fatalf("esperava falha sem listener UDP, rc=%d\n%s", rc, out)
@@ -481,5 +486,78 @@ func TestSmokeVersionReasonToleratedOnlyWithSVC(t *testing.T) {
 	out, rc = runSmoke(t, f, "")
 	if rc != 1 || !strings.Contains(out, "não tolerado: version old1234 differs from store test") {
 		t.Fatalf("sem SVC: rc=%d\n%s", rc, out)
+	}
+}
+
+// ADR 0038: Alt-Svc com outra porta (o h3=":443" antigo, que no finger-01 é do traefik) reprova.
+func TestSmokeH3FailsWithAltSvcOnOtherPort(t *testing.T) {
+	f := selfSignedMirror(t)
+	f.setMetric("web", "h3_listening", 1)
+	f.setAltSvc(`h3=":443"; ma=60`)
+	listenUDPOnTLSPort(t, f)
+	out, rc := runSmoke(t, f, "web")
+	want := `esperado h3=":` + port(t, f.tls.Listener.Addr().String()) + `"`
+	if rc == 0 || !strings.Contains(out, want) {
+		t.Fatalf("esperava falha por Alt-Svc em outra porta, rc=%d\n%s", rc, out)
+	}
+}
+
+// smokeConfig devolve a linha de SMOKE_CONFIG=1 com o env dado.
+func smokeConfig(t *testing.T, env ...string) string {
+	t.Helper()
+	cmd := exec.Command("bash", "smoke.sh")
+	cmd.Env = append(os.Environ(), "SMOKE_CONFIG=1")
+	cmd.Env = append(cmd.Env, env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// Padrões do finger-01 (ADR 0038, task 224): web em 8080/8443, h3 em UDP 8443, nome do certificado B, zona
+// finger-west-01 e o traefik na 443 só avisando.
+func TestSmokeDefaultsFinger01(t *testing.T) {
+	got := smokeConfig(t, "FS_ENV_FILE=/nonexistent", "SMOKE_HOST=170.247.40.86")
+	want := "host=170.247.40.86 name=finger-01.badblock.net.br zone=finger-west-01.badblock.net.br " +
+		"http=8080 https=8443 h3=8443 traefik=finger-01.badblock.net.br:443 required=0"
+	if got != want {
+		t.Errorf("padrões:\n got %s\nwant %s", got, want)
+	}
+
+	// do env instalado: IP, primeiro nome do certificado B, zona e primeira porta UDP
+	env := filepath.Join(t.TempDir(), "fs.env")
+	if err := os.WriteFile(env, []byte("FS_LISTEN_IPV4=192.0.2.1\nFS_DNS_ZONE=z.example\n"+
+		"FS_CERT_NAMES_HTTP01=b.example,c.example\nFS_WEB_UDP_PORTS=9443,8443\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = smokeConfig(t, "FS_ENV_FILE="+env)
+	want = "host=192.0.2.1 name=b.example zone=z.example http=8080 https=8443 h3=9443 traefik=b.example:443 required=0"
+	if got != want {
+		t.Errorf("do env:\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestSmokeTraefikPassesThroughToWeb(t *testing.T) {
+	f := selfSignedMirror(t)
+	out, rc := runSmoke(t, f, "web")
+	if rc != 0 || !strings.Contains(out, "traefik GET https") || !strings.Contains(out, "HTTP 200") {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+}
+
+// Sem a rota do traefik (antes da task 232): AVISO sem reprovar; com SMOKE_TRAEFIK_REQUIRED=1, reprova.
+func TestSmokeTraefikWarnsUntilRequired(t *testing.T) {
+	f := selfSignedMirror(t)
+	closed := listen(t, func(net.Conn) {})
+	p := port(t, closed.Addr().String())
+	_ = closed.Close()
+	out, rc := runSmoke(t, f, "web", "SMOKE_TRAEFIK_PORT="+p)
+	if rc != 0 || !strings.Contains(out, "AVISO") || !strings.Contains(out, "task 232") {
+		t.Fatalf("esperava AVISO sem falha, rc=%d\n%s", rc, out)
+	}
+	out, rc = runSmoke(t, f, "web", "SMOKE_TRAEFIK_PORT="+p, "SMOKE_TRAEFIK_REQUIRED=1")
+	if rc == 0 || !strings.Contains(out, "traefik GET https") || !strings.Contains(out, "FALHOU") {
+		t.Fatalf("esperava falha com SMOKE_TRAEFIK_REQUIRED=1, rc=%d\n%s", rc, out)
 	}
 }

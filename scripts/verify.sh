@@ -10,8 +10,8 @@
 #
 # Variáveis:
 #   FS_VERIFY_BASE       ref base do quick (padrão: main; cai para origin/main)
-#   FS_SKIP_LINUX_PRIV=1 pula os testes privilegiados na vps602 (usado no CI)
-#   FS_VPS_SSH           destino ssh (padrão root@vps602.tmsoft.com.br)
+#   FS_SKIP_LINUX_PRIV=1 pula os testes privilegiados no servidor (usado no CI)
+#   FS_VPS_SSH           destino ssh (padrão root@finger-01.tmsoft.com.br, ADR 0038; o nome da variável fica)
 #   FS_VPS_PORT          porta ssh (padrão 48022)
 #   FS_TEST_PEBBLE       binário do Pebble para os testes de ACME (padrão: o do PATH, instalado por make tools);
 #                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
@@ -38,8 +38,11 @@ CONTRACTS_TOOLS_DIR="scripts/contracts-tools"
 # Validador dos examples do asyncapi (Node; dependências fixadas no package-lock.json do diretório)
 ASYNCAPI_EXAMPLES_DIR="scripts/asyncapi-examples"
 FUZZ_TIME="${FS_FUZZ_TIME:-10s}"
-VPS_SSH="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
+VPS_SSH="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
+# Rótulo do servidor nos passos e nas mensagens: o primeiro rótulo do host (finger-01)
+VPS_LABEL="${VPS_SSH#*@}"
+VPS_LABEL="${VPS_LABEL%%.*}"
 E2E_TIMEOUT="${FS_E2E_TIMEOUT:-45m}"
 
 export PATH="$(go env GOPATH)/bin:$PATH"
@@ -520,14 +523,14 @@ remote_cleanup() {
 	REMOTE_WORK=""
 }
 
-# Compila os pacotes com a tag linux_priv e os roda na vps602 como root. Cada execução usa um diretório remoto
+# Compila os pacotes com a tag linux_priv e os roda no servidor ($VPS_SSH) como root. Cada execução usa um diretório remoto
 # próprio (mktemp -d) e apaga só ele, inclusive em erro: dois verify-full simultâneos, de worktrees diferentes,
 # não se atropelam (task 174). Os testes em si toleram paralelismo (cada um abre seu AF_PACKET e um NATS embutido
 # em porta aleatória; as asserções são limites inferiores), por isso não há trava.
 linux_priv_tests() {
 	local pkgs="$1" d name rc=0
 	ssh -p "$VPS_PORT" -o BatchMode=yes -o ConnectTimeout=10 "$VPS_SSH" true || {
-		echo "vps602 inacessível por ssh ($VPS_SSH:$VPS_PORT)"
+		echo "$VPS_LABEL inacessível por ssh ($VPS_SSH:$VPS_PORT)"
 		return 1
 	}
 	REMOTE_WORK=$(ssh -p "$VPS_PORT" "$VPS_SSH" 'mktemp -d /tmp/fs-verify.XXXXXX') || {
@@ -542,7 +545,7 @@ linux_priv_tests() {
 		return 1
 		;;
 	esac
-	echo "vps602: diretório $REMOTE_WORK"
+	echo "$VPS_LABEL: diretório $REMOTE_WORK"
 	for d in $pkgs; do
 		name=$(echo "${d#./}" | tr '/' '_').test
 		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c -tags linux_priv -o "$WORK/$name" "$d" || {
@@ -553,7 +556,7 @@ linux_priv_tests() {
 			rc=1
 			break
 		}
-		echo "vps602: $d"
+		echo "$VPS_LABEL: $d"
 		ssh -p "$VPS_PORT" "$VPS_SSH" "cd '$REMOTE_WORK' && ./$name -test.v -test.count=1" || rc=1
 	done
 	remote_cleanup
@@ -598,18 +601,18 @@ verify_full() {
 
 	pkgs=$(linux_priv_pkgs)
 	if [ "${FS_SKIP_LINUX_PRIV:-0}" = 1 ]; then
-		skip_step "testes linux_priv (vps602)" "FS_SKIP_LINUX_PRIV=1"
+		skip_step "testes linux_priv ($VPS_LABEL)" "FS_SKIP_LINUX_PRIV=1"
 	elif [ -z "$pkgs" ]; then
-		skip_step "testes linux_priv (vps602)" "nenhum teste linux_priv"
+		skip_step "testes linux_priv ($VPS_LABEL)" "nenhum teste linux_priv"
 	else
-		run_step "testes linux_priv (vps602)" linux_priv_tests "$pkgs"
+		run_step "testes linux_priv ($VPS_LABEL)" linux_priv_tests "$pkgs"
 	fi
 
 	if [ "$e2e" = 1 ]; then
 		if [ -d test/e2e ] && ls test/e2e/*_test.go >/dev/null 2>&1; then
-			run_step "e2e (vps602)" go test -count=1 -timeout "$E2E_TIMEOUT" -tags e2e ./test/e2e/...
+			run_step "e2e ($VPS_LABEL)" go test -count=1 -timeout "$E2E_TIMEOUT" -tags e2e ./test/e2e/...
 		else
-			skip_step "e2e (vps602)" "test/e2e ainda não existe"
+			skip_step "e2e ($VPS_LABEL)" "test/e2e ainda não existe"
 		fi
 	fi
 

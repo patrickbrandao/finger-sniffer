@@ -44,7 +44,7 @@ tools-ci:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install github.com/letsencrypt/pebble/v2/cmd/pebble@$(PEBBLE_VERSION)
 
-# Binários estáticos linux/amd64 para a vps602 (ADR 0009)
+# Binários estáticos linux/amd64 para o finger-01 (ADRs 0009 e 0038)
 build:
 	@mkdir -p $(BIN)
 	@for s in $(SERVICES); do \
