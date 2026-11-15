@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,8 +37,8 @@ const (
 	// deixa no máximo ~5 tentativas na primeira hora, abaixo do limite de validações falhas do Let's Encrypt.
 	DefaultACMERetryMin = 5 * time.Minute
 	DefaultACMERetryMax = time.Hour
-	// DefaultACMEStartDelay espera os listeners do web abrirem (a porta 80 serve o HTTP-01) antes da primeira
-	// emissão.
+	// DefaultACMEStartDelay espera os listeners do web abrirem (as portas TLS servem o TLS-ALPN-01 e a 80, se
+	// houver, o HTTP-01) antes da primeira emissão.
 	DefaultACMEStartDelay = 5 * time.Second
 	// acmeRSABits é o tamanho da chave dos certificados: RSA para que as cifras legadas com troca de chaves RSA
 	// continuem negociáveis com clientes antigos (spec 008 RF-06), como no autoassinado de pkg/certs.
@@ -66,10 +68,18 @@ type ACMEConfig struct {
 	// NamesDNS01 e NamesHTTP01 são os nomes dos certificados A e B (FS_CERT_NAMES_DNS01/HTTP01).
 	NamesDNS01  []string
 	NamesHTTP01 []string
-	// HTTPListenHost e HTTPPort são onde o HTTP-01 é atendido: o IP e a porta 80 do próprio web. O certmagic
-	// tenta abrir esse endereço; como o web já o ocupa, ele conclui que outro servidor responde o desafio.
-	HTTPListenHost string
-	HTTPPort       int
+	// ListenHost, TLSALPNPort e HTTPPort são onde o web atende os desafios do certificado B (ADR 0038): o IP do
+	// próprio web, uma porta TLS dele (TLS-ALPN-01, RFC 8737) e a 80 (HTTP-01, só quando FS_WEB_TCP_PORTS a
+	// contém; 0 = HTTP-01 desligado). O certmagic tenta abrir esses endereços; como o web já os ocupa, ele
+	// conclui que outro servidor responde o desafio e não abre listener próprio (sobra uma conexão TCP local
+	// de teste do certmagic, aberta e fechada, por desafio).
+	ListenHost  string
+	TLSALPNPort int
+	HTTPPort    int
+	// ListenerUp diz se o web tem um listener TCP de pé em addr (host:porta). O B só é emitido com os
+	// listeners dos desafios de pé: sem isso o certmagic conseguiria abrir o próprio listener. nil = sem
+	// conferência (testes sem web).
+	ListenerUp func(addr string) bool
 	// DNSResolvers são os resolvedores usados pelo certmagic no DNS-01 para achar a zona (SOA); vazio = os do
 	// sistema.
 	DNSResolvers []string
@@ -84,8 +94,9 @@ type ACMEConfig struct {
 	StartDelay  time.Duration
 }
 
-// LoadACMEConfig lê FS_ACME_* e os nomes/pasta de pkg/certs. listen é o IP público do web (para o HTTP-01).
-func LoadACMEConfig(listen netip.Addr) (ACMEConfig, error) {
+// LoadACMEConfig lê FS_ACME_* e os nomes/pasta de pkg/certs. listen é o IP público do web e tcpPorts são as
+// portas de FS_WEB_TCP_PORTS (desafios do certificado B, ADR 0038).
+func LoadACMEConfig(listen netip.Addr, tcpPorts []int) (ACMEConfig, error) {
 	cc := certs.LoadConfig()
 	c := ACMEConfig{
 		Dir:         service.Env("FS_ACME_DIR", DefaultACMEDir),
@@ -94,15 +105,18 @@ func LoadACMEConfig(listen netip.Addr) (ACMEConfig, error) {
 		CertDir:     cc.Dir,
 		NamesDNS01:  cc.NamesDNS01,
 		NamesHTTP01: cc.NamesHTTP01,
-		HTTPPort:    80,
+		TLSALPNPort: tlsALPNPort(tcpPorts),
 		DNSTimeout:  DefaultACMEDNSTimeout,
 		RenewBefore: DefaultRenewBefore,
 		RetryMin:    DefaultACMERetryMin,
 		RetryMax:    DefaultACMERetryMax,
 		StartDelay:  DefaultACMEStartDelay,
 	}
+	if slices.Contains(tcpPorts, 80) {
+		c.HTTPPort = 80
+	}
 	if listen.IsValid() {
-		c.HTTPListenHost = listen.String()
+		c.ListenHost = listen.String()
 	}
 	switch v := strings.TrimSpace(service.Env("FS_ACME_ENABLE", "0")); v {
 	case "0", "false", "":
@@ -117,6 +131,21 @@ func LoadACMEConfig(listen netip.Addr) (ACMEConfig, error) {
 	return c, nil
 }
 
+// tlsALPNPort escolhe a porta do web onde o certmagic "atenderia" o TLS-ALPN-01: a primeira porta diferente
+// da 80 (a detecção pelos primeiros bytes aceita TLS em todas, então qualquer uma serve; a validação real chega
+// pela 443 do traefik, que encaminha para a 8443). 0 sem portas.
+func tlsALPNPort(ports []int) int {
+	for _, p := range ports {
+		if p != 80 {
+			return p
+		}
+	}
+	if len(ports) > 0 {
+		return ports[0]
+	}
+	return 0
+}
+
 // acmeSlot é um dos dois certificados gerenciados.
 type acmeSlot struct {
 	name   string // certs.SlotDNS01 ou certs.SlotHTTP01
@@ -124,12 +153,12 @@ type acmeSlot struct {
 	issuer *certmagic.ACMEIssuer
 }
 
-// ACMEManager emite e renova os certificados A (DNS-01) e B (HTTP-01) com o certmagic e os exporta para
-// FS_CERT_DIR (spec 015 RF-02..RF-05).
+// ACMEManager emite e renova os certificados A (DNS-01) e B (TLS-ALPN-01 e, com a porta 80, HTTP-01) com o
+// certmagic e os exporta para FS_CERT_DIR (spec 015 RF-02..RF-05, ADR 0038).
 //
 // O certmagic gerencia um certificado por nome; a spec quer um certificado por grupo de nomes (A com o apex e o
-// curinga, B com os quatro nomes), com arquivos fixos. Por isso usamos dele a conta, o armazenamento, os solvers
-// e a emissão (ACMEIssuer.Issue com um CSR de vários nomes), e o ciclo de renovação é nosso: renova
+// curinga, B com os nomes de FS_CERT_NAMES_HTTP01), com arquivos fixos. Por isso usamos dele a conta, o
+// armazenamento, os solvers e a emissão (ACMEIssuer.Issue com um CSR de vários nomes), e o ciclo de renovação é nosso: renova
 // RenewBefore antes de vencer (no máximo metade da validade, para certificados curtos), mantém o anterior em
 // falha e tenta de novo com backoff até RetryMax.
 type ACMEManager struct {
@@ -140,6 +169,7 @@ type ACMEManager struct {
 
 	storage *certmagic.FileStorage
 	cache   *certmagic.Cache
+	cmCfg   *certmagic.Config
 	slots   []*acmeSlot
 
 	// issueMu serializa as emissões (A e B dividem a mesma conta ACME).
@@ -167,8 +197,8 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 	if cfg.RetryMax < cfg.RetryMin {
 		cfg.RetryMax = max(cfg.RetryMin, DefaultACMERetryMax)
 	}
-	if cfg.HTTPPort <= 0 {
-		cfg.HTTPPort = 80
+	if len(cfg.NamesHTTP01) > 0 && cfg.TLSALPNPort <= 0 && cfg.HTTPPort <= 0 {
+		return nil, errors.New("web: acme: certificate B needs a TLS port (TLS-ALPN-01) or port 80 (HTTP-01)")
 	}
 	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("web: acme: %w", err)
@@ -183,6 +213,7 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 		GetConfigForCert: func(certmagic.Certificate) (*certmagic.Config, error) { return cmCfg, nil },
 	})
 	cmCfg = certmagic.New(m.cache, certmagic.Config{Storage: m.storage})
+	m.cmCfg = cmCfg
 
 	base := certmagic.ACMEIssuer{
 		CA:                      cfg.CA,
@@ -190,7 +221,7 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 		Email:                   cfg.Email,
 		Agreed:                  true,
 		DisableTLSALPNChallenge: true,
-		// O desafio fica só na memória deste processo (um único web atende a porta 80).
+		// O desafio fica só na memória deste processo (um único web atende as portas dos desafios).
 		DisableDistributedSolvers: true,
 		TrustedRoots:              cfg.TrustedRoots,
 	}
@@ -207,8 +238,12 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 	}}
 	dnsIssuer := certmagic.NewACMEIssuer(cmCfg, dnsTmpl)
 
+	// Certificado B: TLS-ALPN-01 na porta TLS do web e HTTP-01 só com a 80 entre as portas (ADR 0038).
 	httpTmpl := base
-	httpTmpl.ListenHost = cfg.HTTPListenHost
+	httpTmpl.ListenHost = cfg.ListenHost
+	httpTmpl.DisableTLSALPNChallenge = cfg.TLSALPNPort <= 0
+	httpTmpl.AltTLSALPNPort = cfg.TLSALPNPort
+	httpTmpl.DisableHTTPChallenge = cfg.HTTPPort <= 0
 	httpTmpl.AltHTTPPort = cfg.HTTPPort
 	httpIssuer := certmagic.NewACMEIssuer(cmCfg, httpTmpl)
 
@@ -372,6 +407,9 @@ func (m *ACMEManager) issue(ctx context.Context, s *acmeSlot) (time.Time, error)
 	if err := ctx.Err(); err != nil {
 		return time.Time{}, err
 	}
+	if err := m.challengeListenersUp(s); err != nil {
+		return time.Time{}, err
+	}
 	m.log.Info("acme issuing", "slot", s.name, "names", s.names, "ca", m.cfg.CA)
 	key, err := rsa.GenerateKey(rand.Reader, acmeRSABits)
 	if err != nil {
@@ -414,6 +452,24 @@ func (m *ACMEManager) issue(ctx context.Context, s *acmeSlot) (time.Time, error)
 	m.log.Info("acme certificate obtained", "slot", s.name, "names", leaf.DNSNames,
 		"issuer", leaf.Issuer.CommonName, "serial", leaf.SerialNumber.Text(16), "not_after", leaf.NotAfter)
 	return m.renewAt(leaf), nil
+}
+
+// challengeListenersUp confere, antes de emitir o B, que o web ocupa os endereços dos desafios: o certmagic só
+// deixa de abrir listener próprio quando o bind dele falha por endereço em uso (spec 015 RF-03).
+func (m *ACMEManager) challengeListenersUp(s *acmeSlot) error {
+	if s.name != certs.SlotHTTP01 || m.cfg.ListenerUp == nil {
+		return nil
+	}
+	for _, p := range []int{m.cfg.TLSALPNPort, m.cfg.HTTPPort} {
+		if p <= 0 {
+			continue
+		}
+		addr := net.JoinHostPort(m.cfg.ListenHost, strconv.Itoa(p))
+		if !m.cfg.ListenerUp(addr) {
+			return fmt.Errorf("web: acme: web listener %s not up; not issuing %s (certmagic would open its own)", addr, s.name)
+		}
+	}
+	return nil
 }
 
 // export grava o par em FS_CERT_DIR (dns01.* ou http01.*) se lá estiver diferente; pkg/certs recarrega a quente.

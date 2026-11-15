@@ -1,7 +1,7 @@
 // Package probe extrai o probe ID que o cliente usa para achar as suas conexões (spec 001 "Correlação").
 //
 // Lugares onde o ID aparece:
-//   - rótulo mais à esquerda do host em <id>.dns-monitor.tmsoft.com.br (SNI, Host, :authority, CONNECT,
+//   - rótulo mais à esquerda do host em <id>.finger-west-01.badblock.net.br (SNI, Host, :authority, CONNECT,
 //     qname DNS), com rótulos de controle opcionais à direita (spec 007 RF-03);
 //   - caminho /p/<id>/... (inclusive em alvos absolute-form);
 //   - primeira linha "PROBE <id>[ mode=...][ n=N]\r\n" das portas cruas (spec 006 RF-04).
@@ -22,8 +22,8 @@ const (
 	MaxLen = 32
 )
 
-// DefaultZones são as zonas em que o rótulo mais à esquerda é tratado como probe (ADR 0008).
-var DefaultZones = []string{"dns-monitor.tmsoft.com.br", "vps602.tmsoft.com.br"}
+// DefaultZones são as zonas em que o rótulo mais à esquerda é tratado como probe (ADRs 0008 e 0038).
+var DefaultZones = []string{"finger-west-01.badblock.net.br", "finger-01.badblock.net.br"}
 
 // Rótulos de controle do DNS (spec 007 RF-03).
 const (

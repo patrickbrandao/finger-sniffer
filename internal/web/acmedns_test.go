@@ -19,7 +19,7 @@ import (
 // testDNSZone é a zona real do serviço dns (task 016) com os parâmetros dos testes.
 func testDNSZone() *dns.Zone {
 	return dns.NewZone(dns.Config{
-		Zone: "dns-monitor.tmsoft.com.br.", NS: dns.DefaultNS, TTL: 5 * time.Second,
+		Zone: "finger-west-01.badblock.net.br.", NS: dns.DefaultNS, TTL: 5 * time.Second,
 		IPv4: netip.MustParseAddr("127.0.0.1"), ACMETTL: dns.ACMEValueTTL,
 	}, nil)
 }
@@ -33,8 +33,8 @@ func TestNATSDNSProviderSetClear(t *testing.T) {
 	}
 	p := &natsDNSProvider{nc: nc, timeout: 2 * time.Second}
 	ctx := context.Background()
-	const zone = "dns-monitor.tmsoft.com.br."
-	const fqdn = "_acme-challenge.dns-monitor.tmsoft.com.br."
+	const zone = "finger-west-01.badblock.net.br."
+	const fqdn = "_acme-challenge.finger-west-01.badblock.net.br."
 	recs := []libdns.Record{
 		libdns.RR{Name: "_acme-challenge", Type: "TXT", Data: "value-one"},
 		libdns.RR{Name: "_acme-challenge", Type: "TXT", Data: "value-two"},
@@ -71,7 +71,7 @@ func TestNATSDNSProviderErrors(t *testing.T) {
 	rec := []libdns.Record{libdns.RR{Name: "_acme-challenge", Type: "TXT", Data: "v"}}
 
 	p := &natsDNSProvider{nc: nc, timeout: 300 * time.Millisecond}
-	if _, err := p.AppendRecords(ctx, "dns-monitor.tmsoft.com.br.", rec); err == nil ||
+	if _, err := p.AppendRecords(ctx, "finger-west-01.badblock.net.br.", rec); err == nil ||
 		!strings.Contains(err.Error(), "no responder") {
 		t.Fatalf("no responder: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestNATSDNSProviderErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = nc.Flush()
-	if _, err := p.AppendRecords(ctx, "dns-monitor.tmsoft.com.br.", rec); err == nil ||
+	if _, err := p.AppendRecords(ctx, "finger-west-01.badblock.net.br.", rec); err == nil ||
 		!strings.Contains(err.Error(), "no reply within") {
 		t.Fatalf("timeout: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestNATSDNSProviderErrors(t *testing.T) {
 		t.Fatalf("outside zone: %v", err)
 	}
 	a := []libdns.Record{libdns.RR{Name: "x", Type: "A", Data: "127.0.0.1"}}
-	if _, err := p.AppendRecords(ctx, "dns-monitor.tmsoft.com.br.", a); err == nil ||
+	if _, err := p.AppendRecords(ctx, "finger-west-01.badblock.net.br.", a); err == nil ||
 		!strings.Contains(err.Error(), "only TXT") {
 		t.Fatalf("type A: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestACMERequestGolden(t *testing.T) {
 	// Valor no formato do DNS-01 (base64url de 43 caracteres do SHA-256 do key authorization).
 	const value = "Qm9n9W2qkfQx1h4rM5fJb2u8yYxT0yQ8c0xYk7oHk1E"
 	recs := []libdns.Record{libdns.RR{Name: "_acme-challenge", Type: "TXT", Data: value}}
-	if _, err := p.AppendRecords(context.Background(), "dns-monitor.tmsoft.com.br.", recs); err != nil {
+	if _, err := p.AppendRecords(context.Background(), "finger-west-01.badblock.net.br.", recs); err != nil {
 		t.Fatal(err)
 	}
 	var data []byte
@@ -143,7 +143,7 @@ func TestACMERequestGolden(t *testing.T) {
 	if err := json.Unmarshal(data, &req); err != nil {
 		t.Fatal(err)
 	}
-	if req["name"] != "_acme-challenge.dns-monitor.tmsoft.com.br." || req["value"] != value || len(req) != 2 {
+	if req["name"] != "_acme-challenge.finger-west-01.badblock.net.br." || req["value"] != value || len(req) != 2 {
 		t.Fatalf("request %s", data)
 	}
 	schema := block(t, readDoc(t, "eventbus/nats/asyncapi.yaml"), "ACMERequest")

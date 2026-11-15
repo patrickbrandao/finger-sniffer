@@ -63,7 +63,7 @@ func TestInputBudget(t *testing.T) {
 	}
 }
 
-// TestLoadConfigInputBudget: FS_WEB_INPUT_BUDGET com padrão de 24 MiB e faixa 8–32 MiB (ADR 0036).
+// TestLoadConfigInputBudget: FS_WEB_INPUT_BUDGET com padrão de 192 MiB e faixa 8–256 MiB (ADR 0039).
 func TestLoadConfigInputBudget(t *testing.T) {
 	t.Setenv("FS_LISTEN_IPV4", "127.0.0.1")
 	t.Setenv("FS_LISTEN_IPV6", "")
@@ -72,11 +72,12 @@ func TestLoadConfigInputBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("FS_WEB_INPUT_BUDGET", "")
-	if c, err := LoadConfig(base); err != nil || c.InputBudget != 25165824 {
+	if c, err := LoadConfig(base); err != nil || c.InputBudget != 201326592 {
 		t.Fatalf("default: %v %d", err, c.InputBudget)
 	}
 	for v, ok := range map[string]bool{
-		"8388608": true, "33554432": true, "8388607": false, "33554433": false, "41943040": false, "0": false,
+		"8388608": true, "33554432": true, "201326592": true, "268435456": true,
+		"8388607": false, "268435457": false, "536870912": false, "0": false,
 	} {
 		t.Setenv("FS_WEB_INPUT_BUDGET", v)
 		c, err := LoadConfig(base)

@@ -8,10 +8,17 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/h1"
 )
 
-// altSvcOn decide o anúncio do h3 numa resposta h1/h2 (spec 005 RF-04, spec 011 RF-05): só em conexão
-// TLS, com o listener UDP 443 de pé e sem alt_svc=0 na query (vale para qualquer rota, htdocs inclusive).
-func (s *Server) altSvcOn(tlsOn bool, rawQuery string) bool {
-	return tlsOn && !noAltSvc(rawQuery) && s.h3Active()
+// altSvc decide o anúncio do h3 numa resposta h1/h2 (spec 005 RF-04, spec 011 RF-05) e devolve o valor do
+// campo: só em conexão TLS, com um listener UDP de FS_WEB_UDP_PORTS de pé e sem alt_svc=0 na query (vale para
+// qualquer rota, htdocs inclusive). Vazio = sem anúncio.
+func (s *Server) altSvc(tlsOn bool, rawQuery string) string {
+	if !tlsOn || noAltSvc(rawQuery) {
+		return ""
+	}
+	if p := s.h3Port(); p != 0 {
+		return altSvcH3(p)
+	}
+	return ""
 }
 
 // noAltSvc informa se a query pede alt_svc=0 (o último valor vale, como nos controles).
@@ -34,10 +41,14 @@ func (c *conn) addAltSvc(r *response, rawQuery string) {
 	c.mu.Lock()
 	tlsOn := c.tlsOn
 	c.mu.Unlock()
-	if r.head == nil || !c.srv.altSvcOn(tlsOn, rawQuery) {
+	if r.head == nil {
 		return
 	}
-	alt := h1.HeaderField{Name: "Alt-Svc", Value: altSvcH3}
+	v := c.srv.altSvc(tlsOn, rawQuery)
+	if v == "" {
+		return
+	}
+	alt := h1.HeaderField{Name: "Alt-Svc", Value: v}
 	at := r.userAt
 	if at <= 0 || at > len(r.head.Fields) {
 		r.head.Fields = append(r.head.Fields, alt)

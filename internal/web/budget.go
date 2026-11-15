@@ -8,11 +8,11 @@ import (
 
 // Orçamento global de memória de entrada (spec 005 RF-12, ADRs 0033 e 0036).
 const (
-	// DefaultInputBudget é o padrão de FS_WEB_INPUT_BUDGET (24 MiB, ADR 0036).
-	DefaultInputBudget = 24 << 20
-	// MinInputBudget e MaxInputBudget são os limites aceitos (8–32 MiB); fora deles o web não sobe.
+	// DefaultInputBudget é o padrão de FS_WEB_INPUT_BUDGET (192 MiB, ADR 0039).
+	DefaultInputBudget = 192 << 20
+	// MinInputBudget e MaxInputBudget são os limites aceitos (8–256 MiB, ADR 0039); fora deles o web não sobe.
 	MinInputBudget = 8 << 20
-	MaxInputBudget = 32 << 20
+	MaxInputBudget = 256 << 20
 
 	// MetricInputBudgetUsed é o gauge dos bytes reservados agora; MetricInputBudgetDenied conta as recusas.
 	MetricInputBudgetUsed   = "web_input_budget_used_bytes"

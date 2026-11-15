@@ -20,12 +20,12 @@ import (
 
 // Padrões de .env.example.
 const (
-	DefaultTCPPorts    = "80,443,8080,8443"
-	DefaultUDPPorts    = "443"
+	DefaultTCPPorts    = "8080,8443" // TCP 80/443 são do traefik no finger-01 (ADR 0038)
+	DefaultUDPPorts    = "8443"      // UDP 443 é do traefik (ADR 0038)
 	DefaultHtdocs      = "/finger-sniffer/htdocs"
 	DefaultIdle        = 120 * time.Second
 	DefaultIdleMax     = 600 * time.Second
-	DefaultMaxConns    = 250 // mesmo padrão do store (ADR 0030)
+	DefaultMaxConns    = 1000 // mesmo padrão do store e do raw (ADRs 0030 e 0039)
 	defaultRetryListen = 10 * time.Second
 )
 
@@ -33,7 +33,7 @@ const (
 type Config struct {
 	// TCPPorts são as portas TCP atendidas (FS_WEB_TCP_PORTS).
 	TCPPorts []int
-	// UDPPorts são as portas UDP do QUIC/HTTP/3 (FS_WEB_UDP_PORTS; ausente = 443, vazio = nenhuma).
+	// UDPPorts são as portas UDP do QUIC/HTTP/3 (FS_WEB_UDP_PORTS; ausente = 8443, vazio = nenhuma).
 	UDPPorts []int
 	// ListenIPv4 e ListenIPv6 são os IPs públicos (FS_LISTEN_IPV4/FS_LISTEN_IPV6); inválido = desligado.
 	ListenIPv4 netip.Addr
@@ -140,7 +140,7 @@ func LoadConfig(base service.Config) (Config, error) {
 	if c.RawBodyMax, err = service.EnvInt("FS_RAW_BODY_MAX_BYTES", h1.DefaultRawBodyMax); err != nil {
 		return c, err
 	}
-	// ADR 0018: o corpo cru inline nunca passa do teto inline (o env da vps602 ainda pode ter 1 MiB).
+	// ADR 0018: o corpo cru inline nunca passa do teto inline (um env antigo ainda pode ter 1 MiB).
 	if c.RawBodyMax > c.EventInlineMax {
 		c.Warnings = append(c.Warnings, fmt.Sprintf("FS_RAW_BODY_MAX_BYTES=%d above FS_EVENT_INLINE_MAX; using %d",
 			c.RawBodyMax, c.EventInlineMax))

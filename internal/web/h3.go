@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,12 +22,13 @@ const (
 	MetricH3Listening     = "web_h3_listening"
 	MetricH3ConnsTotal    = "web_http3_connections_total"
 	MetricH3RequestsTotal = "web_http3_requests_total"
-	// ReasonH3Down: FS_WEB_UDP_PORTS contém 443 e o listener UDP 443 não está de pé (spec 005 RF-04).
+	// ReasonH3Down: FS_WEB_UDP_PORTS pede portas e nenhum listener UDP delas está de pé (spec 005 RF-04).
 	ReasonH3Down = "h3_listener_down"
 )
 
-// altSvcH3 é o anúncio do h3 nas respostas h1/h2 de portas TLS (spec 005 RF-04).
-const altSvcH3 = `h3=":443"; ma=60`
+// altSvcH3 monta o anúncio do h3 nas respostas h1/h2 de portas TLS (spec 005 RF-04, ADR 0038), com a porta UDP
+// U do listener de pé (no finger-01, h3=":8443").
+func altSvcH3(port int) string { return `h3=":` + strconv.Itoa(port) + `"; ma=60` }
 
 // Códigos de erro do HTTP/3 (RFC 9114 seção 8.1) usados pelo servidor.
 const (
@@ -221,29 +223,29 @@ func (s *Server) setUDP(addr string, up bool) {
 	s.metrics.Set(MetricH3Listening, v)
 }
 
-// h3Active informa se um listener UDP 443 está de pé (spec 005 RF-04: só então o h3 é anunciado).
-func (s *Server) h3Active() bool {
+// h3Port devolve a porta U do Alt-Svc: a primeira de FS_WEB_UDP_PORTS com algum listener UDP de pé (IPv4 ou
+// IPv6); 0 quando nenhum está de pé (spec 005 RF-04, ADR 0038).
+func (s *Server) h3Port() int {
 	s.h3.mu.Lock()
 	defer s.h3.mu.Unlock()
-	for addr := range s.h3.up {
-		if ap, err := netip.ParseAddrPort(addr); err == nil && ap.Port() == 443 {
-			return true
+	for _, p := range s.cfg.UDPPorts {
+		for addr := range s.h3.up {
+			if ap, err := netip.ParseAddrPort(addr); err == nil && int(ap.Port()) == p {
+				return p
+			}
 		}
 	}
-	return s.h3AnyPort && len(s.h3.up) > 0
+	return 0
 }
 
-// h3Wanted informa se FS_WEB_UDP_PORTS pede a porta 443 (com TLS).
+// h3Active informa se algum listener UDP de FS_WEB_UDP_PORTS está de pé (só então o h3 é anunciado).
+func (s *Server) h3Active() bool { return s.h3Port() != 0 }
+
+// h3Wanted informa se FS_WEB_UDP_PORTS pede alguma porta (com TLS); vazio desliga o h3 sem degradar.
 func (s *Server) h3Wanted() bool {
-	if s.deps.TLS == nil {
-		return false
-	}
-	for _, p := range s.cfg.UDPPorts {
-		if p == 443 {
-			return true
-		}
-	}
-	return false
+	s.h3.mu.Lock()
+	defer s.h3.mu.Unlock()
+	return s.deps.TLS != nil && len(s.cfg.UDPPorts) > 0
 }
 
 func (s *Server) trackQUIC(qc *quic.Conn) bool {

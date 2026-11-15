@@ -12,14 +12,14 @@ import (
 func TestSlotFor(t *testing.T) {
 	s := &Store{cfg: testConfig("")}
 	for sni, want := range map[string]string{
-		"dns-monitor.tmsoft.com.br":               SlotDNS01,
-		"x.dns-monitor.tmsoft.com.br":             SlotDNS01,
-		"ABCDEFGH.DNS-MONITOR.tmsoft.com.br.":     SlotDNS01,
-		"abcdefgh.noh3.dns-monitor.tmsoft.com.br": SlotDNS01,
-		"vps602.tmsoft.com.br":                    SlotHTTP01,
-		"unknown.example":                         SlotHTTP01,
-		"xdns-monitor.tmsoft.com.br":              SlotHTTP01,
-		"":                                        SlotHTTP01,
+		"finger-west-01.badblock.net.br":               SlotDNS01,
+		"x.finger-west-01.badblock.net.br":             SlotDNS01,
+		"ABCDEFGH.FINGER-WEST-01.badblock.net.br.":     SlotDNS01,
+		"abcdefgh.noh3.finger-west-01.badblock.net.br": SlotDNS01,
+		"finger-01.badblock.net.br":                    SlotHTTP01,
+		"unknown.example":                              SlotHTTP01,
+		"xfinger-west-01.badblock.net.br":              SlotHTTP01,
+		"":                                             SlotHTTP01,
 	} {
 		if got := s.SlotFor(sni); got != want {
 			t.Errorf("SlotFor(%q) = %s, quer %s", sni, got, want)
@@ -29,7 +29,7 @@ func TestSlotFor(t *testing.T) {
 
 func writeBoth(t *testing.T, dir string, notAfter time.Time) {
 	t.Helper()
-	crt, key := genPair(t, "cert-A", []string{"dns-monitor.tmsoft.com.br", "*.dns-monitor.tmsoft.com.br"}, notAfter)
+	crt, key := genPair(t, "cert-A", []string{"finger-west-01.badblock.net.br", "*.finger-west-01.badblock.net.br"}, notAfter)
 	if err := WritePair(dir, SlotDNS01, crt, key); err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +45,11 @@ func TestSNISelection(t *testing.T) {
 	s := openStore(t, testConfig(dir))
 	addr := echoServer(t, s.TLSConfig())
 	for sni, want := range map[string]string{
-		"x.dns-monitor.tmsoft.com.br": "cert-A",
-		"dns-monitor.tmsoft.com.br":   "cert-A",
-		"vps602.tmsoft.com.br":        "cert-B",
-		"desconhecido.example":        "cert-B",
-		"":                            "cert-B",
+		"x.finger-west-01.badblock.net.br": "cert-A",
+		"finger-west-01.badblock.net.br":   "cert-A",
+		"finger-01.badblock.net.br":        "cert-B",
+		"desconhecido.example":             "cert-B",
+		"":                                 "cert-B",
 	} {
 		c, cn := dial(t, addr, sni, nil)
 		_ = c.Close()
@@ -62,7 +62,7 @@ func TestSNISelection(t *testing.T) {
 	}
 	st := s.State()
 	if len(st) != 2 || st[0].Issuer != "cert-A" || st[1].Issuer != "cert-B" || st[0].SelfSigned ||
-		!slices.Contains(st[0].Names, "*.dns-monitor.tmsoft.com.br") {
+		!slices.Contains(st[0].Names, "*.finger-west-01.badblock.net.br") {
 		t.Fatalf("State = %+v", st)
 	}
 }
@@ -71,7 +71,7 @@ func TestSelfSignedWhenMissing(t *testing.T) {
 	cfg := testConfig(filepath.Join(t.TempDir(), "nao-existe"))
 	s := openStore(t, cfg)
 	addr := echoServer(t, s.TLSConfig())
-	for _, sni := range []string{"x.dns-monitor.tmsoft.com.br", "vps602.tmsoft.com.br", ""} {
+	for _, sni := range []string{"x.finger-west-01.badblock.net.br", "finger-01.badblock.net.br", ""} {
 		c, cn := dial(t, addr, sni, nil)
 		_ = c.Close()
 		if cn != SelfSignedIssuer {
@@ -141,7 +141,7 @@ func TestHotReload(t *testing.T) {
 	s := openStore(t, testConfig(dir))
 	addr := echoServer(t, s.TLSConfig())
 
-	old, cn := dial(t, addr, "vps602.tmsoft.com.br", nil)
+	old, cn := dial(t, addr, "finger-01.badblock.net.br", nil)
 	defer func() { _ = old.Close() }()
 	if cn != "cert-B" {
 		t.Fatalf("inicial: %s", cn)
@@ -152,7 +152,7 @@ func TestHotReload(t *testing.T) {
 	if err := WritePair(dir, SlotHTTP01, crt, key); err != nil {
 		t.Fatal(err)
 	}
-	took := waitCN(t, addr, "vps602.tmsoft.com.br", "cert-B2", 2*time.Second)
+	took := waitCN(t, addr, "finger-01.badblock.net.br", "cert-B2", 2*time.Second)
 	t.Logf("troca refletida em %v", took)
 	echo(t, old, "depois") // a conexão antiga segue viva
 	if st := s.State(); st[1].Issuer != "cert-B2" {

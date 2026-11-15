@@ -25,14 +25,14 @@ import (
 // Nomes fixos dos arquivos em FS_CERT_DIR (spec 015 RF-04).
 const (
 	SlotDNS01  = "dns01"  // certificado A (DNS-01)
-	SlotHTTP01 = "http01" // certificado B (HTTP-01), padrão para SNI desconhecido ou ausente
+	SlotHTTP01 = "http01" // certificado B (TLS-ALPN-01 ou HTTP-01, ADR 0038), padrão para SNI desconhecido ou ausente
 )
 
 // Padrões de .env.example.
 const (
 	DefaultDir         = "/finger-sniffer/var/certs"
-	DefaultNamesDNS01  = "dns-monitor.tmsoft.com.br,*.dns-monitor.tmsoft.com.br"
-	DefaultNamesHTTP01 = "vps602.tmsoft.com.br,fingerprint.tmsoft.com.br,tcp.tmsoft.com.br,udp.tmsoft.com.br"
+	DefaultNamesDNS01  = "finger-west-01.badblock.net.br,*.finger-west-01.badblock.net.br"
+	DefaultNamesHTTP01 = "finger-01.badblock.net.br,finger-01.tmsoft.com.br" // certificado B (ADR 0038)
 )
 
 // Config diz onde estão os certificados e quais nomes cada um cobre.

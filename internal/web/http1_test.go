@@ -27,7 +27,7 @@ func TestKeepAlive5(t *testing.T) {
 	for i := range 5 {
 		inOff = append(inOff, cl.sent.Len())
 		outOff = append(outOff, cl.rec.buf.Len())
-		cl.send(get("/p/"+testProbe+"/", "vps602.tmsoft.com.br"))
+		cl.send(get("/p/"+testProbe+"/", "finger-01.badblock.net.br"))
 		_, body := cl.response("GET")
 		if !strings.Contains(body, "request: "+string(rune('0'+i))+"\n") {
 			t.Fatalf("request %d body %q", i, body)

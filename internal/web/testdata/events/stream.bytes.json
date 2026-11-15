@@ -1,13 +1,13 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 64167,
+    "dst_port": 51120,
     "l4": "tcp",
     "src_ip": "127.0.0.1",
-    "src_port": 64168
+    "src_port": 51121
   },
   "payload": {
-    "data_b64": "UE9TVCAvcC9hYmNkZWZnaC8gSFRUUC8xLjENCkhvc3Q6IGFiY2RlZmdoLmRucy1tb25pdG9yLnRtc29mdC5jb20uYnINClZpYTogMS4xIHANCkV4cGVjdDogMTAwLWNvbnRpbnVlDQpUcmFuc2Zlci1FbmNvZGluZzogY2h1bmtlZA0KDQozO2U9MQ0KYWJjDQowDQpYLVQ6IDENCg0K",
+    "data_b64": "UE9TVCAvcC9hYmNkZWZnaC8gSFRUUC8xLjENCkhvc3Q6IGFiY2RlZmdoLmZpbmdlci13ZXN0LTAxLmJhZGJsb2NrLm5ldC5icg0KVmlhOiAxLjEgcA0KRXhwZWN0OiAxMDAtY29udGludWUNClRyYW5zZmVyLUVuY29kaW5nOiBjaHVua2VkDQoNCjM7ZT0xDQphYmMNCjANClgtVDogMQ0KDQo=",
     "dir": "in",
     "offset": 0
   },
@@ -15,5 +15,5 @@
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T03:53:56.574194000Z"
+  "ts": "2026-11-15T14:03:36.380042000Z"
 }
