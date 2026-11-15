@@ -4,20 +4,26 @@ Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.6.x, ADRs 0029, 0031 e 0032, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
-As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi trocado por um IP de documentação
-(`203.0.113.10`).
+As saídas abaixo foram obtidas no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01
+([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)); estão resumidas, e o IP
+do cliente foi trocado por um IP de documentação (`203.0.113.10`). Valores que dependem da pilha do servidor (TTL,
+janela e opções do SYN-ACK, versão, contagens) podem diferir no finger-01.
 
 ## Portas e acesso
 
 | Porta | Protocolo | Uso |
 | --- | --- | --- |
-| 9000 | HTTPS (mesmo certificado do espelho) | API, `/api/v1/stream`, `/api/v1/ws` |
-| 9001 | HTTP | a mesma API em claro e `/metrics` (Prometheus) |
+| 9000 | HTTPS (`https://finger-01.badblock.net.br:9000`) | API, `/api/v1/stream`, `/api/v1/ws` |
+| 9001 | HTTP (`http://finger-01.badblock.net.br:9001`) | a mesma API em claro e `/metrics` (Prometheus) |
+
+- A 9000 escolhe o certificado pelo SNI: o **B** (`finger-01.badblock.net.br`, `finger-01.tmsoft.com.br`) para os
+  nomes do servidor e o **A** (`*.finger-west-01.badblock.net.br`) para os nomes da zona dos probes.
+- A API é sempre direta: nunca passa pelo traefik do host (que tem só as portas 80, 443 e 8081).
 
 - As portas 9000 e 9001 **não são capturadas**: consultar a API não gera registros novos.
 - A API escuta **só** em `127.0.0.1` (diagnóstico local na própria VPS) e nos IPs públicos do espelho,
   `FS_LISTEN_IPV4` e `FS_LISTEN_IPV6` (o que estiver preenchido), **nunca** em todos os endereços (`*`, ADR 0023).
-  Na vps602: `127.0.0.1`, `172.233.24.85` e `[2600:3c0d::f03c:93ff:fe26:8fd9]`, nas duas portas. Um IP inválido
+  No finger-01: `127.0.0.1`, `170.247.40.86` e `[2804:231c:e500:cafe::86]`, nas duas portas. Um IP inválido
   numa dessas variáveis impede o store de subir.
 - Sem autenticação (ADR 0007), CORS `*`, JSON com nomes em inglês. Tempos em RFC 3339 UTC com nanossegundos;
   durações relativas em milissegundos (`float`), contadas a partir de `times.syn` (TCP) ou do primeiro datagrama
@@ -29,7 +35,7 @@ As saídas abaixo foram obtidas na vps602 e resumidas; o IP do cliente foi troca
 
 ## Retenção
 
-- Os registros duram `FS_RETENTION` (10 minutos) ou até o banco chegar a `FS_STORE_MAX_BYTES` (2 GiB); o primeiro
+- Os registros duram `FS_RETENTION` (10 minutos) ou até o banco chegar a `FS_STORE_MAX_BYTES` (8 GiB, ADR 0039); o primeiro
   limite atingido apaga os registros mais antigos (ADR 0012). Depois disso a API responde 404.
 - `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões fechadas e suas consultas DNS (204).
   As conexões do probe ainda abertas somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo
@@ -105,7 +111,7 @@ Sem `wait` o campo não aparece. Com `wait=0s` a resposta é imediata e `wait_me
 naquele instante.
 
 ```console
-$ api=https://vps602.tmsoft.com.br:9000/api/v1
+$ api=https://finger-01.badblock.net.br:9000/api/v1
 $ time curl -s "$api/probes/tm57zb8tv8dh?wait=30s&settle=1s" | jq -c '{all_closed, wait_met, conns: (.connections|length)}'
 {"all_closed":true,"wait_met":true,"conns":2}
 real    0m1.202s
@@ -146,13 +152,13 @@ Na prática o `wait` de um probe TCP ou h3 volta umas poucas centenas de ms depo
 Só DNS, sem conexão no prazo, e probe sem nada:
 
 ```console
-$ dig +short @vps602.tmsoft.com.br k3x9q2mz7a.dns-monitor.tmsoft.com.br A
-172.233.24.85
-$ time curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=3s' | jq -c '{all_closed,
+$ dig +short @finger-01.badblock.net.br k3x9q2mz7a.finger-west-01.badblock.net.br A
+170.247.40.86
+$ time curl -s 'https://finger-01.badblock.net.br:9000/api/v1/probes/k3x9q2mz7a?wait=3s' | jq -c '{all_closed,
     connections: (.connections | length), dns: (.dns | length)}'
 {"all_closed":true,"connections":0,"dns":1}
 real    0m3.114s
-$ curl -s -w ' %{http_code}\n' 'https://vps602.tmsoft.com.br:9000/api/v1/probes/nadaaquinada?wait=2s'
+$ curl -s -w ' %{http_code}\n' 'https://finger-01.badblock.net.br:9000/api/v1/probes/nadaaquinada?wait=2s'
 {
   "error": "not found or expired"
 }
@@ -164,8 +170,8 @@ espelho nunca fecha antes de `FS_IDLE_DEFAULT` (120 s). Nesses casos o `wait` vo
 `all_closed: false`, e o registro da conexão aberta já traz tudo o que chegou até ali.
 
 ```console
-$ curl -s https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/ >/dev/null
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s' | jq '{probe_id, all_closed,
+$ curl -s https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/ >/dev/null
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s' | jq '{probe_id, all_closed,
     connections: [.connections[] | {conn_id, proto, src, dst, requests, close}], dns: [.dns[] | {qname, qtype, resolver}]}'
 {
   "probe_id": "k3x9q2mz7a",
@@ -175,14 +181,14 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s' 
       "conn_id": "01M6ZHCVJ2XJERJMZ4XJD7HGRG",
       "proto": "tls/http1.1",
       "src": { "ip": "203.0.113.10", "port": 59976 },
-      "dst": { "ip": "172.233.24.85", "port": 443 },
+      "dst": { "ip": "170.247.40.86", "port": 8443 },
       "requests": 1,
       "close": { "by": "client", "how": "fin", "idle_before_close_ms": null, "half_close": true }
     }
   ],
   "dns": [
     {
-      "qname": "k3x9q2mz7a.dns-monitor.tmsoft.com.br.",
+      "qname": "k3x9q2mz7a.finger-west-01.badblock.net.br.",
       "qtype": "A",
       "resolver": { "ip": "2001:db8:728:1024::ac45:a44", "port": 19423 }
     }
@@ -195,7 +201,7 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s' 
 ### Lista
 
 ```console
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?dst_port=443&src_ip=203.0.113.10&limit=1'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections?dst_port=8443&src_ip=203.0.113.10&limit=1'
 [
   {
     "conn_id": "01M6ZHCVJ2XJERJMZ4XJD7HGRG",
@@ -204,7 +210,7 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?dst_port=443&src
     "l4": "tcp",
     "family": 4,
     "src": { "ip": "203.0.113.10", "port": 59976 },
-    "dst": { "ip": "172.233.24.85", "port": 443 },
+    "dst": { "ip": "170.247.40.86", "port": 8443 },
     "started": "2026-11-09T06:54:40.685158753Z",
     "ended": "2026-11-09T06:54:40.778503592Z",
     "requests": 1,
@@ -217,9 +223,10 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?dst_port=443&src
 `tls/h2`, `tls/http1.1/ws`, `quic/h3`, `quic`, `raw`, `tls/raw`, `raw/unknown`, `dns` (regra completa na spec 004).
 `dns` vale só para fluxos **TCP** da porta 53; um fluxo UDP da 53 fica `udp` e sem `probe_id`, e a consulta em si
 está em `/api/v1/dns` (com `probe_id`), como na seção [DNS e pacotes avulsos](#dns-e-pacotes-avulsos) (ADR 0023).
-`degraded: true` indica que o espelho estava acima do limite do modo degradado (padrão 250 conexões simultâneas ou
-60 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 200 e 50/s, ADR 0030) e não guardou pcap
-nem bytes crus dessa conexão.
+`degraded: true` indica que o espelho estava acima do limite do modo degradado (padrão 1000 conexões simultâneas
+ou 250 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 400 e 100/s, ADRs 0030 e 0039) e não guardou
+pcap nem bytes crus dessa conexão. O tráfego dos sites atrás do traefik do host também é capturado e conta nesses
+limites.
 
 ### Registro completo
 
@@ -234,7 +241,7 @@ são sempre do ClientHello completo, que segue cru em `client_hello_b64` e no fl
 de uma conexão `tls/http1.1` feita com curl:
 
 ```console
-$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG | jq '{
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG | jq '{
     ttl: .ip.ttl, hops: .ip.hops, ja4t: .tcp.ja4t, os: .tcp.os_guess, rtt: .tcp.rtt_handshake_ms,
     sni: .tls.sni, ja4: .tls.ja4, ja3: .tls.ja3_md5, negotiated: .tls.negotiated,
     request: .http[0].request_line, fields: .http[0].fields, ja4h: .http[0].ja4h}'
@@ -244,7 +251,7 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ
   "ja4t": "65535_2-1-3-1-1-8-4-0-0_1412_6",
   "os": "Mac OS X",
   "rtt": 21.015,
-  "sni": "k3x9q2mz7a.dns-monitor.tmsoft.com.br",
+  "sni": "k3x9q2mz7a.finger-west-01.badblock.net.br",
   "ja4": "t13d4907h1_0d8feac7bc37_7395dae3b2f3",
   "ja3": "375c6162a492dfbf2795909110ce8424",
   "negotiated": { "version": "TLS 1.3", "cipher": "TLS_CHACHA20_POLY1305_SHA256", "group": "X25519",
@@ -252,7 +259,7 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ
   "request": { "method": "GET", "target": "/p/k3x9q2mz7a/", "form": "origin", "version": "HTTP/1.1",
                "terminator": "crlf" },
   "fields": [
-    ["Host", ": ", "k3x9q2mz7a.dns-monitor.tmsoft.com.br", "crlf"],
+    ["Host", ": ", "k3x9q2mz7a.finger-west-01.badblock.net.br:8443", "crlf"],
     ["User-Agent", ": ", "curl/8.7.1", "crlf"],
     ["Accept", ": ", "*/*", "crlf"]
   ],
@@ -322,8 +329,8 @@ não têm os campos. Os instantes **sempre variam** entre execuções: compare d
 
 ```console
 $ id=tm57zb8tv8dh
-$ curl -s --http1.1 "https://$id.dns-monitor.tmsoft.com.br/p/$id/r?delay_head=200" >/dev/null
-$ curl -s --http2 "https://$id.dns-monitor.tmsoft.com.br/p/$id/r?delay_body=300" >/dev/null
+$ curl -s --http1.1 "https://$id.finger-west-01.badblock.net.br:8443/p/$id/r?delay_head=200" >/dev/null
+$ curl -s --http2 "https://$id.finger-west-01.badblock.net.br:8443/p/$id/r?delay_body=300" >/dev/null
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
     i: [(.http[]?, .http2.streams[]?) | {request_started_at, request_ended_at, response_started_at, response_ended_at}]}'
 {"proto":"tls/http1.1","i":[{"request_started_at":"2026-11-09T21:43:06.692370800Z","request_ended_at":"2026-11-09T21:43:06.692370800Z","response_started_at":"2026-11-09T21:43:06.893383256Z","response_ended_at":"2026-11-09T21:43:06.893481217Z"}]}
@@ -373,8 +380,8 @@ Como ler cada valor está em [probes.md, caso 11](probes.md#mss-mtu-implícito-e
 Exemplo real (cliente IPv4 direto; a segunda conexão é um upload de 20 kB):
 
 ```console
-$ curl -s "http://$id.dns-monitor.tmsoft.com.br/p/$id/" >/dev/null
-$ curl -s -o /dev/null --data-binary @<(head -c 20000 /dev/zero) "http://$id.dns-monitor.tmsoft.com.br/p/$id/"
+$ curl -s "http://$id.finger-west-01.badblock.net.br:8080/p/$id/" >/dev/null
+$ curl -s -o /dev/null --data-binary @<(head -c 20000 /dev/zero) "http://$id.finger-west-01.badblock.net.br:8080/p/$id/"
 $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | {family,
     src_kind: .ip.src_kind, syn_mss: .tcp.syn_mss, mtu: .tcp.mtu_implied, reduction: .tcp.mss_reduction,
     seg_max: ([.tcp.segments_in[][1]] | max)}'
@@ -385,12 +392,12 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections
 ### pcap
 
 ```console
-$ curl -s -o c.pcap https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/pcap
+$ curl -s -o c.pcap https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/pcap
 $ tshark -r c.pcap | head -4
-    1 0.000000000 203.0.113.10 → 172.233.24.85 TCP 78 59976 → 443 [SYN, ECN, CWR] Seq=0 Win=65535 Len=0 MSS=1412 WS=64 TSval=2740120680 TSecr=0 SACK_PERM=1
-    2 0.000015230 172.233.24.85 → 203.0.113.10 TCP 74 443 → 59976 [SYN, ACK, ECN] Seq=0 Ack=1 Win=65160 Len=0 MSS=1460 SACK_PERM=1 TSval=2185652127 TSecr=2740120680 WS=4096
-    3 0.021030459 203.0.113.10 → 172.233.24.85 TCP 66 59976 → 443 [ACK] Seq=1 Ack=1 Win=131648 Len=0 TSval=2740120699 TSecr=2185652127
-    4 0.022716665 203.0.113.10 → 172.233.24.85 TLSv1 410 Client Hello
+    1 0.000000000 203.0.113.10 → 170.247.40.86 TCP 78 59976 → 8443 [SYN, ECN, CWR] Seq=0 Win=65535 Len=0 MSS=1412 WS=64 TSval=2740120680 TSecr=0 SACK_PERM=1
+    2 0.000015230 170.247.40.86 → 203.0.113.10 TCP 74 8443 → 59976 [SYN, ACK, ECN] Seq=0 Ack=1 Win=65160 Len=0 MSS=1460 SACK_PERM=1 TSval=2185652127 TSecr=2740120680 WS=4096
+    3 0.021030459 203.0.113.10 → 170.247.40.86 TCP 66 59976 → 8443 [ACK] Seq=1 Ack=1 Win=131648 Len=0 TSval=2740120699 TSecr=2185652127
+    4 0.022716665 203.0.113.10 → 170.247.40.86 TLSv1 410 Client Hello
 ```
 
 - Formato libpcap com nanossegundos, `Content-Type: application/vnd.tcpdump.pcap`, os dois sentidos.
@@ -409,13 +416,13 @@ $ tshark -r c.pcap | head -4
 (`application/octet-stream`). `in_offset`/`out_offset` de cada requisição apontam onde ela começa nesses fluxos.
 
 ```console
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=in'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=in'
 GET /p/k3x9q2mz7a/ HTTP/1.1
-Host: k3x9q2mz7a.dns-monitor.tmsoft.com.br
+Host: k3x9q2mz7a.finger-west-01.badblock.net.br:8443
 User-Agent: curl/8.7.1
 Accept: */*
 
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=out'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=out'
 HTTP/1.1 200 OK
 Date: Mon, 09 Nov 2026 06:54:40 GMT
 Content-Type: text/plain; charset=utf-8
@@ -433,18 +440,18 @@ mesmos 4 downloads simultâneos e o prazo de 60 s do pcap valem aqui (503 com `R
 ## DNS e pacotes avulsos
 
 ```console
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/dns?probe=k3x9q2mz7a&limit=1' | jq '.[0] | {ts, resolver, proto,
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/dns?probe=k3x9q2mz7a&limit=1' | jq '.[0] | {ts, resolver, proto,
     qname, qtype, flags, edns: {udp_size: .edns.udp_size, do: .edns.do, ecs: .edns.ecs}, response}'
 {
   "ts": "2026-11-09T06:54:40.652944080Z",
   "resolver": { "ip": "2001:db8:728:1024::ac45:a44", "port": 19423 },
   "proto": "udp",
-  "qname": "k3x9q2mz7a.dns-monitor.tmsoft.com.br.",
+  "qname": "k3x9q2mz7a.finger-west-01.badblock.net.br.",
   "qtype": "A",
   "flags": { "ad": false, "cd": false, "rd": false },
   "edns": { "udp_size": 1452, "do": true, "ecs": null },
   "response": {
-    "answers": [ { "data": "172.233.24.85", "name": "k3x9q2mz7a.dns-monitor.tmsoft.com.br.", "ttl": 5, "type": "A" } ],
+    "answers": [ { "data": "170.247.40.86", "name": "k3x9q2mz7a.finger-west-01.badblock.net.br.", "ttl": 5, "type": "A" } ],
     "rcode": "NOERROR",
     "truncated": false
   }
@@ -459,17 +466,17 @@ Pacotes avulsos são os que não formam conexão: SYN sem resposta, RST solto, I
 `dir=out`, como no filtro do tempo real.
 
 ```console
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/packets?limit=1'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/packets?limit=1'
 [
   {
     "dir": "in",
-    "dst": { "ip": "172.233.24.85", "port": 55121 },
+    "dst": { "ip": "170.247.40.86", "port": 55121 },
     "family": 4,
     "frame_b64": "8jyTJo/Z/v//////CABFQAAo…",
     "l4": "tcp",
     "length": 54,
     "src": { "ip": "198.51.100.58", "port": 47212 },
-    "summary": "tcp 198.51.100.58 > 172.233.24.85 [R]",
+    "summary": "tcp 198.51.100.58 > 170.247.40.86 [R]",
     "tcp_flags": "R",
     "ts": "2026-11-09T06:54:51.699385654Z"
   }
@@ -479,7 +486,7 @@ $ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/packets?limit=1'
 ## Saúde
 
 ```console
-$ curl -s http://vps602.tmsoft.com.br:9001/api/v1/health | jq '{ok, version, versions_match,
+$ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq '{ok, version, versions_match,
     services: (.services | map_values(.status)), store: .host.store}'
 {
   "ok": true,
@@ -488,7 +495,7 @@ $ curl -s http://vps602.tmsoft.com.br:9001/api/v1/health | jq '{ok, version, ver
   "services": { "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
   "store": {
     "db_bytes": 9748272,
-    "max_bytes": 2147483648,
+    "max_bytes": 8589934592,
     "retention": "10m",
     "connections": 175,
     "oldest": "2026-11-09T07:09:16.712379952Z"
@@ -503,7 +510,20 @@ rodam outro commit; cada serviço com versão diferente da do store fica `degrad
 `ok` é `false` se algum serviço estiver `down` (sem heartbeat há 15 s). `host` traz kernel, offloads e sysctls
 efetivos, certificados (emissor e validade), NTP e o uso do banco (`db_bytes`, `retention`, `oldest`). O store
 fica `degraded` quando um sysctl efetivo difere do arquivo do projeto (`sysctl <chave> is <valor>, want <valor>`)
-ou quando o `nf_conntrack` foi carregado depois do boot (`conntrack loaded`).
+ou quando há regra de NAT ou redirecionamento nas portas do espelho (`nat on mirror ports`; o deploy também
+reprova).
+
+O finger-01 é compartilhado com o Docker do traefik, então o `nf_conntrack` e o ruleset do nftables do host
+existem e são **tolerados** (ADR 0038 item 7): `conntrack_loaded` e `nft_ruleset_lines` aparecem no health só como
+informação e não deixam nada `degraded` (antes, no servidor anterior, o motivo `conntrack loaded` deixava). O
+conntrack não altera pacotes de fluxos sem NAT: o AF_PACKET vê a entrada antes do netfilter e a saída depois.
+
+Os offloads são da `ens192` (vmxnet3): recurso que o driver não tem aparece como `unknown`, e recurso fixo pelo
+driver com o valor que o ethtool mostra; só um agregador ligado deixa o health `degraded`.
+
+Sysctls do host que o espelho **não** fixa e que moldam o que o cliente vê do servidor (ADR 0038 item 7):
+`net.ipv4.ip_default_ttl=128` (os pacotes IPv4 do espelho saem com TTL 128), `net.ipv4.tcp_mtu_probing=1`,
+`net.core.rmem_default`/`wmem_default` de 31457280 e `net.ipv4.tcp_no_metrics_save=1`.
 
 ## Erros
 
@@ -520,31 +540,31 @@ Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada
 `Access-Control-Allow-Methods: GET, DELETE, OPTIONS`).
 
 ```console
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections?limit=abc'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections?limit=abc'
 {
   "error": "invalid limit \"abc\" (1..1000)"
 }
-$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/probes/XY
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/probes/XY
 {
   "error": "invalid probe id \"XY\""
 }
-$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/NOTULID
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/NOTULID
 {
   "error": "invalid conn_id \"NOTULID\""
 }
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw'
 {
   "error": "dir must be in or out"
 }
-$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRA
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRA
 {
   "error": "not found or expired"
 }
-$ curl -s -w '%{http_code}\n' https://vps602.tmsoft.com.br:9000/api/v1/nada
+$ curl -s -w '%{http_code}\n' https://finger-01.badblock.net.br:9000/api/v1/nada
 {
   "error": "not found"
 }
 404
-$ curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS https://vps602.tmsoft.com.br:9000/api/v1/connections
+$ curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS https://finger-01.badblock.net.br:9000/api/v1/connections
 204
 ```

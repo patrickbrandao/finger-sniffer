@@ -8,8 +8,10 @@ Derivado das specs [005](../specs/005-web.md) (web), [006](../specs/006-raw.md) 
 caminhos é do cliente). Em caso de divergência, valem as specs e o contrato
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml).
 
-As saídas são reais (vps602, caminho direto), resumidas, com o IP do cliente trocado por `203.0.113.10` e o
-probe ID trocado por `k3x9q2mz7a`. Os comandos por proxy usam um proxy genérico
+As saídas são reais (caminho direto), obtidas no servidor anterior e adaptadas aos nomes, IPs e portas do
+finger-01 ([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)); estão
+resumidas, com o IP do cliente trocado por `203.0.113.10` e o probe ID trocado por `k3x9q2mz7a`. Valores que
+dependem da pilha do servidor (TTL e janela do SYN-ACK, contagens) podem diferir no finger-01. Os comandos por proxy usam um proxy genérico
 (`PROXY:PORTA`) e são o ponto de partida para quem compara caminhos; o projeto do espelho só roda o caminho
 direto (ADR 0028).
 
@@ -19,7 +21,7 @@ Um probe ID amarra num só registro tudo o que uma sondagem gerou: a consulta DN
 requisições. Regras:
 
 - 8 a 32 caracteres `[a-z0-9]`, aleatório, um por sondagem e por caminho (por exemplo `k3x9q2mz7a`);
-- usado como **rótulo mais à esquerda** do nome (`k3x9q2mz7a.dns-monitor.tmsoft.com.br`) e no **caminho**
+- usado como **rótulo mais à esquerda** do nome (`k3x9q2mz7a.finger-west-01.badblock.net.br`) e no **caminho**
   (`/p/k3x9q2mz7a/`); nas portas cruas, na linha `PROBE`;
 - o store associa a conexão ao probe assim que o ID aparece (SNI, `Host`, caminho, DNS ou `PROBE`).
 
@@ -31,12 +33,17 @@ do ClientHello e o tamanho dos segmentos.
 
 | Porta | Serviço |
 | --- | --- |
-| TCP 80, 443, 8080, 8443 | web: HTTP/1.x, h2, h2c, WebSocket, TLS em qualquer uma (o protocolo vem dos primeiros bytes, não da porta) |
-| UDP 443 | QUIC / HTTP/3 |
+| TCP 8080, 8443 | web: HTTP/1.x, h2, h2c, WebSocket, TLS em qualquer uma (o protocolo vem dos primeiros bytes, não da porta) |
+| UDP 8443 | QUIC / HTTP/3 |
 | TCP 7 | eco |
 | TCP 21, 22, 25, 587, 110, 143 | banner (o servidor fala primeiro), depois sink |
 | TCP 993 | TLS, depois banner IMAP |
-| UDP e TCP 53 | DNS autoritativo de `dns-monitor.tmsoft.com.br` |
+| UDP e TCP 53 | DNS autoritativo de `finger-west-01.badblock.net.br` |
+
+As portas TCP 80, 443 e 8081 e a UDP 443 do servidor são do traefik do host, que atende outros sites: toda sondagem
+web leva a porta explícita (`https://<id>.finger-west-01.badblock.net.br:8443/`, `http://…:8080/`); sem porta, a
+conexão cai no traefik. O espelho captura também esse tráfego (aparece como conexões sem serviço de protocolo) e
+ele é público pela API como o resto.
 
 O espelho **nunca fecha uma conexão por conta própria antes de `FS_IDLE_DEFAULT` (120 s)** sem atividade: todo
 fechamento observado vem do cliente ou de quem está no caminho (exceto quando a sondagem pede, com `close=`,
@@ -60,7 +67,7 @@ o web e o dns: sonde pelo nome ou por esses IPs.
 ## Respostas do espelho
 
 ```console
-$ curl -s https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/
+$ curl -s https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/
 conn_id: 01M6ZHDDRFGPZS1EQHR779F73Q
 request: 0
 stream_id: 1
@@ -69,10 +76,12 @@ probe_id: k3x9q2mz7a
 
 - O corpo traz o `conn_id` da conexão (ou `conn_id: unknown` se o store não respondeu em 250 ms), o índice da
   requisição e, em h2/h3, o `stream_id`. `?inline=1` devolve o JSON da própria requisição (depuração).
-- `--http1.1`, `--http2` e `--http3-only` escolhem o protocolo; `http://` na porta 80 ou 8080 dá HTTP em claro.
-  h2c: `curl --http2-prior-knowledge http://<id>.dns-monitor.tmsoft.com.br/p/<id>/`.
-- Respostas h1/h2 em portas TLS anunciam `Alt-Svc: h3=":443"; ma=60` enquanto o servidor h3 está de pé
-  (desligável por `?alt_svc=0`), e o DNS publica um registro HTTPS com `alpn="h3,h2"`. Detalhes do h3 em
+- `--http1.1`, `--http2` e `--http3-only` escolhem o protocolo; `http://` na porta 8080 dá HTTP em claro (a 8443 também aceita
+  HTTP em claro, e a 8080 também aceita TLS).
+  h2c: `curl --http2-prior-knowledge http://<id>.finger-west-01.badblock.net.br:8080/p/<id>/`.
+- Respostas h1/h2 em portas TLS anunciam `Alt-Svc: h3=":8443"; ma=60` enquanto o servidor h3 está de pé
+  (desligável por `?alt_svc=0`), e o DNS publica um registro HTTPS em `_8443._https.<nome>` com `alpn="h3,h2"`
+  (o nome sem prefixo não tem registro HTTPS, porque a 443 é do traefik). Detalhes do h3 em
   [http3.md](http3.md).
 - Caminhos fora de `/p/`, `/r` e `/.well-known/acme-challenge/` servem o site estático (ou 404).
 - Os bytes exatos que o espelho mandou ficam em `http[].response_sent_b64` (h1) e no fluxo
@@ -91,24 +100,24 @@ HTTP/1, o primeiro campo depois da linha de status; no h2 e no h3, o primeiro ca
   9110 §6.6.1). Qualquer outro valor de `date` dá 400.
 
 ```console
-$ curl -si --http1.1 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/' | head -3
+$ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/' | head -3
 HTTP/1.1 200 OK
 Date: Mon, 09 Nov 2026 09:03:32 GMT
 Content-Type: text/plain; charset=utf-8
-$ curl -si --http1.1 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?date=0' | grep -ci '^date:'
+$ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?date=0' | grep -ci '^date:'
 0
-$ curl -si --http1.1 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?h=Date:x' | head -4
+$ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?h=Date:x' | head -4
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 Date: x
-$ curl -si 'http://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?date=1' | head -2
+$ curl -si 'http://k3x9q2mz7a.finger-west-01.badblock.net.br:8080/p/k3x9q2mz7a/r?date=1' | head -2
 HTTP/1.1 400 Bad Request
 Date: Mon, 09 Nov 2026 09:03:33 GMT
 ```
 
-O mesmo vale para h2 (`date` logo depois de `:status`) e h3 (`--http3-only`, com e sem `?date=0`), conferidos na
-vps602.
+O mesmo vale para h2 (`date` logo depois de `:status`) e h3 (`--http3-only`, com e sem `?date=0`), conferidos no
+servidor anterior.
 
 ### Controles de resposta: `/p/<id>/r?...`
 
@@ -141,7 +150,7 @@ que não se aplicam respondem **400** com explicação (spec 011). Valor inváli
 motivo em texto, registrado em `controls.invalid`.
 
 ```console
-$ curl -s 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?size=abc'
+$ curl -s 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?size=abc'
 invalid response controls:
 size=abc: must be a decimal integer
 ```
@@ -152,11 +161,11 @@ Quem testa um caminho (proxy, túnel, VPN) repete cada caso pelo caminho direto 
 que o espelho viu (spec 017, ADR 0028). Para cada caso e caminho:
 
 1. **Gerar** um probe ID novo, aleatório, sempre do mesmo tamanho.
-2. **Resolver e conectar** pelo caminho em teste, usando o nome `<id>.dns-monitor.tmsoft.com.br` e o caminho
+2. **Resolver e conectar** pelo caminho em teste, usando o nome `<id>.finger-west-01.badblock.net.br` e o caminho
    `/p/<id>/` (ou `/p/<id>/r?...`); nas portas cruas, `PROBE <id>` na primeira linha. Por proxy, use o **nome**
    (não o IP), para que a resolução feita pelo proxy também apareça no registro.
 3. **Fechar** a conexão do lado do cliente quando o caso terminar (o espelho não fecha antes de 120 s).
-4. **Coletar**: `GET https://vps602.tmsoft.com.br:9000/api/v1/probes/<id>?wait=30s&settle=1s`. A resposta vem quando há ao
+4. **Coletar**: `GET https://finger-01.badblock.net.br:9000/api/v1/probes/<id>?wait=30s&settle=1s`. A resposta vem quando há ao
    menos uma conexão, todas fecharam e nada mudou no probe por 1 s (`settle`, que cobre a conexão que chega logo
    depois e a que ainda não foi correlacionada), ou no fim do prazo. `wait_met: true` diz que o conjunto está
    completo; `wait_met: false` diz que o prazo acabou antes (com `all_closed: false` se o proxy ainda segura a
@@ -167,12 +176,12 @@ que o espelho viu (spec 017, ADR 0028). Para cada caso e caminho:
    conexões que ainda estiverem abertas (somem na hora e não voltam ao fechar).
 
 ```sh
-api=https://vps602.tmsoft.com.br:9000/api/v1
+api=https://finger-01.badblock.net.br:9000/api/v1
 id=$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)
-curl -s "https://$id.dns-monitor.tmsoft.com.br/p/$id/" >/dev/null                         # direto
-# curl -s -x http://PROXY:PORTA  "http://$id.dns-monitor.tmsoft.com.br/p/$id/"           # proxy HTTP
-# curl -s -x http://PROXY:PORTA  "https://$id.dns-monitor.tmsoft.com.br/p/$id/"          # túnel CONNECT
-# curl -s -x https://PROXY:PORTA "https://$id.dns-monitor.tmsoft.com.br/p/$id/"          # HTTPS-proxy
+curl -s "https://$id.finger-west-01.badblock.net.br:8443/p/$id/" >/dev/null                         # direto
+# curl -s -x http://PROXY:PORTA  "http://$id.finger-west-01.badblock.net.br:8080/p/$id/"           # proxy HTTP
+# curl -s -x http://PROXY:PORTA  "https://$id.finger-west-01.badblock.net.br:8443/p/$id/"          # túnel CONNECT
+# curl -s -x https://PROXY:PORTA "https://$id.finger-west-01.badblock.net.br:8443/p/$id/"          # HTTPS-proxy
 curl -s "$api/probes/$id?wait=30s&settle=1s" |
   jq '{all_closed, wait_met, conns: [.connections[] | {proto, src: .src.ip, ja4t: .tcp.ja4t, ja4: .tls.ja4, close}],
        resolvers: [.dns[].resolver.ip]}'
@@ -258,17 +267,17 @@ Valem para todos os casos; cada caso acrescenta as suas.
 ## Casos da matriz
 
 Os 13 casos da spec 017. Em cada um: o comando pelo caminho direto, o que procurar no registro, os campos
-estáveis e as diferenças esperadas pelos proxies. `$id` é um probe ID novo, `$H` é `$id.dns-monitor.tmsoft.com.br`
-e `$api` é `https://vps602.tmsoft.com.br:9000/api/v1`.
+estáveis e as diferenças esperadas pelos proxies. `$id` é um probe ID novo, `$H` é `$id.finger-west-01.badblock.net.br`
+e `$api` é `https://finger-01.badblock.net.br:9000/api/v1`.
 
 ### Caso 1: HTTP/1.1 com caixa, ordem, duplicatas e espaços
 
 ```console
 $ printf "GET /p/$id/ HTTP/1.1\r\nhost: $H\r\nX-lower-UPPER:   spaced  value  \r\nAccept: */*\r\nX-Dup: 1\r\nX-Dup: 2\r\nUser-Agent: case1\r\n\r\n" |
-    nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
+    nc -w 3 finger-01.badblock.net.br 8080 >/dev/null
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[0].http[0] | {request_line, duplicates, field_count, ja4h, proxy_signals}, .fields[]'
 {"request_line":{"method":"GET","target":"/p/k3x9q2mz7a/","form":"origin","version":"HTTP/1.1","terminator":"crlf"},"duplicates":["x-dup"],"field_count":6,"ja4h":"ge11nn060000_09a43066ffd4_000000000000_000000000000","proxy_signals":[]}
-["host",": ","k3x9q2mz7a.dns-monitor.tmsoft.com.br","crlf"]
+["host",": ","k3x9q2mz7a.finger-west-01.badblock.net.br","crlf"]
 ["X-lower-UPPER",":   ","spaced  value  ","crlf"]
 ["Accept",": ","*/*","crlf"]
 ["X-Dup",": ","1","crlf"]
@@ -288,9 +297,9 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[0].http[0] 
 ### Caso 2: HTTP/1.0 sem e com `Connection: keep-alive`
 
 ```console
-$ printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\n\r\n" | nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
+$ printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\n\r\n" | nc -w 3 finger-01.badblock.net.br 8080 >/dev/null
 $ (printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\nConnection: keep-alive\r\n\r\n"; sleep 1
-   printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\n\r\n"; sleep 1) | nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
+   printf "GET /p/$id/ HTTP/1.0\r\nHost: $H\r\n\r\n"; sleep 1) | nc -w 3 finger-01.badblock.net.br 8080 >/dev/null
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, requests, close: .close|{by,how},
     reqs: [.http[] | {v: .request_line.version, conn: [.fields[] | select(.[0] | ascii_downcase == "connection") | .[2]]}]}'
 {"proto":"http1.0","requests":1,"close":{"by":"client","how":"fin"},"reqs":[{"v":"HTTP/1.0","conn":[]}]}
@@ -308,10 +317,10 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 ### Caso 3: várias requisições por conexão, `Connection: close` e pipelining
 
 ```console
-$ curl -s --http1.1 "https://$H/p/$id/" "https://$H/p/$id/" "https://$H/p/$id/" "https://$H/p/$id/" "https://$H/p/$id/" >/dev/null
-$ curl -s --http1.1 -H 'Connection: close' "https://$H/p/$id/" >/dev/null
+$ curl -s --http1.1 "https://$H:8443/p/$id/" "https://$H:8443/p/$id/" "https://$H:8443/p/$id/" "https://$H:8443/p/$id/" "https://$H:8443/p/$id/" >/dev/null
+$ curl -s --http1.1 -H 'Connection: close' "https://$H:8443/p/$id/" >/dev/null
 $ printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\nGET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\nGET /p/$id/ HTTP/1.1\r\nHost: $H\r\nConnection: close\r\n\r\n" |
-    nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
+    nc -w 3 finger-01.badblock.net.br 8080 >/dev/null
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, requests, close: .close|{by,how}, pipelined: [.http[].pipelined]}'
 {"proto":"tls/http1.1","requests":5,"close":{"by":"server","how":"fin"},"pipelined":[false,false,false,false,false]}
 {"proto":"tls/http1.1","requests":1,"close":{"by":"server","how":"fin"},"pipelined":[false]}
@@ -334,12 +343,12 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 ### Caso 4: corpo com Content-Length, chunked com extensões e trailers, `Expect: 100-continue`
 
 ```console
-$ curl -s --http1.1 "https://$H/p/$id/" --data-binary 'hello=world' >/dev/null
+$ curl -s --http1.1 "https://$H:8443/p/$id/" --data-binary 'hello=world' >/dev/null
 $ printf "POST /p/$id/ HTTP/1.1\r\nHost: $H\r\nTransfer-Encoding: chunked\r\nTrailer: X-Sum\r\nConnection: close\r\n\r\n5;name=a\r\nhello\r\n6\r\n world\r\n0\r\nX-Sum: 42\r\n\r\n" |
-    nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
+    nc -w 3 finger-01.badblock.net.br 8080 >/dev/null
 $ head -c 3000 /dev/urandom > body.bin
-$ curl -s --http1.1 -H 'Expect: 100-continue' --data-binary @body.bin "https://$H/p/$id/" >/dev/null
-$ curl -s --http1.1 -H 'Expect: 100-continue' --expect100-timeout 0.5 --data-binary @body.bin "https://$H/p/$id/r?continue=skip" >/dev/null
+$ curl -s --http1.1 -H 'Expect: 100-continue' --data-binary @body.bin "https://$H:8443/p/$id/" >/dev/null
+$ curl -s --http1.1 -H 'Expect: 100-continue' --expect100-timeout 0.5 --data-binary @body.bin "https://$H:8443/p/$id/r?continue=skip" >/dev/null
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[].http[] | {body: .body|{framing,size,chunks,trailers}, expect_continue}'
 {"body":{"framing":"content-length","size":11,"chunks":null,"trailers":null},"expect_continue":null}
 {"body":{"framing":"chunked","size":11,"chunks":[{"size":5,"size_literal":"5","ext":";name=a"},{"size":6,"size_literal":"6","ext":null},{"size":0,"size_literal":"0","ext":null}],"trailers":[["X-Sum",": ","42","crlf"]]},"expect_continue":null}
@@ -360,7 +369,7 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[].http[] | 
 ### Caso 5: respostas provocadas
 
 ```console
-$ B="http://$H/p/$id/r"
+$ B="http://$H:8080/p/$id/r"
 $ curl -si "$B?status=103&h=Link:%3C/s.css%3E;rel=preload" | head -3
 HTTP/1.1 103 Early Hints
 
@@ -404,10 +413,10 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {close:
 ### Caso 6: ociosidade (30, 90 e 180 s)
 
 ```console
-$ (printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\n"; sleep 30) | nc vps602.tmsoft.com.br 80 >/dev/null
-$ (printf "GET /p/$id/r?idle=5 HTTP/1.1\r\nHost: $H\r\n\r\n"; sleep 30) | nc vps602.tmsoft.com.br 8080 >/dev/null
+$ (printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\n\r\n"; sleep 30) | nc finger-01.badblock.net.br 8080 >/dev/null
+$ (printf "GET /p/$id/r?idle=5 HTTP/1.1\r\nHost: $H\r\n\r\n"; sleep 30) | nc finger-01.badblock.net.br 8080 >/dev/null
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {port: .dst.port, close}'
-{"port":80,"close":{"by":"client","how":"fin","idle_before_close_ms":29975.008946,"half_close":false}}
+{"port":8080,"close":{"by":"client","how":"fin","idle_before_close_ms":29975.008946,"half_close":false}}
 {"port":8080,"close":{"by":"server","how":"fin","idle_before_close_ms":5000.600455,"half_close":false}}
 ```
 
@@ -429,10 +438,10 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {port: 
 ### Caso 7: HTTPS por `CONNECT` com curl, OpenSSL, Go e um cliente que imita o Chrome
 
 ```console
-$ curl -s --http2 "https://$H/p/$id/" >/dev/null
+$ curl -s --http2 "https://$H:8443/p/$id/" >/dev/null
 $ printf "GET /p/$id/ HTTP/1.1\r\nHost: $H\r\nConnection: close\r\n\r\n" |
-    openssl s_client -connect vps602.tmsoft.com.br:443 -servername "$H" -alpn http/1.1 -quiet 2>/dev/null >/dev/null
-$ go run ./client.go "https://$H/p/$id/"      # http.Get da biblioteca padrão
+    openssl s_client -connect finger-01.badblock.net.br:8443 -servername "$H" -alpn http/1.1 -quiet 2>/dev/null >/dev/null
+$ go run ./client.go "https://$H:8443/p/$id/"      # http.Get da biblioteca padrão
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, ja3: .tls.ja3_md5, ja4: .tls.ja4, ja4_stable: .tls.ja4_stable, akamai: .http2.akamai}'
 {"proto":"tls/h2","ja3":"9ff5f7c88ab8372852860f487a8b1dc5","ja4":"t13d3012h2_1d37bd780c83_581742d1f3c4","ja4_stable":"t13d3012h2_1d37bd780c83_581742d1f3c4","akamai":"3:100;4:65536;2:0|1048510465|0|m,s,a,p"}
 {"proto":"tls/http1.1","ja3":"0dcde0fb73b656fd510af1874f13fb8b","ja4":"t13d4908h1_0d8feac7bc37_460f73f9cefb","ja4_stable":"t13d4907h1_0d8feac7bc37_7395dae3b2f3","akamai":null}
@@ -449,7 +458,7 @@ Três casos de h2 em que o registro difere do de um cliente comum, e é o espera
   RF-03). Por prior knowledge (`--http2-prior-knowledge`) o `PS` vem do primeiro HEADERS, como em `tls/h2`.
 
   ```console
-  $ curl -s --http2 "http://$H/p/$id/" >/dev/null
+  $ curl -s --http2 "http://$H:8080/p/$id/" >/dev/null
   $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, mode: .http2.mode, akamai: .http2.akamai}'
   {"proto":"h2c","mode":"upgrade","akamai":"3:100;4:10485760;2:0|1048510465|0|"}
   ```
@@ -462,8 +471,8 @@ Três casos de h2 em que o registro difere do de um cliente comum, e é o espera
 
   ```console
   $ printf 'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n\x00\x00\x12\x04\x00\x00\x00\x00\x00\x00\x04\x00\x01\x00\x00\x00\x03\x00\x00\x00\x64\x00\x04\x00\x02\x00\x00' |
-      nc -w 3 vps602.tmsoft.com.br 80 >/dev/null
-  $ curl -s "$api/connections?src_ip=203.0.113.10&dst_port=80&limit=1" | jq -r '.[0].conn_id' |
+      nc -w 3 finger-01.badblock.net.br 8080 >/dev/null
+  $ curl -s "$api/connections?src_ip=203.0.113.10&dst_port=8080&limit=1" | jq -r '.[0].conn_id' |
       xargs -I{} curl -s "$api/connections/{}" | jq -c '{proto, settings: .http2.settings, akamai: .http2.akamai,
       frames: [.http2.frames[] | [.dir, .type]], streams: (.http2.streams | length), close: .close|{by,how}}'
   {"proto":"h2c","settings":[[4,65536],[3,100],[4,131072]],"akamai":"4:65536;3:100;4:131072|00|0|","frames":[["in","SETTINGS"],["out","SETTINGS"],["out","GOAWAY"]],"streams":0,"close":{"by":"server","how":"fin"}}
@@ -494,7 +503,7 @@ Três casos de h2 em que o registro difere do de um cliente comum, e é o espera
   ainda tenta decifrar esse alerta em claro e responde `bad_record_mac` (20) cifrado, que vem do `crypto/tls`:
 
   ```console
-  $ for v in -tls1_2 -tls1_3; do openssl s_client $v -connect vps602.tmsoft.com.br:443 -servername "$H" \
+  $ for v in -tls1_2 -tls1_3; do openssl s_client $v -connect finger-01.badblock.net.br:8443 -servername "$H" \
       -CAfile ca-qualquer.pem -no-CApath -no-CAstore -verify_return_error </dev/null >/dev/null 2>&1; done
   $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | .tls.alerts'
   [{"description":48,"dir":"in","level":2,"name":"unknown_ca"}]
@@ -511,13 +520,13 @@ Três casos de h2 em que o registro difere do de um cliente comum, e é o espera
 ### Caso 8: `CONNECT` para portas baixas em `banner` e `echo`, com meio-fechamento
 
 ```console
-$ printf "PROBE $id\r\nhello\r\n" | nc -w 3 vps602.tmsoft.com.br 7
+$ printf "PROBE $id\r\nhello\r\n" | nc -w 3 finger-01.badblock.net.br 7
 hello
 half-close test
-$ printf "PROBE $id\r\nEHLO x\r\nQUIT\r\n" | nc -w 3 vps602.tmsoft.com.br 25
+$ printf "PROBE $id\r\nEHLO x\r\nQUIT\r\n" | nc -w 3 finger-01.badblock.net.br 25
 220 finger-sniffer ESMTP ready
 half-close test
-$ printf "PROBE $id mode=echo\r\nping\r\n" | openssl s_client -connect vps602.tmsoft.com.br:993 -quiet 2>/dev/null
+$ printf "PROBE $id mode=echo\r\nping\r\n" | openssl s_client -connect finger-01.badblock.net.br:993 -quiet 2>/dev/null
 * OK finger-sniffer IMAP ready
 ping
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, port: .dst.port, raw: .raw|{mode,banner,half_close}, close: .close|{by,how,half_close}}'
@@ -526,8 +535,8 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 {"proto":"tls/raw","port":993,"raw":{"mode":"echo","banner":"* OK finger-sniffer IMAP ready\r\n","half_close":null},"close":{"by":"server","how":"fin","half_close":true}}
 ```
 
-Por proxy (o túnel até a porta crua): `nc -X connect -x PROXY:PORTA vps602.tmsoft.com.br 7` (o `nc` do BSD/macOS),
-ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-proxy,
+Por proxy (o túnel até a porta crua): `nc -X connect -x PROXY:PORTA finger-01.badblock.net.br 7` (o `nc` do BSD/macOS),
+ou `curl -p -x http://PROXY:PORTA telnet://finger-01.badblock.net.br:7`; por HTTPS-proxy,
 `curl -p -x https://PROXY:PORTA telnet://…`.
 
 - **Procurar**: `raw.mode`, `raw.banner`, `raw.probe_line` (a linha como recebida, com o terminador CRLF ou LF),
@@ -540,7 +549,7 @@ ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-pr
 - **Modo `source`** (`PROBE <id> mode=source n=N`): o espelho manda `N` bytes e fecha (padrão 1 MiB). O máximo é
   64 MiB: um `n` maior é cortado para 64 MiB e a linha continua valendo; o total enviado aparece em
   `raw.writes_out` e no fluxo `out` (spec 006 RF-02, ADR 0035).
-- **Vagas**: o raw atende no máximo `FS_MAX_CONNS` (250) sessões ao mesmo tempo, somando todas as portas; acima
+- **Vagas**: o raw atende no máximo `FS_MAX_CONNS` (1000) sessões ao mesmo tempo, somando todas as portas; acima
   disso a conexão não é recusada, só espera no backlog e é atendida quando uma vaga abre (spec 006 RF-07a).
 - **Estáveis**: `mode`, `banner`, `probe_line`, total de bytes em cada sentido,
   `half_close.server_sent_after_client_fin`, `close.half_close`. `probe_line` é a linha como chegou, **com** o
@@ -553,7 +562,7 @@ ou `curl -p -x http://PROXY:PORTA telnet://vps602.tmsoft.com.br:7`; por HTTPS-pr
 ### Caso 9: WebSocket `ws://` e `wss://`
 
 ```console
-$ for u in "ws://$H/p/$id/ws" "wss://$H/p/$id/r?upgrade=ws"; do
+$ for u in "ws://$H:8080/p/$id/ws" "wss://$H:8443/p/$id/r?upgrade=ws"; do
     node -e "const ws = new WebSocket('$u'); ws.onopen = () => ws.send('hello');
       ws.onmessage = (m) => { console.log(m.data); ws.close(1000, 'bye'); }; ws.onclose = () => process.exit(0)"
   done
@@ -583,9 +592,9 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
   ```
 - **Sem frames**: um WebSocket aceito (101, ou 200 no h2) que termina sem nenhum frame ainda aparece em
   `websocket`, com `over`, `path`, `extensions` e `subprotocol` negociados, `frames: []` e `close: null` (ADR 0032).
-  Sem vaga (32 sessões simultâneas) ou sem orçamento de entrada (cada sessão reserva 2 MiB; com o padrão de
-  24 MiB, no máximo 12 sessões) o espelho responde 503 antes do 101 e não há `websocket` no registro (ADRs 0033
-  e 0036).
+  Sem vaga (32 sessões simultâneas) ou sem orçamento de entrada (cada sessão reserva 2 MiB do orçamento
+  global, padrão 192 MiB) o espelho responde 503 antes do 101 e não há `websocket` no registro (ADRs 0033, 0036 e
+  0039).
 - **Estáveis**: a linha de WebSocket da [tabela](#campos-estáveis-e-o-que-sempre-varia), mais os campos do
   `Upgrade` da requisição (caso 1).
 - **Diferenças esperadas**: `ws://` por proxy HTTP depende de o proxy repassar o `Upgrade` (muitos proxies
@@ -595,26 +604,29 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 ### Caso 10: DNS
 
 ```console
-$ dig +short @vps602.tmsoft.com.br $H A
-172.233.24.85
-$ dig +short @vps602.tmsoft.com.br +subnet=198.51.100.0/24 $H AAAA
-2600:3c0d::f03c:93ff:fe26:8fd9
-$ dig +short @vps602.tmsoft.com.br $H TYPE65
-\# 41 0001000001000602683302683200040004ACE918550006001026003C 0D00000000F03C93FFFE268FD9
+$ dig +short @finger-01.badblock.net.br $H A
+170.247.40.86
+$ dig +short @finger-01.badblock.net.br +subnet=198.51.100.0/24 $H AAAA
+2804:231c:e500:cafe::86
+$ dig +short @finger-01.badblock.net.br _8443._https.$H HTTPS
+1 k3x9q2mz7a.finger-west-01.badblock.net.br. alpn="h3,h2" ipv4hint=170.247.40.86 ipv6hint=2804:231c:e500:cafe::86
 $ dig +short @8.8.8.8 $H A
-172.233.24.85
-$ dig +short +tcp @vps602.tmsoft.com.br $H A
-172.233.24.85
+170.247.40.86
+$ dig +short +tcp @finger-01.badblock.net.br $H A
+170.247.40.86
 $ curl -s "$api/dns?probe=$id" | jq -c '.[] | {resolver: .resolver.ip, proto, qname, qtype, flags, ecs: .edns.ecs, udp: .edns.udp_size, rcode: .response.rcode}'
-{"resolver":"203.0.113.10","proto":"tcp","qname":"k3x9q2mz7a.dns-monitor.tmsoft.com.br.","qtype":"A","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
-{"resolver":"172.253.92.93","proto":"udp","qname":"K3x9Q2mz7A.dnS-MoNItOr.TMSOFt.cOM.br.","qtype":"A","flags":{"ad":false,"cd":true,"rd":false},"ecs":{"address":"203.0.113.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":1400,"rcode":"NOERROR"}
-{"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.dns-monitor.tmsoft.com.br.","qtype":"HTTPS","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
-{"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.dns-monitor.tmsoft.com.br.","qtype":"AAAA","flags":{"ad":true,"cd":false,"rd":true},"ecs":{"address":"198.51.100.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":4096,"rcode":"NOERROR"}
-{"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.dns-monitor.tmsoft.com.br.","qtype":"A","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
+{"resolver":"203.0.113.10","proto":"tcp","qname":"k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"A","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
+{"resolver":"172.253.92.93","proto":"udp","qname":"K3x9Q2mz7A.fINgeR-wEsT-01.BaDbLoCK.nEt.bR.","qtype":"A","flags":{"ad":false,"cd":true,"rd":false},"ecs":{"address":"203.0.113.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":1400,"rcode":"NOERROR"}
+{"resolver":"203.0.113.10","proto":"udp","qname":"_8443._https.k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"HTTPS","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
+{"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"AAAA","flags":{"ad":true,"cd":false,"rd":true},"ecs":{"address":"198.51.100.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":4096,"rcode":"NOERROR"}
+{"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"A","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
 ```
 
 A consulta pelo `8.8.8.8` chega do Google Public DNS, com 0x20 no `qname`, ECS com o /24 do cliente e sem
-`rd`. (O `dig` 9.10 do macOS não conhece o mnemônico `HTTPS`; use `TYPE65`.)
+`rd`. O registro HTTPS fica em `_8443._https.$H` (e `_8080._https.$H`, com `alpn="h2"`), pelo prefixo de porta do
+RFC 9460 §2.3; `$H` sem prefixo responde NODATA no tipo HTTPS, porque a 443 é do traefik (ADR 0038). A consulta
+com prefixo registra o probe, como as demais. (O `dig` 9.10 do macOS não conhece o mnemônico `HTTPS`; use
+`TYPE65` e leia o hex.)
 
 Rótulos de controle, em qualquer posição à direita do probe ID:
 
@@ -642,7 +654,7 @@ repetir em TCP; o TCP fica fora desse limite e sempre recebe a resposta completa
 ### Caso 11: TCP, JA4T/p0f/TTL, RTT e relógio de timestamps
 
 ```console
-$ for i in 1 2 3; do curl -s "http://$H/p/$id/" >/dev/null; sleep 1; done
+$ for i in 1 2 3; do curl -s "http://$H:8080/p/$id/" >/dev/null; sleep 1; done
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {ttl: .ip.ttl, hops: .ip.hops, ja4t: .tcp.ja4t, p0f: .tcp.p0f,
     os: .tcp.os_guess, rtt: .tcp.rtt_handshake_ms, app: .tcp.rtt_app_ms}'
 {"ttl":46,"hops":18,"ja4t":"65535_2-1-3-1-1-8-4-0-0_1412_6","p0f":"4:46+18:0:1412:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0","os":"Mac OS X","rtt":21.239,"app":null}
@@ -672,12 +684,12 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {ttl: .
 
 #### TCP Fast Open
 
-Os listeners TCP do web e do raw concedem TFO (fila de 256; `tcp_fastopen=3` na vps602): o SYN-ACK traz o
+Os listeners TCP do web e do raw concedem TFO (fila de 256; `tcp_fastopen=3` no host): o SYN-ACK traz o
 cookie quando o cliente o pede, e da conexão seguinte em diante o cliente manda dados já no SYN. Repita a
 conexão duas vezes:
 
 ```console
-$ for i in 1 2; do curl -s -4 --tcp-fastopen "http://$H/p/$id/" >/dev/null; done
+$ for i in 1 2; do curl -s -4 --tcp-fastopen "http://$H:8080/p/$id/" >/dev/null; done
 $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | {tfo: .tcp.syn.tfo,
     syn_data: (.tcp.syn.payload_b64 // null | if . then (@base64d | split("\r\n")[0]) else null end),
     syn_len: .ip.packets.syn.total_length, first_data_len: .ip.packets.first_data.total_length}'
@@ -738,7 +750,7 @@ uso especial da IANA:
 - `private`, `loopback`, `link_local`: rede privada ou teste local na frente do espelho.
 - `nat64` (`64:ff9b::/96`, `64:ff9b:1::/48`): só aparece com um tradutor (SIIT/NAT46) **na frente do servidor**
   convertendo um cliente IPv4. **Não** indica NAT64 nem 464XLAT do cliente: esse cliente chega por IPv6 nativo
-  ou pelo IPv4 do NAT64. A vps602 não tem tradutor, então o valor não aparece no espelho.
+  ou pelo IPv4 do NAT64. O finger-01 não tem tradutor, então o valor não aparece no espelho.
 - `other`: não unicast, documentação, benchmarking e outros usos especiais.
 
 **Teto pela janela.** `window` (`tcp.syn.window`) e `wscale` (item `["wscale", S]` de `tcp.syn.options`) dão a
@@ -754,8 +766,8 @@ A segunda conexão do exemplo é um upload de 20 kB, para que `tcp.segments_in` 
 `mtu_conta` refaz a conta pelo `tcp.syn.options` e tem de bater com `mtu`:
 
 ```console
-$ curl -s "http://$H/p/$id/" >/dev/null
-$ curl -s -o /dev/null --data-binary @<(head -c 20000 /dev/zero) "http://$H/p/$id/"
+$ curl -s "http://$H:8080/p/$id/" >/dev/null
+$ curl -s -o /dev/null --data-binary @<(head -c 20000 /dev/zero) "http://$H:8080/p/$id/"
 $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[]
     | (.tcp.syn.options | map({(.[0]): .[1]}) | add) as $o | .tcp.rtt_handshake_ms as $rtt
     | {family, src_kind: .ip.src_kind, mss: .tcp.syn_mss, mtu: .tcp.mtu_implied, reducao: .tcp.mss_reduction,
@@ -785,12 +797,12 @@ fim da conexão.
 ### Caso 12: HTTP/3 (só caminho direto)
 
 ```console
-$ curl -si --http3-only "https://$H/p/$id/" | head -4
+$ curl -si --http3-only "https://$H:8443/p/$id/" | head -4
 HTTP/3 200
 date: Mon, 09 Nov 2026 09:03:32 GMT
 content-type: text/plain; charset=utf-8
 cache-control: no-store
-$ curl -s --http3-only "https://$H/p/$id/r?close=after" -o /dev/null -w '%{http_code}\n'
+$ curl -s --http3-only "https://$H:8443/p/$id/r?close=after" -o /dev/null -w '%{http_code}\n'
 400
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, close: .close|{by,how}, h3: .http3|{version, padded_to_1200,
     client_hello_datagrams, tp: [.transport_params[] | .[1]], ja4: .client_hello.ja4, h3_settings, close: .close|{by,how},
@@ -819,20 +831,20 @@ espera.
 ### Caso 13: tempo real e site
 
 ```console
-$ curl -sN --max-time 4 "https://vps602.tmsoft.com.br:9000/api/v1/stream?probe=$id" > feed.sse &
-$ sleep 1; curl -s "https://$H/p/$id/" >/dev/null; wait
+$ curl -sN --max-time 4 "https://finger-01.badblock.net.br:9000/api/v1/stream?probe=$id" > feed.sse &
+$ sleep 1; curl -s "https://$H:8443/p/$id/" >/dev/null; wait
 $ grep '^event' feed.sse | sort | uniq -c
    1 event: connection.closed
    2 event: connection.updated
    1 event: dns.query
    1 event: http.request
-$ curl -s -o /dev/null -w '%{http_code}\n' 'https://vps602.tmsoft.com.br:9000/api/v1/stream?kind=nope'
+$ curl -s -o /dev/null -w '%{http_code}\n' 'https://finger-01.badblock.net.br:9000/api/v1/stream?kind=nope'
 400
 ```
 
 - **Procurar**: os eventos do probe no `/stream` (SSE) e no `/ws` (filtros `probe`, `src_ip`, `dst_port`,
   `kind`; `stream.dropped` não entra no `kind`), `stream.dropped` para um cliente que não lê, 503 acima de 64 clientes, 400 para filtro inválido. A
-  página `https://<id>.dns-monitor.tmsoft.com.br/` num navegador headless mostra a própria sondagem no feed em
+  página `https://<id>.finger-west-01.badblock.net.br:8443/` num navegador headless mostra a própria sondagem no feed em
   menos de 1 s, sem requisições a terceiros (só a origem da página e a 9000). Detalhes em
   [realtime.md](realtime.md).
 - **Estáveis**: os tipos de evento por sondagem (para o mesmo tipo de cliente): `connection.updated` e

@@ -21,8 +21,8 @@ var allowedExt = map[string]bool{
 
 // Hosts permitidos (spec 014 "Comportamento"): a API e a zona dos probes; nenhum outro.
 const (
-	apiHost   = "vps602.tmsoft.com.br"
-	probeZone = ".dns-monitor.tmsoft.com.br"
+	apiHost   = "finger-01.badblock.net.br"
+	probeZone = ".finger-west-01.badblock.net.br"
 )
 
 // resourceAttrs são atributos que fazem o navegador carregar algo sozinho.
@@ -142,8 +142,11 @@ func TestIndexStructure(t *testing.T) {
 	}
 	// conteúdo exigido pela task 034 e pela spec 014 RF-07
 	for _, want := range []string{
-		"dns-monitor.tmsoft.com.br/p/",
-		"https://vps602.tmsoft.com.br:9000/api/v1/probes/",
+		"finger-west-01.badblock.net.br:8443/p/",
+		"https://finger-01.badblock.net.br:9000/api/v1/probes/",
+		"nc finger-01.badblock.net.br 7",
+		"TCP 8080, 8443", "UDP 8443",
+		"behind the reverse proxy",
 		"/api/v1/openapi.yaml",
 		"10 minutes",
 		"All traffic is public",
@@ -233,17 +236,34 @@ func TestOnlyServableFiles(t *testing.T) {
 
 func TestIsAllowedHost(t *testing.T) {
 	cases := map[string]bool{
-		"https://vps602.tmsoft.com.br:9000/x":    true,
-		"wss://vps602.tmsoft.com.br:9000/ws":     true,
-		"https://abc.dns-monitor.tmsoft.com.br/": true,
-		"https://dns-monitor.tmsoft.com.br/":     false,
-		"https://blog.tmsoft.com.br/":            false,
-		"https://eviltmsoft.com.br/":             false,
-		"https://cdn.example.com/a.js":           false,
+		"https://finger-01.badblock.net.br:9000/x":         true,
+		"wss://finger-01.badblock.net.br:9000/ws":          true,
+		"https://abc.finger-west-01.badblock.net.br:8443/": true,
+		"https://finger-west-01.badblock.net.br/":          false,
+		"https://abc.finger-01.badblock.net.br/":           false,
+		"https://blog.badblock.net.br/":                    false,
+		"https://evilfinger-west-01.badblock.net.br/":      false,
+		"https://finger-01.tmsoft.com.br:9000/x":           false,
+		"https://abc.finger-01.badblock.net.br:8443/":      false,
+		"https://cdn.example.com/a.js":                     false,
 	}
 	for in, want := range cases {
 		if got := isAllowedHost(in); got != want {
 			t.Errorf("isAllowedHost(%q) = %v, quero %v", in, got, want)
+		}
+	}
+}
+
+// TestNoPreviousServer: o servidor e a zona anteriores saíram do site (ADR 0038). Os nomes são montados por partes
+// para que o grep do critério de aceite da task 233 não ache este arquivo.
+func TestNoPreviousServer(t *testing.T) {
+	old := []string{"vps" + "602", "dns" + "-monitor", "tmsoft.com.br:9000"}
+	for _, name := range siteFiles {
+		data := strings.ToLower(string(readFile(t, name)))
+		for _, bad := range old {
+			if strings.Contains(data, bad) {
+				t.Errorf("%s ainda cita %q", name, bad)
+			}
 		}
 	}
 }

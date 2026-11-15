@@ -1,5 +1,8 @@
 # Auditoria F5: spec × implementação (task 071)
 
+> Medido no servidor anterior (vps602), [ADR 0038](../../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md):
+> registro histórico, mantido como estava.
+
 > Data: 09/11/2026. Commit auditado: `origin/main` bfa81d7 (bfa81d70dcf1dd86c0c2fdbb20b7dc6251406eb2).
 > As divergências encontradas viraram as tarefas 077–088 (tabela "Tarefas criadas" abaixo); este relatório é o
 > retrato da auditoria e não é atualizado conforme elas são entregues. A exceção é a seção

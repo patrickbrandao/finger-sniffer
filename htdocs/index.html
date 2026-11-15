@@ -31,6 +31,10 @@ and which characteristics it has when it reaches the server.</p>
 <p class="notice"><strong>All traffic is public.</strong> Anything you send to the captured ports, including
 headers, cookies and request bodies, can be read by anyone through the API. Do not send secrets. Records are
 kept for about <strong>10 minutes</strong> and then deleted.</p>
+<p class="notice">This server is shared: it also hosts other sites behind the reverse proxy on ports 80 and 443.
+Everything that reaches the server's network interface is captured, including the traffic of those sites
+(addresses, TLS server names and plain HTTP requests on port 80), and is public through the API for the same
+10 minutes.</p>
 </section>
 
 <section aria-labelledby="live">
@@ -51,7 +55,7 @@ traffic. Times are in UTC. Click a connection to see its full record (pause the 
 <form id="filters" role="search" aria-label="Filter the feed">
 <fieldset class="filters">
 <legend>Filters (local, they only hide rows)</legend>
-<label for="f-port">Port <input id="f-port" name="port" class="narrow" inputmode="numeric" autocomplete="off" placeholder="443" /></label>
+<label for="f-port">Port <input id="f-port" name="port" class="narrow" inputmode="numeric" autocomplete="off" placeholder="8443" /></label>
 <label for="f-proto">Protocol <input id="f-proto" name="proto" class="narrow" autocomplete="off" placeholder="h2" /></label>
 <label for="f-ip">IP <input id="f-ip" name="ip" autocomplete="off" placeholder="203.0.113.7" /></label>
 <label for="f-probe">Probe <input id="f-probe" name="probe" autocomplete="off" placeholder="k3x9q2mz7a" /></label>
@@ -95,15 +99,17 @@ traffic. Times are in UTC. Click a connection to see its full record (pause the 
 <tr><th scope="col">Port</th><th scope="col">Service</th></tr>
 </thead>
 <tbody>
-<tr><td>TCP 80, 443, 8080, 8443</td><td>Web mirror: HTTP/1.x, h2, h2c, WebSocket, TLS on any of these ports (the protocol is detected from the first bytes, not from the port)</td></tr>
-<tr><td>UDP 443</td><td>QUIC / HTTP/3</td></tr>
+<tr><td>TCP 8080, 8443</td><td>Web mirror: HTTP/1.x, h2, h2c, WebSocket, TLS on either port (the protocol is detected from the first bytes, not from the port)</td></tr>
+<tr><td>UDP 8443</td><td>QUIC / HTTP/3 (announced by <code>Alt-Svc: h3=":8443"</code>)</td></tr>
 <tr><td>TCP 7</td><td>Echo</td></tr>
 <tr><td>TCP 21, 22, 25, 587, 110, 143</td><td>Banner (the server speaks first), then sink</td></tr>
 <tr><td>TCP 993</td><td>TLS, then banner</td></tr>
-<tr><td>UDP and TCP 53</td><td>Authoritative DNS for <code>dns-monitor.tmsoft.com.br</code></td></tr>
+<tr><td>UDP and TCP 53</td><td>Authoritative DNS for <code>finger-west-01.badblock.net.br</code></td></tr>
 </tbody>
 </table>
-<p>Ports 9000 (HTTPS) and 9001 (HTTP) serve the API and are not captured.</p>
+<p>Ports 9000 (HTTPS) and 9001 (HTTP) on <code>finger-01.badblock.net.br</code> serve the API and are not
+captured. Ports 80 and 443 belong to the reverse proxy of the server, not to the mirror: always put the port
+(<code>:8443</code> or <code>:8080</code>) in the URL of a probe.</p>
 </section>
 
 <section aria-labelledby="probe">
@@ -111,23 +117,25 @@ traffic. Times are in UTC. Click a connection to see its full record (pause the 
 <p>Pick a random probe ID of 8 to 32 lowercase letters and digits (for example <code>k3x9q2mz7a</code>) and use
 it both as the leftmost DNS label and in the path. The DNS lookup, the TCP and TLS handshakes and the HTTP
 request are then all tied to the same probe:</p>
-<pre><code>curl https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/</code></pre>
+<pre><code>curl https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/</code></pre>
 <p>The response is a short text with the <code>conn_id</code> of your connection. The response can be
 controlled through <code>/p/&lt;id&gt;/r?...</code>, for example:</p>
-<pre><code>curl 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?status=204&amp;conn=close'
-curl 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?size=100000&amp;frame=chunked'
-curl 'https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/r?delay_head=500&amp;h=X-Test:1'</code></pre>
+<pre><code>curl 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?status=204&amp;conn=close'
+curl 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?size=100000&amp;frame=chunked'
+curl 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?delay_head=500&amp;h=X-Test:1'
+curl --http3-only https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/
+curl http://k3x9q2mz7a.finger-west-01.badblock.net.br:8080/p/k3x9q2mz7a/</code></pre>
 <p>On the raw TCP ports, send a <code>PROBE &lt;id&gt;</code> line first (optionally with <code>mode=echo|banner|sink|source</code> and <code>n=N</code>):</p>
-<pre><code>printf 'PROBE k3x9q2mz7a\r\nhello\r\n' | nc vps602.tmsoft.com.br 7</code></pre>
+<pre><code>printf 'PROBE k3x9q2mz7a\r\nhello\r\n' | nc finger-01.badblock.net.br 7</code></pre>
 </section>
 
 <section aria-labelledby="result">
 <h2 id="result">Where to see the result</h2>
 <p>Ask the API for everything recorded under your probe ID. <code>wait</code> holds the answer until all
 connections of the probe are closed (up to 60 s):</p>
-<pre><code>curl 'https://vps602.tmsoft.com.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s'</code></pre>
+<pre><code>curl 'https://finger-01.badblock.net.br:9000/api/v1/probes/k3x9q2mz7a?wait=10s'</code></pre>
 <p>The same API is available over plain HTTP on port 9001
-(<code>http://vps602.tmsoft.com.br:9001/api/v1/probes/&lt;id&gt;</code>). Each connection also has its own
+(<code>http://finger-01.badblock.net.br:9001/api/v1/probes/&lt;id&gt;</code>). Each connection also has its own
 record, raw bytes and a pcap: <code>/api/v1/connections/&lt;conn_id&gt;</code>,
 <code>/api/v1/connections/&lt;conn_id&gt;/raw</code> and <code>/api/v1/connections/&lt;conn_id&gt;/pcap</code>.
 When you are done, <code>DELETE /api/v1/probes/&lt;id&gt;</code> removes your records before the 10 minutes.</p>
@@ -136,7 +144,7 @@ When you are done, <code>DELETE /api/v1/probes/&lt;id&gt;</code> removes your re
 <section aria-labelledby="api">
 <h2 id="api">API reference</h2>
 <p>The full contract (OpenAPI 3.1) is at
-<a href="https://vps602.tmsoft.com.br:9000/api/v1/openapi.yaml">https://vps602.tmsoft.com.br:9000/api/v1/openapi.yaml</a>
+<a href="https://finger-01.badblock.net.br:9000/api/v1/openapi.yaml">https://finger-01.badblock.net.br:9000/api/v1/openapi.yaml</a>
 (also over HTTP on port 9001). It covers connections, raw bytes, pcaps, DNS queries, stray packets, health and
 the live event stream.</p>
 </section>
@@ -144,7 +152,8 @@ the live event stream.</p>
 
 <footer>
 <p>No cookies, no analytics, no third-party resources: the page loads only its own files and talks only to the
-API on port 9000 and, when you press "Run probe", to <code>&lt;id&gt;.dns-monitor.tmsoft.com.br</code>.</p>
+API on port 9000 and, when you press "Run probe", to <code>&lt;id&gt;.finger-west-01.badblock.net.br</code> on
+ports 8443 and 8080.</p>
 </footer>
 </body>
 </html>

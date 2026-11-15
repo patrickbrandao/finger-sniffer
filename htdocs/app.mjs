@@ -2,8 +2,11 @@
 // JS puro, sem build e sem dependências. Tudo que vem da API é de terceiros: entra no DOM só por textContent e
 // createElement. As funções exportadas não tocam no DOM e são testadas pelo htdocs_test.go com o node.
 
-export const DEFAULT_API = "https://vps602.tmsoft.com.br:9000";
-export const PROBE_ZONE = "dns-monitor.tmsoft.com.br";
+export const DEFAULT_API = "https://finger-01.badblock.net.br:9000";
+export const PROBE_ZONE = "finger-west-01.badblock.net.br";
+// portas do web nas sondagens do "run probe" (TCP 8443 com TLS e h3 na UDP 8443; 8080 em claro; ADR 0038)
+export const TLS_PORT = 8443;
+export const PLAIN_PORT = 8080;
 export const MAX_ROWS = 500;
 export const WS_OPEN_TIMEOUT_MS = 3000;
 export const MAX_BACKOFF_MS = 30000;
@@ -576,17 +579,18 @@ function wsProbe(WS, url, message, timeoutMs) {
   });
 }
 
-// probeTargets lista as sondagens HTTP do "run probe": duas em https (a segunda deve ir por h3 via Alt-Svc) e
-// uma em http só quando a página veio por http (o navegador bloqueia conteúdo misto).
+// probeTargets lista as sondagens HTTP do "run probe": duas em https na 8443 (a segunda deve ir por h3 na UDP 8443
+// via Alt-Svc) e uma em http na 8080 só quando a página veio por http (o navegador bloqueia conteúdo misto).
+// As portas são explícitas: a 80/443 do host é do traefik (ADR 0038).
 export function probeTargets(id, pageProtocol) {
   const host = `${id}.${PROBE_ZONE}`;
   const path = `/p/${id}/`;
   const out = [
-    { label: "HTTPS request", url: `https://${host}${path}` },
-    { label: "HTTPS request again (HTTP/3 if the browser took the Alt-Svc)", url: `https://${host}${path}` },
+    { label: "HTTPS request", url: `https://${host}:${TLS_PORT}${path}` },
+    { label: "HTTPS request again (HTTP/3 if the browser took the Alt-Svc)", url: `https://${host}:${TLS_PORT}${path}` },
   ];
-  if (pageProtocol === "http:") out.push({ label: "plain HTTP request", url: `http://${host}${path}` });
-  out.push({ label: "WebSocket with one message", url: `wss://${host}/p/${id}/r?upgrade=ws`, ws: true });
+  if (pageProtocol === "http:") out.push({ label: "plain HTTP request", url: `http://${host}:${PLAIN_PORT}${path}` });
+  out.push({ label: "WebSocket with one message", url: `wss://${host}:${TLS_PORT}/p/${id}/r?upgrade=ws`, ws: true });
   return out;
 }
 

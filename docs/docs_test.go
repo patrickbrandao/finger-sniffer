@@ -249,7 +249,7 @@ func TestListenAndRecordReadyDocs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
 			"`127.0.0.1`", "`FS_LISTEN_IPV4`", "`FS_LISTEN_IPV6`", "**nunca** em todos os endereços",
-			"`FS_TCP_CLOSE_GRACE`", "`conntrack loaded`", "differs from store",
+			"`FS_TCP_CLOSE_GRACE`", "`nat on mirror ports`", "`conntrack_loaded`", "differs from store",
 		},
 		"../README.md": {"`127.0.0.1`", "`FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`"},
 		"metrics.md": {
@@ -556,6 +556,81 @@ func TestMetricsDocCoversCode(t *testing.T) {
 	} {
 		if !strings.Contains(doc, q) {
 			t.Errorf("docs/metrics.md sem a consulta %q", q)
+		}
+	}
+}
+
+// probeURLNoPortRe acha URL da zona dos probes sem porta explícita; no finger-01 ela cairia no traefik (ADR 0038).
+var probeURLNoPortRe = regexp.MustCompile(`(?:https?|wss?)://[^\s/"'` + "`" + `]*finger-west-01\.badblock\.net\.br/`)
+
+// fenceRe acha os blocos de código, onde ficam os comandos que o leitor copia.
+var fenceRe = regexp.MustCompile("(?s)```.*?```")
+
+// TestFinger01Docs: os guias e o README de raiz descrevem o finger-01 (ADRs 0038 e 0039, task 233): sem o servidor
+// e a zona anteriores fora das notas históricas de dev/, com hosts, zona, portas, Alt-Svc, HTTPS RR com prefixo,
+// certificados A/B, limites, sysctls do host e o conntrack informativo; nenhum comando sonda a zona sem porta.
+func TestFinger01Docs(t *testing.T) {
+	// montados por partes para que o grep do critério de aceite da task 233 não ache este arquivo
+	old := []string{"vps" + "602", "dns" + "-monitor"}
+	files, _ := filepath.Glob("*.md")
+	files = append(files, filepath.Join("..", "README.md"))
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(data)
+		for _, b := range old {
+			if strings.Contains(strings.ToLower(s), b) {
+				t.Errorf("%s ainda cita %q (ADR 0038)", f, b)
+			}
+		}
+		for _, block := range fenceRe.FindAllString(s, -1) {
+			for _, m := range probeURLNoPortRe.FindAllString(block, -1) {
+				t.Errorf("%s: comando com URL da zona sem porta (cai no traefik): %q", f, m)
+			}
+		}
+	}
+	// registros históricos de dev/: ficam como estão, com a nota no topo
+	devs, _ := filepath.Glob(filepath.Join("dev", "*.md"))
+	for _, f := range devs {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "vps"+"602") && !strings.Contains(string(data), "Medido no servidor anterior (vps"+"602), [ADR 0038]") {
+			t.Errorf("%s cita o servidor anterior sem a nota histórica da ADR 0038", f)
+		}
+	}
+	want := map[string][]string{
+		"README.md": {
+			"`finger-01.badblock.net.br`", "`finger-west-01.badblock.net.br`", "`170.247.40.86`",
+			"`2804:231c:e500:cafe::86`", "`ens192`", "TCP **8080** e **8443**", "UDP **8443**", "`h3=\":8443\"; ma=60`",
+			"`_8443._https.<nome>`", "NODATA", "**A**", "**B**", "TLS-ALPN-01", "`finger-sniffer.slice`",
+			"`MemoryMax=6G`", "`CPUQuota=800%`", "`FS_MAX_CONNS=1000`", "`FS_MAX_NEW_CONNS_PER_S=250`", "192 MiB",
+			"8 GiB", "128 MiB", "`net.ipv4.ip_default_ttl=128`", "`net.ipv4.tcp_mtu_probing=1`", "traefik",
+		},
+		"api.md": {
+			"`https://finger-01.badblock.net.br:9000`", "`[2804:231c:e500:cafe::86]`", "8 GiB", "`nat on mirror ports`",
+			"`conntrack_loaded`", "`nft_ruleset_lines`", "**tolerados**", "`net.ipv4.ip_default_ttl=128`",
+			"`net.ipv4.tcp_mtu_probing=1`", "`ens192`", "padrão 1000 conexões simultâneas", "400 e 100/s",
+		},
+		"http3.md":  {"**UDP 8443**", "`Alt-Svc: h3=\":8443\"; ma=60`", "_8443._https.", "RFC 9460 §2.3", "NODATA", "`alpn=\"h2\"`"},
+		"probes.md": {"| TCP 8080, 8443 |", "| UDP 8443 |", "_8443._https.$H", "traefik", "padrão 192 MiB", "(1000) sessões"},
+		"../README.md": {
+			"`finger-01.badblock.net.br`", "`<id>.finger-west-01.badblock.net.br`", "| TCP 8080, 8443 |", "| UDP 8443 |",
+			"traefik", "`ens192`", "finger-west-01.badblock.net.br:8443/p/", "finger-01.badblock.net.br:9000",
+		},
+	}
+	for f, ws := range want {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range ws {
+			if !strings.Contains(string(data), w) {
+				t.Errorf("%s sem %q", f, w)
+			}
 		}
 	}
 }
