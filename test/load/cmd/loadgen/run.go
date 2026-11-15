@@ -35,6 +35,8 @@ import (
 type config struct {
 	Host        string        `json:"host"`
 	IP          string        `json:"ip"`
+	H3Family    string        `json:"h3_family"`
+	H3IP        string        `json:"h3_ip"` // endereço do h3 (IPv6 por padrão)
 	API         string        `json:"api"`
 	MetricsURL  string        `json:"metrics_url"`
 	Rate        int           `json:"rate"`
@@ -55,7 +57,8 @@ type config struct {
 // mix converte "h1=15,h1tls=15,..." num ciclo determinístico de tipos (o mix sai exato a cada ciclo).
 func parseMix(s string) ([]connSpec, error) {
 	ports := map[string][]int{
-		"h1": {80, 8080}, "h1tls": {443, 8443}, "h2": {443, 8443}, "h3": {443},
+		// portas do web no finger-01 (ADR 0038 item 3): TCP 8080/8443, UDP 8443; 80/443 são do traefik
+		"h1": {8080}, "h1tls": {8443}, "h2": {8443}, "h3": {8443},
 		"raw-echo": {7}, "raw-banner": {21, 25}, "raw-sink": {143},
 	}
 	var cycle []connSpec
@@ -91,7 +94,7 @@ func gcd(a, b int) int {
 	return a
 }
 
-// measureClock mede o deslocamento do relógio da vps602 (remoto − local) pela menor ida e volta.
+// measureClock mede o deslocamento do relógio do servidor (remoto − local) pela menor ida e volta.
 func measureClock(cmdline string) (offset, rtt time.Duration, err error) {
 	cmd := exec.Command("sh", "-c", cmdline) //nolint:gosec // comando do operador
 	in, _ := cmd.StdinPipe()
@@ -234,23 +237,25 @@ type retentionCheck struct {
 func runCmd(args []string) error {
 	var c config
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	fs.StringVar(&c.Host, "host", "vps602.tmsoft.com.br", "servidor")
-	fs.StringVar(&c.API, "api", "https://vps602.tmsoft.com.br:9000/api/v1", "base da API (feed e amostragem)")
-	fs.StringVar(&c.MetricsURL, "metrics", "http://vps602.tmsoft.com.br:9001/metrics", "/metrics do store")
-	fs.IntVar(&c.Rate, "rate", 50, "conexões novas por segundo")
-	fs.IntVar(&c.MaxActive, "max-active", 200, "teto de conexões simultâneas do gerador")
+	fs.StringVar(&c.Host, "host", "finger-01.badblock.net.br", "servidor")
+	fs.StringVar(&c.API, "api", "https://finger-01.badblock.net.br:9000/api/v1", "base da API (feed e amostragem)")
+	fs.StringVar(&c.MetricsURL, "metrics", "http://finger-01.badblock.net.br:9001/metrics", "/metrics do store")
+	// perfil do RNF-01 no finger-01 (ADR 0039 item 5): 400 simultâneas, 100 novas/s
+	fs.IntVar(&c.Rate, "rate", 100, "conexões novas por segundo")
+	fs.IntVar(&c.MaxActive, "max-active", 400, "teto de conexões simultâneas do gerador")
+	fs.StringVar(&c.H3Family, "h3-family", "6", "família do h3 (4 ou 6): do Mac ao finger-01 o UDP IPv4 grande se perde")
 	fs.DurationVar(&c.Life, "life", 3800*time.Millisecond, "duração de cada conexão")
 	fs.IntVar(&c.Reqs, "reqs", 3, "trocas por conexão (requisições HTTP ou linhas no raw)")
 	fs.DurationVar(&c.Duration, "duration", 10*time.Minute, "duração da carga (inclui o aquecimento)")
 	fs.DurationVar(&c.Warmup, "warmup", time.Minute, "aquecimento descartado")
 	fs.StringVar(&c.Mix, "mix", "h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8", "mix por tipo (pesos)")
 	fs.Float64Var(&c.APIRate, "api-rate", 10, "requisições de amostragem da API por segundo (metade conexões, metade probes)")
-	fs.StringVar(&c.ClockCmd, "clock-cmd", "ssh -p 48022 root@vps602.tmsoft.com.br /tmp/fs-load/loadmon clock", "comando que ecoa o relógio da vps602")
+	fs.StringVar(&c.ClockCmd, "clock-cmd", "ssh -p 48022 root@finger-01.tmsoft.com.br /tmp/fs-load/loadmon clock", "comando que ecoa o relógio do servidor")
 	fs.DurationVar(&c.Retention, "retention", 10*time.Minute, "FS_RETENTION do servidor")
 	fs.BoolVar(&c.RetCheck, "retention-check", true, "depois da carga, espera e confere o expurgo dos primeiros probes")
 	fs.StringVar(&c.LabelOrigin, "origin", "mac", "rótulo da origem da carga (relatório)")
 	fs.StringVar(&c.Out, "out", "", "pasta de saída")
-	commit := fs.String("commit", "", "commit esperado na vps602 (vazio = não confere)")
+	commit := fs.String("commit", "", "commit esperado no servidor (vazio = não confere)")
 	_ = fs.Parse(args)
 	if c.Out == "" {
 		return fmt.Errorf("-out é obrigatório")
@@ -275,12 +280,25 @@ func runCmd(args []string) error {
 	if c.IP == "" {
 		return fmt.Errorf("%s sem IPv4", c.Host)
 	}
+	c.H3IP = c.IP
+	if c.H3Family == "6" {
+		c.H3IP = ""
+		for _, ip := range ips {
+			if ip.To4() == nil && ip.To16() != nil {
+				c.H3IP = ip.String()
+				break
+			}
+		}
+		if c.H3IP == "" {
+			return fmt.Errorf("%s sem IPv6 para o h3 (use -h3-family 4)", c.Host)
+		}
+	}
 
 	offset, rtt, err := measureClock(c.ClockCmd)
 	if err != nil {
 		return err
 	}
-	logf("relógio: vps602 − local = %v (ida e volta %v)", offset, rtt)
+	logf("relógio: servidor − local = %v (ida e volta %v)", offset, rtt)
 
 	g := &gen{Config: c, OffsetStartNs: int64(offset), ClockRTTNs: int64(rtt)}
 	httpc := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{
@@ -291,11 +309,11 @@ func runCmd(args []string) error {
 		return fmt.Errorf("health antes da carga: versions_match=%v err=%s", h0.VersionsMatch, h0.Err)
 	}
 	if *commit != "" && h0.Version != *commit {
-		return fmt.Errorf("vps602 com a versão %s, esperava %s", h0.Version, *commit)
+		return fmt.Errorf("servidor com a versão %s, esperava %s", h0.Version, *commit)
 	}
 	g.Commit = h0.Version
 	g.Health = append(g.Health, h0)
-	logf("vps602 na versão %s (versions_match=true)", h0.Version)
+	logf("servidor na versão %s (versions_match=true)", h0.Version)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -303,7 +321,7 @@ func runCmd(args []string) error {
 	defer feedCancel()
 	clk := loadstat.NewClockTrack(time.Now(), offset, rtt)
 	ws, sse := newFeed("ws", clk), newFeed("sse", clk)
-	// relógio medido de novo a cada 15 s: o timesyncd da vps602 corrige por rampa durante a carga
+	// relógio medido de novo a cada 15 s: o timesyncd do servidor corrige por rampa durante a carga
 	go func() {
 		t := time.NewTicker(15 * time.Second)
 		defer t.Stop()
@@ -429,7 +447,11 @@ func runCmd(args []string) error {
 		connWG.Add(1)
 		go func() {
 			defer connWG.Done()
-			r := runConn(loadCtx, c.IP, spec, c.Reqs, c.Life)
+			ip := c.IP
+			if spec.Kind == "h3" {
+				ip = c.H3IP
+			}
+			r := runConn(loadCtx, ip, spec, c.Reqs, c.Life)
 			active.Add(-1)
 			resMu.Lock()
 			conns = append(conns, r)

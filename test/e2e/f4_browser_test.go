@@ -4,12 +4,14 @@ package e2e
 
 // Critério de saída da F4 e casos 12/13 da spec 017 com navegadores reais (task 060): Chrome headless (CDP) e
 // Firefox headless (WebDriver BiDi), com o sandbox ligado e sem forçar QUIC por linha de comando. Cada um abre a
-// página do htdocs em https://vps602.tmsoft.com.br/, espera o feed ficar "live", clica em "Run probe" e confere:
+// página do htdocs pelas duas entradas (https://finger-01.badblock.net.br/ pelo traefik em passthrough e
+// https://finger-01.badblock.net.br:8443/ direto; ADR 0038 item 6), espera o feed ficar "live", clica em
+// "Run probe" e confere:
 //   - o registro do probe mostra uma requisição em quic/h3 (a segunda, pelo Alt-Svc, ou já a primeira pelo HTTPS
 //     RR);
 //   - cada linha do probe aparece no DOM do feed em < 1 s do ts do evento (MutationObserver injetado antes da
-//     página, hora do DOM convertida para o relógio da vps602 por clockOffset);
-//   - nenhuma requisição da página sai para host fora da vps602 e de *.dns-monitor (lista do CDP/BiDi).
+//     página, hora do DOM convertida para o relógio do servidor por clockOffset);
+//   - nenhuma requisição da página sai para host fora do servidor e da zona dos probes (lista do CDP/BiDi).
 
 import (
 	"bufio"
@@ -34,8 +36,13 @@ import (
 
 const firefoxBin = "/Applications/Firefox.app/Contents/MacOS/firefox"
 
-// pageURL é a página do htdocs servida nas portas capturadas.
-func pageURL() string { return "https://" + vpsHost + "/" }
+// pages são as entradas da página do htdocs: pelo traefik (443, passthrough até o web na 8443) e direta.
+func pages() []struct{ name, url string } {
+	return []struct{ name, url string }{
+		{"traefik", "https://" + vpsHost + "/"},
+		{"direct", "https://" + vpsHost + onTLS + "/"},
+	}
+}
 
 // domObserver registra cada <li> novo do feed com a hora local (ms) e os textos das colunas.
 const domObserver = `(() => {
@@ -458,7 +465,7 @@ func waitEval(ctx context.Context, b browser, expr string, ok func(string) bool)
 	return last, fmt.Errorf("%q: último valor %q (%v)", expr, last, err)
 }
 
-// allowedPageHost diz se a página pode falar com o host (spec 014: só a vps602 e a zona dos probes).
+// allowedPageHost diz se a página pode falar com o host (spec 014: só o servidor e a zona dos probes).
 func allowedPageHost(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -482,12 +489,12 @@ type domRow struct {
 }
 
 // runPageProbe abre a página, roda o "Run probe" e confere o critério de saída da F4.
-func runPageProbe(t *testing.T, name string, b browser) {
+func runPageProbe(t *testing.T, name, page string, b browser) {
 	t.Helper()
 	defer b.close()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if err := b.navigate(ctx, pageURL()); err != nil {
+	if err := b.navigate(ctx, page); err != nil {
 		t.Fatalf("%s: navegar: %v", name, err)
 	}
 	if _, err := waitEval(ctx, b, `String(document.getElementById("feed-state") && document.getElementById("feed-state").dataset.state)`,
@@ -515,7 +522,7 @@ func runPageProbe(t *testing.T, name string, b browser) {
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) && h3Conn == nil; {
 		p := probeNow(t, id)
 		order = order[:0]
-		for _, c := range p.conns(443) {
+		for _, c := range p.conns(portTLS) {
 			order = append(order, c.Proto)
 			if c.Proto == "quic/h3" && c.HTTP3 != nil && len(c.HTTP3.Requests) > 0 && h3Conn == nil {
 				h3Conn = &c
@@ -526,7 +533,7 @@ func runPageProbe(t *testing.T, name string, b browser) {
 		}
 	}
 	if h3Conn == nil {
-		t.Errorf("%s: nenhuma requisição do probe em quic/h3 (conexões na 443: %v)", name, order)
+		t.Errorf("%s: nenhuma requisição do probe em quic/h3 (conexões na %d: %v)", name, portTLS, order)
 	} else {
 		via := "Alt-Svc (segunda requisição)"
 		if order[0] == "quic/h3" {
@@ -536,7 +543,7 @@ func runPageProbe(t *testing.T, name string, b browser) {
 		if h3Conn.HTTP3.ClientHello != nil {
 			ja4 = h3Conn.HTTP3.ClientHello.JA4
 		}
-		t.Logf("%s: h3 via %s; conexões na 443 em ordem: %v; JA4 %s", name, via, order, ja4)
+		t.Logf("%s: h3 via %s; conexões na %d em ordem: %v; JA4 %s", name, via, portTLS, order, ja4)
 	}
 
 	// atraso até o DOM
@@ -632,7 +639,9 @@ func TestF4PageChrome(t *testing.T) {
 	if _, err := os.Stat(chromeBin); err != nil {
 		t.Skipf("%s não está instalado nesta máquina", chromeBin)
 	}
-	runPageProbe(t, "chrome", startChrome(t))
+	for _, pg := range pages() {
+		t.Run(pg.name, func(t *testing.T) { runPageProbe(t, "chrome/"+pg.name, pg.url, startChrome(t)) })
+	}
 }
 
 // TestF4PageFirefox: Firefox headless (sandbox ligado, sem exceções de h3 no perfil).
@@ -640,5 +649,7 @@ func TestF4PageFirefox(t *testing.T) {
 	if _, err := os.Stat(firefoxBin); err != nil {
 		t.Skipf("%s não está instalado nesta máquina", firefoxBin)
 	}
-	runPageProbe(t, "firefox", startFirefox(t))
+	for _, pg := range pages() {
+		t.Run(pg.name, func(t *testing.T) { runPageProbe(t, "firefox/"+pg.name, pg.url, startFirefox(t)) })
+	}
 }

@@ -3,7 +3,7 @@
 package main
 
 // Clientes do feed global (/api/v1/ws e /api/v1/stream): anotam a chegada de cada evento já no relógio da
-// vps602 (deslocamento medido por ssh) e o connection.closed de cada probe da carga.
+// servidor (deslocamento medido por ssh) e o connection.closed de cada probe da carga.
 
 import (
 	"bufio"
@@ -39,7 +39,7 @@ type summary struct {
 	Requests int        `json:"requests"`
 }
 
-// feedSample é um evento recebido: tipo, ts e chegada (ns, relógio da vps602).
+// feedSample é um evento recebido: tipo, ts e chegada (ns, relógio do servidor).
 type feedSample struct {
 	Kind  string
 	Proto string // data.proto de connection.* (separa o connection.updated do raw.session, ts = accept)
@@ -49,7 +49,7 @@ type feedSample struct {
 
 // closedInfo é o connection.closed de um probe.
 type closedInfo struct {
-	Recv     int64 // chegada (relógio da vps602)
+	Recv     int64 // chegada (relógio do servidor)
 	RecvLoc  int64 // chegada (relógio local; o RNF-04 compara com o fim no cliente, sem depender do deslocamento)
 	Ended    int64 // data.ended
 	ConnID   string
@@ -62,7 +62,7 @@ type closedInfo struct {
 // feed acumula o que um cliente de tempo real recebeu.
 type feed struct {
 	name    string
-	clk     *loadstat.ClockTrack // deslocamento vps602 − local, atualizado durante a carga
+	clk     *loadstat.ClockTrack // deslocamento servidor − local, atualizado durante a carga
 	mu      sync.Mutex
 	samples []feedSample
 	closed  map[string]closedInfo // por probe

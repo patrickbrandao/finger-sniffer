@@ -1,6 +1,7 @@
 // Package loadstat reúne as contas do teste de carga (task 068, spec 017 RF-13): percentis de amostras,
 // leitura do formato de exposição do Prometheus, quantis de histogramas por diferença de duas coletas e
-// leitura dos arquivos de cgroup v2 da vps602. Fica fora das build tags para ter testes no verify.
+// leitura dos arquivos de cgroup v2 e do /proc do servidor (finger-01, ADR 0038). Fica fora das build tags para ter
+// testes no verify.
 package loadstat
 
 import (
@@ -293,4 +294,37 @@ func ProcStatCPU(text string) (busy, total, steal int64, err error) {
 		return total - idle, total, v[7], nil
 	}
 	return 0, 0, 0, fmt.Errorf("/proc/stat sem a linha cpu")
+}
+
+// ProcStatNCPU conta as linhas `cpuN` do /proc/stat (núcleos online), para converter a CPU do host em % de um
+// núcleo (16 vCPU no finger-01, ADR 0039).
+func ProcStatNCPU(text string) int {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) > 0 && len(f[0]) > 3 && strings.HasPrefix(f[0], "cpu") {
+			if _, err := strconv.Atoi(f[0][3:]); err == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// ParseConntrackS soma os contadores do `conntrack -S` (uma linha `cpu=N chave=valor ...` por núcleo) por chave,
+// sem a chave cpu. Linhas sem `=` são ignoradas.
+func ParseConntrackS(text string) map[string]int64 {
+	out := map[string]int64{}
+	for _, line := range strings.Split(text, "\n") {
+		for _, kv := range strings.Fields(line) {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || k == "cpu" {
+				continue
+			}
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				out[k] += n
+			}
+		}
+	}
+	return out
 }

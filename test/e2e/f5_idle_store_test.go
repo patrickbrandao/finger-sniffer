@@ -60,13 +60,13 @@ func TestStoreIdleKeepsOneConnection(t *testing.T) {
 		t.Fatalf("fechando: %v", err)
 	}
 
-	p := waitProbe(t, id, atLeast(1, 80))
-	cs := p.conns(80)
+	p := waitProbe(t, id, atLeast(1, portHTTP))
+	cs := p.conns(portHTTP)
 	if len(cs) != 1 {
 		for _, r := range cs {
 			t.Logf("%s started=%s requests=%d close=%+v", r.ConnID, r.Started, r.Requests, r.Close)
 		}
-		t.Fatalf("%d conexões na porta 80 depois de %s parada, esperado 1 (ADR 0034 item 2)", len(cs), storeIdleGap)
+		t.Fatalf("%d conexões na porta 8080 depois de %s parada, esperado 1 (ADR 0034 item 2)", len(cs), storeIdleGap)
 	}
 	rc := connRecord(t, cs[0].ConnID)
 	if rc.Requests != 2 || len(rc.HTTP) != 2 {

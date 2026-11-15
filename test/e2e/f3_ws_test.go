@@ -32,15 +32,15 @@ func TestCase9WebSocket(t *testing.T) {
 		deflate            bool
 		port               int
 	}{
-		{"ws", "ws", "ws", false, 80},
-		{"wss", "wss", "ws", false, 443},
-		{"wss-deflate", "wss", "r?upgrade=ws", true, 443},
+		{"ws", "ws", "ws", false, portHTTP},
+		{"wss", "wss", "ws", false, portTLS},
+		{"wss-deflate", "wss", "r?upgrade=ws", true, portTLS},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			id := newID(t)
-			url := fmt.Sprintf("%s://%s/p/%s/%s", tc.scheme, probeHost(id), id, tc.path)
+			url := fmt.Sprintf("%s://%s:%d/p/%s/%s", tc.scheme, probeHost(id), tc.port, id, tc.path)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			opts := &websocket.DialOptions{CompressionMode: websocket.CompressionDisabled}
@@ -161,7 +161,7 @@ func TestCase9WebSocketH2(t *testing.T) {
 	id := newID(t)
 	host := probeHost(id)
 	path := "/p/" + id + "/ws"
-	tc, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp4", vps4+":443",
+	tc, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp4", vps4+onTLS,
 		&tls.Config{ServerName: host, NextProtos: []string{"h2"}})
 	if err != nil {
 		t.Fatal(err)
@@ -261,14 +261,14 @@ func TestCase9WebSocketH2(t *testing.T) {
 	_ = tc.Close()
 
 	p := waitProbe(t, id, func(p *probeResp) bool {
-		for _, c := range p.conns(443) {
+		for _, c := range p.conns(portTLS) {
 			if c.WebSocket != nil && c.WebSocket.Close != nil {
 				return true
 			}
 		}
 		return false
 	})
-	for _, c := range p.conns(443) {
+	for _, c := range p.conns(portTLS) {
 		w := c.WebSocket
 		if w == nil {
 			continue

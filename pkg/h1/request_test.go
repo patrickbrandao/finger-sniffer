@@ -19,7 +19,7 @@ func newReader(s string) *Reader {
 // Caso 1 da matriz (spec 017): caixa e ordem incomuns, duplicatas, valor com espaços, LF puro.
 func TestReadHeadMatrixCase1(t *testing.T) {
 	raw := "GET /p/abc123/r?x=1 HTTP/1.1\r\n" +
-		"hOsT: abc123.dns-monitor.tmsoft.com.br\r\n" +
+		"hOsT: abc123.finger-west-01.badblock.net.br\r\n" +
 		"X-Custom-B:   value with   spaces  \r\n" +
 		"accept: */*\n" +
 		"X-Dup: one\r\n" +
@@ -35,7 +35,7 @@ func TestReadHeadMatrixCase1(t *testing.T) {
 		t.Fatalf("raw head differs:\n%q", req.RawHead)
 	}
 	want := []Field{
-		{"hOsT", ": ", "abc123.dns-monitor.tmsoft.com.br", TermCRLF},
+		{"hOsT", ": ", "abc123.finger-west-01.badblock.net.br", TermCRLF},
 		{"X-Custom-B", ":   ", "value with   spaces  ", TermCRLF},
 		{"accept", ": ", "*/*", TermLF},
 		{"X-Dup", ": ", "one", TermCRLF},
@@ -55,7 +55,7 @@ func TestReadHeadMatrixCase1(t *testing.T) {
 	if !reflect.DeepEqual(req.Duplicates, []string{"x-dup"}) {
 		t.Fatalf("duplicates %v", req.Duplicates)
 	}
-	if v, ok := req.Get("HOST"); !ok || v != "abc123.dns-monitor.tmsoft.com.br" {
+	if v, ok := req.Get("HOST"); !ok || v != "abc123.finger-west-01.badblock.net.br" {
 		t.Fatalf("Get host %q", v)
 	}
 	if got := req.Values("x-DUP"); !reflect.DeepEqual(got, []string{"one", "two"}) {

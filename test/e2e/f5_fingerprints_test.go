@@ -9,7 +9,7 @@ package e2e
 //     (ja4 da FoxIO e tshark), JA4_o (ja4 -O), JA4T (ja4), p0f (p0f -r), Akamai h2 (tshark com o keylog do
 //     cliente, técnica do fingerproxy no ref.py do golden da task 036) e JA4H (ja4 com o keylog);
 //   - QUIC (h3): JA4 q, JA4_r q e JA4_o q (ja4 e tshark).
-// O tshark e o ja4 rodam na vps602 (as mesmas versões dos golden). Os navegadores rodam headless com o sandbox
+// O tshark e o ja4 rodam no servidor (as mesmas versões dos golden). Os navegadores rodam headless com o sandbox
 // ligado. A tabela consolidada vai para testdata/fingerprints-f5.md com FS_E2E_UPDATE=1 (sempre sai no log).
 //
 // Divergências da ferramenta aceitas, com o valor do ja4 como referência:
@@ -107,12 +107,11 @@ type ja4Line struct {
 	} `json:"http"`
 }
 
-const ja4Bin = "/root/ja4-rust/target/release/ja4"
-
-// f5Analyze manda o pcap da conexão e o keylog do cliente para a vps602 e roda tshark, ja4 (-r e -r -O), p0f -r
+// f5Analyze manda o pcap da conexão e o keylog do cliente para o servidor e roda tshark, ja4 (-r e -r -O), p0f -r
 // e, em TCP, o ref.py do golden TLS (Akamai). Uma saída por seção, separadas por marcadores.
 func f5Analyze(t *testing.T, connID string, port int, quic bool, keylog []byte) f5Ref {
 	t.Helper()
+	requireTools(t)
 	pcap := pcapOf(t, connID)
 	dir := "/tmp/fs-e2e-f5/" + connID
 	t.Cleanup(func() { remote(t, "rm -rf "+dir+"; rmdir /tmp/fs-e2e-f5 2>/dev/null; true") })
@@ -321,12 +320,12 @@ func chromeArgsRun(extra ...string) func(ctx context.Context, url, keylog string
 	}
 }
 
-// chromeH3Run força QUIC para o host do probe (--origin-to-force-quic-on não mexe no sandbox nem na
-// verificação do certificado).
+// chromeH3Run força QUIC para a origem do probe (host:8443; --origin-to-force-quic-on não mexe no sandbox nem
+// na verificação do certificado).
 func chromeH3Run(ctx context.Context, url, keylog string) error {
-	host := strings.TrimPrefix(url, "https://")
-	host, _, _ = strings.Cut(host, "/")
-	return chromeArgsRun("--origin-to-force-quic-on="+host+":443")(ctx, url, keylog)
+	origin := strings.TrimPrefix(url, "https://")
+	origin, _, _ = strings.Cut(origin, "/")
+	return chromeArgsRun("--origin-to-force-quic-on="+origin)(ctx, url, keylog)
 }
 
 // firefoxPrefsRun roda o Firefox headless (sandbox ligado) com --screenshot num perfil descartável com as
@@ -341,8 +340,13 @@ func firefoxPrefsRun(prefs func(host string) []string) func(ctx context.Context,
 		defer os.RemoveAll(dir) //nolint:errcheck // perfil descartável
 		host := strings.TrimPrefix(url, "https://")
 		host, _, _ = strings.Cut(host, "/")
-		js := []string{`user_pref("network.dns.disableIPv6", true);`}
-		for _, p := range prefs(host) {
+		host, _, _ = strings.Cut(host, ":") // sem a porta da origem
+		ps := prefs(host)
+		var js []string
+		if !slices.ContainsFunc(ps, func(p string) bool { return strings.HasPrefix(p, `"network.dns.disableIPv6"`) }) {
+			js = append(js, `user_pref("network.dns.disableIPv6", true);`)
+		}
+		for _, p := range ps {
 			js = append(js, "user_pref("+p+");")
 		}
 		if err := os.WriteFile(filepath.Join(dir, "user.js"), []byte(strings.Join(js, "\n")+"\n"), 0o600); err != nil {
@@ -369,10 +373,13 @@ func ffTCP(h2 bool) func(string) []string {
 	}
 }
 
+// ffH3 liga o h3 com o mapeamento de teste para a porta UDP do espelho; com h3Family "6" o IPv6 fica ligado
+// (do Mac ao finger-01 o UDP IPv4 grande se perde).
 func ffH3(host string) []string {
 	return []string{
 		`"network.http.http3.enable", true`,
-		`"network.http.http3.alt-svc-mapping-for-testing", "` + host + `;h3=:443"`,
+		fmt.Sprintf(`"network.http.http3.alt-svc-mapping-for-testing", "%s;h3=:%d"`, host, portTLS),
+		fmt.Sprintf(`"network.dns.disableIPv6", %v`, h3Family != "6"),
 	}
 }
 
@@ -412,7 +419,7 @@ func TestF5Fingerprints(t *testing.T) {
 				}
 			}
 			id := newID(t)
-			url := "https://" + probeHost(id) + "/p/" + id + "/"
+			url := "https://" + probeHost(id) + onTLS + "/p/" + id + "/"
 			keylog := filepath.Join(t.TempDir(), "keys")
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
@@ -425,11 +432,11 @@ func TestF5Fingerprints(t *testing.T) {
 			}
 			if cl.quic {
 				c := waitF5QUIC(t, id)
-				checkF5QUIC(t, tb, cl, c, f5Analyze(t, c.ConnID, 443, true, keys))
+				checkF5QUIC(t, tb, cl, c, f5Analyze(t, c.ConnID, portTLS, true, keys))
 				return
 			}
 			p := waitProbe(t, id, func(p *probeResp) bool {
-				for _, c := range p.conns(443) {
+				for _, c := range p.conns(portTLS) {
 					if c.TLS != nil && len(c.HTTP)+h2Streams(c) > 0 {
 						return true
 					}
@@ -437,14 +444,14 @@ func TestF5Fingerprints(t *testing.T) {
 				return false
 			})
 			main := true // a primeira conexão com dados de aplicação vai para a tabela; as demais só conferidas
-			for _, pc := range p.conns(443) {
+			for _, pc := range p.conns(portTLS) {
 				if pc.TLS == nil {
 					continue
 				}
 				var c f5Conn
 				addLive("connection-example.json", get(t, "/connections/"+pc.ConnID, &c))
 				withData := len(c.HTTP) > 0 || (c.HTTP2 != nil && len(c.HTTP2.Streams) > 0)
-				checkF5TCP(t, tb, cl, c, f5Analyze(t, c.ConnID, 443, false, keys), main && withData)
+				checkF5TCP(t, tb, cl, c, f5Analyze(t, c.ConnID, portTLS, false, keys), main && withData)
 				if withData {
 					main = false
 				}
@@ -675,13 +682,13 @@ func writeF5Table(t *testing.T, tb *f5Table) {
 	b.WriteString("do registro (`GET /api/v1/connections/{id}`) é comparada com o `ja4` da FoxIO e o `tshark` aplicados ao **mesmo\n")
 	b.WriteString("pcap**, o de `GET /api/v1/connections/{id}/pcap`, com o keylog do próprio cliente. `—` = a ferramenta não\n")
 	b.WriteString("calcula essa impressão. JA4T e p0f vêm do SYN; o p0f é conferido com `p0f -r` sobre o mesmo pcap.\n\n")
-	fmt.Fprintf(&b, "- Data: %s; serviços na vps602 no commit %s.\n", time.Now().UTC().Format("2006-01-02 15:04Z"), strings.Join(cs, ", "))
-	fmt.Fprintf(&b, "- Ferramentas na vps602: %s.\n", strings.ReplaceAll(strings.ReplaceAll(tools, ".\n", "\n"), "\n", "; "))
+	fmt.Fprintf(&b, "- Data: %s; serviços no %s no commit %s.\n", time.Now().UTC().Format("2006-01-02 15:04Z"), vpsHost, strings.Join(cs, ", "))
+	fmt.Fprintf(&b, "- Ferramentas no servidor: %s.\n", strings.ReplaceAll(strings.ReplaceAll(tools, ".\n", "\n"), "\n", "; "))
 	fmt.Fprintf(&b, "- Clientes (macOS %s): %s; %s; %s; Go %s (net/http e quic-go); %s; %s.\n",
 		cmdLine("sw_vers", "-productVersion"), cmdLine(curlOpenSSL, "-V"), cmdLine(curlLibreSSL, "-V"),
 		h3curl,
 		strings.TrimPrefix(runtime.Version(), "go"), cmdLine(chromeBin, "--version"), cmdLine(firefoxBin, "--version"))
-	b.WriteString("- Chrome e Firefox headless com o sandbox ligado. h3: Chrome com `--origin-to-force-quic-on=<host>:443`,\n")
+	b.WriteString("- Chrome e Firefox headless com o sandbox ligado. h3: Chrome com `--origin-to-force-quic-on=<host>:8443`,\n")
 	b.WriteString("  Firefox com `network.http.http3.alt-svc-mapping-for-testing` no perfil descartável; TCP: QUIC desligado.\n")
 	b.WriteString("- `curl-libressl` (curl do macOS) não grava SSLKEYLOGFILE: Akamai e JA4H sem referência; os demais campos\n")
 	b.WriteString("  conferidos. A tabela mostra a primeira conexão com dados de cada cliente; as demais (preconnect do Chrome)\n")

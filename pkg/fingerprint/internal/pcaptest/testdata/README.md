@@ -1,5 +1,9 @@
 # Dados de teste dos fingerprints (JA4T, p0f, JA3 e JA4)
 
+> **Servidor anterior (vps602).** Os gabaritos foram gerados na vps602 e ficam como registro; desde a ADR 0038 os
+> scripts de regeneração apontam para o finger-01 (`root@finger-01.tmsoft.com.br`), que precisa das mesmas
+> ferramentas (`tshark` 4.4, `p0f`, `ja4` em `/root/ja4-rust`).
+
 ## Pcaps (`syn/`)
 Só os pacotes SYN e SYN+ACK de cada captura, para manter o repositório pequeno; JA4T e p0f olham apenas
 esses pacotes.

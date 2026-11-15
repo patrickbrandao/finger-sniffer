@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Carga do orçamento de memória de entrada do web contra a vps602 (task 214; spec 005 RF-12, ADR 0033).
+# Carga do orçamento de memória de entrada do web contra o finger-01 (task 214; spec 005 RF-12, ADRs 0033 e 0039).
 # Roda na máquina cliente.
 #
 #   test/load/budget.sh [flags do budgetload]
 #
-# Variáveis: OUT (padrão tmp/load/raw/budget-<data UTC>), FS_VPS_SSH, FS_VPS_PORT, RESTART_WEB=1 (reinicia o web
+# Variáveis: OUT (padrão tmp/load/raw/budget-<data UTC>), FS_VPS_SSH, FS_VPS_PORT, FS_API_HOST (nome do alvo e da
+# API, padrão finger-01.badblock.net.br), RESTART_WEB=1 (reinicia o web
 # antes e espera o health ok: o memory.peak passa a ser só desta janela; task 215).
 #
-# Segura /tmp/fs-load-running na vps602 (ninguém implanta nem roda e2e), anota NRestarts, memory.peak e o PID do
+# Segura /tmp/fs-load-running no servidor (ninguém implanta nem roda e2e), anota NRestarts, memory.peak e o PID do
 # web, sobe o loadmon (memória por unit a cada 1 s), roda o budgetload, traz o cgroup.csv e grava em
 # $OUT/web.txt o estado do web depois (NRestarts, memory.peak, PID, OOM no journal) e o pico do memory.current.
 # O loadmon também lê sock, kernel, slab e percpu do memory.stat (máximo por janela de 30 s) e o nstat -asz é
@@ -16,13 +17,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-VPS_SSH="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
+VPS_SSH="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
+API_HOST="${FS_API_HOST:-finger-01.badblock.net.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
 OUT="${OUT:-tmp/load/raw/budget-$(date -u +%Y%m%dT%H%M%SZ)}"
 BIN="tmp/load"
 REMOTE=/tmp/fs-load
 LOCK=/tmp/fs-load-running
-CG=/sys/fs/cgroup/system.slice/finger-sniffer-web.service
+# fatia própria do espelho (ADR 0039 item 1)
+CG=/sys/fs/cgroup/finger.slice/finger-sniffer.slice/finger-sniffer-web.service
 
 ssh_vps() { ssh -p "$VPS_PORT" -o BatchMode=yes "$VPS_SSH" "$@"; }
 cleanup() {
@@ -45,7 +48,7 @@ scp -q -P "$VPS_PORT" "$BIN/loadmon" "$VPS_SSH:$REMOTE/loadmon"
 if [ "${RESTART_WEB:-0}" = 1 ]; then
 	ssh_vps "systemctl restart finger-sniffer-web"
 	for _ in $(seq 60); do
-		st=$(curl -fsS --max-time 3 "http://${VPS_SSH#*@}:9001/api/v1/health" 2>/dev/null |
+		st=$(curl -fsS --max-time 3 "http://$API_HOST:9001/api/v1/health" 2>/dev/null |
 			python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["web"]["status"])' 2>/dev/null || true)
 		[ "$st" = ok ] && break
 		sleep 1
@@ -61,7 +64,7 @@ ssh_vps "nstat -asz" >"$OUT/nstat-antes.txt"
 START=$(date -u +'%F %T')
 ssh_vps "setsid -f $REMOTE/loadmon sample -out $REMOTE/cgroup.csv -interval 1s >/dev/null 2>&1 </dev/null"
 
-"$BIN/budgetload" -out "$OUT" "$@" 2>&1 | tee "$OUT/run.txt"
+"$BIN/budgetload" -host "$API_HOST" -out "$OUT" "$@" 2>&1 | tee "$OUT/run.txt"
 
 ssh_vps "pkill -INT -f '[l]oadmon sample' || true; sleep 2"
 ssh_vps "nstat -asz" >"$OUT/nstat-depois.txt"
@@ -74,7 +77,7 @@ scp -q -P "$VPS_PORT" "$VPS_SSH:$REMOTE/cgroup.csv" "$OUT/cgroup.csv"
 	awk -F, '$2=="web" && $5>m {m=$5} END {print "anon_max=" m}' "$OUT/cgroup.csv"
 	echo "# memória do web por janela de 30 s (kernel = memory.current − anon − file)"
 	"$BIN/budgetload" -analyze "$OUT/cgroup.csv"
-	echo "# nstat da vps602 (host inteiro), antes → depois"
+	echo "# nstat do servidor (host inteiro), antes → depois"
 	"$BIN/budgetload" -nstat-delta "$OUT/nstat-antes.txt,$OUT/nstat-depois.txt"
 	echo "# journal do web durante a carga (OOM, reinício, pânico)"
 	ssh_vps "journalctl -u finger-sniffer-web --since '$START UTC' --no-pager -o short-iso |

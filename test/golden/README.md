@@ -1,5 +1,11 @@
 # Golden pcaps (task 013)
 
+> **Servidor anterior (vps602).** As capturas e as saídas de referência abaixo foram feitas na vps602 (interface
+> `eth0`, IP 172.233.24.85) e ficam como registro. Desde a ADR 0038 os scripts apontam para o finger-01
+> (`root@finger-01.tmsoft.com.br`, interface `ens192`, `FS_CAPTURE_IFACE`); uma regravação troca pcaps, saídas e
+> os valores do servidor conferidos nos testes (SNI e IP) juntos. O finger-01 precisa das mesmas ferramentas
+> (`tshark` 4.4, `tcpdump`, `p0f`, `ja4` em `/root/ja4-rust`).
+
 Capturas reais de clientes conhecidos contra a vps602, com as saídas das ferramentas de referência sobre o
 mesmo arquivo. Usadas por `internal/store/golden_test.go`. Esse teste passa cada pcap pelo ingest e confere
 o registro de cada conexão:

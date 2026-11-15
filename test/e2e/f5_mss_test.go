@@ -3,7 +3,7 @@
 package e2e
 
 // MSS/MTU implícito e tipo da origem no caminho direto (spec 013 RF-05a/RF-06a, ADR 0031, task 197): uma conexão
-// curl à vps602 por família traz tcp.syn_mss não nulo, mtu_implied = syn_mss + 40 (IPv4) ou + 60 (IPv6),
+// curl ao servidor por família traz tcp.syn_mss não nulo, mtu_implied = syn_mss + 40 (IPv4) ou + 60 (IPv6),
 // mss_reduction = 1460/1440 − syn_mss e ip.src_kind = global (esta máquina sai por um endereço público). O
 // syn_mss é conferido com o ["mss",N] de tcp.syn.options e, com tshark no PATH, com tcp.options.mss_val do pcap
 // da própria conexão.
@@ -41,20 +41,20 @@ func TestSynMSSDirect(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			out, err := exec.CommandContext(ctx, "/usr/bin/curl", "-"+fam, "-s", "--http1.1", //nolint:gosec // argumentos do teste
-				"--resolve", probeHost(id)+":443:"+addr, "-o", "/dev/null", "-w", "%{http_code}",
-				"-A", "fs-e2e-mss", "https://"+probeHost(id)+"/p/"+id+"/").CombinedOutput()
+				"--resolve", probeHost(id)+onTLS+":"+addr, "-o", "/dev/null", "-w", "%{http_code}",
+				"-A", "fs-e2e-mss", "https://"+probeHost(id)+onTLS+"/p/"+id+"/").CombinedOutput()
 			if err != nil || strings.TrimSpace(string(out)) != "200" {
 				var ee *exec.ExitError
-				// curl 7 = não conectou: esta máquina sem rota IPv6 até a vps602
+				// curl 7 = não conectou: esta máquina sem rota IPv6 até o servidor
 				if fam == "6" && errors.As(err, &ee) && ee.ExitCode() == 7 {
 					t.Skipf("sem conectividade IPv6: %s", out)
 				}
 				t.Fatalf("curl -%s: %v %q", fam, err, out)
 			}
-			p := waitProbe(t, id, atLeast(1, 443))
-			cs := p.conns(443)
+			p := waitProbe(t, id, atLeast(1, portTLS))
+			cs := p.conns(portTLS)
 			if len(cs) != 1 {
-				t.Fatalf("%d conexões na 443 (esperado 1)", len(cs))
+				t.Fatalf("%d conexões na %d (esperado 1)", len(cs), portTLS)
 			}
 			m := connRaw(t, cs[0].ConnID)
 			ip, _ := m["ip"].(map[string]any)

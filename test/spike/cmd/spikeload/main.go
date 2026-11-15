@@ -23,7 +23,7 @@ import (
 )
 
 func main() {
-	target := flag.String("target", "http://vps602.tmsoft.com.br:8080", "URL base")
+	target := flag.String("target", "http://finger-01.badblock.net.br:7710", "URL base")
 	rate := flag.Int("rate", 50, "conexões novas por segundo")
 	reqs := flag.Int("reqs", 4, "requisições por conexão")
 	interval := flag.Duration("interval", time.Second, "intervalo entre requisições")

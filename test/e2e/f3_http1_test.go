@@ -54,7 +54,7 @@ func TestCase1HeadersVerbatim(t *testing.T) {
 	// conexão 2: tudo em LF puro, linha de requisição incluída
 	req2 := "GET /p/" + id + "/?lf=1 HTTP/1.1\nHost: " + h + "\nX-Only-LF: yes\n\n"
 	for _, req := range []string{req1, req2} {
-		c := dialTCP(t, 80)
+		c := dialTCP(t, portHTTP)
 		c.send(t, req)
 		r := c.readResponse(t)
 		if r.Status != 200 || !bytes.Contains(r.Body, []byte("probe_id: "+id)) {
@@ -64,8 +64,8 @@ func TestCase1HeadersVerbatim(t *testing.T) {
 		_ = c.Close()
 	}
 
-	p := waitProbe(t, id, atLeast(2, 80))
-	cs := p.conns(80)
+	p := waitProbe(t, id, atLeast(2, portHTTP))
+	cs := p.conns(portHTTP)
 	requireConnFields(t, cs, "1")
 	byTarget := map[string]h1Request{}
 	for _, c := range cs {
@@ -124,7 +124,7 @@ func TestCase2HTTP10(t *testing.T) {
 	id := newID(t)
 	h := probeHost(id)
 
-	c := dialTCP(t, 80)
+	c := dialTCP(t, portHTTP)
 	c.send(t, "GET /p/"+id+"/?ka=0 HTTP/1.0\r\nHost: "+h+"\r\n\r\n")
 	if r := c.readResponse(t); r.Status != 200 {
 		t.Fatalf("HTTP/1.0: %d", r.Status)
@@ -135,7 +135,7 @@ func TestCase2HTTP10(t *testing.T) {
 	}
 	_ = c.Close()
 
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	for i := range 2 {
 		c.send(t, fmt.Sprintf("GET /p/%s/?ka=1&i=%d HTTP/1.0\r\nHost: %s\r\nConnection: keep-alive\r\n\r\n", id, i, h))
 		r := c.readResponse(t)
@@ -145,9 +145,9 @@ func TestCase2HTTP10(t *testing.T) {
 	}
 	_ = c.Close()
 
-	p := waitProbe(t, id, atLeast(2, 80))
-	requireConnFields(t, p.conns(80), "2")
-	for _, c := range p.conns(80) {
+	p := waitProbe(t, id, atLeast(2, portHTTP))
+	requireConnFields(t, p.conns(portHTTP), "2")
+	for _, c := range p.conns(portHTTP) {
 		if c.Proto != "http1.0" {
 			t.Errorf("%s: proto = %q, esperado http1.0", c.ConnID, c.Proto)
 		}
@@ -180,7 +180,7 @@ func TestCase3Persistent(t *testing.T) {
 	id := newID(t)
 	h := probeHost(id)
 
-	c := dialTCP(t, 80)
+	c := dialTCP(t, portHTTP)
 	for i := range 5 {
 		c.send(t, fmt.Sprintf("GET /p/%s/?seq=%d HTTP/1.1\r\nHost: %s\r\n\r\n", id, i, h))
 		if r := c.readResponse(t); r.Status != 200 || !bytes.Contains(r.Body, fmt.Appendf(nil, "request: %d", i)) {
@@ -190,14 +190,14 @@ func TestCase3Persistent(t *testing.T) {
 	}
 	_ = c.Close()
 
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, "GET /p/"+id+"/?close=1 HTTP/1.1\r\nHost: "+h+"\r\nConnection: close\r\n\r\n")
 	if r := c.readResponse(t); r.Status != 200 {
 		t.Fatalf("Connection: close: %d", r.Status)
 	}
 	_ = c.Close()
 
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	var pipe strings.Builder
 	for i := range 3 {
 		fmt.Fprintf(&pipe, "GET /p/%s/?pipe=%d HTTP/1.1\r\nHost: %s\r\n\r\n", id, i, h)
@@ -210,9 +210,9 @@ func TestCase3Persistent(t *testing.T) {
 	}
 	_ = c.Close()
 
-	p := waitProbe(t, id, atLeast(3, 80))
-	requireConnFields(t, p.conns(80), "3")
-	for _, c := range p.conns(80) {
+	p := waitProbe(t, id, atLeast(3, portHTTP))
+	requireConnFields(t, p.conns(portHTTP), "3")
+	for _, c := range p.conns(portHTTP) {
 		target := c.HTTP[0].RequestLine.Target
 		if len(c.HTTP) > 1 {
 			requireConnFields(t, []record{c}, "3/multi")
@@ -257,7 +257,7 @@ func TestCase4Bodies(t *testing.T) {
 	h := probeHost(id)
 	clBody := "name=finger&value=sniffer+e2e"
 
-	c := dialTCP(t, 80)
+	c := dialTCP(t, portHTTP)
 	c.send(t, fmt.Sprintf("POST /p/%s/?body=cl HTTP/1.1\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n%s",
 		id, h, len(clBody), clBody))
 	if r := c.readResponse(t); r.Status != 200 {
@@ -272,7 +272,7 @@ func TestCase4Bodies(t *testing.T) {
 	_ = c.Close()
 
 	// Expect: 100-continue, cliente espera o 100 antes do corpo
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, "POST /p/"+id+"/?body=expect HTTP/1.1\r\nHost: "+h+"\r\nContent-Length: 4\r\nExpect: 100-continue\r\n\r\n")
 	if r := c.readResponse(t); r.Status != 100 {
 		t.Fatalf("esperava 100 Continue, veio %d %q", r.Status, r.Head)
@@ -285,7 +285,7 @@ func TestCase4Bodies(t *testing.T) {
 	_ = c.Close()
 
 	// Expect: 100-continue, cliente manda o corpo junto (não espera)
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, "POST /p/"+id+"/?body=nowait HTTP/1.1\r\nHost: "+h+"\r\nContent-Length: 4\r\nExpect: 100-continue\r\n\r\npong")
 	r := c.readResponse(t)
 	if r.Status == 100 {
@@ -296,10 +296,10 @@ func TestCase4Bodies(t *testing.T) {
 	}
 	_ = c.Close()
 
-	p := waitProbe(t, id, atLeast(3, 80))
-	requireConnFields(t, p.conns(80), "4")
+	p := waitProbe(t, id, atLeast(3, portHTTP))
+	requireConnFields(t, p.conns(portHTTP), "4")
 	seen := 0
-	for _, c := range p.conns(80) {
+	for _, c := range p.conns(portHTTP) {
 		for _, r := range c.HTTP {
 			sum := func(s string) string { x := sha256.Sum256([]byte(s)); return hex.EncodeToString(x[:]) }
 			switch {
@@ -377,7 +377,7 @@ func TestCase5Controls(t *testing.T) {
 	}
 
 	// 1xx: 103 Early Hints antes do 200, com campo extra na caixa pedida
-	c := dialTCP(t, 80)
+	c := dialTCP(t, portHTTP)
 	c.send(t, get("status=103&status=200&h=Link:%3C/style.css%3E;%20rel=preload"))
 	r := c.readResponse(t)
 	if r.Status != 103 {
@@ -389,7 +389,7 @@ func TestCase5Controls(t *testing.T) {
 	_ = c.Close()
 
 	// close-delimited: sem Content-Length nem chunked, corpo até o FIN do servidor
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, get("frame=close&size=3000"))
 	all, err := c.readAll(10 * time.Second)
 	if err != nil {
@@ -403,7 +403,7 @@ func TestCase5Controls(t *testing.T) {
 	_ = c.Close()
 
 	// Connection: close e Keep-Alive na resposta, ver=1.0
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, get("conn=close&ver=1.0"))
 	if r = c.readResponse(t); !strings.HasPrefix(r.Head, "HTTP/1.0 200 ") || r.Header.Get("Connection") != "close" {
 		t.Errorf("conn=close&ver=1.0: %q", r.Head)
@@ -415,7 +415,7 @@ func TestCase5Controls(t *testing.T) {
 	_ = c.Close()
 
 	// RST no meio do corpo
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, get("rst=1&close=mid-body&size=200000"))
 	all, err = c.readAll(10 * time.Second)
 	if !errors.Is(err, syscall.ECONNRESET) {
@@ -427,7 +427,7 @@ func TestCase5Controls(t *testing.T) {
 	_ = c.Close()
 
 	// atrasos do cabeçalho e do corpo
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	t0 := time.Now()
 	c.send(t, get("delay_head=700&delay_body=500&size=10"))
 	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -443,17 +443,17 @@ func TestCase5Controls(t *testing.T) {
 	_ = c.Close()
 
 	// controle inválido: 400 com explicação, registrado em invalid
-	c = dialTCP(t, 80)
+	c = dialTCP(t, portHTTP)
 	c.send(t, get("status=abc"))
 	if r = c.readResponse(t); r.Status != 400 || !bytes.Contains(r.Body, []byte("status")) {
 		t.Errorf("status=abc: %d %q", r.Status, r.Body)
 	}
 	_ = c.Close()
 
-	p := waitProbe(t, id, atLeast(6, 80))
-	requireConnFields(t, p.conns(80), "5")
+	p := waitProbe(t, id, atLeast(6, portHTTP))
+	requireConnFields(t, p.conns(portHTTP), "5")
 	check := 0
-	for _, conn := range p.conns(80) {
+	for _, conn := range p.conns(portHTTP) {
 		for _, rq := range conn.HTTP {
 			sent := string(b64(t, rq.ResponseSentB64))
 			q := rq.RequestLine.Target
@@ -531,7 +531,7 @@ func TestCase5Idle(t *testing.T) {
 		t.Run(fmt.Sprintf("idle=%s", tc.idle), func(t *testing.T) {
 			t.Parallel()
 			id := newID(t)
-			c := dialTCP(t, 80)
+			c := dialTCP(t, portHTTP)
 			c.send(t, fmt.Sprintf("GET /p/%s/%s HTTP/1.1\r\nHost: %s\r\n\r\n", id, tc.query, probeHost(id)))
 			if r := c.readResponse(t); r.Status != 200 {
 				t.Fatalf("status %d", r.Status)
@@ -547,8 +547,8 @@ func TestCase5Idle(t *testing.T) {
 			}
 			t.Logf("servidor fechou após %s de ociosidade", took.Round(10*time.Millisecond))
 			_ = c.Close()
-			p, body := waitProbeRaw(t, id, atLeast(1, 80))
-			rc := p.conns(80)[0]
+			p, body := waitProbeRaw(t, id, atLeast(1, portHTTP))
+			rc := p.conns(portHTTP)[0]
 			if rc.Close.By != "server" || rc.Close.How != "fin" {
 				t.Errorf("close = %+v, esperado server/fin", rc.Close)
 			}

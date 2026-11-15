@@ -1,5 +1,11 @@
 # Golden de Initials QUIC (task 050)
 
+> **Servidor anterior (vps602).** As capturas e as saídas de referência abaixo foram feitas na vps602 (interface
+> `eth0`, IP 172.233.24.85) e ficam como registro. Desde a ADR 0038 os scripts apontam para o finger-01
+> (`root@finger-01.tmsoft.com.br`, interface `ens192`, `FS_CAPTURE_IFACE`); uma regravação troca pcaps, saídas e
+> os valores do servidor conferidos nos testes (SNI e IP) juntos. O finger-01 precisa das mesmas ferramentas
+> (`tshark` 4.4, `tcpdump`, `p0f`, `ja4` em `/root/ja4-rust`).
+
 Capturas reais do primeiro voo QUIC (Initials do cliente e a resposta do servidor) de curl, quic-go, Chrome e
 Firefox contra um servidor HTTP/3 temporário na vps602, com as chaves TLS da sessão e as saídas das
 ferramentas de referência sobre o mesmo arquivo. Servem de gabarito para `pkg/quicparse` (task 049: cabeçalho

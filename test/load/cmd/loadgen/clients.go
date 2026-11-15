@@ -25,7 +25,8 @@ import (
 	"github.com/quic-go/quic-go/http3"
 )
 
-const zone = "dns-monitor.tmsoft.com.br"
+// zone é a zona dos probes no finger-01 (ADR 0038 item 2).
+const zone = "finger-west-01.badblock.net.br"
 
 // newProbeID devolve um probe ID novo ([a-z0-9]{16}, começa por "ld" para achar nos logs).
 func newProbeID() string {
@@ -116,11 +117,9 @@ func runConn(ctx context.Context, ip string, spec connSpec, reqs int, life time.
 	return r
 }
 
-func probeURL(r *connResult, scheme string, defPort int) string {
-	host := r.Probe + "." + zone
-	if r.Spec.Port != defPort {
-		host = net.JoinHostPort(host, strconv.Itoa(r.Spec.Port))
-	}
+// probeURL é a URL do probe com a porta sempre explícita (no finger-01 o web não está nas portas padrão).
+func probeURL(r *connResult, scheme string) string {
+	host := net.JoinHostPort(r.Probe+"."+zone, strconv.Itoa(r.Spec.Port))
 	return scheme + "://" + host + "/p/" + r.Probe + "/"
 }
 
@@ -145,11 +144,11 @@ func runHTTP(ctx context.Context, ip string, r *connResult, reqs int, life time.
 	d := &trackedDialer{ip: ip, port: r.Spec.Port}
 	tr := &http.Transport{DialContext: d.dial, MaxConnsPerHost: 1, MaxIdleConnsPerHost: 1, DisableCompression: true}
 	tr.Protocols = new(http.Protocols)
-	url := probeURL(r, "https", 443)
+	url := probeURL(r, "https")
 	switch r.Spec.Kind {
 	case "h1":
 		tr.Protocols.SetHTTP1(true)
-		url = probeURL(r, "http", 80)
+		url = probeURL(r, "http")
 	case "h1tls":
 		tr.Protocols.SetHTTP1(true)
 	case "h2":
@@ -181,7 +180,11 @@ func runH3(ctx context.Context, ip string, r *connResult, reqs int, life time.Du
 	tr := &http3.Transport{
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13},
 		Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-			pc, err := net.ListenUDP("udp4", nil)
+			network := "udp4"
+			if net.ParseIP(ip).To4() == nil {
+				network = "udp6"
+			}
+			pc, err := net.ListenUDP(network, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -202,7 +205,7 @@ func runH3(ctx context.Context, ip string, r *connResult, reqs int, life time.Du
 	}
 	defer closeAll()
 	client := &http.Client{Transport: tr, Timeout: 15 * time.Second}
-	url := probeURL(r, "https", 443)
+	url := probeURL(r, "https")
 	for i := 0; i < reqs; i++ {
 		if err := gapSleep(ctx, r.Start, time.Duration(i)*life/time.Duration(reqs)); err != nil {
 			return err

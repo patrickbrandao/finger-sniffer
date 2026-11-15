@@ -1,5 +1,13 @@
 # Carga de 10 min — metas RNF (tasks 068 e 120, spec 017 RF-13, ADR 0022/0024/0025/0026/0030)
 
+> **Servidor anterior (vps602).** Todas as rodadas abaixo foram medidas na vps602 (1 vCPU, 967 MiB, `eth0`,
+> cgroups em `system.slice`) e ficam como registro. Desde a ADR 0038/0039 os scripts (`run.sh`, `budget.sh`,
+> `loadgen`, `budgetload`, `loadmon`) apontam para o finger-01: alvo `finger-01.badblock.net.br`, zona
+> `finger-west-01.badblock.net.br`, web em 8080/8443 (TCP) e 8443 (UDP), cgroups em
+> `/sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>`, perfil padrão de 400 simultâneas e 100 novas/s, h3 por
+> IPv6 (`-h3-family`), `nr_throttled` por unit e `conntrack -S` antes e depois. As rodadas no finger-01 entram numa
+> seção própria.
+
 Resultado da rodada atual (`c1aefd8`, `v0.1.0-13-gc1aefd8`, candidata à v0.2.0; task 120), com os limites do modo
 degradado da [ADR 0030](../../specs/decisions/0030-margem-do-modo-degradado.md) (`FS_MAX_CONNS=250`,
 `FS_MAX_NEW_CONNS_PER_S=60`; garantia do RNF-01 continua 200 simultâneas e 50 novas/s): **todas as metas passaram

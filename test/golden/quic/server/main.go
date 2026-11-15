@@ -1,6 +1,6 @@
 //go:build golden
 
-// Servidor HTTP/3 (quic-go) temporário usado por test/golden/quic/collect.sh (task 050). Roda na vps602 numa
+// Servidor HTTP/3 (quic-go) temporário usado por test/golden/quic/collect.sh (task 050). Roda no servidor (finger-01) numa
 // porta capturada livre, em UDP (h3) e em TCP (h2 e http/1.1 com Alt-Svc, para o Firefox descobrir o h3), e grava
 // as chaves de sessão (formato NSS SSLKEYLOGFILE) para o tshark decifrar os pacotes Handshake e 1-RTT. O Initial
 // não precisa das chaves: ele é decifrado com as chaves derivadas do DCID. Não faz parte de nenhum serviço: é

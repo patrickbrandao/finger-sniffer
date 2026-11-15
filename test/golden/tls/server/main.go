@@ -1,6 +1,6 @@
 //go:build golden
 
-// Servidor TLS + h2 temporário usado por test/golden/tls/collect.sh (task 036). Roda na vps602 numa porta
+// Servidor TLS + h2 temporário usado por test/golden/tls/collect.sh (task 036). Roda no servidor (finger-01) numa porta
 // capturada livre, grava as chaves de sessão (formato NSS SSLKEYLOGFILE) para o tshark e o ja4 decifrarem o
 // pcap, e anuncia h2 e http/1.1 por ALPN. Não faz parte de nenhum serviço: é compilado só com a tag golden.
 //

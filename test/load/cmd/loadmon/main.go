@@ -1,11 +1,11 @@
 //go:build load
 
-// Comando loadmon: lado vps602 do teste de carga (task 068). Dois modos:
+// Comando loadmon: lado servidor (finger-01) do teste de carga (task 068). Dois modos:
 //
 //	loadmon sample -out /tmp/fs-load/cgroup.csv [-interval 1s]
 //	    a cada intervalo, CPU (usage_usec) e memória (memory.current e, do memory.stat, anon, file, sock,
-//	    kernel, slab e percpu; task 215) do cgroup de cada unit
-//	    finger-sniffer-* e a CPU agregada do host (/proc/stat), até SIGTERM/SIGINT;
+//	    kernel, slab e percpu; task 215) e o nr_throttled do cpu.stat (ADR 0039) do cgroup de cada unit
+//	    finger-sniffer-* e a CPU agregada do host (/proc/stat, com o número de núcleos), até SIGTERM/SIGINT;
 //	loadmon clock
 //	    para cada linha recebida na entrada, escreve o relógio local em ns (estimativa do deslocamento de
 //	    relógio feita pelo gerador por ssh).
@@ -42,7 +42,8 @@ func main() {
 		fs := flag.NewFlagSet("sample", flag.ExitOnError)
 		out := fs.String("out", "/tmp/fs-load/cgroup.csv", "CSV de saída")
 		interval := fs.Duration("interval", time.Second, "intervalo de amostragem")
-		root := fs.String("cgroup", "/sys/fs/cgroup/system.slice", "pasta dos cgroups das units")
+		// fatia finger-sniffer.slice dentro de finger.slice (o systemd aninha pelo hífen; ADR 0039 item 1)
+		root := fs.String("cgroup", "/sys/fs/cgroup/finger.slice/finger-sniffer.slice", "pasta dos cgroups das units")
 		_ = fs.Parse(os.Args[2:])
 		if err := sample(*out, *interval, *root); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -72,7 +73,8 @@ func readFile(p string) string {
 }
 
 // sample grava uma linha por unit e por intervalo: t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,
-// percpu; a linha da unit "host" leva busy/total/steal do /proc/stat em jiffies nas colunas cpu_usec/mem_current/anon.
+// percpu,nr_throttled; a linha da unit "host" leva busy/total/steal do /proc/stat em jiffies nas colunas
+// cpu_usec/mem_current/anon e o número de núcleos na coluna file.
 func sample(out string, interval time.Duration, root string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -82,21 +84,22 @@ func sample(out string, interval time.Duration, root string) error {
 	}
 	defer f.Close() //nolint:errcheck // fechado no fim
 	w := bufio.NewWriter(f)
-	_, _ = fmt.Fprintln(w, "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu")
+	_, _ = fmt.Fprintln(w, "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu,nr_throttled")
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
 		now := time.Now().UnixNano()
 		for _, u := range units {
 			dir := filepath.Join(root, "finger-sniffer-"+u+".service")
-			cpu := loadstat.ParseKV(readFile(filepath.Join(dir, "cpu.stat")))["usage_usec"]
+			cs := loadstat.ParseKV(readFile(filepath.Join(dir, "cpu.stat")))
 			cur, _ := strconv.ParseInt(strings.TrimSpace(readFile(filepath.Join(dir, "memory.current"))), 10, 64)
 			ms := loadstat.ParseKV(readFile(filepath.Join(dir, "memory.stat")))
-			_, _ = fmt.Fprintf(w, "%d,%s,%d,%d,%d,%d,%d,%d,%d,%d\n", now, u, cpu, cur, ms["anon"], ms["file"],
-				ms["sock"], ms["kernel"], ms["slab"], ms["percpu"])
+			_, _ = fmt.Fprintf(w, "%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", now, u, cs["usage_usec"], cur, ms["anon"], ms["file"],
+				ms["sock"], ms["kernel"], ms["slab"], ms["percpu"], cs["nr_throttled"])
 		}
-		if busy, total, steal, err := loadstat.ProcStatCPU(readFile("/proc/stat")); err == nil {
-			_, _ = fmt.Fprintf(w, "%d,host,%d,%d,%d,0,0,0,0,0\n", now, busy, total, steal)
+		ps := readFile("/proc/stat")
+		if busy, total, steal, err := loadstat.ProcStatCPU(ps); err == nil {
+			_, _ = fmt.Fprintf(w, "%d,host,%d,%d,%d,%d,0,0,0,0,0\n", now, busy, total, steal, loadstat.ProcStatNCPU(ps))
 		}
 		_ = w.Flush()
 		select {

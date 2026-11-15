@@ -32,12 +32,15 @@ const (
 	initialsDir = "initials"
 	pkgInitials = "../../../pkg/quicparse/testdata/initials"
 	serverPort  = 7703
-	wantSNI     = "vps602.tmsoft.com.br"
+	// SNI e IP do servidor gravados nos pcaps: registro histórico do servidor anterior (vps602), onde os golden
+	// foram capturados; uma regravação no finger-01 (collect.sh) troca estes valores junto com os pcaps.
+	wantSNI = "vps602.tmsoft.com.br"
 )
 
 var cases = []string{"curl", "go", "chrome", "firefox"}
 
-// endereços permitidos nos pcaps: a vps602 e os de documentação que substituem o IP da máquina de teste
+// endereços permitidos nos pcaps: o servidor da captura (vps602, histórico) e os de documentação que substituem o
+// IP da máquina de teste
 var allowedIPs = map[netip.Addr]bool{
 	netip.MustParseAddr("172.233.24.85"): true,
 	netip.MustParseAddr("198.51.100.10"): true,

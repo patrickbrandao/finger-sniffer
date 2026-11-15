@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Regenera os gabaritos *.tshark.json dos ClientHellos de testdata/ com o tshark 4.4 da vps602:
+# Regenera os gabaritos *.tshark.json dos ClientHellos de testdata/ com o tshark 4.4 do servidor (finger-01, ADR
+# 0038; os gabaritos atuais são da vps602, servidor anterior, com o mesmo tshark 4.4.19):
 # cada .bin vira um pcap TCP (text2pcap) e o tshark extrai os campos TLS do ClientHello.
 #
 # Origem dos .bin (bytes do(s) registro(s) TLS do ClientHello, nada além):
 #   - curl-macos, curl-brew, openssl3, openssl3-tls10, libressl-tls10, go, chrome, firefox: clientes reais
 #     num macOS, gravados por um listener local que guarda os primeiros bytes da conexão;
-#   - curl-linux: curl 8.14.1/OpenSSL 3.5 da vps602 pelo mesmo listener (túnel ssh -R);
+#   - curl-linux: curl 8.14.1/OpenSSL 3.5 da vps602 (servidor anterior) pelo mesmo listener (túnel ssh -R);
 #   - foxio-*: ClientHellos dos pcaps de teste da FoxIO (github.com/FoxIO-LLC/ja4, pasta pcap/, commit
 #     c6469a7b0dbf8fe963810162429fbfd9d1acc4d5; BSD-3, ver LICENSE-FoxIO-BSD3);
 #   - chrome-2records: o chrome.bin partido em 2 registros (o corte é no byte 600 da mensagem).
 set -euo pipefail
 cd "$(dirname "$0")"
-HOST=${FS_VPS:-root@vps602.tmsoft.com.br}
+HOST=${FS_VPS:-root@finger-01.tmsoft.com.br}
 SSH=(ssh -p 48022 "$HOST")
 REMOTE=$("${SSH[@]}" mktemp -d /tmp/tlsparse-regen.XXXXXX)
 trap '"${SSH[@]}" rm -rf "$REMOTE"' EXIT

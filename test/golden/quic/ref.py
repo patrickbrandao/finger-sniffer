@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resumo de referência de um caso do golden QUIC (task 050), gerado na vps602 por collect.sh.
+"""Resumo de referência de um caso do golden QUIC (task 050), gerado no servidor por collect.sh (os pcaps atuais são da vps602).
 
 Uso: ref.py <caso> [descrição do cliente]
      (lê <caso>.pcap, <caso>.keys, <caso>.tshark.json e <caso>.ja4.jsonl no diretório atual)

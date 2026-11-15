@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gera o golden pcap de cliente Windows (task 088) a partir de um pcap público da FoxIO, porque o projeto não
-# tem máquina Windows para capturar contra a vps602.
+# tem máquina Windows para capturar contra o servidor (finger-01, ADR 0038).
 #
 # Fonte: https://github.com/FoxIO-LLC/ja4, pasta pcap/, commit c6469a7b0dbf8fe963810162429fbfd9d1acc4d5,
 # arquivo latest.pcapng (licença BSD 3-Clause, cópia em
@@ -9,14 +9,14 @@
 #
 # O pcap fica só com os fluxos TCP que têm SYN do cliente, convertido de pcapng para pcap (o ingest de teste
 # lê pcap). Os IPs são privados (172.16.225.48) ou de servidores públicos da captura original: nada a
-# anonimizar. As saídas de referência são geradas na vps602 com as mesmas ferramentas e campos do collect.sh:
+# anonimizar. As saídas de referência são geradas no servidor com as mesmas ferramentas e campos do collect.sh:
 #   windows-foxio.tshark.json, windows-foxio.ja4.jsonl, windows-foxio.p0f.txt
 #
 # Uso: test/golden/foxio-windows.sh   (FOXIO_PCAP_DIR aponta para a pasta pcap/ do clone; senão clona)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VPS="${VPS_SSH:-root@vps602.tmsoft.com.br}"
+VPS="${VPS_SSH:-root@finger-01.tmsoft.com.br}"
 SSH_PORT="${VPS_PORT:-48022}"
 JA4="${JA4_BIN:-/root/ja4-rust/target/release/ja4}"
 FP="${P0F_FP:-/finger-sniffer/etc/p0f.fp}"

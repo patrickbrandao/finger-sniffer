@@ -29,7 +29,7 @@ import (
 const subject = "fs.v1.capture.packet"
 
 func main() {
-	iface := flag.String("iface", "eth0", "interface")
+	iface := flag.String("iface", "ens192", "interface")
 	natsURL := flag.String("nats", "nats://127.0.0.1:4222", "NATS URL")
 	exclude := flag.String("exclude-ports", "48022,48161,9000,9001", "portas excluídas")
 	maxBatch := flag.Int("batch", 256, "pacotes por lote")
