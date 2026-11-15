@@ -640,7 +640,7 @@ func TestFinger01Docs(t *testing.T) {
 func TestFinger01Recaptured(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"Win=65160 Len=0 MSS=1460 SACK_PERM=1", "WS=4096", "janela 64260 e MSS 1440", "`cert_self_signed`",
+			"Win=65160 Len=0 MSS=1460 SACK_PERM=1", "WS=4096", "janela 64260 e MSS 1440", "`cert_self_signed`", "\"nft_ruleset_lines\":57",
 			"\"versions_match\": true", "\"iface\":\"ens192\"", "Host: k3x9q2mz7a.finger-west-01.badblock.net.br:8443",
 		},
 		"http3.md": {

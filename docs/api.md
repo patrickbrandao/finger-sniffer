@@ -502,26 +502,26 @@ $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq '{ok, version
   "ok": true,
   "version": "v0.2.1-68-g7fb82fb",
   "versions_match": true,
-  "services": { "capture": "ok", "dns": "ok", "raw": "degraded", "store": "degraded", "web": "degraded" },
+  "services": { "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
   "store": {
     "db_bytes": 76218368,
     "max_bytes": 8589934592,
     "retention": "10m",
-    "connections": 45,
-    "oldest": "2026-11-15T15:23:28.531091631Z"
+    "connections": 216,
+    "oldest": "2026-11-15T15:37:46.115259456Z"
   }
 }
 $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq -c '{reasons: (.services | map_values(.reasons)),
     iface: .host.iface, offloads: .host.offloads."generic-receive-offload", conntrack_loaded: .host.conntrack_loaded,
     nft_ruleset_lines: .host.nft_ruleset_lines}'
-{"reasons":{"capture":null,"dns":null,"raw":["cert_self_signed"],"store":["cert_self_signed"],"web":["cert_self_signed"]},"iface":"ens192","offloads":"off","conntrack_loaded":true,"nft_ruleset_lines":0}
+{"reasons":{"capture":null,"dns":null,"raw":null,"store":null,"web":null},"iface":"ens192","offloads":"off","conntrack_loaded":true,"nft_ruleset_lines":57}
 ```
 
-Na captura, o certificado **B** (`finger-01.*`, emitido por TLS-ALPN-01 pelo passthrough do traefik) ainda era o
-autoassinado provisório, então os serviços que o carregam (raw, store e web) estavam `degraded` com
-`cert_self_signed`, e `ok` continuava `true` (nenhum serviço `down`). Nesse estado, a 9000 pelo nome
-`finger-01.badblock.net.br` só responde com `curl -k` (ou pela 9001, em HTTP). O `conntrack_loaded: true` do host
-do traefik não deixou nada `degraded`.
+O `conntrack_loaded: true` e as 57 linhas do ruleset do host do traefik não deixaram nada `degraded`. Enquanto o
+certificado **B** (`finger-01.*`, emitido por TLS-ALPN-01 pelo passthrough do traefik) for o autoassinado
+provisório, os serviços que o carregam (raw, store e web) ficam `degraded` com `cert_self_signed` (`ok` continua
+`true`), e a 9000 pelo nome `finger-01.badblock.net.br` só responde com `curl -k` (ou use a 9001, em HTTP); foi o
+estado visto no primeiro deploy, antes da emissão.
 
 `versions_match: false` aparece quando um serviço foi reimplantado sozinho (`make deploy SVC=…`) e os demais
 rodam outro commit; cada serviço com versão diferente da do store fica `degraded`, com o motivo em `reasons`
