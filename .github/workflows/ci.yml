@@ -10,9 +10,12 @@ on:
 permissions:
   contents: read
 
+# Em PR, um push novo cancela a execução anterior do mesmo PR. Na main, cada commit tem grupo próprio (SHA) e
+# nunca é cancelado: todo merge recebe o seu verify-full (task 219). Um grupo único por ref, mesmo sem
+# cancel-in-progress, ainda descartaria execuções pendentes no meio de uma fila de merges.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify-full:
