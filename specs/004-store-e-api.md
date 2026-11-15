@@ -40,6 +40,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   fila também limitada em bytes, 4 MiB por cliente e 64 MiB somando todas (ADR 0034). Detalhes em "Tempo real".
 - RF-09: health agregado: heartbeat de cada serviço (5 s; `down` após 15 s sem heartbeat), versões
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
+  O store fica `degraded`, com motivo, enquanto o ingest está mais de 5 s atrás do stream (`ingest backlog <n>s`)
+  e por 5 min depois de perder mensagens do stream (`stream lost <n> messages in 5m`) (ADR 0041).
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
   "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 1000) conexões simultâneas ou
@@ -73,6 +75,15 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   ociosidade sem pacotes: TCP estabelecido, `max(FS_IDLE_DEFAULT, FS_IDLE_MAX)` + 30 s (630 s com os padrões, para
   não fechar antes do web uma conexão com `idle=`); TCP que não completou o handshake, 10 s (ADR 0034); UDP e
   QUIC como abaixo.
+- Relógio dos prazos (ADR 0041): ociosidades, `FS_TCP_CLOSE_GRACE`, a espera de tardios, a ociosidade das conexões
+  só de eventos e as reservas de `conn_id` contam no relógio de captura do ingest,
+  `C = min(parede, T + (parede − P))` (`T` = maior instante de captura processado, `P` = parede quando ele foi
+  processado): com o ingest atrasado os prazos andam com o stream, sem tráfego andam com a parede. A espera de 2 s
+  da fila pendente, `updated_ns`, os `ts` de decisão do feed e os histogramas de atraso usam a parede.
+- Lacuna do stream (ADR 0041): mensagens do `FS_EVENTS` que expiram antes da entrega aparecem como salto de
+  `Sequence.Stream` e contam em `fs_store_stream_lost_total`. Ao detectar um salto, os fluxos abertos cujo último
+  pacote é anterior à publicação da mensagem que o revelou passam a vencer por ociosidade em 10 s (pelo relógio
+  `C`); um pacote novo devolve o prazo normal.
 - Pacotes tardios: até 2 s depois do fim (instante de captura), pacotes da mesma 5-tupla (TCP: ACK, RST depois do
   FIN; QUIC: datagramas da mesma 5-tupla/DCID) entram no pcap e nos totais do registro já gravado e contam em
   `fs_store_late_packets_total`; não viram conexão nova nem avulso. SYN novo (TCP) ou Initial com DCID novo (QUIC)
@@ -214,6 +225,9 @@ Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no h
 `fs_store_live_dropped_total`, `fs_store_live_delay_seconds` (histograma),
 `fs_store_flows_dropped_total{reason=evicted|table_full}`, `fs_store_ingest_errors_total`,
 `fs_store_finalize_retries_total`, `fs_store_batch_count_mismatch_total` (ADR 0034),
+`fs_store_stream_lost_total`, `fs_store_ingest_backlog_seconds` (gauge: parede − publicação da última mensagem
+processada), `fs_store_ingest_pending_messages` (gauge: `NumPending` do consumidor), `fs_store_stray_midflow_total`
+(avulsos TCP de fluxo sem início visto, exceto RST) (ADR 0041),
 `fs_store_api_requests_total{route,code}` e `fs_store_api_request_duration_seconds{route}` (histograma; `route` =
 padrão do mux, nunca o caminho com IDs).
 
@@ -303,3 +317,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0032-campos-da-auditoria-de-2026-11.md
 - specs/decisions/0034-tetos-e-falhas-do-store.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
+- specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md
