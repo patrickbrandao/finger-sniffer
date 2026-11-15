@@ -1,1 +1,0 @@
-- store: `truncated` e `offloadSuspect` da conexão passam a ser escritos sob a trava da tabela de fluxos, que a API usa para ler o registro ao vivo (data race).

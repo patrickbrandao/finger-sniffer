@@ -1,1 +1,0 @@
-- web: `http3.connection` marca `transport_params_truncated` (teto de 1024 ou redução para caber no evento) e `h3_settings_truncated` (teto de 256 ou redução); `docs/http3.md` cita os tetos.

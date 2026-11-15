@@ -1,1 +1,0 @@
-- specs: spec 004, ADR 0034 e openapi alinhadas ao `DELETE /api/v1/probes/{id}` implementado: as conexões abertas do probe saem do banco na hora, e o ingest descarta o resto delas em memória até fecharem (task 216).

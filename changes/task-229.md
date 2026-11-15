@@ -1,1 +1,0 @@
-- raw: `FS_MAX_CONNS` padrão 1000 (≤ 0 → 1000 com aviso; ADR 0039 item 5, spec 006 RF-07a); comentários e testes sem o servidor anterior (task 229).

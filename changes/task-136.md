@@ -1,1 +1,0 @@
-- web: WebSocket limitado a 32 sessões simultâneas (HTTP/1 e h2) com 1 MiB reservado do orçamento de entrada cada (sem vaga, 503 antes do 101), eco com prazo de escrita de 30 s que encerra a sessão e o TCP, e h2 anunciando `MAX_CONCURRENT_STREAMS` = 100 (ADR 0033).

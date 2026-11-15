@@ -1,1 +1,0 @@
-- ADR 0033: orçamento global de memória de entrada do web (`FS_WEB_INPUT_BUDGET`, 40 MiB) com tetos fixos por protocolo (h1 1 MiB/1024 campos, h2 1 MiB e 100 streams, h3 2 MiB e 10 s, WebSocket 32 sessões e eco com prazo de 30 s); ADRs 0034 (tetos e falhas do store) e 0035 (raw e RRL do dns) com as decisões da auditoria de 2026-11; specs 001 e 003–017 atualizadas.

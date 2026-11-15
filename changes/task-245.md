@@ -1,1 +1,0 @@
-- Store: `fs_store_stray_midflow_total` conta os avulsos TCP (exceto RST) de fluxos sem SYN nem SYN-ACK visto; com 20 s de atraso, 100 conexões do mix oficial em lotes pequenos dão 100 registros e zero avulsos (ADR 0041 item 5, task 245).

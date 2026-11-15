@@ -1,1 +1,0 @@
-- web e raw: ClientHello com listas enormes cabe em 900 KiB com as listas analisadas e `ja3`/`ja3n`/`ja4_r`/`ja4_o` cortados e `tls.lists_truncated: true` (`tlsparse.Info.Fit`), em vez de descartar o evento; fingerprints sempre do ClientHello completo (task 165, ADR 0032).

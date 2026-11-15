@@ -1,1 +1,0 @@
-- store: migration 00002 remove a coluna `connections.quic_dcid`, nunca escrita nem lida (o DCID segue em memória e em `http3.dcid_hex`).

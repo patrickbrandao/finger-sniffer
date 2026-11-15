@@ -1,1 +1,0 @@
-- store: `src_ip` de `GET /api/v1/packets` é o IP do cliente (origem com `dir=in`, destino com `dir=out`) e `src_ip` IPv4 mapeado em IPv6 vale o IPv4 em `/packets` e `/connections` (ADR 0032).

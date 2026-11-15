@@ -1,1 +1,0 @@
-- web: streams h2 recusados pelo `x/net/http2` antes do handler (400, 431, RST_STREAM) saem no fim da conexão como `fs.v1.web.http2.stream` com `status: 0` e os campos como chegaram (ADR 0032).

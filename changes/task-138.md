@@ -1,1 +1,0 @@
-- store: fila do tempo real com teto de bytes, 4 MiB por cliente e 64 MiB somando as filas, além dos `FS_LIVE_BUFFER` eventos; o excedente vira `stream.dropped` (ADR 0034).

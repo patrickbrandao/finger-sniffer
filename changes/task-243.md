@@ -1,1 +1,0 @@
-- Store: `fs_store_stream_lost_total` (saltos de sequência do `FS_EVENTS`), `fs_store_ingest_backlog_seconds` e `fs_store_ingest_pending_messages` no `/metrics`; health do store `degraded` com `ingest backlog <n>s` (> 5 s) e `stream lost <n> messages in 5m` (ADR 0041, task 243).

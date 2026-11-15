@@ -1,1 +1,0 @@
-- web: HEADERS h3 em espera reservam do orçamento de entrada com teto de 2 MiB por conexão e prazo de 10 s; acima, sem orçamento ou vencido, stream recusado com `H3_EXCESSIVE_LOAD`; buffer solto ao completar o frame (ADR 0033).

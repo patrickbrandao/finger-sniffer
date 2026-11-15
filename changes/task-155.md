@@ -1,1 +1,0 @@
-- web: orçamento global de memória de entrada `FS_WEB_INPUT_BUDGET` (40 MiB, aceita 8–64 MiB) com gauge `web_input_budget_used_bytes` e contador `web_input_budget_denied_total`; o cabeçalho HTTP/1 reserva dele e, sem espaço, recebe 431 `head_too_large` (ADR 0033).

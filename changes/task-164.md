@@ -1,1 +1,0 @@
-- Spec 006 RF-01 sem o `FS_RAW_LISTEN_HOST` inexistente: os testes usam loopback em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`.
