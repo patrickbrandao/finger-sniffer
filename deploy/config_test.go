@@ -236,9 +236,10 @@ func TestEnvExampleFinger01(t *testing.T) {
 		// web fora de 80/443, que são do traefik (ADR 0038 item 3)
 		"FS_WEB_TCP_PORTS": "8080,8443",
 		"FS_WEB_UDP_PORTS": "8443",
-		// certificados A e B (ADR 0038 item 5); ACME ligado só no servidor (task 231)
+		// certificados A e B (ADR 0038 item 5); ACME ligado só no servidor (task 231); o B só com
+		// finger-01.badblock.net.br, o único nome no passthrough do traefik (decisão do humano, task 232)
 		"FS_CERT_NAMES_DNS01":  "finger-west-01.badblock.net.br,*.finger-west-01.badblock.net.br",
-		"FS_CERT_NAMES_HTTP01": "finger-01.badblock.net.br,finger-01.tmsoft.com.br",
+		"FS_CERT_NAMES_HTTP01": "finger-01.badblock.net.br",
 		"FS_ACME_ENABLE":       "0",
 		// modo degradado e teto do banco (ADR 0039 item 5)
 		"FS_MAX_CONNS":           "1000",
