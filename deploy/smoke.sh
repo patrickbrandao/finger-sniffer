@@ -15,14 +15,14 @@
 # Alt-Svc h3=":8443" na resposta da 8443 (a porta é a do listener UDP, SMOKE_H3_PORT), listener UDP 8443
 # (ss -Hlun) e, se o curl local tiver HTTP3, um GET por h3 na 8443.
 # traefik (com o web): GET https://<nome>/ na 443, que o traefik encaminha por passthrough para o web (ADR 0038
-# item 6); enquanto a rota não existir sai como AVISO, e com SMOKE_TRAEFIK_REQUIRED=1 reprova (task 232).
+# item 6); obrigatório desde a task 232 (sem a rota reprova); SMOKE_TRAEFIK_REQUIRED=0 rebaixa a AVISO.
 # Roda todos os passos selecionados e sai com 1 se algum falhar.
 #
 # Variáveis (os padrões vêm do env instalado; os testes de deploy/smoke_test.go apontam para servidores falsos):
 #   FS_ENV_FILE, SMOKE_HOST (IPv4), SMOKE_NAME (nome do certificado B; padrão: o primeiro de FS_CERT_NAMES_HTTP01),
 #   SMOKE_ZONE, SMOKE_DNS_EXPECT, SMOKE_*_PORT (SMOKE_H3_PORT: padrão a primeira de FS_WEB_UDP_PORTS),
-#   SMOKE_TRAEFIK_NAME, SMOKE_TRAEFIK_PORT (443), SMOKE_TRAEFIK_REQUIRED=1 (o passo do traefik reprova em vez de
-#   avisar), SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os passos
+#   SMOKE_TRAEFIK_NAME, SMOKE_TRAEFIK_PORT (443), SMOKE_TRAEFIK_REQUIRED (padrão 1; 0: o passo do traefik avisa
+#   em vez de reprovar), SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os passos
 #   selecionados, sem executar), SMOKE_CONFIG=1 (só mostra os alvos resolvidos), SMOKE_H3_GET=0 (não tenta o GET por h3 mesmo com curl HTTP3).
 set -uo pipefail
 
@@ -52,7 +52,7 @@ H3_PORT="${SMOKE_H3_PORT:-$(first_of "$(env_get FS_WEB_UDP_PORTS)")}"
 H3_PORT="${H3_PORT:-8443}"
 TRAEFIK_NAME="${SMOKE_TRAEFIK_NAME:-$NAME}"
 TRAEFIK_PORT="${SMOKE_TRAEFIK_PORT:-443}"
-TRAEFIK_REQUIRED="${SMOKE_TRAEFIK_REQUIRED:-0}"
+TRAEFIK_REQUIRED="${SMOKE_TRAEFIK_REQUIRED:-1}"
 DNS_PORT="${SMOKE_DNS_PORT:-53}"
 ECHO_PORT="${SMOKE_ECHO_PORT:-7}"
 BANNER_PORT="${SMOKE_BANNER_PORT:-25}"
@@ -292,8 +292,9 @@ step_h3() {
 	fi
 }
 
-# step_traefik: a página pelo traefik (passthrough TCP na 443 até o web na 8443, ADR 0038 item 6). Sem a rota
-# (antes da task 232) o traefik responde com o próprio certificado ou 404: AVISO, salvo SMOKE_TRAEFIK_REQUIRED=1.
+# step_traefik: a página pelo traefik (passthrough TCP na 443 até o web na 8443, ADR 0038 item 6). Sem a rota o
+# traefik responde com o próprio certificado ou 404 (e sem o NAT do host, timeout): reprova, salvo
+# SMOKE_TRAEFIK_REQUIRED=0 (AVISO).
 step_traefik() {
 	local label="traefik GET https :$TRAEFIK_PORT/" tls code
 	tls=$(curl_tls_flags web)
@@ -305,7 +306,7 @@ step_traefik() {
 	elif [ "$TRAEFIK_REQUIRED" = 1 ]; then
 		bad "$label" "$TRAEFIK_NAME: $code"
 	else
-		warn "$label" "$TRAEFIK_NAME: $code (rota do traefik ainda não existe? task 232)"
+		warn "$label" "$TRAEFIK_NAME: $code (rota do traefik ou NAT do host ausente? SMOKE_TRAEFIK_REQUIRED=0)"
 	fi
 }
 

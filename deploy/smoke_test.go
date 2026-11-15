@@ -516,11 +516,11 @@ func smokeConfig(t *testing.T, env ...string) string {
 }
 
 // Padrões do finger-01 (ADR 0038, task 224): web em 8080/8443, h3 em UDP 8443, nome do certificado B, zona
-// finger-west-01 e o traefik na 443 só avisando.
+// finger-west-01 e o traefik na 443 obrigatório (task 232).
 func TestSmokeDefaultsFinger01(t *testing.T) {
 	got := smokeConfig(t, "FS_ENV_FILE=/nonexistent", "SMOKE_HOST=170.247.40.86")
 	want := "host=170.247.40.86 name=finger-01.badblock.net.br zone=finger-west-01.badblock.net.br " +
-		"http=8080 https=8443 h3=8443 traefik=finger-01.badblock.net.br:443 required=0"
+		"http=8080 https=8443 h3=8443 traefik=finger-01.badblock.net.br:443 required=1"
 	if got != want {
 		t.Errorf("padrões:\n got %s\nwant %s", got, want)
 	}
@@ -532,7 +532,7 @@ func TestSmokeDefaultsFinger01(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = smokeConfig(t, "FS_ENV_FILE="+env)
-	want = "host=192.0.2.1 name=b.example zone=z.example http=8080 https=8443 h3=9443 traefik=b.example:443 required=0"
+	want = "host=192.0.2.1 name=b.example zone=z.example http=8080 https=8443 h3=9443 traefik=b.example:443 required=1"
 	if got != want {
 		t.Errorf("do env:\n got %s\nwant %s", got, want)
 	}
@@ -546,18 +546,18 @@ func TestSmokeTraefikPassesThroughToWeb(t *testing.T) {
 	}
 }
 
-// Sem a rota do traefik (antes da task 232): AVISO sem reprovar; com SMOKE_TRAEFIK_REQUIRED=1, reprova.
-func TestSmokeTraefikWarnsUntilRequired(t *testing.T) {
+// Sem a rota do traefik: reprova por padrão (task 232); SMOKE_TRAEFIK_REQUIRED=0 rebaixa a AVISO.
+func TestSmokeTraefikRequiredByDefault(t *testing.T) {
 	f := selfSignedMirror(t)
 	closed := listen(t, func(net.Conn) {})
 	p := port(t, closed.Addr().String())
 	_ = closed.Close()
 	out, rc := runSmoke(t, f, "web", "SMOKE_TRAEFIK_PORT="+p)
-	if rc != 0 || !strings.Contains(out, "AVISO") || !strings.Contains(out, "task 232") {
-		t.Fatalf("esperava AVISO sem falha, rc=%d\n%s", rc, out)
-	}
-	out, rc = runSmoke(t, f, "web", "SMOKE_TRAEFIK_PORT="+p, "SMOKE_TRAEFIK_REQUIRED=1")
 	if rc == 0 || !strings.Contains(out, "traefik GET https") || !strings.Contains(out, "FALHOU") {
-		t.Fatalf("esperava falha com SMOKE_TRAEFIK_REQUIRED=1, rc=%d\n%s", rc, out)
+		t.Fatalf("esperava falha sem a rota do traefik, rc=%d\n%s", rc, out)
+	}
+	out, rc = runSmoke(t, f, "web", "SMOKE_TRAEFIK_PORT="+p, "SMOKE_TRAEFIK_REQUIRED=0")
+	if rc != 0 || !strings.Contains(out, "AVISO") || !strings.Contains(out, "SMOKE_TRAEFIK_REQUIRED=0") {
+		t.Fatalf("esperava AVISO sem falha com SMOKE_TRAEFIK_REQUIRED=0, rc=%d\n%s", rc, out)
 	}
 }
