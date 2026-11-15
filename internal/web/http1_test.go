@@ -358,7 +358,7 @@ func FuzzHTTP1Session(f *testing.F) {
 		mc := &memConn{in: strings.NewReader(string(data))}
 		c := &conn{srv: srv, raw: mc, flow: flowOf(mc), acceptAt: time.Now()}
 		ic := newIdleConn(mc, time.Second, time.Now(), time.Now)
-		tp := newTap(ic, srv.cfg.RawStreamMax, time.Now, c.emitStream)
+		tp := newTap(ic, srv.cfg.RawStreamMax, time.Now, c.emitStream, nil)
 		c.serveHTTP1(tp, ic, time.Now())
 		tp.flush()
 		if maxSize > event.MaxEventBytes {

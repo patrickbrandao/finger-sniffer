@@ -125,11 +125,11 @@ func (s *Server) handle(ctx context.Context, raw net.Conn, at time.Time) {
 	case detect.TLS:
 		c.serveTLS(ic)
 	case detect.HTTP1:
-		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream)
+		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
 		c.serveHTTP1(t, ic, at)
 		t.flush()
 	case detect.H2CPriorKnowledge:
-		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream)
+		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
 		c.serveH2(t, ic, h2passive.ModePriorKnowledge, nil)
 		t.flush()
 	default:
@@ -197,7 +197,7 @@ func (c *conn) serveTLS(ic *idleConn) {
 	c.mu.Lock()
 	c.tlsOn = true
 	c.mu.Unlock()
-	t := newTap(ts, s.cfg.RawStreamMax, s.now, c.emitStream)
+	t := newTap(ts, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
 	if ts.ConnectionState().NegotiatedProtocol == http2.NextProtoTLS {
 		c.serveH2(t, ic, h2passive.ModeALPN, nil)
 	} else {

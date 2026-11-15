@@ -134,12 +134,9 @@ func (r *frameReader) feed(b []byte) {
 		}
 		n := int(min(uint64(len(b)), r.remaining)) //nolint:gosec // limitado por len(b)
 		if r.keep {
-			if n > 0 && r.reserve != nil {
-				if !r.reserve(n) {
-					r.err = fmt.Errorf("%w: %s", ErrH3Budget, H3FrameName(r.typ))
-					return
-				}
-				r.held += n
+			if !r.grow(n) {
+				r.err = fmt.Errorf("%w: %s", ErrH3Budget, H3FrameName(r.typ))
+				return
 			}
 			r.buf = append(r.buf, b[:n]...)
 		} else if n > 0 && r.onData != nil {
@@ -166,6 +163,31 @@ func (r *frameReader) feed(b []byte) {
 			}
 		}
 	}
+}
+
+// minFrameBuf é a menor capacidade alocada para o payload guardado.
+const minFrameBuf = 512
+
+// grow garante capacidade para mais n bytes no payload guardado. A capacidade dobra (no mínimo minFrameBuf,
+// no máximo o tamanho declarado do frame) e, com orçamento, reserva o crescimento antes de alocar: a
+// reserva acompanha a memória alocada, não só os bytes recebidos (ADR 0036). false: sem orçamento.
+func (r *frameReader) grow(n int) bool {
+	need := len(r.buf) + n
+	if need <= cap(r.buf) {
+		return true
+	}
+	total := int(r.length) //nolint:gosec // r.length <= maxBuf
+	newCap := min(max(2*cap(r.buf), need, minFrameBuf), max(total, need))
+	if r.reserve != nil {
+		if !r.reserve(newCap - cap(r.buf)) {
+			return false
+		}
+		r.held += newCap - cap(r.buf)
+	}
+	nb := make([]byte, len(r.buf), newCap)
+	copy(nb, r.buf)
+	r.buf = nb
+	return true
 }
 
 // UniStream lê um stream unidirecional do cliente: o tipo do stream e, no stream de controle, os frames

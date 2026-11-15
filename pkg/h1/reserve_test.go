@@ -21,7 +21,8 @@ func TestReadHeadReserve(t *testing.T) {
 		return true
 	}
 	req, err := r.ReadHead()
-	if !errors.Is(err, ErrHeadTooLarge) || !req.HeadTooLarge || len(req.RawHead) != reserved ||
+	// A reserva acompanha a memória alocada (ADR 0036): cobre a capacidade de RawHead e as cópias.
+	if !errors.Is(err, ErrHeadTooLarge) || !req.HeadTooLarge || cap(req.RawHead) > reserved || reserved > 3000 ||
 		!strings.HasPrefix(raw, string(req.RawHead)) || req.RequestLine.Method != "GET" {
 		t.Fatalf("%v too_large=%v raw=%d reserved=%d", err, req.HeadTooLarge, len(req.RawHead), reserved)
 	}
@@ -32,15 +33,19 @@ func TestReadHeadReserve(t *testing.T) {
 	if req == nil || !errors.Is(err, ErrHeadTooLarge) || !req.HeadTooLarge || len(req.RawHead) != 0 {
 		t.Fatalf("no budget: %v %+v", err, req)
 	}
-	// Orçamento folgado: reserva exatamente os bytes do cabeçalho e dos trailers (corpo e linhas de chunk não).
+	// Orçamento folgado: reserva a capacidade de RawHead, a linha de requisição, as cópias dos campos e as
+	// fatias de campos do cabeçalho e dos trailers (ADR 0036); corpo e linhas de chunk não.
 	head := "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
 	r = newReader(head + "3;e\r\nabc\r\n0\r\nT: 1\r\n\r\n")
 	reserved = 0
 	r.Reserve = func(n int) bool { reserved += n; return true }
-	if _, err := r.ReadRequest(BodyOptions{}); err != nil {
+	req, err = r.ReadRequest(BodyOptions{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if want := len(head) + len("T: 1\r\n\r\n"); reserved != want {
-		t.Fatalf("reserved %d, want %d (head + trailers)", reserved, want)
+	want := cap(req.RawHead) + len("POST / HTTP/1.1") + len("Transfer-Encoding: chunked") + 8*fieldSize +
+		len("T: 1\r\n\r\n") + len("T: 1") + 8*fieldSize
+	if reserved != want {
+		t.Fatalf("reserved %d, want %d", reserved, want)
 	}
 }

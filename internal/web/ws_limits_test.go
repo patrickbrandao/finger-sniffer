@@ -49,7 +49,8 @@ func h2WSConnect(t *testing.T, r *h2raw, id uint32) string {
 // h2, registrado como resposta normal; a vaga volta quando um deles fecha. O SETTINGS anuncia
 // MAX_CONCURRENT_STREAMS = 100.
 func TestWSSessionLimit(t *testing.T) {
-	h := newHarness(t, harnessOpts{})
+	// Orçamento acima do padrão para caberem as 32 sessões de 2 MiB (e os pendentes do tap).
+	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.InputBudget = wsMaxSessions*wsSessionBudget + 8<<20 }})
 	conns := make([]*websocket.Conn, 0, wsMaxSessions)
 	for range wsMaxSessions {
 		c, _ := wsDial(t, h.addr80, "ws://"+testSNI+"/p/"+testProbe+"/ws", nil, nil)
@@ -57,7 +58,7 @@ func TestWSSessionLimit(t *testing.T) {
 	}
 	waitFor(t, 2*time.Second, func() bool { return h.srv.wsSessions.Load() == wsMaxSessions },
 		func() string { return fmt.Sprint("sessions ", h.srv.wsSessions.Load()) })
-	if got := h.srv.budget.inUse(); got != wsMaxSessions*wsSessionBudget {
+	if got := pathInUse(h.srv.budget); got != wsMaxSessions*wsSessionBudget {
 		t.Fatalf("budget in use %d", got)
 	}
 

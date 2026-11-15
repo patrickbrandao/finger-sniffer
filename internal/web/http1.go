@@ -15,8 +15,9 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 )
 
-// readBufSize é o buffer de leitura do HTTP/1.
-const readBufSize = 64 << 10
+// readBufSize é o buffer de leitura do HTTP/1: fica fora do orçamento de entrada (limitado por
+// FS_MAX_CONNS), por isso pequeno (16 KiB, ADR 0036).
+const readBufSize = 16 << 10
 
 // h1Session é o estado do laço HTTP/1 de uma conexão.
 type h1Session struct {

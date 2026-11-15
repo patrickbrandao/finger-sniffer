@@ -6,13 +6,13 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
-// Orçamento global de memória de entrada (spec 005 RF-12, ADR 0033).
+// Orçamento global de memória de entrada (spec 005 RF-12, ADRs 0033 e 0036).
 const (
-	// DefaultInputBudget é o padrão de FS_WEB_INPUT_BUDGET (40 MiB).
-	DefaultInputBudget = 40 << 20
-	// MinInputBudget e MaxInputBudget são os limites aceitos; fora deles o web não sobe.
+	// DefaultInputBudget é o padrão de FS_WEB_INPUT_BUDGET (24 MiB, ADR 0036).
+	DefaultInputBudget = 24 << 20
+	// MinInputBudget e MaxInputBudget são os limites aceitos (8–32 MiB); fora deles o web não sobe.
 	MinInputBudget = 8 << 20
-	MaxInputBudget = 64 << 20
+	MaxInputBudget = 32 << 20
 
 	// MetricInputBudgetUsed é o gauge dos bytes reservados agora; MetricInputBudgetDenied conta as recusas.
 	MetricInputBudgetUsed   = "web_input_budget_used_bytes"
@@ -20,11 +20,14 @@ const (
 )
 
 // inputBudget é o contador único do processo: todo caminho que retém bytes recebidos do cliente enquanto
-// espera o resto reserva antes de reter e devolve ao soltar. A reserva nunca bloqueia: ou cabe, ou o
+// espera o resto reserva a memória que aloca para guardá-los (capacidade dos buffers e cópias, não só os
+// bytes recebidos, ADR 0036) antes de reter e devolve ao soltar. A reserva nunca bloqueia: ou cabe, ou o
 // chamador dá a resposta de estouro do seu protocolo (431, 503, H3_EXCESSIVE_LOAD, fields_truncated).
 type inputBudget struct {
-	limit   int64
-	used    atomic.Int64
+	limit int64
+	used  atomic.Int64
+	// tap é a parte de used reservada pelos pendentes do tap (para os testes separarem dos outros caminhos).
+	tap     atomic.Int64
 	metrics *service.Metrics
 }
 
@@ -43,15 +46,45 @@ func newInputBudget(limit int64, m *service.Metrics) *inputBudget {
 
 // reserve tenta reservar n bytes; false quando não cabe (conta a recusa).
 func (b *inputBudget) reserve(n int64) bool {
+	if b.tryReserve(n) {
+		return true
+	}
+	if b.metrics != nil {
+		b.metrics.Add(MetricInputBudgetDenied, 1)
+	}
+	return false
+}
+
+// reserveTap reserva n bytes para o pendente do tap sem contar a recusa em MetricInputBudgetDenied: sem
+// orçamento o tap segue sem reter em vez de recusar (ADR 0036).
+func (b *inputBudget) reserveTap(n int64) bool {
+	if !b.tryReserve(n) {
+		return false
+	}
+	b.tap.Add(n)
+	return true
+}
+
+// releaseTap devolve n bytes reservados pelo tap.
+func (b *inputBudget) releaseTap(n int64) {
+	if n <= 0 {
+		return
+	}
+	b.tap.Add(-n)
+	b.release(n)
+}
+
+// tapInUse devolve a parte de inUse que é dos pendentes do tap.
+func (b *inputBudget) tapInUse() int64 { return b.tap.Load() }
+
+// tryReserve reserva n bytes se couberem, sem contar a recusa.
+func (b *inputBudget) tryReserve(n int64) bool {
 	if n <= 0 {
 		return true
 	}
 	for {
 		cur := b.used.Load()
 		if cur+n > b.limit {
-			if b.metrics != nil {
-				b.metrics.Add(MetricInputBudgetDenied, 1)
-			}
 			return false
 		}
 		if b.used.CompareAndSwap(cur, cur+n) {

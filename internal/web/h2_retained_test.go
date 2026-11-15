@@ -51,9 +51,9 @@ func TestH2RetainedFields(t *testing.T) {
 		}
 		r.bigHeaders(uint32(2*i+1), fields)
 	}
-	waitFor(t, 2*time.Second, func() bool { return h.srv.budget.inUse() > 3*300<<10 },
-		func() string { return fmt.Sprint("in use ", h.srv.budget.inUse()) })
-	if got := h.srv.budget.inUse(); got > h2FieldsConnMax {
+	waitFor(t, 2*time.Second, func() bool { return pathInUse(h.srv.budget) > 3*300<<10 },
+		func() string { return fmt.Sprint("in use ", pathInUse(h.srv.budget)) })
+	if got := pathInUse(h.srv.budget); got > h2FieldsConnMax {
 		t.Fatalf("retained %d above %d", got, h2FieldsConnMax)
 	}
 	for i := range streams {
@@ -73,6 +73,9 @@ func TestH2RetainedFields(t *testing.T) {
 	if cut != 1 {
 		t.Fatalf("cut streams %d", cut)
 	}
+	waitFor(t, 2*time.Second, func() bool { return pathInUse(h.srv.budget) == 0 },
+		func() string { return fmt.Sprint("after publish ", pathInUse(h.srv.budget)) })
+	_ = c.Close()
 	waitFor(t, 2*time.Second, func() bool { return h.srv.budget.inUse() == 0 },
-		func() string { return fmt.Sprint("after publish ", h.srv.budget.inUse()) })
+		func() string { return fmt.Sprint("after close ", h.srv.budget.inUse()) })
 }

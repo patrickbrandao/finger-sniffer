@@ -92,16 +92,25 @@ func (c *idleConn) Write(p []byte) (int, error) {
 // streamDir acumula os bytes de aplicação de um sentido e os publica em pedaços de até 64 KiB com offset
 // (fs.v1.web.stream.bytes), até max bytes; passado o teto, manda um último pedaço vazio com truncated e
 // para (ADR 0018). total conta todos os bytes do sentido, inclusive os não publicados.
+//
+// O pendente reserva do orçamento de entrada a capacidade que aloca (ADR 0036). Sem orçamento, o sentido
+// não recusa nada: publica na hora o que tem (pedaço menor que 64 KiB) e segue sem reter; isso não conta
+// como recusa. A reserva volta quando o pendente é publicado por inteiro.
 type streamDir struct {
 	dir       string
 	max       int64
 	emit      func(event.StreamBytes)
+	budget    *inputBudget // nil: sem orçamento (testes)
+	held      int64        // bytes reservados para a capacidade de pending
 	total     int64
 	kept      int64 // bytes já publicados ou pendentes (<= max)
 	pending   []byte
 	pendOff   int64
 	truncated bool
 }
+
+// minPendingBuf é a menor capacidade alocada para o pendente.
+const minPendingBuf = 512
 
 func (s *streamDir) add(p []byte) {
 	s.total += int64(len(p))
@@ -115,10 +124,31 @@ func (s *streamDir) add(p []byte) {
 	if len(s.pending) == 0 {
 		s.pendOff = s.kept
 	}
-	s.pending = append(s.pending, p[:take]...)
+	data := p[:take]
 	s.kept += take
-	for len(s.pending) >= event.StreamChunkBytes {
-		s.emitChunk(event.StreamChunkBytes)
+	for len(data) > 0 {
+		if len(s.pending) == 0 && len(data) >= event.StreamChunkBytes {
+			// Pedaço inteiro direto do que chegou, sem passar pelo pendente.
+			s.emitData(data[:event.StreamChunkBytes])
+			data = data[event.StreamChunkBytes:]
+			continue
+		}
+		n := min(event.StreamChunkBytes-len(s.pending), len(data))
+		if !s.grow(n, len(data)) {
+			// Sem orçamento: publica o pendente e o resto agora, sem reter.
+			s.flush()
+			for len(data) > 0 {
+				k := min(len(data), event.StreamChunkBytes)
+				s.emitData(data[:k])
+				data = data[k:]
+			}
+			break
+		}
+		s.pending = append(s.pending, data[:n]...)
+		data = data[n:]
+		if len(s.pending) == event.StreamChunkBytes {
+			s.emitChunk(event.StreamChunkBytes)
+		}
 	}
 	if take < int64(len(p)) {
 		s.flush()
@@ -127,14 +157,46 @@ func (s *streamDir) add(p []byte) {
 	}
 }
 
-func (s *streamDir) emitChunk(n int) {
-	data := make([]byte, n)
-	copy(data, s.pending[:n])
+// grow garante capacidade para mais n bytes no pendente (want é quanto ainda há para acumular). A
+// capacidade dobra, no mínimo minPendingBuf e no máximo um pedaço, e o crescimento é reservado antes de
+// alocar. false: sem orçamento.
+func (s *streamDir) grow(n, want int) bool {
+	need := len(s.pending) + n
+	if need <= cap(s.pending) {
+		return true
+	}
+	newCap := min(max(2*cap(s.pending), len(s.pending)+want, minPendingBuf), event.StreamChunkBytes)
+	delta := int64(newCap - cap(s.pending))
+	if s.budget != nil && !s.budget.reserveTap(delta) {
+		return false
+	}
+	s.held += delta
+	nb := make([]byte, len(s.pending), newCap)
+	copy(nb, s.pending)
+	s.pending = nb
+	return true
+}
+
+// emitData publica uma cópia de p no offset pendOff, que avança.
+func (s *streamDir) emitData(p []byte) {
+	data := make([]byte, len(p))
+	copy(data, p)
 	s.emit(event.StreamBytes{Dir: s.dir, Offset: s.pendOff, Data: data})
-	s.pendOff += int64(n)
-	s.pending = s.pending[n:]
-	if len(s.pending) == 0 {
+	s.pendOff += int64(len(p))
+}
+
+// emitChunk publica os primeiros n bytes do pendente; o resto vai para o começo do mesmo buffer. Pendente
+// vazio solta o buffer e devolve a reserva.
+func (s *streamDir) emitChunk(n int) {
+	s.emitData(s.pending[:n])
+	rest := copy(s.pending, s.pending[n:])
+	s.pending = s.pending[:rest]
+	if rest == 0 {
 		s.pending = nil
+		if s.budget != nil {
+			s.budget.releaseTap(s.held)
+		}
+		s.held = 0
 	}
 }
 
@@ -176,12 +238,13 @@ type tap struct {
 // observador: simula o atraso em que o cliente já recebeu os bytes e o parser passivo ainda não.
 var tapAfterWriteHook func(p []byte)
 
-func newTap(c net.Conn, maxPerDir int, now func() time.Time, emit func(event.StreamBytes)) *tap {
+// newTap cria o tap; budget (nil nos testes que não o usam) é o orçamento de entrada dos pendentes.
+func newTap(c net.Conn, maxPerDir int, now func() time.Time, emit func(event.StreamBytes), budget *inputBudget) *tap {
 	return &tap{
 		Conn: c,
 		now:  now,
-		in:   streamDir{dir: event.DirectionIn, max: int64(maxPerDir), emit: emit},
-		out:  streamDir{dir: event.DirectionOut, max: int64(maxPerDir), emit: emit},
+		in:   streamDir{dir: event.DirectionIn, max: int64(maxPerDir), emit: emit, budget: budget},
+		out:  streamDir{dir: event.DirectionOut, max: int64(maxPerDir), emit: emit, budget: budget},
 	}
 }
 
@@ -311,7 +374,7 @@ func (t *tap) outTotal() int64 {
 	return t.out.total
 }
 
-// flush publica o que estiver pendente nos dois sentidos.
+// flush publica o que estiver pendente nos dois sentidos (e devolve a reserva dos pendentes); idempotente.
 func (t *tap) flush() {
 	t.mu.Lock()
 	t.in.flush()
