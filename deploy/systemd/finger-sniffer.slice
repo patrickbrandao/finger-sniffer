@@ -1,0 +1,11 @@
+# Fatia das 7 units do finger-sniffer no finger-01 (ADR 0039 item 1): o espelho nunca passa de metade das vCPU
+# nem de ~19% da RAM; o resto fica para o host, o traefik e os sites. O systemd aninha pelo hífen: o cgroup das
+# units fica em /sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>.
+[Unit]
+Description=finger-sniffer: fatia de recursos
+Before=slices.target
+
+[Slice]
+MemoryMax=6G
+MemorySwapMax=0
+CPUQuota=800%

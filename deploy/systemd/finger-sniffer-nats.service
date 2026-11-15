@@ -13,8 +13,13 @@ Restart=always
 RestartSec=2
 RestartSteps=5
 RestartMaxDelaySec=30
-Environment=GOMEMLIMIT=170MiB
-MemoryMax=192M
+# Limites no finger-01 (ADR 0039): fatia comum, sem swap, GOMEMLIMIT abaixo do MemoryMax e cota de CPU
+# (o GOMAXPROCS do runtime Go segue o CPUQuota). disablethp: o heap Go fica fora do THP "always" do host.
+Slice=finger-sniffer.slice
+Environment=GOMEMLIMIT=896MiB GODEBUG=disablethp=1
+MemoryMax=1G
+MemorySwapMax=0
+CPUQuota=200%
 LimitNOFILE=65536
 CapabilityBoundingSet=
 AmbientCapabilities=
