@@ -17,8 +17,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
 - RF-02a: responde o request/reply `fs.v1.store.conn_id` (ADR 0017): devolve o ID da conexão aberta com a 5-tupla
   ou reserva um ULID por 30 s para a próxima conexão criada pelos pacotes com essa 5-tupla.
-- RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto) ficam como "pacotes
-  avulsos", consultáveis por janela de tempo. Regra: fluxo TCP que nunca completou o handshake (sem SYN-ACK — inclui
+- RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto, quadro não IP; o ARP nem
+  chega, é descartado no BPF do capture, ADR 0040) ficam como "pacotes avulsos",
+  consultáveis por janela de tempo. Regra: fluxo TCP que nunca completou o handshake (sem SYN-ACK — inclui
   SYN recusado com RST e varreduras) e fluxo UDP sem nenhuma resposta viram avulsos quando terminam.
 - RF-04: pcap por conexão (dois sentidos), teto `FS_PCAP_MAX_BYTES_PER_CONN` (16 MiB); acima disso guarda só os
   cabeçalhos dos pacotes e marca `pcap_truncated`. Os registros "só cabeçalhos" têm orçamento próprio de mais

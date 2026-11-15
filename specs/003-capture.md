@@ -12,9 +12,10 @@ Não analisa nada além do necessário para o envelope.
 - RF-01: captura AF_PACKET TPACKET_V3 (gopacket/gopacket `afpacket`, Go puro), snaplen completo
   (`FS_CAPTURE_SNAPLEN`, padrão 65535), nos dois sentidos, na interface `FS_CAPTURE_IFACE` (padrão `ens192`).
 - RF-02: filtro BPF exclui as portas `FS_CAPTURE_EXCLUDE_PORTS` (padrão 48022, 48161, 9000, 9001) em TCP e UDP,
-  origem ou destino. Todo o resto entra: TCP, UDP, ICMP/ICMPv6, fragmentos, inclusive fluxos iniciados pelo próprio
-  servidor (ACME, NTP, apt), e inclusive frames truncados pelo snaplen (o filtro não pode depender de bytes além
-  do capturado para descartar).
+  origem ou destino, e descarta sempre os quadros ARP (ethertype `0x0806`, com ou sem tag VLAN `0x8100`, mesmo com
+  a lista de portas vazia; ADR 0040). Todo o resto entra: TCP, UDP, ICMP/ICMPv6, fragmentos, outros quadros não IP,
+  inclusive fluxos iniciados pelo próprio servidor (ACME, NTP, apt), e inclusive frames truncados pelo snaplen (o
+  filtro não pode depender de bytes além do capturado para descartar).
 - RF-03: cada pacote vira um registro do lote `fs.v1.capture.packet` em formato binário FSPB v1 (ADR 0015):
   timestamp do kernel (ns UTC), direção (`in`/`out`), flags, tamanho no fio e o frame Ethernet completo. A
   5-tupla é extraída do frame pelo store.
@@ -46,6 +47,7 @@ Não persiste nada. Pacotes pertencem ao store após o ingest.
 ## Critérios de aceite
 - [ ] Um `curl` à porta 8080 gera eventos `in` e `out` com SYN, SYN-ACK, ACK, dados e FIN.
 - [ ] Tráfego em 48022 e 9000/9001 não aparece em nenhum evento.
+- [ ] Quadros ARP (com e sem VLAN) não aparecem em nenhum evento, nem em `/api/v1/packets`, nem no feed.
 - [ ] Com offloads desligados, nenhum frame > MTU + 14 em 1 min de tráfego de download de 64 MiB.
 - [ ] Com NATS parado por 10 s, os pacotes chegam depois que ele volta; parado por 60 s, `dropped_events_total` > 0.
 
@@ -58,3 +60,4 @@ Não persiste nada. Pacotes pertencem ao store após o ingest.
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0006-portas-e-api-sem-captura.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
+- specs/decisions/0040-arp-fora-da-captura.md
