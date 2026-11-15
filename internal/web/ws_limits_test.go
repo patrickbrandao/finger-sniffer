@@ -58,9 +58,11 @@ func TestWSSessionLimit(t *testing.T) {
 	}
 	waitFor(t, 2*time.Second, func() bool { return h.srv.wsSessions.Load() == wsMaxSessions },
 		func() string { return fmt.Sprint("sessions ", h.srv.wsSessions.Load()) })
-	if got := pathInUse(h.srv.budget); got != wsMaxSessions*wsSessionBudget {
-		t.Fatalf("budget in use %d", got)
-	}
+	// pathInUse lê dois contadores (total e tap) sem atomicidade entre eles: um pendente do tap reservando ou
+	// devolvendo no meio da leitura aparece por um instante como bytes de caminho (task 241). Espera com prazo
+	// o valor exato; uma reserva retida de verdade persiste e falha aqui.
+	waitFor(t, 2*time.Second, func() bool { return pathInUse(h.srv.budget) == wsMaxSessions*wsSessionBudget },
+		func() string { return fmt.Sprint("budget in use ", pathInUse(h.srv.budget)) })
 
 	// HTTP/1: 503 e o laço segue na mesma conexão.
 	c1 := dial(t, h.addr80)

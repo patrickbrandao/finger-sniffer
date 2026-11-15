@@ -142,5 +142,6 @@ func TestHTTP1InputBudget(t *testing.T) {
 }
 
 // pathInUse devolve a parte do orçamento em uso que não é dos pendentes do tap (que existem enquanto a
-// conexão está aberta, ADR 0036).
+// conexão está aberta, ADR 0036). Os dois contadores são lidos em separado: com o tap ativo o valor pode
+// sobrar por um instante (task 241), então compare com waitFor, não numa leitura só.
 func pathInUse(b *inputBudget) int64 { return b.inUse() - b.tapInUse() }
