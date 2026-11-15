@@ -304,12 +304,23 @@ func (s *Store) Run(ctx context.Context) error {
 	}
 
 	shutdown := func() error {
-		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shut, cancel := context.WithTimeout(context.Background(), apiShutdownWait)
 		defer cancel()
-		if tlsSrv != nil {
-			_ = tlsSrv.Shutdown(shut)
+		// Conexão que não fica ociosa no prazo (aceita e sem pedido, como numa varredura de porta) não é erro do
+		// store: vencido o prazo, a API fecha o que resta (task 222).
+		forced := false
+		if tlsSrv != nil && tlsSrv.Shutdown(shut) != nil {
+			forced = true
+			_ = tlsSrv.Close()
 		}
-		return srv.Shutdown(shut)
+		if srv.Shutdown(shut) != nil {
+			forced = true
+			_ = srv.Close()
+		}
+		if forced {
+			s.svc.Log.Warn("api shutdown timed out, closing connections", "waited", apiShutdownWait)
+		}
+		return nil
 	}
 	select {
 	case <-ctx.Done():
@@ -322,6 +333,9 @@ func (s *Store) Run(ctx context.Context) error {
 		return err
 	}
 }
+
+// apiShutdownWait é o prazo do desligamento gracioso da API (variável para os testes).
+var apiShutdownWait = 5 * time.Second
 
 // shutdownWait é quanto o Run espera os laços de fundo antes de fechar os bancos.
 const shutdownWait = 8 * time.Second
