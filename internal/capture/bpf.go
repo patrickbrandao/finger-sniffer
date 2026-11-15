@@ -1,4 +1,4 @@
-// Package capture é o serviço que captura na íntegra os pacotes da eth0 e os publica no NATS em lotes FSPB v1
+// Package capture é o serviço que captura na íntegra os pacotes da interface FS_CAPTURE_IFACE (padrão ens192) e os publica no NATS em lotes FSPB v1
 // (spec 003, ADRs 0004, 0011, 0015).
 package capture
 

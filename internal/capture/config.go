@@ -23,7 +23,7 @@ type Config struct {
 // LoadConfig lê a configuração do capture.
 func LoadConfig() (Config, error) {
 	c := Config{
-		Iface:     service.Env("FS_CAPTURE_IFACE", "eth0"),
+		Iface:     service.Env("FS_CAPTURE_IFACE", "ens192"),
 		NetStatus: service.Env("FS_NET_STATUS_FILE", "/run/finger-sniffer/net-status.json"),
 	}
 	var err error
