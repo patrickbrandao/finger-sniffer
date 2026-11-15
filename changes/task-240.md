@@ -1,0 +1,1 @@
+- Store: exemplo do health no contrato (`testdata/health-example.json`) lista só os nomes atuais do certificado B, sem `finger-01.tmsoft.com.br` (task 240).

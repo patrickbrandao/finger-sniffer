@@ -51,7 +51,7 @@ func certsConfig(dir string) certs.Config {
 	return certs.Config{
 		Dir:         dir,
 		NamesDNS01:  []string{"finger-west-01.badblock.net.br", "*.finger-west-01.badblock.net.br"},
-		NamesHTTP01: []string{"finger-01.badblock.net.br", "finger-01.tmsoft.com.br"},
+		NamesHTTP01: []string{"finger-01.badblock.net.br"},
 	}
 }
 
