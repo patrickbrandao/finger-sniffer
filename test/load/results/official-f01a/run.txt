@@ -1,0 +1,26 @@
+15:38:45 relógio: servidor − local = 11.939689ms (ida e volta 16.828625ms)
+15:38:45 servidor na versão v0.2.1-75-g1f83ec0 (versions_match=true)
+15:38:47 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 10m0s (aquecimento 1m0s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+15:39:17 t= 30s abertas=3001 simultâneas=390 (máx 396) eventos ws=13298
+15:39:47 t= 60s abertas=6001 simultâneas=390 (máx 396) eventos ws=39830
+15:40:17 t= 90s abertas=9002 simultâneas=390 (máx 396) eventos ws=72618
+15:40:47 t=120s abertas=12003 simultâneas=389 (máx 396) eventos ws=110370
+15:41:17 t=150s abertas=15003 simultâneas=389 (máx 396) eventos ws=143662
+15:41:47 t=180s abertas=18004 simultâneas=388 (máx 396) eventos ws=168440
+15:42:17 t=210s abertas=21004 simultâneas=388 (máx 398) eventos ws=197958
+15:42:47 t=240s abertas=24004 simultâneas=388 (máx 398) eventos ws=219309
+15:43:17 t=270s abertas=27005 simultâneas=387 (máx 398) eventos ws=238797
+15:43:47 t=300s abertas=30006 simultâneas=386 (máx 398) eventos ws=260046
+15:44:17 t=330s abertas=33007 simultâneas=387 (máx 399) eventos ws=278753
+15:44:47 t=360s abertas=36007 simultâneas=387 (máx 399) eventos ws=295813
+15:45:17 t=390s abertas=39007 simultâneas=387 (máx 399) eventos ws=312696
+15:45:47 t=420s abertas=42008 simultâneas=388 (máx 399) eventos ws=333613
+15:46:17 t=450s abertas=45008 simultâneas=388 (máx 399) eventos ws=361965
+15:46:47 t=480s abertas=48008 simultâneas=388 (máx 399) eventos ws=390864
+15:47:17 t=510s abertas=51009 simultâneas=389 (máx 399) eventos ws=418550
+15:47:47 t=540s abertas=54009 simultâneas=389 (máx 399) eventos ws=446408
+15:48:17 t=570s abertas=57010 simultâneas=390 (máx 400) eventos ws=492323
+15:48:47 fim da geração: 60000 abertas, 0 puladas (teto), esperando as conexões terminarem
+16:00:10 retenção: esperando até 15:50:06 para conferir o expurgo
+16:00:11 relógio no fim: 4.579106ms (deriva -7.360583ms)
+16:00:11 dados em tmp/load/raw/official-f01a

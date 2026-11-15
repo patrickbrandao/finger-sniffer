@@ -1,0 +1,9 @@
+total 1241372
+drwxr-xr-x 2 finger-sniffer finger-sniffer       4096 2026-11-15T15:35:50 .
+drwxr-x--- 6 finger-sniffer finger-sniffer       4096 2026-11-15T10:03:04 ..
+-rw-r--r-- 1 finger-sniffer finger-sniffer 1203785728 2026-11-15T17:05:23 finger-sniffer.sqlite
+-rw-r--r-- 1 finger-sniffer finger-sniffer     262144 2026-11-15T17:05:20 finger-sniffer.sqlite-shm
+-rw-r--r-- 1 finger-sniffer finger-sniffer   67108864 2026-11-15T17:05:23 finger-sniffer.sqlite-wal
+1203785728	/finger-sniffer/var/store/finger-sniffer.sqlite
+262144	/finger-sniffer/var/store/finger-sniffer.sqlite-shm
+67108864	/finger-sniffer/var/store/finger-sniffer.sqlite-wal
