@@ -378,7 +378,7 @@ func TestLiveFeedFromIngest(t *testing.T) {
 	defer cancel()
 	feed, _ := sseClient(t, ctx, srv.URL+"/api/v1/stream")
 	onlyDNS := wsClient(t, ctx, strings.Replace(srv.URL, "http", "ws", 1)+"/api/v1/ws?kind=dns.query", "https://other.example")
-	onlyQUIC, _ := sseClient(t, ctx, srv.URL+"/api/v1/stream?dst_port=443&probe="+probeID)
+	onlyQUIC, _ := sseClient(t, ctx, srv.URL+"/api/v1/stream?dst_port=8443&probe="+probeID)
 	time.Sleep(100 * time.Millisecond)
 
 	shift := time.Now().UnixNano() - base
@@ -431,12 +431,12 @@ func TestLiveFeedFromIngest(t *testing.T) {
 			L4  string       `json:"l4"`
 		}
 		_ = json.Unmarshal(e.Data, &d)
-		if e.ProbeID == nil || *e.ProbeID != probeID || (strings.HasPrefix(e.Kind, "connection.") && d.Dst.Port != 443) {
-			t.Fatalf("filter dst_port=443&probe leaked: %s", e.raw)
+		if e.ProbeID == nil || *e.ProbeID != probeID || (strings.HasPrefix(e.Kind, "connection.") && d.Dst.Port != 8443) {
+			t.Fatalf("filter dst_port=8443&probe leaked: %s", e.raw)
 		}
 	}
 	if kq := kinds(quic); kq[LiveHTTPRequest] != 3 || kq[LiveConnClosed] != 1 || kq[LiveDNSQuery] != 0 {
-		t.Fatalf("dst_port=443 got %v", kq)
+		t.Fatalf("dst_port=8443 got %v", kq)
 	}
 	// Contrato: um exemplo de cada kind (mais o stream.dropped) valida contra LiveEvent.
 	seen := map[string]bool{}
@@ -529,7 +529,7 @@ func TestIntegrationLive(t *testing.T) {
 		}
 		return err == nil
 	}, "api not up")
-	ws = wsClient(t, cctx, wsURL, "https://vps602.tmsoft.com.br")
+	ws = wsClient(t, cctx, wsURL, "https://finger-01.badblock.net.br")
 	sse, resp := sseClient(t, cctx, fmt.Sprintf("http://127.0.0.1:%d/api/v1/stream?kind=http.request", port))
 	if resp.Header.Get("Cache-Control") != "no-store" || resp.Header.Get("Content-Type") != "text/event-stream" {
 		t.Fatalf("headers %v", resp.Header)

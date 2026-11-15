@@ -17,7 +17,7 @@ import (
 )
 
 // heartbeatNames são os nomes reais das métricas publicadas no heartbeat pelos serviços (pkg/service e
-// internal/*), para o lint cobrir o que a vps602 expõe.
+// internal/*), para o lint cobrir o que o servidor expõe.
 var heartbeatNames = map[string][]string{
 	event.ServiceWeb: {
 		"buffered_bytes", "buffered_events", "dropped_events_total", "published_events_total", "web_acme_failures_total",

@@ -61,14 +61,14 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	}
 	dns := `{"ts":"2026-11-07T11:59:59.900000000Z","probe_id":"t1a2b3c4","resolver":{"ip":"198.51.100.53","port":53124},
 		"proto":"udp","conn_id":null,"id":4242,"opcode":0,"flags":{"rd":false,"cd":false,"ad":false},
-		"qname":"T1a2B3c4.dns-monitor.tmsoft.com.br.","qtype":"A","qclass":"IN",
+		"qname":"T1a2B3c4.finger-west-01.badblock.net.br.","qtype":"A","qclass":"IN",
 		"edns":{"version":0,"udp_size":1232,"do":false,"cookie_hex":null,"ecs":{"family":1,"source_prefix":24,"scope_prefix":0,"address":"200.1.2.0"},"padding_len":null,"options":[]},
-		"response":{"rcode":"NOERROR","truncated":false,"answers":[{"name":"T1a2B3c4.dns-monitor.tmsoft.com.br.","type":"A","ttl":5,"data":"172.233.24.85"}]},
+		"response":{"rcode":"NOERROR","truncated":false,"answers":[{"name":"T1a2B3c4.finger-west-01.badblock.net.br.","type":"A","ttl":5,"data":"170.247.40.86"}]},
 		"rate_limited":false,"raw_b64":"EJIAAAABAAAAAAAB"}`
 	var compact bytes.Buffer
 	_ = json.Compact(&compact, []byte(dns))
 	if _, err := db.Exec(`INSERT INTO dns_queries (ts_ns, probe_id, resolver_ip, resolver_port, proto, qname, qtype, record_json)
-		VALUES (?, ?, '198.51.100.53', 53124, 'udp', 'T1a2B3c4.dns-monitor.tmsoft.com.br.', 'A', ?)`, base-100e6, probeID, compact.String()); err != nil {
+		VALUES (?, ?, '198.51.100.53', 53124, 'udp', 'T1a2B3c4.finger-west-01.badblock.net.br.', 'A', ?)`, base-100e6, probeID, compact.String()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,7 +226,7 @@ func TestAPIPacketsAndDNS(t *testing.T) {
 		t.Fatalf("%d %q", code, body)
 	}
 	code, body = f.get(t, "/api/v1/dns?probe="+probeID)
-	if code != 200 || !strings.Contains(body, "T1a2B3c4.dns-monitor") {
+	if code != 200 || !strings.Contains(body, "T1a2B3c4.finger-west-01") {
 		t.Fatalf("%d %s", code, body)
 	}
 	// Datas fora de 1678–2262 saturam nos limites do int64 (task 159).

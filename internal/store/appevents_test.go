@@ -58,7 +58,7 @@ func recordOf(t *testing.T, in *Ingestor, id string) connectionJSON {
 	return r
 }
 
-var hello = map[string]any{"sni": "t1a2b3c4.dns-monitor.tmsoft.com.br"}
+var hello = map[string]any{"sni": "t1a2b3c4.finger-west-01.badblock.net.br"}
 
 func TestParseAppEvent(t *testing.T) {
 	m := appMsg(t, event.SubjectWebTLSClientHello, "tcp", client, mirror, 5, "t1a2b3c4", hello)

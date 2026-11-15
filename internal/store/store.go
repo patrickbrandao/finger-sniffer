@@ -20,11 +20,13 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
-// Padrões do modo degradado (spec 004 RF-11): acima da garantia da spec 000 RNF-01 (200 e 50/s), com margem para
-// o tráfego alheio de um servidor público (ADR 0030).
+// Padrões do modo degradado (spec 004 RF-11): acima da garantia da spec 000 RNF-01 (400 e 100/s), com margem para
+// o tráfego alheio de um servidor público (ADRs 0030 e 0039 item 5).
 const (
-	DefaultMaxConns        = 250
-	DefaultMaxNewConnsPerS = 60
+	DefaultMaxConns        = 1000
+	DefaultMaxNewConnsPerS = 250
+	// DefaultMaxBytes é o padrão de FS_STORE_MAX_BYTES: 8 GiB (ADR 0039 item 5, RNF-05).
+	DefaultMaxBytes = 8 << 30
 )
 
 // Config do store nesta fase.
@@ -57,7 +59,7 @@ func LoadConfig() (Config, error) {
 		Host:      DefaultHostPaths,
 		P0FPath:   service.Env("FS_P0F_DB", "/finger-sniffer/etc/p0f.fp"),
 	}
-	maxBytes, err := service.EnvInt("FS_STORE_MAX_BYTES", 2<<30)
+	maxBytes, err := service.EnvInt("FS_STORE_MAX_BYTES", DefaultMaxBytes)
 	if err != nil {
 		return c, err
 	}

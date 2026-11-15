@@ -27,7 +27,7 @@
       "probe_id": "t1a2b3c4",
       "proto": "udp",
       "qclass": "IN",
-      "qname": "T1a2B3c4.dns-monitor.tmsoft.com.br.",
+      "qname": "T1a2B3c4.finger-west-01.badblock.net.br.",
       "qtype": "A",
       "rate_limited": false,
       "raw_b64": "EJIAAAABAAAAAAAB",
@@ -38,8 +38,8 @@
       "response": {
         "answers": [
           {
-            "data": "172.233.24.85",
-            "name": "T1a2B3c4.dns-monitor.tmsoft.com.br.",
+            "data": "170.247.40.86",
+            "name": "T1a2B3c4.finger-west-01.badblock.net.br.",
             "ttl": 5,
             "type": "A"
           }

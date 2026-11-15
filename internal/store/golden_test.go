@@ -14,7 +14,7 @@ import (
 )
 
 // Golden pcaps da task 013 (test/golden/pcaps): cada pcap passa pelo ingest e o registro de cada conexão é
-// comparado com as saídas de referência geradas na vps602 sobre o mesmo arquivo — tshark (RTT do handshake,
+// comparado com as saídas de referência geradas no servidor anterior sobre o mesmo arquivo — tshark (RTT do handshake,
 // retransmissões, segmentos, keepalives), ja4 da FoxIO (JA4T) e p0f -r (assinatura e SO).
 
 const goldenDir = "../../test/golden/pcaps"

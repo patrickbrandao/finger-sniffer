@@ -28,7 +28,7 @@ func tlsHelloPayload(raw []byte) map[string]any {
 	return map[string]any{
 		"client_hello_b64": base64.StdEncoding.EncodeToString(raw), "client_hello_truncated": false,
 		"client_hello_records": 1, "record_version": 769, "handshake_version": 771, "session_id_len": 32,
-		"sni": "t1a2b3c4.dns-monitor.tmsoft.com.br", "alpn": []string{"http/1.1"},
+		"sni": "t1a2b3c4.finger-west-01.badblock.net.br", "alpn": []string{"http/1.1"},
 		"cipher_suites": []map[string]any{{"code": 4865, "name": "TLS_AES_128_GCM_SHA256"}},
 		"ja3":           "771,4865,0-16,29,0", "ja3_md5": "d41d8cd98f00b204e9800998ecf8427e",
 		"ja4": "t13d0102h1_0b5e1e0e6d6c_7f0d0b5c1d2e", "ja4_r": "t13d0102h1_1301_0000,0010",
@@ -44,11 +44,11 @@ func handshakePayload() event.TLSHandshake {
 }
 
 func http1Payload(index int, version string) map[string]any {
-	head := "GET /p/t1a2b3c4/ " + version + "\r\nHost: t1a2b3c4.dns-monitor.tmsoft.com.br\r\n\r\n"
+	head := "GET /p/t1a2b3c4/ " + version + "\r\nHost: t1a2b3c4.finger-west-01.badblock.net.br\r\n\r\n"
 	return map[string]any{
 		"index": index, "in_offset": 0, "out_offset": 0, "raw_head_b64": base64.StdEncoding.EncodeToString([]byte(head)),
 		"request_line": map[string]any{"method": "GET", "target": "/p/t1a2b3c4/", "form": "origin", "version": version, "terminator": "crlf"},
-		"fields":       [][]string{{"Host", ": ", "t1a2b3c4.dns-monitor.tmsoft.com.br", "crlf"}},
+		"fields":       [][]string{{"Host", ": ", "t1a2b3c4.finger-west-01.badblock.net.br", "crlf"}},
 		"field_count":  1, "head_size": len(head), "status": 200, "response_sent_size": 120,
 		// instantes da aplicação (ADR 0029), 10 ms por requisição a partir de 30 ms
 		"request_started_at": tsAt(30 + 10*index), "request_ended_at": tsAt(31 + 10*index),
@@ -138,7 +138,7 @@ func TestLayersTLSAndHTTP1(t *testing.T) {
 	}
 	var tls map[string]any
 	_ = json.Unmarshal(r.TLS, &tls)
-	if tls["sni"] != "t1a2b3c4.dns-monitor.tmsoft.com.br" || tls["handshake_ms"] != 12.5 || tls["client_hello_segments"] != 1.0 {
+	if tls["sni"] != "t1a2b3c4.finger-west-01.badblock.net.br" || tls["handshake_ms"] != 12.5 || tls["client_hello_segments"] != 1.0 {
 		t.Fatalf("tls %v", tls)
 	}
 	alerts, _ := tls["alerts"].([]any)

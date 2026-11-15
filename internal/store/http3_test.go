@@ -20,7 +20,7 @@ import (
 
 var (
 	quicClient = netip.MustParseAddrPort("192.0.2.10:52000")
-	quicMirror = netip.MustParseAddrPort("172.233.24.85:443")
+	quicMirror = netip.MustParseAddrPort("170.247.40.86:8443")
 	dcidA      = []byte{0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8}
 	dcidB      = []byte{0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8}
 )
@@ -83,7 +83,7 @@ func h3Conn(alpn string, settings bool, cl *event.HTTP3Close) event.HTTP3Info {
 	if alpn == "" {
 		neg = nil
 	}
-	hello, _ := json.Marshal(map[string]any{"sni": probeID + ".dns-monitor.tmsoft.com.br", "ja4": "q13d0312h3_55b375c5d22e_06cda9e17597", "negotiated": neg, "handshake_ms": 12.5})
+	hello, _ := json.Marshal(map[string]any{"sni": probeID + ".finger-west-01.badblock.net.br", "ja4": "q13d0312h3_55b375c5d22e_06cda9e17597", "negotiated": neg, "handshake_ms": 12.5})
 	info := event.HTTP3Info{
 		Version: "00000001", DCIDHex: hex.EncodeToString(dcidA), SCIDHex: "", TokenLen: 0, TokenHex: "",
 		InitialLength: 1182, InitialPacketNumber: 0, InitialDatagramSize: 1200, PaddedTo1200: true, CoalescedPackets: 1,

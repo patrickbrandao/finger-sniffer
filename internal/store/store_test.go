@@ -139,7 +139,7 @@ func TestReadHost(t *testing.T) {
 }
 
 // TestReadHostSysctlMismatch: sysctl efetivo diferente do arquivo do projeto é motivo de degradação (spec 016
-// CA-2); conntrack carregado depois do boot aparece pelo /proc/modules.
+// CA-2); conntrack carregado depois do boot aparece pelo /proc/modules, só como informação (ADR 0038 item 7).
 func TestReadHostSysctlMismatch(t *testing.T) {
 	p := hostFixture(t, false)
 	if err := os.WriteFile(filepath.Join(p.ProcSys, "net/core/somaxconn"), []byte("128\n"), 0o600); err != nil {
@@ -153,7 +153,7 @@ func TestReadHostSysctlMismatch(t *testing.T) {
 	if err := os.WriteFile(p.ProcModules, []byte("nf_conntrack_netlink 57344 0 - Live 0x0\nnf_conntrack 196608 1 nf_conntrack_netlink, Live 0x0\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h, reasons = ReadHost(p); len(reasons) != 2 || reasons[1] != "conntrack loaded" || !h.ConntrackLoaded {
+	if h, reasons = ReadHost(p); len(reasons) != 1 || !h.ConntrackLoaded {
 		t.Fatalf("%v", reasons)
 	}
 	_ = os.WriteFile(p.ProcModules, []byte("nf_conntrack_netlink 57344 0 - Live 0x0\n"), 0o600)
@@ -168,11 +168,20 @@ func TestReadHostProblems(t *testing.T) {
 	if len(reasons) != 1 || reasons[0] != "aggregating offload on" {
 		t.Fatalf("%v", reasons)
 	}
+	// conntrack e ruleset do host são informativos: não degradam (ADR 0038 item 7)
 	if err := os.WriteFile(p.NetStatus, []byte(`{"conntrack_loaded":true,"nft_ruleset_lines":2}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.Remove(p.TimesyncOK)
-	if _, reasons = ReadHost(p); len(reasons) != 3 {
+	h, reasons := ReadHost(p)
+	if len(reasons) != 1 || reasons[0] != "ntp not synchronized" || !h.ConntrackLoaded || h.NFTRulesetLines != 2 {
+		t.Fatalf("%+v %v", h, reasons)
+	}
+	// NAT nas portas do espelho degrada
+	if err := os.WriteFile(p.NetStatus, []byte(`{"conntrack_loaded":true,"nft_ruleset_lines":2,"nat_on_mirror_ports":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, reasons = ReadHost(p); len(reasons) != 2 || reasons[0] != "nat on mirror ports" {
 		t.Fatalf("%v", reasons)
 	}
 	_ = os.WriteFile(p.NetStatus, []byte(`{`), 0o600)
@@ -180,7 +189,7 @@ func TestReadHostProblems(t *testing.T) {
 		t.Fatalf("%v", reasons)
 	}
 	empty := HostPaths{NetStatus: "/nope", SysctlFile: "/nope", ProcNetstat: "/nope", TimesyncOK: "/nope"}
-	h, reasons := ReadHost(empty)
+	h, reasons = ReadHost(empty)
 	if len(reasons) != 2 || h.Sysctls != nil || h.SyncookiesSent != 0 {
 		t.Fatalf("%+v %v", h, reasons)
 	}
@@ -191,7 +200,7 @@ func exampleStore(t *testing.T) *Store {
 	t.Helper()
 	db, path := testDB(t)
 	s := &Store{
-		cfg: Config{DBPath: path, Retention: "10m", MaxBytes: 2 << 30, DownAfter: 15 * time.Second, Host: hostFixture(t, false)},
+		cfg: Config{DBPath: path, Retention: "10m", MaxBytes: DefaultMaxBytes, DownAfter: 15 * time.Second, Host: hostFixture(t, false)},
 		db:  db, rdb: db, tracker: NewTracker(event.Services, 15*time.Second),
 	}
 	for _, svc := range event.Services {
@@ -199,7 +208,7 @@ func exampleStore(t *testing.T) *Store {
 	}
 	// Certificado B de exemplo em FS_CERT_DIR; o A falta e usa o autoassinado (aparece uma vez só).
 	dir := t.TempDir()
-	crt, key, _ := genCertPair(t, "Test CA", []string{"vps602.tmsoft.com.br"}, time.Date(2027, 2, 5, 12, 0, 0, 0, time.UTC))
+	crt, key, _ := genCertPair(t, "Test CA", []string{"finger-01.badblock.net.br"}, time.Date(2027, 2, 5, 12, 0, 0, 0, time.UTC))
 	if err := certs.WritePair(dir, certs.SlotHTTP01, crt, key); err != nil {
 		t.Fatal(err)
 	}
@@ -311,9 +320,14 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil || c.DBPath != "/tmp/x.sqlite" || c.HTTPAddr != ":19001" || c.MaxBytes != 100 || c.DownAfter != 3*time.Second {
 		t.Fatalf("%+v %v", c, err)
 	}
-	// padrões do modo degradado com margem sobre a garantia de 200 e 50/s (ADR 0030)
-	if c.Ingest.MaxOpen != 250 || c.Ingest.MaxNewPerS != 60 {
-		t.Fatalf("limites padrão %d/%d, quer 250/60", c.Ingest.MaxOpen, c.Ingest.MaxNewPerS)
+	// padrões do modo degradado com margem sobre a garantia de 400 e 100/s (ADRs 0030 e 0039)
+	if c.Ingest.MaxOpen != 1000 || c.Ingest.MaxNewPerS != 250 {
+		t.Fatalf("limites padrão %d/%d, quer 1000/250", c.Ingest.MaxOpen, c.Ingest.MaxNewPerS)
+	}
+	// teto do banco padrão de 8 GiB (ADR 0039 item 5)
+	t.Setenv("FS_STORE_MAX_BYTES", "")
+	if c, err = LoadConfig(); err != nil || c.MaxBytes != 8589934592 {
+		t.Fatalf("FS_STORE_MAX_BYTES padrão %d %v, quer 8589934592", c.MaxBytes, err)
 	}
 	t.Setenv("FS_STORE_MAX_BYTES", "x")
 	if _, err := LoadConfig(); err == nil {

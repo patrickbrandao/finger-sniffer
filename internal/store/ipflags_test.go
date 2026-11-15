@@ -136,7 +136,7 @@ func boolToInt(b bool) int {
 }
 
 // Cliente raw faz close() sem shutdown: FIN, o espelho manda os dados do meio-fechamento, o cliente responde RST e
-// o espelho nunca manda FIN. Pcap real da vps602 (IP do cliente trocado por 198.51.100.10).
+// o espelho nunca manda FIN. Pcap real do servidor anterior (IP do cliente trocado por 198.51.100.10).
 func TestCloseRSTEndsHalfClose(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	run(t, in, 0, pcapBatch(t, filepath.Join("testdata", "raw-close-rst.pcap")))

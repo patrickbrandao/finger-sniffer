@@ -26,7 +26,7 @@ import (
 
 var (
 	client = netip.MustParseAddrPort("192.0.2.10:41234")
-	mirror = netip.MustParseAddrPort("172.233.24.85:7700")
+	mirror = netip.MustParseAddrPort("170.247.40.86:7700")
 )
 
 // frame monta um frame Ethernet IPv4 (ou IPv6) com TCP/UDP.
@@ -312,12 +312,12 @@ func TestIngestReuseOfFiveTuple(t *testing.T) {
 func TestIngestServerInitiatedFlow(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	ntp := netip.MustParseAddrPort("203.0.113.5:123")
-	local := netip.MustParseAddrPort("172.233.24.85:40000")
+	local := netip.MustParseAddrPort("170.247.40.86:40000")
 	// O servidor manda primeiro: ele é o "cliente" da conexão (quem iniciou).
 	run(t, in, 0, batch(local, ntp, protoUDP, []pkt{{0, true, 0, 48}, {20, false, 0, 48}}))
 	run(t, in, 60_000)
 	_, r := onlyConn(t, db)
-	if r.Src.IP != "172.233.24.85" || r.Dst.Port != 123 || r.L4 != "udp" || r.Times != nil || r.Close.How != "timeout" {
+	if r.Src.IP != "170.247.40.86" || r.Dst.Port != 123 || r.L4 != "udp" || r.Times != nil || r.Close.How != "timeout" {
 		t.Fatalf("%+v", r)
 	}
 }
@@ -404,7 +404,7 @@ func TestIngestIgnoresOtherSubjectsAndBadBatches(t *testing.T) {
 func TestIngestIPv6(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	c6 := netip.MustParseAddrPort("[2001:db8::10]:40000")
-	m6 := netip.MustParseAddrPort("[2600:3c0d::f03c:93ff:fe26:8fd9]:443")
+	m6 := netip.MustParseAddrPort("[2804:231c:e500:cafe::86]:8443")
 	run(t, in, 5000, batch(c6, m6, protoTCP, fullTCP))
 	_, r := onlyConn(t, db)
 	if r.Family != 6 || r.Src.IP != "2001:db8::10" || r.Close.How != "fin" {
@@ -596,7 +596,7 @@ func TestIdleBeforeClosePcaps(t *testing.T) {
 		{"macos-https-keepalive.pcap", "client", 22.632785},
 		// FIN do cliente (13) − resposta 2 (12)
 		{"macos-http-keepalive.pcap", "client", 20.300866},
-		// o "cliente" (172.233.24.85) manda 48 + 24 B (frames 20, 21) antes do FIN (22); conta o frame 18
+		// o "cliente" (170.247.40.86) manda 48 + 24 B (frames 20, 21) antes do FIN (22); conta o frame 18
 		{"linux-https-v4.pcap", "client", 1.207783},
 		// o espelho manda 185 B (6) e 3 B com FIN (7): os 3 B são o fechamento, conta o frame 6
 		{"macos-http-finretx.pcap", "server", 0.065821},

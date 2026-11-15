@@ -161,7 +161,7 @@ type HostPaths struct {
 	ProcModules string // /proc/modules ("" = não confere ao vivo)
 }
 
-// DefaultHostPaths são os caminhos reais na vps602.
+// DefaultHostPaths são os caminhos reais no servidor (finger-01).
 var DefaultHostPaths = HostPaths{
 	NetStatus:   "/run/finger-sniffer/net-status.json",
 	SysctlFile:  "/finger-sniffer/deploy/sysctl/90-finger-sniffer.conf",
@@ -180,6 +180,8 @@ type netStatus struct {
 	AggregatingOffload bool              `json:"aggregating_offload"`
 	NFTRulesetLines    int               `json:"nft_ruleset_lines"`
 	ConntrackLoaded    bool              `json:"conntrack_loaded"`
+	// NATOnMirrorPorts diz se alguma regra de NAT ou redirecionamento toca as portas do espelho (ADR 0038 item 7).
+	NATOnMirrorPorts bool `json:"nat_on_mirror_ports"`
 }
 
 // ReadHost monta o HostHealth; arquivos ausentes deixam os campos vazios e entram em reasons.
@@ -199,11 +201,10 @@ func ReadHost(p HostPaths) (*HostHealth, []string) {
 			if ns.AggregatingOffload {
 				reasons = append(reasons, "aggregating offload on")
 			}
-			if ns.ConntrackLoaded {
-				reasons = append(reasons, "conntrack loaded")
-			}
-			if ns.NFTRulesetLines > 0 {
-				reasons = append(reasons, "nftables has rules")
+			// conntrack carregado e ruleset do host (Docker, traefik) são informativos; só NAT nas portas do
+			// espelho degrada (ADR 0038 item 7).
+			if ns.NATOnMirrorPorts {
+				reasons = append(reasons, "nat on mirror ports")
 			}
 		}
 	}
@@ -212,9 +213,9 @@ func ReadHost(p HostPaths) (*HostHealth, []string) {
 	h.Sysctls, sysReasons = readSysctls(p.SysctlFile, p.ProcSys)
 	reasons = append(reasons, sysReasons...)
 	// conntrack ao vivo (/proc/modules): o net-status é foto do boot e não vê um módulo carregado depois.
+	// Só informativo (ADR 0038 item 7).
 	if !h.ConntrackLoaded && p.ProcModules != "" && moduleLoaded(p.ProcModules, "nf_conntrack") {
 		h.ConntrackLoaded = true
-		reasons = append(reasons, "conntrack loaded")
 	}
 	h.SyncookiesSent = readNetstat(p.ProcNetstat, "TcpExt", "SyncookiesSent")
 	if _, err := os.Stat(p.TimesyncOK); err == nil {

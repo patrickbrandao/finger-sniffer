@@ -13,7 +13,7 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
-// Pcaps reais gravados pelo próprio store na vps602 (IP do cliente macOS trocado por 198.51.100.10). Os
+// Pcaps reais gravados pelo próprio store no servidor anterior (IP do cliente macOS trocado por 198.51.100.10). Os
 // valores esperados vêm das ferramentas de referência sobre os mesmos arquivos: tshark 4.4
 // (tcp.analysis.ack_rtt do ACK do handshake, tcp.analysis.retransmission), ja4 da FoxIO e p0f -r 3.09b.
 var pcapCases = []struct {
@@ -108,7 +108,7 @@ func abs(x float64) float64 {
 // RTT da aplicação (spec 013 RF-11) nos pcaps reais. O esperado sai do tshark sobre o mesmo arquivo: o menor
 // intervalo entre o último segmento de dados do servidor e o próximo segmento de dados do cliente cujo
 // tcp.ack cobre o tcp.nxtseq dele. macos-https-keepalive e macos-http-keepalive são duas requisições HTTP/1.1
-// na mesma conexão (curl com TLS e em claro) contra a vps602; o IP do cliente foi trocado por 198.51.100.10.
+// na mesma conexão (curl com TLS e em claro) contra o servidor anterior; o IP do cliente foi trocado por 198.51.100.10.
 func TestAnalysisAppRTTPcaps(t *testing.T) {
 	cases := []struct {
 		file string

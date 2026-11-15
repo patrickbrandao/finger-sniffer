@@ -28,8 +28,8 @@ import (
 const synthDir = "testdata/synth"
 
 var (
-	synthSrv4 = netip.MustParseAddrPort("172.233.24.85:443")
-	synthSrv6 = netip.MustParseAddrPort("[2600:3c0d::f03c:93ff:fe26:8fd9]:443")
+	synthSrv4 = netip.MustParseAddrPort("170.247.40.86:8443")
+	synthSrv6 = netip.MustParseAddrPort("[2804:231c:e500:cafe::86]:8443")
 )
 
 // synthCase é um pcap sintético e o que o registro dele deve trazer.
@@ -363,7 +363,7 @@ func checkSynth(t *testing.T, c synthCase, cli netip.AddrPort, r synthResult) {
 // TestSynMSSRealPcaps: syn_mss dos pcaps reais igual ao do tshark 4.4 no mesmo arquivo:
 // tshark -r <pcap> -Y 'tcp.flags.syn==1 && tcp.flags.ack==0' -T fields -e tcp.options.mss_val
 // O IP do cliente macOS foi trocado por 198.51.100.10 (documentação → other); os pcaps linux-* foram gravados
-// do lado cliente na vps602 (172.233.24.85 e 2600:3c0d::…, globais).
+// do lado cliente no servidor anterior (IPs globais).
 func TestSynMSSRealPcaps(t *testing.T) {
 	for _, c := range []struct {
 		file           string

@@ -11,14 +11,14 @@ import (
 
 var (
 	resolver = netip.MustParseAddrPort("198.51.100.53:33333")
-	dnsSrv   = netip.MustParseAddrPort("172.233.24.85:53")
+	dnsSrv   = netip.MustParseAddrPort("170.247.40.86:53")
 )
 
 func dnsPayload(proto string) map[string]any {
 	return map[string]any{
 		"ts": "2026-11-07T12:00:00.000000000Z", "probe_id": "t1a2b3c4", "proto": proto,
 		"resolver": map[string]any{"ip": resolver.Addr().String(), "port": resolver.Port()},
-		"qname":    "T1a2B3c4.dns-monitor.tmsoft.com.br.", "qtype": "A", "qclass": "IN", "id": 7,
+		"qname":    "T1a2B3c4.finger-west-01.badblock.net.br.", "qtype": "A", "qclass": "IN", "id": 7,
 	}
 }
 
@@ -32,7 +32,7 @@ func TestDNSQueryUDP(t *testing.T) {
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(rec), &m)
-	if connID != nil || m["conn_id"] != nil || m["qname"] != "T1a2B3c4.dns-monitor.tmsoft.com.br." {
+	if connID != nil || m["conn_id"] != nil || m["qname"] != "T1a2B3c4.finger-west-01.badblock.net.br." {
 		t.Fatalf("%s", rec)
 	}
 	if count(t, db, "SELECT count(*) FROM probes WHERE probe_id = 't1a2b3c4'") != 1 || count(t, db, "SELECT count(*) FROM app_events") != 0 {
