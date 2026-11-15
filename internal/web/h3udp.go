@@ -57,9 +57,14 @@ func (u *udpConn) SetDeadline(t time.Time) error                { return u.c.Set
 func (u *udpConn) SetReadDeadline(t time.Time) error            { return u.c.SetReadDeadline(t) }
 func (u *udpConn) SetWriteDeadline(t time.Time) error           { return u.c.SetWriteDeadline(t) }
 
-// SetReadBuffer e SetWriteBuffer deixam o quic-go pedir o buffer de 7 MiB (sysctl da ADR 0019).
-func (u *udpConn) SetReadBuffer(n int) error  { return u.c.SetReadBuffer(n) }
-func (u *udpConn) SetWriteBuffer(n int) error { return u.c.SetWriteBuffer(n) }
+// h3UDPSocketBuf é o maior SO_RCVBUF/SO_SNDBUF do socket UDP do QUIC (ADR 0037): o kernel dobra (2 MiB por
+// sentido, cobrados do cgroup do web). O sysctl rmem_max/wmem_max de 7 MiB (ADR 0019) fica como teto global.
+const h3UDPSocketBuf = 1 << 20
+
+// SetReadBuffer e SetWriteBuffer repassam o pedido do quic-go (~7 MiB) limitado a h3UDPSocketBuf. Sem
+// SyscallConn, o quic-go não tenta SO_RCVBUFFORCE.
+func (u *udpConn) SetReadBuffer(n int) error  { return u.c.SetReadBuffer(min(n, h3UDPSocketBuf)) }
+func (u *udpConn) SetWriteBuffer(n int) error { return u.c.SetWriteBuffer(min(n, h3UDPSocketBuf)) }
 
 // initEntry é a análise dos Initials de uma 5-tupla.
 type initEntry struct {
