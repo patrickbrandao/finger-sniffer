@@ -125,7 +125,7 @@ func TestConnIDReservationExpires(t *testing.T) {
 }
 
 func TestParseConnIDRequest(t *testing.T) {
-	ok := `{"flow":{"l4":"tcp","src_ip":"::ffff:192.0.2.10","src_port":41234,"dst_ip":"172.233.24.85","dst_port":7700},"ts":"2026-11-07T12:00:00.000000001Z"}`
+	ok := `{"flow":{"l4":"tcp","src_ip":"::ffff:192.0.2.10","src_port":41234,"dst_ip":"170.247.40.86","dst_port":7700},"ts":"2026-11-07T12:00:00.000000001Z"}`
 	l4, cli, srv, ts, err := parseConnIDRequest([]byte(ok))
 	if err != nil || l4 != protoTCP || cli != client || srv != mirror || ts != base+1 {
 		t.Fatalf("%d %v %v %d %v", l4, cli, srv, ts, err)
@@ -225,7 +225,7 @@ func TestIntegrationConnID(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = responder.Unsubscribe() }()
-	req, _ := json.Marshal(event.ACMERequest{Name: "_acme-challenge.dns-monitor.tmsoft.com.br.", Value: "v"})
+	req, _ := json.Marshal(event.ACMERequest{Name: "_acme-challenge.finger-west-01.badblock.net.br.", Value: "v"})
 	inbox := nats.NewInbox()
 	replies, err := nc.SubscribeSync(inbox)
 	if err != nil {
@@ -288,5 +288,39 @@ func TestEnsureStreamUpdatesSubjects(t *testing.T) {
 		if info.Config.Subjects[i] != subj {
 			t.Fatalf("subjects=%v", info.Config.Subjects)
 		}
+	}
+}
+
+// TestEnsureStreamUpdatesMaxBytes: o stream criado tem 128 MiB e 60 s, e um stream antigo de 32 MiB (ADR 0016)
+// é ajustado no start sem perder mensagens (ADR 0039 item 3).
+func TestEnsureStreamUpdatesMaxBytes(t *testing.T) {
+	cfg := StreamConfig()
+	if cfg.MaxBytes != 128<<20 || cfg.MaxAge != 60*time.Second || cfg.Storage != jetstream.MemoryStorage {
+		t.Fatalf("config %+v", cfg)
+	}
+	ns := startNATS(t, 0)
+	defer ns.Shutdown()
+	nc, err := nats.Connect(ns.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	ctx := context.Background()
+	js, _ := jetstream.New(nc)
+	old := StreamConfig()
+	old.MaxBytes = 32 << 20
+	if _, err := js.CreateStream(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.Publish(ctx, event.SubjectHeartbeat, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureStream(ctx, js); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := js.Stream(ctx, StreamName)
+	info, _ := s.Info(ctx)
+	if info.State.Msgs != 1 || info.Config.MaxBytes != 128<<20 {
+		t.Fatalf("msgs=%d max_bytes=%d", info.State.Msgs, info.Config.MaxBytes)
 	}
 }

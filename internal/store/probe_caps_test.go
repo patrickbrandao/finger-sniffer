@@ -123,7 +123,7 @@ func fillProbe(t testing.TB, db *sql.DB, id string, n, pad int) {
 	const seq = "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < ? - 1) "
 	if _, err := db.Exec(`INSERT INTO connections (conn_id, probe_id, l4, family, src_ip, src_port, dst_ip, dst_port, proto,
 		started_ns, ended_ns, record_json, updated_ns) `+seq+`SELECT printf('01JD%022d', i), ?, 'tcp', 4, '192.0.2.30', i % 65536,
-		'172.233.24.85', 443, 'tcp', (i + 1) * 1000, (i + 1) * 1000 + 1,
+		'170.247.40.86', 8443, 'tcp', (i + 1) * 1000, (i + 1) * 1000 + 1,
 		json_object('conn_id', printf('01JD%022d', i), 'i', i, 'pad', ?), 1 FROM n`, n, id, strings.Repeat("x", pad)); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestProbeTruncated(t *testing.T) {
 	}
 	// a 1001ª conexão (a última pelo início) fica aberta; a 1001ª consulta é a mais nova
 	if _, err := f.in.db.Exec(`INSERT INTO connections (conn_id, probe_id, l4, family, src_ip, src_port, dst_ip, dst_port, proto,
-		started_ns, record_json, updated_ns) VALUES ('01JDZZZZZZZZZZZZZZZZZZZZZZ', ?, 'tcp', 4, '192.0.2.30', 1, '172.233.24.85', 443,
+		started_ns, record_json, updated_ns) VALUES ('01JDZZZZZZZZZZZZZZZZZZZZZZ', ?, 'tcp', 4, '192.0.2.30', 1, '170.247.40.86', 8443,
 		'tcp', 9000000000000000, '{"last":true}', 1)`, id); err != nil {
 		t.Fatal(err)
 	}

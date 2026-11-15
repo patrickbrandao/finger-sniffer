@@ -18,13 +18,13 @@ func TestListenIPs(t *testing.T) {
 	if err != nil || len(c.ListenIPs) != 1 || c.ListenIPs[0] != loopbackAPI {
 		t.Fatalf("%v %v", c.ListenIPs, err)
 	}
-	t.Setenv("FS_LISTEN_IPV4", "172.233.24.85")
-	t.Setenv("FS_LISTEN_IPV6", "2600:3c0d::f03c:93ff:fe26:8fd9")
+	t.Setenv("FS_LISTEN_IPV4", "170.247.40.86")
+	t.Setenv("FS_LISTEN_IPV6", "2804:231c:e500:cafe::86")
 	if c, err = LoadConfig(); err != nil {
 		t.Fatal(err)
 	}
 	addrs, err := c.apiAddrs(c.HTTPAddr)
-	want := []string{"127.0.0.1:9001", "172.233.24.85:9001", "[2600:3c0d::f03c:93ff:fe26:8fd9]:9001"}
+	want := []string{"127.0.0.1:9001", "170.247.40.86:9001", "[2804:231c:e500:cafe::86]:9001"}
 	if err != nil || len(addrs) != len(want) {
 		t.Fatalf("%v %v", addrs, err)
 	}
@@ -33,7 +33,7 @@ func TestListenIPs(t *testing.T) {
 			t.Fatalf("%v", addrs)
 		}
 	}
-	if addrs, _ = c.apiAddrs(c.HTTPSAddr); addrs[1] != "172.233.24.85:9000" {
+	if addrs, _ = c.apiAddrs(c.HTTPSAddr); addrs[1] != "170.247.40.86:9000" {
 		t.Fatalf("%v", addrs)
 	}
 	for _, bad := range [][2]string{{"2600::1", ""}, {"", "10.0.0.1"}, {"x", ""}} {

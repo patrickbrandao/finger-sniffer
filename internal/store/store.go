@@ -20,11 +20,13 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
-// Padrões do modo degradado (spec 004 RF-11): acima da garantia da spec 000 RNF-01 (200 e 50/s), com margem para
-// o tráfego alheio de um servidor público (ADR 0030).
+// Padrões do modo degradado (spec 004 RF-11): acima da garantia da spec 000 RNF-01 (400 e 100/s), com margem para
+// o tráfego alheio de um servidor público (ADRs 0030 e 0039 item 5).
 const (
-	DefaultMaxConns        = 250
-	DefaultMaxNewConnsPerS = 60
+	DefaultMaxConns        = 1000
+	DefaultMaxNewConnsPerS = 250
+	// DefaultMaxBytes é o padrão de FS_STORE_MAX_BYTES: 8 GiB (ADR 0039 item 5, RNF-05).
+	DefaultMaxBytes = 8 << 30
 )
 
 // Config do store nesta fase.
@@ -57,7 +59,7 @@ func LoadConfig() (Config, error) {
 		Host:      DefaultHostPaths,
 		P0FPath:   service.Env("FS_P0F_DB", "/finger-sniffer/etc/p0f.fp"),
 	}
-	maxBytes, err := service.EnvInt("FS_STORE_MAX_BYTES", 2<<30)
+	maxBytes, err := service.EnvInt("FS_STORE_MAX_BYTES", DefaultMaxBytes)
 	if err != nil {
 		return c, err
 	}
@@ -302,12 +304,23 @@ func (s *Store) Run(ctx context.Context) error {
 	}
 
 	shutdown := func() error {
-		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shut, cancel := context.WithTimeout(context.Background(), apiShutdownWait)
 		defer cancel()
-		if tlsSrv != nil {
-			_ = tlsSrv.Shutdown(shut)
+		// Conexão que não fica ociosa no prazo (aceita e sem pedido, como numa varredura de porta) não é erro do
+		// store: vencido o prazo, a API fecha o que resta (task 222).
+		forced := false
+		if tlsSrv != nil && tlsSrv.Shutdown(shut) != nil {
+			forced = true
+			_ = tlsSrv.Close()
 		}
-		return srv.Shutdown(shut)
+		if srv.Shutdown(shut) != nil {
+			forced = true
+			_ = srv.Close()
+		}
+		if forced {
+			s.svc.Log.Warn("api shutdown timed out, closing connections", "waited", apiShutdownWait)
+		}
+		return nil
 	}
 	select {
 	case <-ctx.Done():
@@ -320,6 +333,9 @@ func (s *Store) Run(ctx context.Context) error {
 		return err
 	}
 }
+
+// apiShutdownWait é o prazo do desligamento gracioso da API (variável para os testes).
+var apiShutdownWait = 5 * time.Second
 
 // shutdownWait é quanto o Run espera os laços de fundo antes de fechar os bancos.
 const shutdownWait = 8 * time.Second

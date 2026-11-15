@@ -34,7 +34,7 @@ func TestSrcKind(t *testing.T) {
 		"2001:db8::7": "other", "3fff::1": "other", "3fff:fff::1": "other", "2001:2::1": "other",
 		"2001:2:1::": "global",
 		// global
-		"8.8.8.8": "global", "172.233.24.85": "global", "2600:3c0d::1": "global", "2804:14c::1": "global",
+		"8.8.8.8": "global", "170.247.40.86": "global", "2600:3c0d::1": "global", "2804:14c::1": "global",
 	}
 	for in, want := range cases {
 		if got := srcKind(netip.MustParseAddr(in)); got != want {

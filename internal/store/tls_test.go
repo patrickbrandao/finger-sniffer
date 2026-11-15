@@ -45,8 +45,14 @@ func genCertPair(t *testing.T, cn string, names []string, notAfter time.Time) (c
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kder}), leaf
 }
 
+// Nomes fixos do finger-01 (ADR 0038 item 2), independentes dos padrões de pkg/certs, para o exemplo do health
+// não mudar com eles.
 func certsConfig(dir string) certs.Config {
-	return certs.Config{Dir: dir, NamesDNS01: certs.SplitNames(certs.DefaultNamesDNS01), NamesHTTP01: certs.SplitNames(certs.DefaultNamesHTTP01)}
+	return certs.Config{
+		Dir:         dir,
+		NamesDNS01:  []string{"finger-west-01.badblock.net.br", "*.finger-west-01.badblock.net.br"},
+		NamesHTTP01: []string{"finger-01.badblock.net.br", "finger-01.tmsoft.com.br"},
+	}
 }
 
 // httpsClient confia só no certificado dado e usa o SNI pedido.
@@ -70,7 +76,7 @@ func TestHTTPSAPI(t *testing.T) {
 
 	dir := t.TempDir()
 	notAfter := time.Now().Add(60 * 24 * time.Hour).Truncate(time.Second)
-	crt, key, leaf := genCertPair(t, "Test CA 1", []string{"vps602.tmsoft.com.br"}, notAfter)
+	crt, key, leaf := genCertPair(t, "Test CA 1", []string{"finger-01.badblock.net.br"}, notAfter)
 	if err := certs.WritePair(dir, certs.SlotHTTP01, crt, key); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +100,7 @@ func TestHTTPSAPI(t *testing.T) {
 	go func() { _ = st.Run(ctx) }()
 
 	base := fmt.Sprintf("https://127.0.0.1:%d", httpsPort)
-	cli := httpsClient(leaf, "vps602.tmsoft.com.br")
+	cli := httpsClient(leaf, "finger-01.badblock.net.br")
 	var h Health
 	eventually(t, 5*time.Second, func() bool {
 		resp, err := cli.Get(base + "/api/v1/health") //nolint:noctx // teste
@@ -109,7 +115,7 @@ func TestHTTPSAPI(t *testing.T) {
 	}
 	var found bool
 	for _, c := range h.Host.Certificates {
-		if len(c.Names) == 1 && c.Names[0] == "vps602.tmsoft.com.br" && c.Issuer == "Test CA 1" && !c.SelfSigned &&
+		if len(c.Names) == 1 && c.Names[0] == "finger-01.badblock.net.br" && c.Issuer == "Test CA 1" && !c.SelfSigned &&
 			c.NotAfter == event.FormatTime(notAfter) {
 			found = true
 		}
@@ -137,11 +143,11 @@ func TestHTTPSAPI(t *testing.T) {
 	}
 
 	// Troca a quente: o próximo handshake usa o certificado novo.
-	crt2, key2, leaf2 := genCertPair(t, "Test CA 2", []string{"vps602.tmsoft.com.br"}, notAfter.Add(24*time.Hour))
+	crt2, key2, leaf2 := genCertPair(t, "Test CA 2", []string{"finger-01.badblock.net.br"}, notAfter.Add(24*time.Hour))
 	if err := certs.WritePair(dir, certs.SlotHTTP01, crt2, key2); err != nil {
 		t.Fatal(err)
 	}
-	cli2 := httpsClient(leaf2, "vps602.tmsoft.com.br")
+	cli2 := httpsClient(leaf2, "finger-01.badblock.net.br")
 	eventually(t, 10*time.Second, func() bool {
 		cli2.CloseIdleConnections()
 		resp, err := cli2.Get(base + "/api/v1/health") //nolint:noctx // teste

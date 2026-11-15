@@ -60,7 +60,7 @@ func TestFlowTableCapHalfOpen(t *testing.T) {
 func TestFlowTableCapUDP(t *testing.T) {
 	ft := newLimitTable()
 	for i := range 100_000 {
-		feed(ft, srcN(i), netip.MustParseAddrPort("172.233.24.85:5353"), protoUDP, int64(i)/100, true, 0)
+		feed(ft, srcN(i), netip.MustParseAddrPort("170.247.40.86:5353"), protoUDP, int64(i)/100, true, 0)
 	}
 	if ft.open() != maxFlows {
 		t.Fatalf("open %d", ft.open())

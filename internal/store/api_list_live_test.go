@@ -61,8 +61,8 @@ func TestAPIPacketsSrcIPIsClient(t *testing.T) {
 		}
 	}
 	// a fixture já tem um RST de entrada de 192.0.2.10; mais um de saída para ele e um de entrada de outro cliente
-	ins(base+1, 1, "172.233.24.85", "192.0.2.10")
-	ins(base+2, 0, "198.51.100.7", "172.233.24.85")
+	ins(base+1, 1, "170.247.40.86", "192.0.2.10")
+	ins(base+2, 0, "198.51.100.7", "170.247.40.86")
 	n := func(path string) int {
 		t.Helper()
 		code, body := f.get(t, path)
@@ -76,7 +76,7 @@ func TestAPIPacketsSrcIPIsClient(t *testing.T) {
 		"/api/v1/packets?src_ip=192.0.2.10":                            2,
 		"/api/v1/packets?src_ip=::ffff:192.0.2.10":                     2,
 		"/api/v1/packets?src_ip=198.51.100.7":                          1,
-		"/api/v1/packets?src_ip=172.233.24.85":                         0,
+		"/api/v1/packets?src_ip=170.247.40.86":                         0,
 		"/api/v1/packets":                                              3,
 		"/api/v1/connections?src_ip=::ffff:192.0.2.10":                 1,
 		"/api/v1/connections?src_ip=192.0.2.10":                        1,

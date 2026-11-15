@@ -9,16 +9,18 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
-// Configuração do stream FS_EVENTS (ADR 0016: em memória, 32 MiB, 60 s; ADR 0017: lista explícita de subjects).
+// Configuração do stream FS_EVENTS (ADR 0016: em memória, 60 s; ADR 0039 item 3: 128 MiB; ADR 0017: lista
+// explícita de subjects).
 const (
 	StreamName   = "FS_EVENTS"
 	ConsumerName = "store"
 	streamMaxAge = 60 * time.Second
-	streamMaxMem = 32 << 20
+	streamMaxMem = 128 << 20
 )
 
 // StreamConfig devolve a configuração do stream. Os subjects são só os de eventos (event.StreamSubjects); os
-// request/reply ficam fora. CreateOrUpdateStream ajusta a lista de um stream já existente sem perder mensagens.
+// request/reply ficam fora. CreateOrUpdateStream ajusta a lista e o max_bytes de um stream já existente sem
+// perder mensagens.
 func StreamConfig() jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:     StreamName,
