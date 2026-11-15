@@ -1,6 +1,6 @@
 # 0038 — Servidor finger-01, zona finger-west-01 e coexistência com o traefik
 
-Status: aceita
+Status: aceita (nomes do certificado B e da rota do traefik: ver 0044)
 Data: 2026-11-15
 
 ## Contexto

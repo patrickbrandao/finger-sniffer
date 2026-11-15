@@ -5,8 +5,8 @@ Depende de: 004, 005
 
 ## Contexto
 Página informativa em inglês, servida nas portas capturadas a partir de `/finger-sniffer/htdocs`: direto em
-`https://<nome>:8443/` e, pelo traefik do host (passthrough para a 8443), em `https://finger-01.badblock.net.br/` e
-`https://finger-01.tmsoft.com.br/` (ADR 0038). Ela **não**
+`https://<nome>:8443/` e, pelo traefik do host (passthrough para a 8443), em `https://finger-01.badblock.net.br/` (ADRs 0038
+e 0044). Ela **não**
 mostra o resultado da própria conexão no HTML: o JavaScript busca os dados na porta 9000 (não capturada) e exibe
 ao vivo o feed global, sem que o fluxo de informação gere novo tráfego capturado em loop.
 
