@@ -116,8 +116,10 @@ func TestTLSBannerPort(t *testing.T) {
 
 func TestAutoTLSOnEchoPort(t *testing.T) {
 	// RF-03: 0x16 0x03 numa porta echo termina TLS e ecoa dentro do túnel; o SNI de probe associa o probe.
+	// A zona vem de probe.DefaultZones (finger-west-01.badblock.net.br, ADR 0039) para o teste seguir a lista.
+	sni := "abcdefgh." + probe.DefaultZones[0]
 	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo"}}, withTLS(t))
-	c := dialTLS(t, env.addr[0], "abcdefgh.dns-monitor.tmsoft.com.br", func(cfg *tls.Config) {
+	c := dialTLS(t, env.addr[0], sni, func(cfg *tls.Config) {
 		cfg.MaxVersion = tls.VersionTLS12
 	})
 	if _, err := c.Write([]byte("ping\n")); err != nil {
@@ -135,7 +137,7 @@ func TestAutoTLSOnEchoPort(t *testing.T) {
 		t.Errorf("probe_id = %v", r.env.ProbeID)
 	}
 	info := decodeTLSInfo(t, r.clientHello)
-	if info.JA4 == "" || info.SNI == nil || *info.SNI != "abcdefgh.dns-monitor.tmsoft.com.br" {
+	if info.JA4 == "" || info.SNI == nil || *info.SNI != sni {
 		t.Errorf("client_hello ja4=%q sni=%v", info.JA4, info.SNI)
 	}
 	if r.clientHello.ProbeID == nil || *r.clientHello.ProbeID != "abcdefgh" {
@@ -224,7 +226,7 @@ func TestTLSHandshakeFailure(t *testing.T) {
 	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo", TLS: true}}, withTLS(t))
 	raw := dial(t, env.addr[0])
 	// Cliente que verifica o certificado recusa o autoassinado e manda o alerta bad_certificate.
-	c := tls.Client(raw, &tls.Config{ServerName: "vps602.tmsoft.com.br", MaxVersion: tls.VersionTLS12})
+	c := tls.Client(raw, &tls.Config{ServerName: "finger-01.badblock.net.br", MaxVersion: tls.VersionTLS12})
 	if err := c.Handshake(); err == nil {
 		t.Fatal("handshake accepted a self-signed certificate")
 	}
@@ -291,7 +293,7 @@ func clientHelloBytes(t *testing.T) []byte {
 	cli, srv := net.Pipe()
 	defer func() { _ = srv.Close() }()
 	go func() {
-		c := tls.Client(cli, &tls.Config{ServerName: "vps602.tmsoft.com.br", MaxVersion: tls.VersionTLS12}) //nolint:gosec // só o ClientHello
+		c := tls.Client(cli, &tls.Config{ServerName: "finger-01.badblock.net.br", MaxVersion: tls.VersionTLS12}) //nolint:gosec // só o ClientHello
 		_ = c.Handshake()
 		_ = cli.Close()
 	}()
