@@ -16,8 +16,8 @@ Tudo roda direto no systemd, sem Docker, na vps602, e o deploy é um comando a p
   `tcp_max_syn_backlog=4096`, `tcp_timestamps=1`, `tcp_ecn=2`, `tcp_sack=1`, `tcp_window_scaling=1`,
   `tcp_congestion_control=htcp`, `default_qdisc=fq_codel`, `tcp_fastopen=3` (cliente e servidor; o servidor só concede cookie nos listeners que ligam `TCP_FASTOPEN`:
   web e raw, ADR 0029),
-  `ip_local_port_range`, `net.core.rmem_max=7340032` e `net.core.wmem_max=7340032` (buffer UDP do quic-go,
-  ADR 0019); o arquivo é a documentação oficial da resposta TCP do espelho.
+  `ip_local_port_range`, `net.core.rmem_max=7340032` e `net.core.wmem_max=7340032` (teto do buffer UDP do quic-go,
+  ADR 0019; o web pede no máximo 1 MiB, ADR 0037); o arquivo é a documentação oficial da resposta TCP do espelho.
 - RF-03: sem firewall com estado, sem conntrack/NAT: o deploy confere que `nft list ruleset` está vazio e que
   `nf_conntrack` não está carregado; se estiver, avisa no health.
 - RF-04: NTP: systemd-timesyncd ativo; health `degraded` se não sincronizado.

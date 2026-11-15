@@ -51,7 +51,8 @@ o Initial.
   do orçamento de entrada do web (spec 005 RF-12) e devolvido quando o frame completa; o buffer é solto depois do
   frame. Acima do teto, sem orçamento ou sem HEADERS completo em 10 s, o stream é recusado com
   `H3_EXCESSIVE_LOAD` (0x0107). A reserva é a capacidade do buffer (ADR 0036). Janelas de recepção do quic-go:
-  iniciais no padrão (transport parameters sem mudança), máximas de 2 MiB por stream e 4 MiB por conexão.
+  iniciais no padrão (transport parameters sem mudança), máximas de 2 MiB por stream e 4 MiB por conexão. O
+  socket UDP tem `SO_RCVBUF`/`SO_SNDBUF` de no máximo 1 MiB: o wrapper do web limita o pedido do quic-go (ADR 0037).
 - Frames h3: o web lê os bytes do stream de controle do cliente (tipo, SETTINGS na ordem; `h3_control_stream_seen`
   distingue "o cliente não abriu o stream de controle", comum no curl/nghttp3, de "SETTINGS vazio";
   entra no contrato junto com o produtor, task 073) e de cada stream de

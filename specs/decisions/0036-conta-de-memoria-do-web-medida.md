@@ -1,6 +1,6 @@
 # 0036 — Conta de memória do web medida sob ataque
 
-Status: aceita
+Status: aceita (buffers de socket e conta: ver 0037)
 Data: 2026-11-14
 
 ## Contexto
