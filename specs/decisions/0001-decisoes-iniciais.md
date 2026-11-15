@@ -1,6 +1,7 @@
 # 0001 — Decisões iniciais (agrupadas)
 
-Status: aceita (endereços: ver 0023; meta de registro do QUIC: ver 0026)
+Status: aceita (endereços: ver 0023; meta de registro do QUIC: ver 0026; ambiente único, interface e endereços
+alterados pela 0038 em 2026-11-15: finger-01, `ens192`)
 Data: 2026-11-07
 
 ## Contexto

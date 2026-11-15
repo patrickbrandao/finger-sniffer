@@ -1,6 +1,7 @@
 # 0019 — HTTP/3: eventos por requisição, fim da conexão QUIC pelo web e UDP sem otimizações
 
-Status: aceita (fim do QUIC depois de `FS_TCP_CLOSE_GRACE`, não 2 s, e meta de registro: ver 0026)
+Status: aceita (fim do QUIC depois de `FS_TCP_CLOSE_GRACE`, não 2 s, e meta de registro: ver 0026; UDP 8443,
+Alt-Svc com a porta UDP e HTTPS RR com prefixo de porta: alterada pela 0038 em 2026-11-15)
 Data: 2026-11-09
 
 ## Contexto

@@ -1,6 +1,7 @@
 # 0030 — Garantia do RNF-01 separada do limite do modo degradado (margem para o tráfego alheio)
 
-Status: aceita (era provisória até a carga oficial; confirmada na release v0.2.0, task 127)
+Status: aceita (era provisória até a carga oficial; confirmada na release v0.2.0, task 127; garantia 400/100 e
+padrões 1000/250 no finger-01: alterada pela 0039 em 2026-11-15)
 Data: 2026-11-09
 Altera: 0022 (regra de `degraded` = 0 na medição), 0026 (item 4, descarte da janela com tráfego alheio). Não muda
 a spec 000 RNF-01.

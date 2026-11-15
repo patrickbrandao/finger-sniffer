@@ -1,6 +1,7 @@
 # 0008 — Zona dos probes e ACME embutido
 
-Status: aceita
+Status: aceita (zona, nomes e desafio do certificado B substituídos pela 0038 em 2026-11-15:
+`finger-west-01.badblock.net.br`, B por TLS-ALPN-01; certmagic embutido e falhas continuam)
 Data: 2026-11-07
 
 ## Contexto

@@ -1,6 +1,6 @@
 # 0013 — Verificação em dois níveis, qualidade e CI/CD
 
-Status: aceita
+Status: aceita (`linux_priv`, e2e e deploy contra o finger-01: alterada pela 0038 em 2026-11-15)
 Data: 2026-11-07
 
 ## Contexto

@@ -1,6 +1,6 @@
 # 0016 — Stream FS_EVENTS em memória e mais memória para o NATS
 
-Status: aceita
+Status: aceita (stream de 128 MiB, `max_memory_store` 256MB e `MemoryMax` 1G do NATS: alterada pela 0039 em 2026-11-15)
 Data: 2026-11-07
 
 ## Contexto

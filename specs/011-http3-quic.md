@@ -1,4 +1,4 @@
-# 011 — HTTP/3 e QUIC (UDP 443)
+# 011 — HTTP/3 e QUIC (UDP 8443)
 
 Status: aprovada
 Depende de: 005, 008
@@ -8,7 +8,8 @@ Navegadores reais usam h3 quando o servidor anuncia (Alt-Svc ou HTTPS RR). O MVP
 o Initial.
 
 ## Requisitos
-- RF-01: servidor QUIC/HTTP/3 com `quic-go` + `http3` em UDP 443, mesmo certificado.
+- RF-01: servidor QUIC/HTTP/3 com `quic-go` + `http3` nas portas UDP `FS_WEB_UDP_PORTS` (padrão 8443; a UDP 443 é do
+  traefik do host, ADR 0038), mesmo certificado.
 - RF-02: análise do Initial a partir dos datagramas crus (lidos antes do quic-go por um `net.PacketConn` wrapper
   e também presentes na captura): versão, tamanhos e valores de DCID/SCID, token, comprimento,
   **parâmetros de transporte na ordem** (com valores), ClientHello interno (decifrado com as chaves Initial
@@ -21,7 +22,8 @@ o Initial.
   stream por erro antes do início da resposta conta como fim: `response_ended_at` preenchido com
   `response_started_at` nulo.
 - RF-04: controles de resposta compatíveis (status, size, delay_*, h=).
-- RF-05: anúncio: `Alt-Svc` nas respostas h1/h2 (spec 005) e HTTPS RR no DNS (spec 007).
+- RF-05: anúncio: `Alt-Svc` nas respostas h1/h2 (spec 005 RF-04, `h3=":8443"`) e HTTPS RR com prefixo de porta
+  (`_8443._https.<nome>`) no DNS (spec 007).
 - RF-06: `MaxIdleTimeout` = `FS_IDLE_DEFAULT`; o servidor nunca encerra a conexão antes disso (spec 005 RF-08);
   sem 0-RTT, sem migração, sem Retry; `QPACK_MAX_TABLE_CAPACITY = 0` e SETTINGS do servidor fixos e documentados
   no código.
@@ -70,7 +72,7 @@ o Initial.
   abre conexão nova (spec 004).
 
 ## Critérios de aceite
-- [ ] `curl --http3-only https://<id>.dns-monitor.tmsoft.com.br/p/<id>/` funciona e o registro traz os parâmetros
+- [ ] `curl --http3-only https://<id>.finger-west-01.badblock.net.br:8443/p/<id>/` funciona e o registro traz os parâmetros
       de transporte na ordem.
 - [ ] Chrome, abrindo a página, passa a usar h3 (visto no registro) a partir da segunda requisição ou de imediato
       via HTTPS RR.

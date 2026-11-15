@@ -1,6 +1,7 @@
 # 0036 — Conta de memória do web medida sob ataque
 
-Status: aceita (buffers de socket e conta: ver 0037)
+Status: aceita (buffers de socket e conta: ver 0037; `GOMEMLIMIT`, padrão do orçamento e meta medida substituídos
+pela 0039 em 2026-11-15)
 Data: 2026-11-14
 
 ## Contexto

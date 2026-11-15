@@ -4,7 +4,9 @@ Status: aprovada
 Depende de: 004, 005
 
 ## Contexto
-Página informativa em inglês, servida nas portas capturadas a partir de `/finger-sniffer/htdocs`. Ela **não**
+Página informativa em inglês, servida nas portas capturadas a partir de `/finger-sniffer/htdocs`: direto em
+`https://<nome>:8443/` e, pelo traefik do host (passthrough para a 8443), em `https://finger-01.badblock.net.br/` e
+`https://finger-01.tmsoft.com.br/` (ADR 0038). Ela **não**
 mostra o resultado da própria conexão no HTML: o JavaScript busca os dados na porta 9000 (não capturada) e exibe
 ao vivo o feed global, sem que o fluxo de informação gere novo tráfego capturado em loop.
 
@@ -13,18 +15,18 @@ ao vivo o feed global, sem que o fluxo de informação gere novo tráfego captur
   `.jpg`, `.webp`, `.ico`, `.woff2`, `.txt`), MIME pela extensão, `index.html` para diretórios; nada dinâmico.
 - RF-02: HTML semântico + JS puro (ES modules), sem build, **sem CDN nem recursos de terceiros**, sem cookies,
   sem analytics.
-- RF-03: o JS abre `wss://vps602.tmsoft.com.br:9000/api/v1/ws` (fallback SSE em `/api/v1/stream`) e mostra o
+- RF-03: o JS abre `wss://finger-01.badblock.net.br:9000/api/v1/ws` (fallback SSE em `/api/v1/stream`) e mostra o
   **feed global**: conexões, requisições, consultas DNS e pacotes avulsos, com filtros locais (porta, protocolo,
   IP, probe) e pausa.
 - RF-04: clique numa conexão abre o detalhe (`GET /api/v1/connections/{conn_id}`) e link para baixar o pcap.
-- RF-05: botão "run probe": gera probe ID aleatório e dispara sondagens a `<id>.dns-monitor.tmsoft.com.br`
-  (fetch h1/h2/h3, WebSocket) para o visitante ver as próprias conexões chegando no feed.
+- RF-05: botão "run probe": gera probe ID aleatório e dispara sondagens a `<id>.finger-west-01.badblock.net.br` na porta
+  8443 (fetch h1/h2/h3, WebSocket) para o visitante ver as próprias conexões chegando no feed.
 - RF-06: textos em inglês; contraste e navegação por teclado (WCAG AA no razoável).
 - RF-07: a página explica: o que é o espelho, portas capturadas, como usar a API, retenção de 10 min e o aviso de
   que **todo o tráfego é público** na API.
 
 ## Comportamento
-- A API fica em `https://vps602.tmsoft.com.br:9000` (constante no JS; com `?api=<origem>` na URL da página para
+- A API fica em `https://finger-01.badblock.net.br:9000` (constante no JS; com `?api=<origem>` na URL da página para
   testes, aceita só `https://` ou `http://` com porta 9000/9001). WebSocket primeiro; se falhar em 3 s, SSE; se
   cair, reconecta com espera crescente (1, 2, 4… até 30 s) e mostra o estado (live, reconnecting, paused).
 - O feed guarda no máximo 500 linhas (saem primeiro as linhas ocultas pelo filtro, depois as mais antigas); pausa
@@ -34,13 +36,14 @@ ao vivo o feed global, sem que o fluxo de informação gere novo tráfego captur
 - Filtros locais (porta, protocolo, IP, probe) só escondem linhas; o filtro de probe do "run probe" pode também
   reabrir o WS com `?probe=`.
 - "run probe": probe ID de 12 caracteres `[a-z0-9]` por `crypto.getRandomValues`; dispara, em sequência,
-  `fetch` com `mode: "no-cors"` e `cache: "no-store"` para `https://<id>.dns-monitor.tmsoft.com.br/p/<id>/`
-  (duas vezes, para o Alt-Svc levar a segunda a h3), `http://<id>.dns-monitor.tmsoft.com.br/p/<id>/` só quando a
+  `fetch` com `mode: "no-cors"` e `cache: "no-store"` para `https://<id>.finger-west-01.badblock.net.br:8443/p/<id>/`
+  (duas vezes, para o Alt-Svc levar a segunda a h3 na UDP 8443), `http://<id>.finger-west-01.badblock.net.br:8080/p/<id>/` só
+  quando a
   própria página veio por `http:` (o navegador bloqueia conteúdo misto) e um
-  WebSocket `wss://<id>.dns-monitor.tmsoft.com.br/p/<id>/r?upgrade=ws` com uma mensagem; o resultado aparece pelo
+  WebSocket `wss://<id>.finger-west-01.badblock.net.br:8443/p/<id>/r?upgrade=ws` com uma mensagem; o resultado aparece pelo
   feed filtrado e pelo `GET /api/v1/probes/<id>?wait=10s`.
 - Arquivos: `index.html`, `app.mjs` (ES module), `style.css`, `favicon.svg`; nenhum outro host além da API e de
-  `*.dns-monitor.tmsoft.com.br`. Os textos dinâmicos entram com `textContent`, nunca `innerHTML` (os dados da API
+  `*.finger-west-01.badblock.net.br`. Os textos dinâmicos entram com `textContent`, nunca `innerHTML` (os dados da API
   vêm de terceiros).
 - Sem armazenamento no navegador além de `localStorage` para as preferências de filtro (tolerante a falha).
 
@@ -61,3 +64,4 @@ ao vivo o feed global, sem que o fluxo de informação gere novo tráfego captur
 - specs/decisions/0007-api-aberta-e-feed-global.md
 - specs/decisions/0001-decisoes-iniciais.md
 - specs/decisions/0020-tempo-real-sem-replay.md
+- specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md

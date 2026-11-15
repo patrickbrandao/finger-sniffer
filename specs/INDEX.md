@@ -9,9 +9,9 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [002-organizacao-do-trabalho.md](002-organizacao-do-trabalho.md) | Organização do trabalho | papéis, propriedade de pastas, Git/PR, fluxo de tarefas, DoD, escalonamento | 000, 001 | aprovada |
 | [003-capture.md](003-capture.md) | Serviço capture | AF_PACKET, BPF de exclusão, publicação de pacotes no NATS, buffer, perdas | 001, 016 | aprovada |
 | [004-store-e-api.md](004-store-e-api.md) | Serviço store e API | ingest JetStream, `conn_id`/probe, pcap, SQLite com BLOBs, retenção, API 9000/9001, SSE/WS, health, métricas | 001, 003, 013 | aprovada |
-| [005-web.md](005-web.md) | Serviço web | portas 80/443/8080/8443 + UDP 443, detecção por primeiros bytes, rotas, controles de resposta, Alt-Svc | 001, 008–012, 014, 015 | aprovada |
+| [005-web.md](005-web.md) | Serviço web | portas TCP 8080/8443 + UDP 8443, detecção por primeiros bytes, rotas, controles de resposta, Alt-Svc | 001, 008–012, 014, 015 | aprovada |
 | [006-raw.md](006-raw.md) | Serviço raw | portas TCP cruas, modos echo/banner/sink/source, TLS opcional, PROBE, meio-fechamento | 001, 008 | aprovada |
-| [007-dns.md](007-dns.md) | Serviço dns | autoritativo de dns-monitor, A/AAAA/HTTPS/SOA/NS/TXT, rótulos de controle, ECS/EDNS, RRL | 001 | aprovada |
+| [007-dns.md](007-dns.md) | Serviço dns | autoritativo de finger-west-01.badblock.net.br, A/AAAA/HTTPS (prefixo de porta)/SOA/NS/TXT, rótulos de controle, ECS/EDNS, RRL | 001 | aprovada |
 | [008-tls-e-fingerprints.md](008-tls-e-fingerprints.md) | TLS e fingerprints | ClientHello cru, parser, JA3/JA3N/JA4/JA4_r/JA4_o/stable, handshake | 005 | aprovada |
 | [009-http1.md](009-http1.md) | HTTP/1.x | bytes crus, campos sem normalizar, corpo, 100-continue, pipelining, sinais de proxy, escritor | 005 | aprovada |
 | [010-http2.md](010-http2.md) | HTTP/2 | parser passivo, SETTINGS/PRIORITY/HPACK, Akamai, JA4H, h2c | 005, 008 | aprovada |
@@ -20,9 +20,9 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [013-analise-ip-tcp.md](013-analise-ip-tcp.md) | Análise IP e TCP | linha do tempo, fechamento, IP, SYN, JA4T, p0f, segmentação, relógio TS, RTT | 003, 004 | aprovada |
 | [014-site-htdocs.md](014-site-htdocs.md) | Site estático | htdocs em inglês, JS puro, feed global pela 9000, sem terceiros | 004, 005 | aprovada |
 | [015-acme-certificados.md](015-acme-certificados.md) | ACME e certificados | certmagic, DNS-01 próprio, HTTP-01, recarga a quente, falhas | 005, 007 | aprovada |
-| [016-infra-e-deploy.md](016-infra-e-deploy.md) | Infra, rede e deploy | offloads, sysctls, units/hardening, NATS, layout, `make deploy` | 001 | aprovada |
+| [016-infra-e-deploy.md](016-infra-e-deploy.md) | Infra, rede e deploy | finger-01, offloads, sysctls, units/hardening, limites e fatia, NATS, layout, `make deploy`, traefik do host | 001 | aprovada |
 | [017-verificacao.md](017-verificacao.md) | Verificação e testes | verify quick/full, níveis de teste, matriz e2e, carga | 002, 016 | aprovada |
-| [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F5, paralelismo, critérios de saída | todas | aprovada |
+| [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F6 (F7 futura), paralelismo, critérios de saída | todas | aprovada |
 
 ## Contratos e pastas auxiliares
 | Caminho | Conteúdo |

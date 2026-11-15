@@ -70,7 +70,7 @@ Uma tarefa está concluída quando todos os itens forem verdadeiros:
 - lint, formatter e checagem de tipos limpos;
 - a spec e os contratos estão atualizados, se mudaram (pelo architect);
 - a documentação em `./docs/` está atualizada, quando aplicável;
-- quando muda comportamento em runtime: `make deploy` na vps602 e smoke test ok;
+- quando muda comportamento em runtime: `make deploy` no finger-01 e smoke test ok;
 - o resumo compactado da entrega (1–3 linhas, no estilo do `CHANGELOG.md`) está em `changes/task-NNN.md`;
 - o arquivo da tarefa foi removido.
 
@@ -80,11 +80,14 @@ Pare e pergunte quando:
 2. é preciso mudar um contrato (API, eventos, schema) — primeiro passa pelo architect, que escala se mudar
    comportamento acordado;
 3. é preciso uma dependência fora da lista da ADR 0009;
-4. a ação tem efeito externo fora da vps602: zona DNS no udns.com.br, configurações do GitHub, mais de
-   3 emissões de certificado Let's Encrypt de produção por semana;
+4. a ação tem efeito fora do espelho no finger-01: zona DNS no udns.com.br, configurações do GitHub, o resto do
+   host (containers, Docker, sysctls e THP do host, snmpd, opencode; o script do traefik só nos termos da ADR 0038
+   item 6), mais de 3 emissões de certificado Let's Encrypt de produção por semana;
 5. uma meta de RNF (spec 000) parece inalcançável — isso aciona a revisão das ADRs 0004 e 0005.
 
-**Na vps602, tudo pode ser feito sem aprovação** (instalar, reiniciar, mudar sysctl, apagar dados).
+**No finger-01, tudo o que é do espelho pode ser feito sem aprovação** (`/finger-sniffer`, units
+`finger-sniffer-*`, o nosso arquivo de sysctl: instalar, reiniciar, apagar dados; ADR 0038). O servidor anterior
+não recebe nenhuma ação.
 
 ## Critérios de aceite
 - [ ] Cada papel tem um arquivo em `.claude/agents/`.
@@ -93,3 +96,4 @@ Pare e pergunte quando:
 ## Decisões relacionadas
 - specs/decisions/0014-organizacao-agentes.md
 - specs/decisions/0013-verificacao-dois-niveis.md
+- specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md

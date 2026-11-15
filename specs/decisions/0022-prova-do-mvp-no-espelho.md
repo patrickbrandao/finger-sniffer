@@ -1,6 +1,6 @@
 # 0022 — Prova do MVP no espelho: matriz direta e medição das metas RNF
 
-Status: aceita, parte de consumidor substituída pela 0028 (semântica do `ts` do feed: ver 0025; QUIC com a mesma meta de 500 ms e `degraded` com tráfego alheio: ver 0026; `degraded` = 0 com os padrões 250/60 e o ruído presente: ver 0030)
+Status: aceita, parte de consumidor substituída pela 0028 (semântica do `ts` do feed: ver 0025; QUIC com a mesma meta de 500 ms e `degraded` com tráfego alheio: ver 0026; `degraded` = 0 com os padrões 250/60 e o ruído presente: ver 0030; servidor finger-01 e perfil 400/100: ver 0038 e 0039, 2026-11-15)
 Data: 2026-11-09
 
 ## Contexto
