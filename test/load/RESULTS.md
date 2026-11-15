@@ -17,6 +17,75 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
+## finger-01, ADR 0039
+
+### Orçamento de entrada do web (task 215, quarta rodada)
+
+Rodada de 2026-11-15 contra a `main` implantada `v0.2.1-75-g1f83ec0` (`versions_match`; web com `MemoryMax=768M`,
+`GOMEMLIMIT=512MiB`, `GODEBUG=disablethp=1`, `FS_WEB_INPUT_BUDGET=201326592`, `FS_MAX_CONNS=1000`; THP do host
+`always`, kernel 6.12.117), finger-01 só para esta carga (`/tmp/fs-load-running`), web reiniciado antes de cada
+janela (`RESTART_WEB=1`), clientes no Mac (h1/WebSocket por IPv4, h3 por IPv6). Brutos em
+[`results/budget-215f01a/`](results/budget-215f01a/) e [`results/budget-215f01a4/`](results/budget-215f01a4/);
+`memstat-5s.txt` é o `memory.stat` (chaves `anon`, `active_anon`, `inactive_anon`, `anon_thp`, `thp_*`, `sock`,
+`kernel`, `slab`) e o `nr_throttled` do web a cada 5 s, lidos por um laço de `grep` no servidor.
+
+```sh
+RESTART_WEB=1 OUT=tmp/load/raw/budget-215f01a  test/load/budget.sh -duration 4m -h1 220 -ws 16 -h3 14   # janela A
+RESTART_WEB=1 OUT=tmp/load/raw/budget-215f01a4 test/load/budget.sh -duration 4m -h1 900 -ws 32 -h3 56   # janela A4
+```
+
+| Meta (ADR 0039 item 4) | A (17:58:20–18:02:41 UTC) | A4 (18:04:28–18:08:38 UTC) |
+| --- | --- | --- |
+| `memory.peak` ≤ 738 197 504 | 539 148 288 — ok | 544 223 232 — ok |
+| `memory.events max` delta 0 | 0 → 0 — ok | 0 → 0 — ok |
+| `anon` máx ≤ 603 979 776 | 517 189 632 — ok | 512 098 304 — ok |
+| `NRestarts` 0, `oom_kill` 0, mesmo `MainPID` | ok (24278) | ok (25066) |
+| `web_input_budget_used_bytes` ≤ 201 326 592 | 201 321 672 — ok | 201 324 054 — ok |
+| `web_input_budget_denied_total` crescendo | 29 → 19 582 — ok | 1899 → 38 929 — ok |
+| `cpu.stat nr_throttled` do web (registro) | 0 → 2 | 0 → 0 |
+| health do web | 237 `ok`, 0 `down` | 225 `ok`, 0 `down` |
+
+**Todas as metas atingidas nas duas janelas.** Margem do `memory.peak` até o `MemoryMax` (805 306 368): 254 MiB (A)
+e 249 MiB (A4). O `anon` fica perto do `GOMEMLIMIT` (493 e 488 MiB de 512 MiB): com o orçamento cheio (192 MiB) o
+runtime trabalha no limite macio, como previsto na conta; o `memory.current` máximo nas amostras de 1 s foi
+496,5 MiB (A) e 500,6 MiB (A4).
+
+Memória do web por janela de 30 s (máx., MiB; "estimado" = `memory.current − anon − file`):
+
+| janela (s) | A: current | A: anon | A: estimado | A: sock | A4: current | A4: anon | A4: estimado | A4: sock | A4: kernel | A4: slab |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0–30 | 414,5 | 409,1 | 5,4 | 1,9 | 496,7 | 485,0 | 15,8 | 9,6 | 5,6 | 4,0 |
+| 30–60 | 428,3 | 424,0 | 6,0 | 2,0 | 495,3 | 484,0 | 12,6 | 5,9 | 5,6 | 4,1 |
+| 60–90 | 438,3 | 434,0 | 5,9 | 1,7 | 498,3 | 487,1 | 12,7 | 5,8 | 5,6 | 4,0 |
+| 90–120 | 435,4 | 430,5 | 5,4 | 1,8 | 493,5 | 481,3 | 12,6 | 5,7 | 5,6 | 4,0 |
+| 120–150 | 437,4 | 432,4 | 5,0 | 1,4 | 500,6 | 488,4 | 12,7 | 6,0 | 5,6 | 4,0 |
+| 150–180 | 432,0 | 427,1 | 5,5 | 1,8 | 495,7 | 482,6 | 13,5 | 6,6 | 5,6 | 4,0 |
+| 180–210 | 432,5 | 426,8 | 5,7 | 1,5 | 499,4 | 486,0 | 13,5 | 6,4 | 5,8 | 4,2 |
+| 210–240 | 435,8 | 430,8 | 4,9 | 1,4 | 500,2 | 487,9 | 13,3 | 6,2 | 5,8 | 4,2 |
+| 240–270 | 496,5 | 493,2 | 4,1 | 1,1 | 491,7 | 480,8 | 12,2 | 6,0 | 5,9 | 4,3 |
+
+Na A, `kernel` do `memory.stat` 2,5–2,6 MiB e `slab` 1,1–1,2 MiB por janela.
+
+**Sem meta.**
+- THP com `GODEBUG=disablethp=1`: `thp_fault_alloc` **0** nas duas janelas; `thp_collapse_alloc` 3 e `anon_thp`
+  6 MiB constantes desde o início do processo (khugepaged em áreas fora do heap). O cgroup deste kernel não expõe
+  `thp_split_page`. `active_anon + inactive_anon − anon` entre −0,56 e 0 MiB em todas as amostras com carga: a
+  parcela de 22,6–27,9 MiB de páginas anônimas não mapeadas da 215c (vps602) **sumiu**.
+- Memória de kernel: estimado 4,1–6,0 MiB (A) e 12,2–15,8 MiB (A4, ~950 conexões), dentro dos 62,5 + 16 MiB da conta.
+- h1: A 16 767 aberturas, 16 468 × 431, 165 sem resposta (todas `client_hold_expired`: cabeçalho parcial aceito no
+  orçamento e segurado 60 s pelo cliente, o esperado), 7 erros de conexão; A4 27 332 aberturas (no máximo 825 de
+  900 ativas no cliente), 26 800 × 431, 114 sem resposta (46 `client_hold_expired`, 68 `client_write_timeout`),
+  21 erros de conexão.
+- h3: `H3_EXCESSIVE_LOAD` 2894 (A) e 12 383 (A4).
+- WebSocket: A 1001 aberturas, 73 × 101, 918 × 503, 10 outras, até 16 sessões ao mesmo tempo, 65 encerradas por RST
+  do servidor (eco travado); A4 1191 aberturas, 13 × 101, 1167 × 503 (orçamento cheio pelos cabeçalhos h1: no
+  máximo 9 sessões, abaixo do teto de 32), 4 sem resposta (`client_read_timeout`), 7 outras.
+- `nstat` do host, deltas A / A4: `TcpExtTCPRcvQDrop` 744 / 875, `TcpExtTCPMemoryPressures` 0 / 0,
+  `TcpExtPruneCalled` 56 190 / 808 091, `TcpExtRcvPruned` 48 898 / 13 313, `TcpExtTCPOFODrop` 48 135 / 12 438,
+  `TcpExtTCPZeroWindowDrop` 364 / 53, `UdpRcvbufErrors` 0 / 0.
+- CPU média (% de um núcleo), A / A4: web 68,5 / 132,4, store 36,7 / 27,8, nats 18,8 / 31,4, capture 10,0 / 18,2,
+  raw e dns ~0,1; `nr_throttled` 0 em todas as outras units.
+
 ## E2e pendentes do store (task 217, itens das tasks 151 e 201)
 
 Rodada de 2026-11-15 contra `v0.2.1-54-g91c7f25` (`FS_IDLE_DEFAULT=120s`, `FS_IDLE_MAX=600s`), do Mac.

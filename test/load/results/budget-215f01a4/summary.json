@@ -1,0 +1,117 @@
+{
+  "budget_denied_delta": 37030,
+  "budget_denied_end": 38929,
+  "budget_denied_start": 1899,
+  "budget_used_max_bytes": 201324054,
+  "duration_s": 250.0793165,
+  "end": "2026-11-15T18:08:38Z",
+  "h1": {
+    "close_causes": {
+      "client_hold_expired": 46,
+      "client_read_timeout": 0,
+      "client_write_timeout": 68,
+      "other_error": 0,
+      "server_fin": 0,
+      "server_rst": 0
+    },
+    "closed_no_response": 114,
+    "dial_errors": 21,
+    "dials": 27332,
+    "h3_excessive_load": 0,
+    "h3_reset_other": 0,
+    "held_full_head": 80,
+    "max_active": 825,
+    "max_ws_sessions": 0,
+    "other_response": 0,
+    "sent_bytes": 9308320940,
+    "status_101": 0,
+    "status_431": 26800,
+    "status_503": 0,
+    "ws_session_ends": {
+      "client_hold_expired": 0,
+      "client_read_timeout": 0,
+      "client_write_timeout": 0,
+      "other_error": 0,
+      "server_fin": 0,
+      "server_rst": 0
+    }
+  },
+  "h1_head_bytes": 999424,
+  "h1_workers": 900,
+  "h3": {
+    "close_causes": {
+      "client_hold_expired": 0,
+      "client_read_timeout": 0,
+      "client_write_timeout": 0,
+      "other_error": 0,
+      "server_fin": 0,
+      "server_rst": 0
+    },
+    "closed_no_response": 0,
+    "dial_errors": 0,
+    "dials": 56,
+    "h3_excessive_load": 12383,
+    "h3_reset_other": 0,
+    "held_full_head": 0,
+    "max_active": 56,
+    "max_ws_sessions": 0,
+    "other_response": 0,
+    "sent_bytes": 3148667376,
+    "status_101": 0,
+    "status_431": 0,
+    "status_503": 0,
+    "ws_session_ends": {
+      "client_hold_expired": 0,
+      "client_read_timeout": 0,
+      "client_write_timeout": 0,
+      "other_error": 0,
+      "server_fin": 0,
+      "server_rst": 0
+    }
+  },
+  "h3_declared": 1047552,
+  "h3_ip": "2804:231c:e500:cafe::86",
+  "h3_sent": 1046528,
+  "h3_streams": 2,
+  "h3_workers": 56,
+  "health_errors": 0,
+  "ip": "170.247.40.86",
+  "start": "2026-11-15T18:04:28Z",
+  "target": "finger-01.badblock.net.br",
+  "web_status_samples": {
+    "ok": 225
+  },
+  "ws": {
+    "close_causes": {
+      "client_hold_expired": 0,
+      "client_read_timeout": 4,
+      "client_write_timeout": 0,
+      "other_error": 0,
+      "server_fin": 0,
+      "server_rst": 0
+    },
+    "closed_no_response": 4,
+    "dial_errors": 0,
+    "dials": 1191,
+    "h3_excessive_load": 0,
+    "h3_reset_other": 0,
+    "held_full_head": 0,
+    "max_active": 32,
+    "max_ws_sessions": 9,
+    "other_response": 7,
+    "sent_bytes": 18853650,
+    "status_101": 13,
+    "status_431": 0,
+    "status_503": 1167,
+    "ws_session_ends": {
+      "client_hold_expired": 0,
+      "client_read_timeout": 0,
+      "client_write_timeout": 0,
+      "other_error": 0,
+      "server_fin": 0,
+      "server_rst": 12
+    }
+  },
+  "ws_msg_bytes": 1048512,
+  "ws_workers": 32
+}
