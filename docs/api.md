@@ -17,8 +17,8 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
 | 9000 | HTTPS (`https://finger-01.badblock.net.br:9000`) | API, `/api/v1/stream`, `/api/v1/ws` |
 | 9001 | HTTP (`http://finger-01.badblock.net.br:9001`) | a mesma API em claro e `/metrics` (Prometheus) |
 
-- A 9000 escolhe o certificado pelo SNI: o **B** (`finger-01.badblock.net.br`, `finger-01.tmsoft.com.br`) para os
-  nomes do servidor e o **A** (`*.finger-west-01.badblock.net.br`) para os nomes da zona dos probes.
+- A 9000 escolhe o certificado pelo SNI: o **B** (só `finger-01.badblock.net.br`, ADR 0044) para o
+  nome do servidor e o **A** (`*.finger-west-01.badblock.net.br`) para os nomes da zona dos probes.
 - A API é sempre direta: nunca passa pelo traefik do host (que tem só as portas 80, 443 e 8081).
 
 - As portas 9000 e 9001 **não são capturadas**: consultar a API não gera registros novos.
@@ -225,7 +225,7 @@ $ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections?dst_port=84
 `dns` vale só para fluxos **TCP** da porta 53; um fluxo UDP da 53 fica `udp` e sem `probe_id`, e a consulta em si
 está em `/api/v1/dns` (com `probe_id`), como na seção [DNS e pacotes avulsos](#dns-e-pacotes-avulsos) (ADR 0023).
 `degraded: true` indica que o espelho estava acima do limite do modo degradado (padrão 1000 conexões simultâneas
-ou 250 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 400 e 100/s, ADRs 0030 e 0039) e não guardou
+ou 250 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 200 e 50 novas/s, ADR 0042) e não guardou
 pcap nem bytes crus dessa conexão. O tráfego dos sites atrás do traefik do host também é capturado e conta nesses
 limites.
 

@@ -613,7 +613,7 @@ func TestFinger01Docs(t *testing.T) {
 		"api.md": {
 			"`https://finger-01.badblock.net.br:9000`", "`[2804:231c:e500:cafe::86]`", "8 GiB", "`nat on mirror ports`",
 			"`conntrack_loaded`", "`nft_ruleset_lines`", "**tolerados**", "`net.ipv4.ip_default_ttl=128`",
-			"`net.ipv4.tcp_mtu_probing=1`", "`ens192`", "padrão 1000 conexões simultâneas", "400 e 100/s",
+			"`net.ipv4.tcp_mtu_probing=1`", "`ens192`", "padrão 1000 conexões simultâneas", "200 e 50 novas/s",
 		},
 		"http3.md":  {"**UDP 8443**", "`Alt-Svc: h3=\":8443\"; ma=60`", "_8443._https.", "RFC 9460 §2.3", "NODATA", "`alpn=\"h2\"`"},
 		"probes.md": {"| TCP 8080, 8443 |", "| UDP 8443 |", "_8443._https.$H", "traefik", "padrão 192 MiB", "(1000) sessões"},
@@ -666,5 +666,48 @@ func TestFinger01Recaptured(t *testing.T) {
 		if strings.Contains(string(data), "Mon, 09 Nov 2026") {
 			t.Errorf("%s ainda tem a data da captura no servidor anterior", f)
 		}
+	}
+}
+
+// TestCertBAndRNF01V030 confere as ADRs 0042–0044 nos docs (task 249): o certificado B e a rota do traefik só com
+// finger-01.badblock.net.br, a garantia do RNF-01 em 200/50 e o limite conhecido da v0.3.0 no finger-01.
+func TestCertBAndRNF01V030(t *testing.T) {
+	read := func(f string) string {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	tmsoft := "finger-01.tmsoft" + ".com.br"
+	readme := read("README.md")
+	api := read("api.md")
+	for f, s := range map[string]string{"README.md": readme, "api.md": api, "../README.md": read("../README.md")} {
+		for _, line := range strings.Split(s, "\n") {
+			// o nome tmsoft só pode aparecer como nome de ssh do host, nunca ligado ao certificado B
+			if strings.Contains(line, tmsoft) && (strings.Contains(line, "**B**") || strings.Contains(line, "TLS-ALPN-01")) {
+				t.Errorf("%s liga %s ao certificado B: %q", f, tmsoft, line)
+			}
+			if strings.Contains(line, tmsoft) && !strings.Contains(line, "ssh") {
+				t.Errorf("%s cita %s fora do papel de nome de ssh: %q", f, tmsoft, line)
+			}
+		}
+		for _, bad := range []string{"400 conexões simultâneas", "400 e 100/s", "garantia é 400"} {
+			if strings.Contains(s, bad) {
+				t.Errorf("%s ainda diz %q (RNF-01 é 200/50, ADR 0042)", f, bad)
+			}
+		}
+	}
+	for _, w := range []string{
+		"- **B**: só `finger-01.badblock.net.br`", "garantia do RNF-01: 200 conexões simultâneas\n  e 50 novas/s",
+		"400/100 é meta da fase F7", "Limite conhecido da v0.3.0", "feed p99 ~1,9 s", "registro p95 ~1,5 s",
+		"IO do disco da VM", "finger-01 (ADR 0043)",
+	} {
+		if !strings.Contains(readme, w) {
+			t.Errorf("README.md sem %q", w)
+		}
+	}
+	if !strings.Contains(api, "o **B** (só `finger-01.badblock.net.br`, ADR 0044)") {
+		t.Error("api.md sem o certificado B só com finger-01.badblock.net.br")
 	}
 }

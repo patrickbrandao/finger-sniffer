@@ -19,7 +19,7 @@ Valores da [ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-
 
 | Item | Valor |
 | --- | --- |
-| Servidor | `finger-01.badblock.net.br` (também `finger-01.tmsoft.com.br`), IPv4 `170.247.40.86`, IPv6 `2804:231c:e500:cafe::86`; interface capturada `ens192` |
+| Servidor | `finger-01.badblock.net.br` (para ssh também `finger-01.tmsoft.com.br`, que fica com o traefik do host), IPv4 `170.247.40.86`, IPv6 `2804:231c:e500:cafe::86`; interface capturada `ens192` |
 | Zona dos probes | `finger-west-01.badblock.net.br`, delegada para `finger-01.badblock.net.br`; probe em `<id>.finger-west-01.badblock.net.br` |
 | API | `https://finger-01.badblock.net.br:9000` e `http://finger-01.badblock.net.br:9001`, diretas (nunca pelo traefik, nunca capturadas) |
 | Web do espelho | TCP **8080** e **8443** (protocolo pelos primeiros bytes: TLS na 8080 e HTTP em claro na 8443 também funcionam), UDP **8443** para QUIC/HTTP/3 |
@@ -33,16 +33,18 @@ Toda sondagem web leva a porta explícita: `https://<id>.finger-west-01.badblock
 ### Certificados
 
 - **A**: `finger-west-01.badblock.net.br` e `*.finger-west-01.badblock.net.br`, por DNS-01 no dns do espelho.
-- **B**: `finger-01.badblock.net.br` e `finger-01.tmsoft.com.br`, por TLS-ALPN-01 (a validação chega à 8443 pelo
-  passthrough do traefik). A API na 9000 escolhe por SNI: A para nomes da zona, B para `finger-01.*`.
+- **B**: só `finger-01.badblock.net.br` (ADR 0044), por TLS-ALPN-01 (a validação chega à 8443 pelo
+  passthrough do traefik). A API na 9000 escolhe por SNI: A para nomes da zona, B para `finger-01.badblock.net.br`.
 - `*.finger-01.badblock.net.br` não tem certificado válido (o curinga fica na zona do provedor).
 
 ### Limites
 
 - As 7 units ficam em `finger-sniffer.slice` com `MemoryMax=6G` e `CPUQuota=800%`; por unit, `MemoryMax` store 2G,
   nats 1G, web 768M, capture 512M, raw 256M e dns 256M.
-- Modo degradado: `FS_MAX_CONNS=1000` e `FS_MAX_NEW_CONNS_PER_S=250`; garantia do RNF-01: 400 conexões simultâneas
-  e 100 novas/s (provisória até a carga oficial no finger-01).
+- Modo degradado: `FS_MAX_CONNS=1000` e `FS_MAX_NEW_CONNS_PER_S=250`; garantia do RNF-01: 200 conexões simultâneas
+  e 50 novas/s ([ADR 0042](../specs/decisions/0042-rnf-01-200-50-na-v0-3-0.md); 400/100 é meta da fase F7).
+- Limite conhecido da v0.3.0 no finger-01 (ADR 0043): a 200/50, feed p99 ~1,9 s e registro p95 ~1,5 s (metas
+  < 1 s e ≤ 500 ms); causa: IO do disco da VM; correção na F7.
 - Orçamento de entrada do web (`FS_WEB_INPUT_BUDGET`): 192 MiB (faixa 8–256 MiB).
 - Banco do store (`FS_STORE_MAX_BYTES`): 8 GiB; retenção de 10 min; stream `FS_EVENTS` de 128 MiB.
 
