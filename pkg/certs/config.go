@@ -32,7 +32,7 @@ const (
 const (
 	DefaultDir         = "/finger-sniffer/var/certs"
 	DefaultNamesDNS01  = "finger-west-01.badblock.net.br,*.finger-west-01.badblock.net.br"
-	DefaultNamesHTTP01 = "finger-01.badblock.net.br,finger-01.tmsoft.com.br" // certificado B (ADR 0038)
+	DefaultNamesHTTP01 = "finger-01.badblock.net.br" // certificado B (ADR 0038): só o nome badblock (task 238)
 )
 
 // Config diz onde estão os certificados e quais nomes cada um cobre.

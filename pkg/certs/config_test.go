@@ -12,8 +12,12 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_CERT_NAMES_DNS01", "")
 	t.Setenv("FS_CERT_NAMES_HTTP01", "")
 	c := LoadConfig()
-	if c.Dir != DefaultDir || len(c.NamesDNS01) != 2 || len(c.NamesHTTP01) != 2 {
+	if c.Dir != DefaultDir || len(c.NamesDNS01) != 2 || !slices.Equal(c.NamesHTTP01, []string{"finger-01.badblock.net.br"}) {
 		t.Fatalf("padrões: %+v", c)
+	}
+	// O certificado B não cobre mais finger-01.tmsoft.com.br (task 238).
+	if slices.Contains(c.NamesHTTP01, "finger-01.tmsoft.com.br") {
+		t.Fatalf("padrão do B ainda cobre finger-01.tmsoft.com.br: %v", c.NamesHTTP01)
 	}
 	t.Setenv("FS_CERT_DIR", "/x/certs")
 	t.Setenv("FS_CERT_NAMES_DNS01", " A.Example.  , *.a.example ,,")
