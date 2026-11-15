@@ -9,8 +9,8 @@ na API de consulta), em menos de 1 s. Sem filtros, é o **feed global**: as sond
 
 | Transporte | URL |
 | --- | --- |
-| SSE | `https://vps602.tmsoft.com.br:9000/api/v1/stream` (ou `http://…:9001/api/v1/stream`) |
-| WebSocket | `wss://vps602.tmsoft.com.br:9000/api/v1/ws` (ou `ws://…:9001/api/v1/ws`) |
+| SSE | `https://finger-01.badblock.net.br:9000/api/v1/stream` (ou `http://…:9001/api/v1/stream`) |
+| WebSocket | `wss://finger-01.badblock.net.br:9000/api/v1/ws` (ou `ws://…:9001/api/v1/ws`) |
 
 Os dois aceitam qualquer `Origin` (a API é aberta; a página do site vem de outra origem).
 
@@ -72,15 +72,15 @@ Cada evento tem `event: <kind>` e `data: <LiveEvent>`; um comentário `: ping` c
 Abra o stream antes de sondar (não há replay). Saída real, com os `data` encurtados (`…`):
 
 ```console
-$ curl -sN 'https://vps602.tmsoft.com.br:9000/api/v1/stream?probe=k3x9q2mz7a&kind=connection.closed,http.request'
+$ curl -sN 'https://finger-01.badblock.net.br:9000/api/v1/stream?probe=k3x9q2mz7a&kind=connection.closed,http.request'
 event: http.request
 data: {"kind":"http.request","ts":"2026-11-09T07:18:44.258208060Z","conn_id":"01M6ZJRX87GTGSKM55WYPJ6S06","probe_id":"k3x9q2mz7a","data":{"index":0,"in_offset":0,"out_offset":0,"raw_head_b64":"R0VUIC9wL2szeDlxMm16N2EvIEhUVFAvMS4x…","request_line":{"method":"GET","target":"/p/k3x9q2mz7a/","form":"origin","version":"HTTP/1.1","terminator":"crlf"},…,"status":200,…}}
 
 event: connection.closed
-data: {"kind":"connection.closed","ts":"2026-11-09T07:18:44.647041744Z","conn_id":"01M6ZJRX87GTGSKM55WYPJ6S06","probe_id":"k3x9q2mz7a","data":{"conn_id":"01M6ZJRX87GTGSKM55WYPJ6S06","probe_id":"k3x9q2mz7a","proto":"tls/http1.1","l4":"tcp","family":4,"src":{"ip":"203.0.113.10","port":65128},"dst":{"ip":"172.233.24.85","port":443},"started":"2026-11-09T07:18:44.211896381Z","ended":"2026-11-09T07:18:44.647041744Z","requests":1,"degraded":false}}
+data: {"kind":"connection.closed","ts":"2026-11-09T07:18:44.647041744Z","conn_id":"01M6ZJRX87GTGSKM55WYPJ6S06","probe_id":"k3x9q2mz7a","data":{"conn_id":"01M6ZJRX87GTGSKM55WYPJ6S06","probe_id":"k3x9q2mz7a","proto":"tls/http1.1","l4":"tcp","family":4,"src":{"ip":"203.0.113.10","port":65128},"dst":{"ip":"170.247.40.86","port":8443},"started":"2026-11-09T07:18:44.211896381Z","ended":"2026-11-09T07:18:44.647041744Z","requests":1,"degraded":false}}
 ```
 
-(em outro terminal: `curl -s --http1.1 https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/`)
+(em outro terminal: `curl -s --http1.1 https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/`)
 
 ## WebSocket
 
@@ -90,12 +90,12 @@ quando o store desliga.
 Com o node 22 ou mais novo (`WebSocket` global), só consultas DNS de um probe:
 
 ```console
-$ node -e "const ws = new WebSocket('wss://vps602.tmsoft.com.br:9000/api/v1/ws?kind=dns.query&probe=k3x9q2mz7a');
+$ node -e "const ws = new WebSocket('wss://finger-01.badblock.net.br:9000/api/v1/ws?kind=dns.query&probe=k3x9q2mz7a');
   ws.onmessage = (m) => console.log(m.data)"
 {"kind":"dns.query","ts":"2026-11-09T07:18:51.315736562Z","conn_id":null,"probe_id":"k3x9q2mz7a","data":{"conn_id":null,"edns":{"cookie_hex":null,"do":false,"ecs":null,"options":[],"padding_len":null,"udp_size":4096,"version":0},"flags":{"ad":true,"cd":false,"rd":true},"id":37580,"opcode":0,"probe_id":"k3x9q2mz7a",…,"qtype":"AAAA",…}}
 ```
 
-(em outro terminal: `dig @vps602.tmsoft.com.br k3x9q2mz7a.dns-monitor.tmsoft.com.br AAAA`)
+(em outro terminal: `dig @finger-01.badblock.net.br k3x9q2mz7a.finger-west-01.badblock.net.br AAAA`)
 
 Num probe, o primeiro evento da conexão costuma ser `connection.updated`, não `connection.opened`: a conexão nasce
 dos pacotes antes de o probe ID aparecer (SNI, `Host`), e o filtro `probe` só casa depois disso.
@@ -106,7 +106,7 @@ WebSocket primeiro; se não abrir em 3 s, SSE; se cair, reconecta com espera cre
 (`htdocs/app.mjs`).
 
 ```js
-const API = "https://vps602.tmsoft.com.br:9000";
+const API = "https://finger-01.badblock.net.br:9000";
 // nomes dos eventos SSE a escutar (stream.dropped inclusive); no filtro kind, stream.dropped não entra
 const KINDS = ["connection.opened", "connection.updated", "connection.closed",
                "http.request", "dns.query", "packet.stray", "stream.dropped"];
@@ -147,7 +147,7 @@ requisições (não há replay).
 ## Erros
 
 ```console
-$ curl -s 'https://vps602.tmsoft.com.br:9000/api/v1/stream?dst_port=abc'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/stream?dst_port=abc'
 {
   "error": "invalid dst_port \"abc\""
 }

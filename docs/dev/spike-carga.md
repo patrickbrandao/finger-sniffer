@@ -1,5 +1,8 @@
 # Spike de carga — pacotes pelo NATS + BLOBs no SQLite em 1 vCPU (task 006)
 
+> Medido no servidor anterior (vps602), [ADR 0038](../../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md):
+> registro histórico, mantido como estava.
+
 Data: 2026-11-07 · Máquina: vps602 (Linode, Debian 13, kernel 6.12, 1 vCPU, 967 MiB, disco 25 GB) ·
 Protótipo: [`test/spike/`](../../test/spike/README.md) · Para: architect (confirmar ou substituir as ADRs 0004 e 0005).
 

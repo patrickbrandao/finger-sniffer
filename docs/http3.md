@@ -4,7 +4,10 @@ Derivado da [spec 011](../specs/011-http3-quic.md), da [ADR 0019](../specs/decis
 e dos schemas `HTTP3Info`, `HTTP3Request` e `QPACKField` do
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml).
 
-O espelho atende QUIC/HTTP/3 em **UDP 443** com o mesmo certificado do TCP. Além do que o servidor h3 vê, o web lê
+O espelho atende QUIC/HTTP/3 em **UDP 8443** (`FS_WEB_UDP_PORTS`), com o mesmo certificado do TCP. A UDP 443 do
+servidor é do traefik do host
+([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)), então a origem h3 do
+espelho é sempre `<nome>:8443`. Além do que o servidor h3 vê, o web lê
 cada datagrama antes da pilha QUIC e decifra o Initial do cliente (as chaves Initial derivam do DCID), então o
 registro mostra o **primeiro voo do QUIC como chegou**: cabeçalho, frames, parâmetros de transporte na ordem e o
 ClientHello de dentro.
@@ -13,20 +16,33 @@ ClientHello de dentro.
 
 | Cliente | Como |
 | --- | --- |
-| curl (com HTTP/3) | `curl --http3-only https://<id>.dns-monitor.tmsoft.com.br/p/<id>/` |
-| navegador | a primeira resposta h1/h2 traz `Alt-Svc: h3=":443"; ma=60`; a requisição seguinte à mesma origem vai por h3. O registro HTTPS do DNS (`alpn="h3,h2"`) permite h3 já na primeira |
-| quic-go | `http3.Transport` direto para `<id>.dns-monitor.tmsoft.com.br:443` |
+| curl (com HTTP/3) | `curl --http3-only https://<id>.finger-west-01.badblock.net.br:8443/p/<id>/` |
+| navegador | a primeira resposta h1/h2 em `https://<nome>:8443/` traz `Alt-Svc: h3=":8443"; ma=60`; a requisição seguinte à mesma origem vai por h3. O registro HTTPS em `_8443._https.<nome>` (`alpn="h3,h2"`) permite h3 já na primeira |
+| quic-go | `http3.Transport` direto para `<id>.finger-west-01.badblock.net.br:8443` |
 
-- `?alt_svc=0` tira o `Alt-Svc` da resposta; o rótulo DNS `noh3` (`<id>.noh3.dns-monitor.tmsoft.com.br`) tira o
+- `?alt_svc=0` tira o `Alt-Svc` da resposta; o rótulo DNS `noh3` (`<id>.noh3.finger-west-01.badblock.net.br`) tira o
   registro HTTPS. Os dois juntos mantêm o navegador em h1/h2.
-- O `Alt-Svc` só é anunciado enquanto o listener UDP 443 está de pé; sem ele, o web fica `degraded` no health
+- O `Alt-Svc` aponta para a primeira porta de `FS_WEB_UDP_PORTS` com listener de pé e só é anunciado enquanto ele
+  está de pé; sem ele, o web fica `degraded` no health
   (`h3_listener_down`).
 - Por proxy HTTP não há h3: proxies não carregam QUIC.
+- Sem porta na URL (`https://<id>.finger-west-01.badblock.net.br/`) a conexão vai para o traefik na 443, não para o
+  espelho.
 
-Saída real (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use o do Homebrew):
+### Registro HTTPS com prefixo de porta
+
+A origem de um probe é `<nome>:8443`, então, pelo RFC 9460 §2.3, o dns responde o tipo `HTTPS` em
+`_<porta>._https.<nome>` para cada porta de `FS_WEB_TCP_PORTS` (8080 e 8443): ServiceMode, prioridade 1, alvo
+`<nome>` sem o prefixo, `alpn="h3,h2"` quando a porta também está em `FS_WEB_UDP_PORTS` (a 8443), senão
+`alpn="h2"` (a 8080), e `ipv4hint`/`ipv6hint` do servidor. O nome sem prefixo (porta 443) responde NODATA, porque a
+443 é do traefik; o rótulo `noh3` tira o registro. A consulta com prefixo registra o probe (os rótulos iniciados por
+`_` são pulados).
+
+Saída obtida no servidor anterior (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use o do Homebrew),
+adaptada à porta 8443; o registro HTTPS é o esperado pela ADR 0038:
 
 ```console
-$ curl -si --http3-only https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/
+$ curl -si --http3-only https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/
 HTTP/3 200
 date: Mon, 09 Nov 2026 09:03:32 GMT
 content-type: text/plain; charset=utf-8
@@ -37,14 +53,17 @@ conn_id: 01M6ZM07Y12Q61G2GYYXJV6C49
 request: 0
 stream_id: 0
 probe_id: k3x9q2mz7a
-$ curl -sI https://k3x9q2mz7a.dns-monitor.tmsoft.com.br/p/k3x9q2mz7a/ | grep -i alt-svc
-alt-svc: h3=":443"; ma=60
-$ dig +short @vps602.tmsoft.com.br k3x9q2mz7a.dns-monitor.tmsoft.com.br TYPE65
-\# 41 0001000001000602683302683200040004ACE918550006001026003C 0D00000000F03C93FFFE268FD9
+$ curl -sI https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/ | grep -i alt-svc
+alt-svc: h3=":8443"; ma=60
+$ dig +short @finger-01.badblock.net.br _8443._https.k3x9q2mz7a.finger-west-01.badblock.net.br HTTPS
+1 k3x9q2mz7a.finger-west-01.badblock.net.br. alpn="h3,h2" ipv4hint=170.247.40.86 ipv6hint=2804:231c:e500:cafe::86
+$ dig +short @finger-01.badblock.net.br _8080._https.k3x9q2mz7a.finger-west-01.badblock.net.br HTTPS
+1 k3x9q2mz7a.finger-west-01.badblock.net.br. alpn="h2" ipv4hint=170.247.40.86 ipv6hint=2804:231c:e500:cafe::86
+$ dig +short @finger-01.badblock.net.br k3x9q2mz7a.finger-west-01.badblock.net.br HTTPS
 ```
 
-O registro HTTPS em hex é `priority 1`, alvo `.`, `alpn="h3,h2"`, `ipv4hint=172.233.24.85` e `ipv6hint`
-(o `dig` 9.10 não decodifica o tipo 65; versões novas mostram os campos).
+A última consulta volta vazia (NODATA). O `dig` 9.10 não decodifica o tipo 65 (use `TYPE65` e leia o hex); versões
+novas mostram os campos como acima.
 
 ## O que o registro traz
 
@@ -90,7 +109,7 @@ referência dinâmica aparece com `static: false` e sem valor resolvido.
 Trecho real do registro da conexão acima (listas encurtadas):
 
 ```console
-$ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2GYYXJV6C49 | jq '{proto, l4, close,
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZM07Y12Q61G2GYYXJV6C49 | jq '{proto, l4, close,
     http3: (.http3 | {version, dcid_hex, token_len, initial_datagram_size, padded_to_1200, coalesced_packets,
     client_hello_datagrams, initial_frames: .initial_frames[0:5], transport_params: .transport_params[0:3],
     ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_control_stream_seen, h3_settings, close,
@@ -122,7 +141,7 @@ $ curl -s https://vps602.tmsoft.com.br:9000/api/v1/connections/01M6ZM07Y12Q61G2G
     "request": {
       "stream_id": 0,
       "pseudo_order": [":method", ":scheme", ":authority", ":path"],
-      "field": { "name": ":authority", "value": "k3x9q2mz7a.dns-monitor.tmsoft.com.br", "repr": "literal-name-ref",
+      "field": { "name": ":authority", "value": "k3x9q2mz7a.finger-west-01.badblock.net.br:8443", "repr": "literal-name-ref",
                  "static": true, "index": 0, "never_indexed": false, "huffman_name": null, "huffman_value": true },
       "ja4h": "ge30nn020000_5594a17e7e7e_000000000000_000000000000",
       "status": 200
@@ -158,7 +177,7 @@ cliente com DCID novo na mesma 5-tupla é conexão nova). Antes, o store esperav
 - `connection.closed` no tempo real chega logo depois do CONNECTION_CLOSE, e cada requisição já saiu antes como
   `http.request` (abaixo);
 - `fs_store_record_ready_seconds{reason="quic_close"}` em [metrics.md](metrics.md#tempo-até-o-registro) mostra o
-  atraso medido: na vps602, média de 134 ms, todos abaixo de 316 ms.
+  atraso medido: no servidor anterior, média de 134 ms, todos abaixo de 316 ms.
 
 A meta do QUIC é a mesma do TCP (spec 000 RNF-04, ADR
 [0026](../specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md)): registro em p95 ≤ 500 ms, contado do

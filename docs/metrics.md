@@ -1,7 +1,7 @@
 # Métricas (`/metrics`)
 
 Derivado da [spec 004](../specs/004-store-e-api.md) (RF-10 e "Métricas"). O store expõe as métricas no formato
-Prometheus **só na porta 9001** (HTTP), em `http://vps602.tmsoft.com.br:9001/metrics`. Na 9000 a rota não existe.
+Prometheus **só na porta 9001** (HTTP), em `http://finger-01.badblock.net.br:9001/metrics`. Na 9000 a rota não existe.
 
 ```yaml
 # prometheus.yml
@@ -9,7 +9,7 @@ scrape_configs:
   - job_name: finger-sniffer
     scrape_interval: 15s
     static_configs:
-      - targets: ["vps602.tmsoft.com.br:9001"]
+      - targets: ["finger-01.badblock.net.br:9001"]
 ```
 
 ## Métricas dos serviços (heartbeat)
@@ -58,7 +58,7 @@ série ausente quer dizer capture fora do ar, não "nada aconteceu".
 | `fs_dropped_events_total` | eventos descartados pelo buffer do produtor com o NATS fora do ar (acima de 30 s ou 16 MiB, spec 003 RF-05) |
 
 ```console
-$ curl -s http://vps602.tmsoft.com.br:9001/metrics | grep -E '^fs_(capture|dropped)'
+$ curl -s http://finger-01.badblock.net.br:9001/metrics | grep -E '^fs_(capture|dropped)'
 fs_capture_batches_total{service="capture"} 132
 fs_capture_filtered_userspace_total{service="capture"} 0
 fs_capture_kernel_drops_total{service="capture"} 0
@@ -81,7 +81,7 @@ fs_dropped_events_total{service="capture"} 0
 | `fs_web_http2_connections_total`, `fs_web_http2_streams_total` | conexões h2 (TLS ou h2c) e streams abertos nelas |
 | `fs_web_http3_connections_total`, `fs_web_http3_requests_total` | conexões QUIC/h3 aceitas e requisições h3 |
 | `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total` | WebSockets estabelecidos (HTTP/1.1 ou RFC 8441) e frames recebidos |
-| `fs_web_h3_listening` | 1 com o listener UDP 443 de pé, 0 sem ele (gauge) |
+| `fs_web_h3_listening` | 1 com o listener UDP do h3 (`FS_WEB_UDP_PORTS`, 8443 no finger-01) de pé, 0 sem ele (gauge) |
 | `fs_web_h3_init_table_full_total` | 5-tuplas QUIC novas que acharam cheia a tabela de Initials em análise (4096 entradas), com ou sem despejo: com despejo sai a entrada não reclamada encerrada mais antiga; sem nada para despejar, a conexão segue no h3, mas sem a análise do Initial. Sobe sob inundação de UDP forjado |
 | `fs_web_input_budget_used_bytes` | bytes reservados agora do orçamento de entrada `FS_WEB_INPUT_BUDGET` (gauge; memória alocada para guardar entrada do cliente, ADRs 0033 e 0036) |
 | `fs_web_input_budget_denied_total` | reservas recusadas pelo orçamento global ou pelo teto do dono (requisição, conexão, sessão): 431, 503, `H3_EXCESSIVE_LOAD` ou `fields_truncated` |
@@ -167,7 +167,7 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 Trecho real:
 
 ```console
-$ curl -s http://vps602.tmsoft.com.br:9001/metrics | grep -E '^fs_(service_up|store_connections_total|store_live_clients)'
+$ curl -s http://finger-01.badblock.net.br:9001/metrics | grep -E '^fs_(service_up|store_connections_total|store_live_clients)'
 fs_service_up{service="capture"} 1
 fs_service_up{service="dns"} 1
 fs_service_up{service="raw"} 1
@@ -180,7 +180,7 @@ fs_store_connections_total{l4="udp",proto="quic/h3"} 7
 fs_store_connections_total{l4="udp",proto="udp"} 2
 fs_store_live_clients{transport="sse"} 0
 fs_store_live_clients{transport="ws"} 1
-$ curl -s -o /dev/null -w '%{http_code}\n' https://vps602.tmsoft.com.br:9000/metrics
+$ curl -s -o /dev/null -w '%{http_code}\n' https://finger-01.badblock.net.br:9000/metrics
 404
 ```
 
@@ -209,10 +209,10 @@ A meta de registro p95 ≤ 500 ms (spec 000 RNF-04, ADR
 para TCP e QUIC; na carga oficial da `v0.1.0` o registro QUIC ficou em p95 252 ms. `idle` fica fora da meta: o
 atraso é o prazo de ociosidade (+ 30 s), por definição.
 
-Na vps602 (commit `6facb2c`, `FS_TCP_CLOSE_GRACE=100ms`), em 9/11/2026:
+No servidor anterior (commit `6facb2c`, `FS_TCP_CLOSE_GRACE=100ms`), em 9/11/2026:
 
 ```console
-$ curl -s http://vps602.tmsoft.com.br:9001/metrics | grep -E '^fs_store_record_ready_seconds_(sum|count)'
+$ curl -s http://finger-01.badblock.net.br:9001/metrics | grep -E '^fs_store_record_ready_seconds_(sum|count)'
 fs_store_record_ready_seconds_sum{reason="close"} 5.708734011000001
 fs_store_record_ready_seconds_count{reason="close"} 87
 fs_store_record_ready_seconds_sum{reason="idle"} 120.444764897

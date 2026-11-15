@@ -20,7 +20,8 @@ var urlRe = regexp.MustCompile(`(?i)\b(https?|wss?)://([^\s"'<>()/\x60]*)`)
 const svgNamespace = `xmlns="http://www.w3.org/2000/svg"`
 
 // TestSiteURLs: nenhum http(s)/ws(s) fora da API e da zona dos probes, em nenhum arquivo do site. As URLs
-// montadas por template no app.mjs só podem usar ${host}, que é sempre <id>.PROBE_ZONE.
+// montadas por template no app.mjs só podem usar ${host}, que é sempre <id>.PROBE_ZONE, com a porta explícita do web
+// (${TLS_PORT} ou ${PLAIN_PORT}): sem porta, a sondagem cairia no traefik da 80/443 (ADR 0038).
 func TestSiteURLs(t *testing.T) {
 	for _, name := range siteFiles {
 		data := readFile(t, name)
@@ -33,8 +34,9 @@ func TestSiteURLs(t *testing.T) {
 		for _, m := range urlRe.FindAllSubmatch(data, -1) {
 			host := string(m[2])
 			if strings.HasPrefix(host, "${") {
-				if name != "app.mjs" || (host != "${host}" && !strings.HasPrefix(host, "${host}${")) {
-					t.Errorf("%s: URL montada fora do padrão ${host}: %q", name, m[0])
+				if name != "app.mjs" || (!strings.HasPrefix(host, "${host}:${TLS_PORT}") &&
+					!strings.HasPrefix(host, "${host}:${PLAIN_PORT}")) {
+					t.Errorf("%s: URL montada fora do padrão ${host}:${porta}: %q", name, m[0])
 				}
 				continue
 			}
@@ -47,9 +49,11 @@ func TestSiteURLs(t *testing.T) {
 	if n := strings.Count(app, "const host = "); n != 1 || !strings.Contains(app, "const host = `${id}.${PROBE_ZONE}`;") {
 		t.Errorf("app.mjs: host das sondagens deve ser só `${id}.${PROBE_ZONE}` (%d definições)", n)
 	}
-	if !strings.Contains(app, `export const PROBE_ZONE = "dns-monitor.tmsoft.com.br";`) ||
-		!strings.Contains(app, `export const DEFAULT_API = "https://vps602.tmsoft.com.br:9000";`) {
-		t.Error("app.mjs: constantes da API e da zona mudaram")
+	if !strings.Contains(app, `export const PROBE_ZONE = "finger-west-01.badblock.net.br";`) ||
+		!strings.Contains(app, `export const DEFAULT_API = "https://finger-01.badblock.net.br:9000";`) ||
+		!strings.Contains(app, `export const TLS_PORT = 8443;`) ||
+		!strings.Contains(app, `export const PLAIN_PORT = 8080;`) {
+		t.Error("app.mjs: constantes da API, da zona ou das portas mudaram (ADR 0038)")
 	}
 }
 

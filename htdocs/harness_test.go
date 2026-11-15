@@ -26,7 +26,7 @@ function eq(got, want, msg) {
 }
 
 // ---------------------------------------------------------------- resolveAPI e liveURL
-eq(app.resolveAPI(""), "https://vps602.tmsoft.com.br:9000", "default API");
+eq(app.resolveAPI(""), "https://finger-01.badblock.net.br:9000", "default API");
 eq(app.resolveAPI("?api=http://127.0.0.1:9001"), "http://127.0.0.1:9001", "api http 9001");
 eq(app.resolveAPI("?api=https://example.test:9000/x/y"), "https://example.test:9000", "api keeps only the origin");
 eq(app.resolveAPI("?api=https://evil.test"), app.DEFAULT_API, "api without port 9000/9001");
@@ -36,9 +36,9 @@ eq(app.resolveAPI("?api=ftp://h:9000"), app.DEFAULT_API, "api ftp");
 eq(app.resolveAPI("?api=https://u:p@h:9000"), app.DEFAULT_API, "api with credentials");
 eq(app.resolveAPI("?api=nonsense"), app.DEFAULT_API, "api not a URL");
 
-eq(app.liveURL(app.DEFAULT_API, "ws"), "wss://vps602.tmsoft.com.br:9000/api/v1/ws", "ws URL");
+eq(app.liveURL(app.DEFAULT_API, "ws"), "wss://finger-01.badblock.net.br:9000/api/v1/ws", "ws URL");
 eq(app.liveURL("http://127.0.0.1:9001", "ws", { probe: "abc12345" }), "ws://127.0.0.1:9001/api/v1/ws?probe=abc12345", "ws URL over http");
-eq(app.liveURL(app.DEFAULT_API, "sse", { probe: "", kind: "dns.query" }), "https://vps602.tmsoft.com.br:9000/api/v1/stream?kind=dns.query", "sse URL");
+eq(app.liveURL(app.DEFAULT_API, "sse", { probe: "", kind: "dns.query" }), "https://finger-01.badblock.net.br:9000/api/v1/stream?kind=dns.query", "sse URL");
 
 // ---------------------------------------------------------------- probe ID e espera
 for (let i = 0; i < 200; i++) {
@@ -109,7 +109,7 @@ function fakeEnv() {
   });
   feed.start();
   eq(env.sockets.length, 1, "starts with WebSocket");
-  eq(env.sockets[0].url, "wss://vps602.tmsoft.com.br:9000/api/v1/ws", "WebSocket URL");
+  eq(env.sockets[0].url, "wss://finger-01.badblock.net.br:9000/api/v1/ws", "WebSocket URL");
   env.sockets[0].onopen();
   eq(states[states.length - 1], ["live", "WebSocket", undefined], "live over WebSocket");
   env.sockets[0].onmessage({ data: '{"kind":"dns.query","ts":"2026-11-09T00:00:00Z","data":{}}' });
@@ -126,7 +126,7 @@ function fakeEnv() {
   check(env.fire(3000), "WebSocket open timeout");
   check(env.sockets[1].closed, "stalled WebSocket is closed");
   eq(env.sources.length, 1, "falls back to SSE");
-  eq(env.sources[0].url, "https://vps602.tmsoft.com.br:9000/api/v1/stream", "SSE URL");
+  eq(env.sources[0].url, "https://finger-01.badblock.net.br:9000/api/v1/stream", "SSE URL");
   env.sockets[1].onclose(); // fechamento atrasado do WebSocket abandonado não reconecta
   eq(env.timers.filter((t) => t.live).length, 0, "abandoned WebSocket does not schedule anything");
   env.sources[0].onopen();
@@ -377,26 +377,26 @@ async function probeRun(pageProtocol, status, wait = "10s") {
   const r = await probeRun("https:", 200);
   const urls = r.requests.map((x) => x[0]);
   eq(urls, [
-    "https://abcdef123456.dns-monitor.tmsoft.com.br/p/abcdef123456/",
-    "https://abcdef123456.dns-monitor.tmsoft.com.br/p/abcdef123456/",
-    "https://vps602.tmsoft.com.br:9000/api/v1/probes/abcdef123456?wait=10s",
+    "https://abcdef123456.finger-west-01.badblock.net.br:8443/p/abcdef123456/",
+    "https://abcdef123456.finger-west-01.badblock.net.br:8443/p/abcdef123456/",
+    "https://finger-01.badblock.net.br:9000/api/v1/probes/abcdef123456?wait=10s",
   ], "probe requests from an https page");
   for (const [url, opts] of r.requests.slice(0, 2)) {
     eq([opts.mode, opts.cache, opts.credentials], ["no-cors", "no-store", "omit"], "probe fetch options " + url);
   }
-  eq(r.sockets.map((s) => s.url), ["wss://abcdef123456.dns-monitor.tmsoft.com.br/p/abcdef123456/r?upgrade=ws"], "probe WebSocket");
+  eq(r.sockets.map((s) => s.url), ["wss://abcdef123456.finger-west-01.badblock.net.br:8443/p/abcdef123456/r?upgrade=ws"], "probe WebSocket");
   eq(r.sockets[0].sent.length, 1, "one WebSocket message");
   eq(r.sockets[0].code, 1000, "WebSocket closed normally");
   check(r.steps.every((s) => s[1]), "all probe steps ok");
   eq(r.res.all_closed, true, "probe result");
   for (const u of urls.concat(r.sockets.map((s) => s.url))) {
     const h = new URL(u).hostname;
-    check(h === "vps602.tmsoft.com.br" || h.endsWith(".dns-monitor.tmsoft.com.br"), "allowed host " + h);
+    check(h === "finger-01.badblock.net.br" || h.endsWith(".finger-west-01.badblock.net.br"), "allowed host " + h);
   }
 }
 {
   const r = await probeRun("http:", 404);
-  eq(r.requests[2][0], "http://abcdef123456.dns-monitor.tmsoft.com.br/p/abcdef123456/", "plain http only from an http page");
+  eq(r.requests[2][0], "http://abcdef123456.finger-west-01.badblock.net.br:8080/p/abcdef123456/", "plain http only from an http page");
   eq(r.res, null, "404 becomes null");
 }
 {
