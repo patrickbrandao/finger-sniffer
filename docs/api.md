@@ -4,10 +4,11 @@ Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.6.x, ADRs 0029, 0031 e 0032, servido também em
 `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
-As saídas abaixo foram obtidas no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01
-([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)); estão resumidas, e o IP
-do cliente foi trocado por um IP de documentação (`203.0.113.10`). Valores que dependem da pilha do servidor (TTL,
-janela e opções do SYN-ACK, versão, contagens) podem diferir no finger-01.
+As saídas abaixo estão resumidas, e o IP do cliente foi trocado por um IP de documentação (`203.0.113.10`). As de
+pcap, bytes crus, DNS e saúde foram recapturadas no finger-01
+([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)); as demais foram obtidas
+no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores que dependem da pilha do servidor
+(TTL, janela e opções do SYN-ACK, versão, contagens) podem diferir.
 
 ## Portas e acesso
 
@@ -178,7 +179,7 @@ $ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/probes/k3x9q2mz7a?wait=
   "all_closed": true,
   "connections": [
     {
-      "conn_id": "01M6ZHCVJ2XJERJMZ4XJD7HGRG",
+      "conn_id": "01M7FXPZCRME7JK12HDF2VKW1K",
       "proto": "tls/http1.1",
       "src": { "ip": "203.0.113.10", "port": 59976 },
       "dst": { "ip": "170.247.40.86", "port": 8443 },
@@ -204,7 +205,7 @@ $ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/probes/k3x9q2mz7a?wait=
 $ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections?dst_port=8443&src_ip=203.0.113.10&limit=1'
 [
   {
-    "conn_id": "01M6ZHCVJ2XJERJMZ4XJD7HGRG",
+    "conn_id": "01M7FXPZCRME7JK12HDF2VKW1K",
     "probe_id": "k3x9q2mz7a",
     "proto": "tls/http1.1",
     "l4": "tcp",
@@ -241,7 +242,7 @@ são sempre do ClientHello completo, que segue cru em `client_hello_b64` e no fl
 de uma conexão `tls/http1.1` feita com curl:
 
 ```console
-$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG | jq '{
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M7FXPZCRME7JK12HDF2VKW1K | jq '{
     ttl: .ip.ttl, hops: .ip.hops, ja4t: .tcp.ja4t, os: .tcp.os_guess, rtt: .tcp.rtt_handshake_ms,
     sni: .tls.sni, ja4: .tls.ja4, ja3: .tls.ja3_md5, negotiated: .tls.negotiated,
     request: .http[0].request_line, fields: .http[0].fields, ja4h: .http[0].ja4h}'
@@ -392,12 +393,18 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections
 ### pcap
 
 ```console
-$ curl -s -o c.pcap https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/pcap
+$ curl -s -o c.pcap https://finger-01.badblock.net.br:9000/api/v1/connections/01M7FXPZCRME7JK12HDF2VKW1K/pcap
 $ tshark -r c.pcap | head -4
-    1 0.000000000 203.0.113.10 → 170.247.40.86 TCP 78 59976 → 8443 [SYN, ECN, CWR] Seq=0 Win=65535 Len=0 MSS=1412 WS=64 TSval=2740120680 TSecr=0 SACK_PERM=1
-    2 0.000015230 170.247.40.86 → 203.0.113.10 TCP 74 8443 → 59976 [SYN, ACK, ECN] Seq=0 Ack=1 Win=65160 Len=0 MSS=1460 SACK_PERM=1 TSval=2185652127 TSecr=2740120680 WS=4096
-    3 0.021030459 203.0.113.10 → 170.247.40.86 TCP 66 59976 → 8443 [ACK] Seq=1 Ack=1 Win=131648 Len=0 TSval=2740120699 TSecr=2185652127
-    4 0.022716665 203.0.113.10 → 170.247.40.86 TLSv1 410 Client Hello
+    1 0.000000000 203.0.113.10 → 170.247.40.86 TCP 78 52138 → 8443 [SYN, ECN, CWR] Seq=0 Win=65535 Len=0 MSS=1430 WS=64 TSval=1869673101 TSecr=0 SACK_PERM=1
+    2 0.000023887 170.247.40.86 → 203.0.113.10 TCP 74 8443 → 52138 [SYN, ACK, ECN] Seq=0 Ack=1 Win=65160 Len=0 MSS=1460 SACK_PERM=1 TSval=1992022855 TSecr=1869673101 WS=4096
+    3 0.120228046 203.0.113.10 → 170.247.40.86 TCP 66 52138 → 8443 [ACK] Seq=1 Ack=1 Win=131904 Len=0 TSval=1869673222 TSecr=1992022855
+    4 0.120824149 203.0.113.10 → 170.247.40.86 TLSv1 414 Client Hello
+```
+
+O SYN-ACK do finger-01 em IPv4: janela 65160, MSS 1460, WS 4096 (escala 12), ECN aceito, SACK e timestamps; em
+IPv6, janela 64260 e MSS 1440. Esses valores são da pilha do host e não da conexão do cliente.
+
+```console
 ```
 
 - Formato libpcap com nanossegundos, `Content-Type: application/vnd.tcpdump.pcap`, os dois sentidos.
@@ -416,20 +423,21 @@ $ tshark -r c.pcap | head -4
 (`application/octet-stream`). `in_offset`/`out_offset` de cada requisição apontam onde ela começa nesses fluxos.
 
 ```console
-$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=in'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M7FXPZCRME7JK12HDF2VKW1K/raw?dir=in'
 GET /p/k3x9q2mz7a/ HTTP/1.1
 Host: k3x9q2mz7a.finger-west-01.badblock.net.br:8443
 User-Agent: curl/8.7.1
 Accept: */*
 
-$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw?dir=out'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M7FXPZCRME7JK12HDF2VKW1K/raw?dir=out'
 HTTP/1.1 200 OK
-Date: Mon, 09 Nov 2026 06:54:40 GMT
+Date: Sun, 15 Nov 2026 15:37:46 GMT
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
-Content-Length: 69
+Alt-Svc: h3=":8443"; ma=60
+Content-Length: 68
 
-conn_id: 01M6ZHCVJ2XJERJMZ4XJD7HGRG
+conn_id: 01M7FXPZCRME7JK12HDF2VKW1K
 request: 0
 probe_id: k3x9q2mz7a
 ```
@@ -443,23 +451,25 @@ mesmos 4 downloads simultâneos e o prazo de 60 s do pcap valem aqui (503 com `R
 $ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/dns?probe=k3x9q2mz7a&limit=1' | jq '.[0] | {ts, resolver, proto,
     qname, qtype, flags, edns: {udp_size: .edns.udp_size, do: .edns.do, ecs: .edns.ecs}, response}'
 {
-  "ts": "2026-11-09T06:54:40.652944080Z",
-  "resolver": { "ip": "2001:db8:728:1024::ac45:a44", "port": 19423 },
+  "ts": "2026-11-15T15:38:13.356177271Z",
+  "resolver": { "ip": "172.253.92.88", "port": 45369 },
   "proto": "udp",
-  "qname": "k3x9q2mz7a.finger-west-01.badblock.net.br.",
+  "qname": "k3X9q2mZ7a.FinGer-West-01.bAdbLock.NeT.BR.",
   "qtype": "A",
-  "flags": { "ad": false, "cd": false, "rd": false },
-  "edns": { "udp_size": 1452, "do": true, "ecs": null },
+  "flags": { "ad": false, "cd": true, "rd": false },
+  "edns": { "udp_size": 1400, "do": true,
+            "ecs": { "address": "203.0.113.0", "family": 1, "scope_prefix": 0, "source_prefix": 24 } },
   "response": {
-    "answers": [ { "data": "170.247.40.86", "name": "k3x9q2mz7a.finger-west-01.badblock.net.br.", "ttl": 5, "type": "A" } ],
+    "answers": [ { "data": "170.247.40.86", "name": "k3X9q2mZ7a.FinGer-West-01.bAdbLock.NeT.BR.", "ttl": 5, "type": "A" } ],
     "rcode": "NOERROR",
     "truncated": false
   }
 }
 ```
 
-`qname` mantém a caixa original (0x20 dos resolvedores), e `edns.ecs` mostra o Client Subnet quando o resolvedor
-manda. `raw_b64` traz a mensagem crua.
+O exemplo é a consulta do Google Public DNS (`dig @8.8.8.8`), escolhida com `jq` entre as do probe: `qname`
+mantém a caixa original (0x20 dos resolvedores), e `edns.ecs` mostra o Client Subnet quando o resolvedor manda (o
+/24 do cliente). `raw_b64` traz a mensagem crua.
 
 Pacotes avulsos são os que não formam conexão: SYN sem resposta, RST solto, ICMP, UDP sem resposta. O filtro
 `src_ip` de `/api/v1/packets` é o IP do **cliente**: a origem nos pacotes com `dir=in` e o destino nos com
@@ -490,18 +500,28 @@ $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq '{ok, version
     services: (.services | map_values(.status)), store: .host.store}'
 {
   "ok": true,
-  "version": "b82ead7",
-  "versions_match": false,
-  "services": { "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
+  "version": "v0.2.1-68-g7fb82fb",
+  "versions_match": true,
+  "services": { "capture": "ok", "dns": "ok", "raw": "degraded", "store": "degraded", "web": "degraded" },
   "store": {
-    "db_bytes": 9748272,
+    "db_bytes": 76218368,
     "max_bytes": 8589934592,
     "retention": "10m",
-    "connections": 175,
-    "oldest": "2026-11-09T07:09:16.712379952Z"
+    "connections": 45,
+    "oldest": "2026-11-15T15:23:28.531091631Z"
   }
 }
+$ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq -c '{reasons: (.services | map_values(.reasons)),
+    iface: .host.iface, offloads: .host.offloads."generic-receive-offload", conntrack_loaded: .host.conntrack_loaded,
+    nft_ruleset_lines: .host.nft_ruleset_lines}'
+{"reasons":{"capture":null,"dns":null,"raw":["cert_self_signed"],"store":["cert_self_signed"],"web":["cert_self_signed"]},"iface":"ens192","offloads":"off","conntrack_loaded":true,"nft_ruleset_lines":0}
 ```
+
+Na captura, o certificado **B** (`finger-01.*`, emitido por TLS-ALPN-01 pelo passthrough do traefik) ainda era o
+autoassinado provisório, então os serviços que o carregam (raw, store e web) estavam `degraded` com
+`cert_self_signed`, e `ok` continuava `true` (nenhum serviço `down`). Nesse estado, a 9000 pelo nome
+`finger-01.badblock.net.br` só responde com `curl -k` (ou pela 9001, em HTTP). O `conntrack_loaded: true` do host
+do traefik não deixou nada `degraded`.
 
 `versions_match: false` aparece quando um serviço foi reimplantado sozinho (`make deploy SVC=…`) e os demais
 rodam outro commit; cada serviço com versão diferente da do store fica `degraded`, com o motivo em `reasons`
@@ -552,7 +572,7 @@ $ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/NOTULID
 {
   "error": "invalid conn_id \"NOTULID\""
 }
-$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZHCVJ2XJERJMZ4XJD7HGRG/raw'
+$ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections/01M7FXPZCRME7JK12HDF2VKW1K/raw'
 {
   "error": "dir must be in or out"
 }

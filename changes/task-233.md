@@ -2,3 +2,5 @@
   zona `finger-west-01.badblock.net.br`, web em TCP 8080/8443 e UDP 8443, Alt-Svc `h3=":8443"`, HTTPS RR em
   `_8443._https`, certificados A/B, limites novos, sysctls do host e conntrack informativo; "Run probe" com porta
   explícita e aviso de que o tráfego dos sites atrás do traefik também é público (task 233).
+- docs: saídas de pcap (SYN-ACK do finger-01), bytes crus, DNS, health, HTTPS RR, h3, `Date` e casos 4, 10, 11 (TFO),
+  12 e 13 recapturadas no finger-01 (task 233).

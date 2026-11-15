@@ -634,3 +634,37 @@ func TestFinger01Docs(t *testing.T) {
 		}
 	}
 }
+
+// TestFinger01Recaptured confere que as saídas recapturadas no finger-01 (task 233) estão nos docs: SYN-ACK do
+// host no pcap, registros HTTPS com os hints, health com o motivo do certificado B provisório e o TFO sem cookie.
+func TestFinger01Recaptured(t *testing.T) {
+	want := map[string][]string{
+		"api.md": {
+			"Win=65160 Len=0 MSS=1460 SACK_PERM=1", "WS=4096", "janela 64260 e MSS 1440", "`cert_self_signed`",
+			"\"versions_match\": true", "\"iface\":\"ens192\"", "Host: k3x9q2mz7a.finger-west-01.badblock.net.br:8443",
+		},
+		"http3.md": {
+			"alpn=\"h3,h2\" ipv4hint=170.247.40.86 ipv6hint=2804:231c:e500:cafe::86", "HTTP/3 200",
+			"Saída real no finger-01", "\"value\": \"k3x9q2mz7a.finger-west-01.badblock.net.br:8443\"",
+		},
+		"probes.md": {
+			"recapturadas no finger-01", "{\"tfo\":true,\"syn_data\":null,\"syn_len\":64,\"first_data_len\":162}",
+			"conferidos no\nfinger-01.",
+		},
+	}
+	for f, ws := range want {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range ws {
+			if !strings.Contains(string(data), w) {
+				t.Errorf("%s sem a saída recapturada %q", f, w)
+			}
+		}
+		// a data da captura no servidor anterior não pode ficar nas saídas trocadas
+		if strings.Contains(string(data), "Mon, 09 Nov 2026") {
+			t.Errorf("%s ainda tem a data da captura no servidor anterior", f)
+		}
+	}
+}
