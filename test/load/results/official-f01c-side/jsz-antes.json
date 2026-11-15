@@ -1,0 +1,89 @@
+{
+  "memory": 78065,
+  "storage": 0,
+  "reserved_memory": 134217728,
+  "reserved_storage": 0,
+  "accounts": 1,
+  "ha_assets": 0,
+  "api": {
+    "level": 5,
+    "total": 28,
+    "errors": 2
+  },
+  "server_id": "NDENEX3NLPHDELRTHKH3MEM5EF3LQWAZYVB4CRNGS6GYKQUCE32PT2LX",
+  "now": "2026-11-15T21:44:00.954716672Z",
+  "config": {
+    "max_memory": 268435456,
+    "max_storage": 268435456,
+    "store_dir": "/finger-sniffer/var/nats/jetstream",
+    "sync_interval": 120000000000,
+    "compress_ok": true,
+    "strict": true
+  },
+  "limits": {
+    "default_max_consumers": 1000
+  },
+  "streams": 1,
+  "consumers": 1,
+  "messages": 109,
+  "bytes": 78065,
+  "account_details": [
+    {
+      "name": "$G",
+      "id": "$G",
+      "memory": 78065,
+      "storage": 0,
+      "reserved_memory": 18446744073709551615,
+      "reserved_storage": 18446744073709551615,
+      "accounts": 0,
+      "ha_assets": 0,
+      "api": {
+        "level": 0,
+        "total": 28,
+        "errors": 2
+      },
+      "stream_detail": [
+        {
+          "name": "FS_EVENTS",
+          "created": "2026-11-15T15:49:44.903134658Z",
+          "cluster": {
+            "leader": "finger-sniffer"
+          },
+          "state": {
+            "messages": 109,
+            "bytes": 78065,
+            "first_seq": 2771064,
+            "first_ts": "2026-11-15T21:43:00.83944698Z",
+            "last_seq": 2771172,
+            "last_ts": "2026-11-15T21:44:00.876905894Z",
+            "num_subjects": 4,
+            "consumer_count": 1
+          },
+          "consumer_detail": [
+            {
+              "stream_name": "FS_EVENTS",
+              "name": "store",
+              "created": "2026-11-15T15:49:44.940709707Z",
+              "delivered": {
+                "consumer_seq": 1593662,
+                "stream_seq": 2771172,
+                "last_active": "2026-11-15T21:44:00.876939579Z"
+              },
+              "ack_floor": {
+                "consumer_seq": 1593662,
+                "stream_seq": 2771172,
+                "last_active": "2026-11-15T21:44:00.954109684Z"
+              },
+              "num_ack_pending": 0,
+              "num_redelivered": 0,
+              "num_waiting": 1,
+              "num_pending": 0,
+              "ts": "2026-11-15T21:44:00.954748206Z"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "total": 1
+}

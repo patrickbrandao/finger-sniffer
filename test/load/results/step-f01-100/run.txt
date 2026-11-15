@@ -1,0 +1,12 @@
+17:52:02 relógio: servidor − local = 3.772363ms (ida e volta 16.286375ms)
+17:52:02 servidor na versão v0.2.1-83-gaf14a7c (versions_match=true)
+17:52:04 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 3m30s (aquecimento 30s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+17:52:34 t= 30s abertas=3001 simultâneas=390 (máx 394) eventos ws=20584
+17:53:04 t= 60s abertas=6001 simultâneas=390 (máx 396) eventos ws=45953
+17:53:34 t= 90s abertas=9002 simultâneas=390 (máx 396) eventos ws=70458
+17:54:04 t=120s abertas=12003 simultâneas=389 (máx 396) eventos ws=95133
+17:54:34 t=150s abertas=15003 simultâneas=389 (máx 396) eventos ws=119243
+17:55:04 t=180s abertas=17897 simultâneas=400 (máx 400) eventos ws=141259
+17:55:34 fim da geração: 20295 abertas, 705 puladas (teto), esperando as conexões terminarem
+17:55:49 relógio no fim: 4.406869ms (deriva 634.506µs)
+17:55:49 dados em /Users/patrickbrandao/Projects/finger-sniffer/.claude/worktrees/agent-a35d6aa3544825fe9/test/load/results/step-f01-100

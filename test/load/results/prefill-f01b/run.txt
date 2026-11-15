@@ -1,0 +1,23 @@
+17:58:49 relógio: servidor − local = 4.651076ms (ida e volta 16.488959ms)
+17:58:49 servidor na versão v0.2.1-83-gaf14a7c (versions_match=true)
+17:58:51 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 9m0s (aquecimento 30s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+17:59:21 t= 30s abertas=3001 simultâneas=390 (máx 396) eventos ws=16428
+17:59:51 t= 60s abertas=6001 simultâneas=390 (máx 396) eventos ws=38325
+18:00:21 t= 90s abertas=9002 simultâneas=390 (máx 396) eventos ws=61110
+18:00:51 t=120s abertas=12002 simultâneas=390 (máx 396) eventos ws=82719
+18:01:21 t=150s abertas=15003 simultâneas=389 (máx 396) eventos ws=117059
+18:01:51 t=180s abertas=18004 simultâneas=388 (máx 396) eventos ws=143448
+18:02:21 t=210s abertas=21004 simultâneas=388 (máx 396) eventos ws=164522
+18:02:51 t=240s abertas=24004 simultâneas=388 (máx 396) eventos ws=181659
+18:03:21 t=270s abertas=27004 simultâneas=388 (máx 396) eventos ws=195462
+18:03:51 t=300s abertas=30004 simultâneas=389 (máx 397) eventos ws=214891
+18:04:21 t=330s abertas=33005 simultâneas=388 (máx 397) eventos ws=234111
+18:04:51 t=360s abertas=36005 simultâneas=387 (máx 397) eventos ws=252060
+18:05:21 t=390s abertas=39006 simultâneas=386 (máx 397) eventos ws=266587
+18:05:51 t=420s abertas=42007 simultâneas=387 (máx 397) eventos ws=285385
+18:06:21 t=450s abertas=45005 simultâneas=388 (máx 400) eventos ws=305432
+18:06:51 t=480s abertas=48005 simultâneas=388 (máx 400) eventos ws=324587
+18:07:21 t=510s abertas=51005 simultâneas=388 (máx 400) eventos ws=353168
+18:07:51 fim da geração: 53997 abertas, 3 puladas (teto), esperando as conexões terminarem
+18:08:29 relógio no fim: 5.256439ms (deriva 605.363µs)
+18:08:29 dados em /Users/patrickbrandao/Projects/finger-sniffer/tmp/load/raw/prefill-f01b

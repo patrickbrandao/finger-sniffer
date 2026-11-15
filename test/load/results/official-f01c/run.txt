@@ -1,0 +1,26 @@
+18:53:35 relógio: servidor − local = 2.175504ms (ida e volta 16.580083ms)
+18:53:35 servidor na versão v0.2.1-83-gaf14a7c (versions_match=true)
+18:53:37 carga: 50 novas/s, até 200 simultâneas, vida 3.8s, 10m0s (aquecimento 1m0s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+18:54:07 t= 30s abertas=1501 simultâneas=193 (máx 197) eventos ws=10998
+18:54:37 t= 60s abertas=3001 simultâneas=193 (máx 197) eventos ws=22619
+18:55:07 t= 90s abertas=4502 simultâneas=193 (máx 199) eventos ws=34231
+18:55:37 t=120s abertas=6002 simultâneas=194 (máx 199) eventos ws=45864
+18:56:07 t=150s abertas=7503 simultâneas=193 (máx 199) eventos ws=57476
+18:56:37 t=180s abertas=9002 simultâneas=192 (máx 200) eventos ws=69109
+18:57:07 t=210s abertas=10503 simultâneas=194 (máx 200) eventos ws=80756
+18:57:37 t=240s abertas=12003 simultâneas=194 (máx 200) eventos ws=92342
+18:58:07 t=270s abertas=13504 simultâneas=195 (máx 200) eventos ws=103972
+18:58:37 t=300s abertas=15004 simultâneas=195 (máx 200) eventos ws=115561
+18:59:07 t=330s abertas=16505 simultâneas=196 (máx 200) eventos ws=127050
+18:59:37 t=360s abertas=18005 simultâneas=196 (máx 200) eventos ws=138511
+19:00:08 t=390s abertas=19506 simultâneas=196 (máx 200) eventos ws=149683
+19:00:38 t=420s abertas=21007 simultâneas=196 (máx 200) eventos ws=161685
+19:01:08 t=450s abertas=22507 simultâneas=197 (máx 200) eventos ws=173298
+19:01:38 t=480s abertas=24008 simultâneas=196 (máx 200) eventos ws=184670
+19:02:08 t=510s abertas=25508 simultâneas=196 (máx 200) eventos ws=196170
+19:02:38 t=540s abertas=27008 simultâneas=196 (máx 200) eventos ws=207921
+19:03:08 t=570s abertas=28509 simultâneas=196 (máx 200) eventos ws=219527
+19:03:37 fim da geração: 29999 abertas, 1 puladas (teto), esperando as conexões terminarem
+19:03:52 retenção: esperando até 19:04:56 para conferir o expurgo
+19:04:58 relógio no fim: 1.314854ms (deriva -860.65µs)
+19:04:58 dados em /Users/patrickbrandao/Projects/finger-sniffer/.claude/worktrees/agent-af8b5f303b383fd08/test/load/results/official-f01c

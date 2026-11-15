@@ -17,7 +17,165 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
-## finger-01, ADR 0039
+## finger-01, ADRs 0039, 0042 e 0043
+
+### Carga oficial de 10 min (task 235)
+
+**Resultado da v0.3.0: não passou** na janela oficial `official-f01c` (200 simultâneas / 50 novas/s, RNF-01 da
+[ADR 0042](../../specs/decisions/0042-rnf-01-200-50-na-v0-3-0.md)): feed p99 1 908 ms, registro p95 TCP 1 465 /
+QUIC 1 490 ms. Todas as outras metas passaram, sem perda no stream. **Aceito pelo humano (2026-11-15) como limite
+conhecido da v0.3.0 (ADR 0043)**; causa provável no IO/fsync do disco da VM, correção na fase F7 (task 248).
+
+Preparo comum a todas as rodadas abaixo: `versions_match` na versão implantada, finger-01 só para a carga
+(`/tmp/fs-load-running` do início ao fim; traefik e qdisc intocados), clientes no Mac (h1/WebSocket por IPv4, h3 por
+IPv6), `QUIC_TARGET=500ms`, vida e mix do `official-50k` (vida 3,8 s, 3 trocas; h1 15, h1 TLS 15, h2 20, h3 20, raw
+echo 10, banner 12, sink 8), vigia de tráfego alheio. Desde os degraus, vigia lateral a cada 5 s (health e
+`/metrics` do store) em `health_watch.jsonl.gz` e `/jsz` antes e depois.
+
+| Pasta | Início (UTC) | Versão | Perfil | Papel |
+| --- | --- | --- | --- | --- |
+| [`results/official-f01a`](results/official-f01a/) | 2026-11-15 18:38:47 | `v0.2.1-75-g1f83ec0` | 400/100, 10 min | histórico: falhou, causa da ADR 0041 |
+| [`results/step-f01-50`](results/step-f01-50/) | 2026-11-15 20:38:46 | `v0.2.1-83-gaf14a7c` | 200/50, 3m30s | degrau, medida da ADR 0042 |
+| [`results/step-f01-75`](results/step-f01-75/) | 2026-11-15 20:45:19 | `v0.2.1-83-gaf14a7c` | 300/75, 3m30s | degrau, medida da ADR 0042 |
+| [`results/step-f01-100`](results/step-f01-100/) | 2026-11-15 20:52:04 | `v0.2.1-83-gaf14a7c` | 400/100, 3m30s | degrau, medida da ADR 0042 |
+| [`results/prefill-f01b`](results/prefill-f01b/) | 2026-11-15 20:58:51 | `v0.2.1-83-gaf14a7c` | 400/100, 9 min | pré-aquecimento, medida da ADR 0042 |
+| [`results/official-f01b`](results/official-f01b/) | 2026-11-15 21:08:40 | `v0.2.1-83-gaf14a7c` | 400/100 | abortada no aquecimento (stream perdido) |
+| [`results/prefill-f01c`](results/prefill-f01c/) | 2026-11-15 21:44:01 | `v0.2.1-83-gaf14a7c` | 200/50, 9 min | pré-aquecimento emendado na janela |
+| [`results/official-f01c`](results/official-f01c/) | 2026-11-15 21:53:37 | `v0.2.1-83-gaf14a7c` | 200/50, 10 min + 1 min | **janela oficial da v0.3.0** |
+| [`results/official-f01c-side`](results/official-f01c-side/) | 21:44:01–22:05:22 | — | — | vigia lateral da `prefill-f01c` e da `official-f01c` |
+
+```sh
+test/load/run.sh -commit v0.2.1-75-g1f83ec0                            # official-f01a (padrão 400/100)
+test/load/run.sh -commit v0.2.1-83-gaf14a7c -rate 50 -max-active 200   # prefill-f01c (9 min) e official-f01c
+```
+
+#### Histórico: `official-f01a` (400/100, causa da ADR 0041)
+
+Janela 18:38:47–18:48:47 UTC (cobertura e retenção até 19:00:11), depois de um pré-aquecimento `prefill-f01` de
+9 min sem relatório (a cobertura dele foi interrompida; brutos fora do Git).
+
+| Meta | Medido | Resultado |
+| --- | --- | --- |
+| feed p99 ws / sse < 1 s | p50 29 / p95 59 477 / p99 60 127 / máx 69 626 ms (os dois) | **falhou** |
+| `stream.dropped` 0 | 0 / 0 | ok |
+| API p95 < 100 ms | `/connections/{id}` 20,3 ms, `/probes/{id}` 20,4 ms; 1 erro na amostragem | p95 ok, **1 erro** |
+| registro p95 ≤ 500 ms | TCP 58 541 ms; QUIC 151 933 ms | **falhou** |
+| probes sem registro 0 | **38 657 de 60 000** (feed 21 343, só API 0) | **falhou** |
+| `degraded` 0 | 0 | ok |
+| `dropped_events_total`, `kernel_drops` 0 | 0, 0 | ok |
+| `fs_store_flows_dropped_total` sem crescer | 0 | ok |
+| `nr_throttled` sem crescer | 0 em todas as units | ok |
+| `anon` < `MemoryMax` (MiB) | capture 8/512, web 48/768, raw 18/256, dns 7/256, store 138/2048, nats 312/1024 | ok |
+| maior frame ≤ 1514 | 1514, `offload_suspect` 0 | ok |
+| expurgo depois de 10 min | 20 primeiros 404; dos fechados há ~9 min **0 presentes** (nunca gravados) | **falhou** |
+
+Sem meta: CPU média (% de um núcleo) store 78,0 (p95 122,2, máx 143,6), web 38,2, nats 10,1, raw 6,6, capture 3,6,
+dns 0,1; host 155% de um núcleo (p95 211%); `conntrack -S` Δ 0, sem "table full"; alheio 0,05/s (máx 1,8/s em 5 s);
+`store_stray_total` Δ 269 060. O atraso fica em ~55–60 s desde o 1º minuto (`lag.txt`: a conexão mais nova na API
+~55 s atrás do relógio) e para aí porque o JetStream descarta pelo `max_age` de 60 s do `FS_EVENTS` (~1,14 M
+mensagens expiradas sem entrega no `/jsz`), o que explica os probes sem registro e o expurgo "0 presentes"; a perda
+não aparecia em nenhum contador nem no health. Causa
+([ADR 0041](../../specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md)): `flows.due` comparava o relógio de
+parede do store com o instante de captura, os fluxos se partiam em avulsos (~450/s) e a realimentação derrubava o
+ingest. Corrigido nas tasks 242–245 (relógio de captura, perda e atraso do stream visíveis, fluxos depois de
+lacuna, avulsos de meio de fluxo).
+
+#### Degraus e pré-aquecimento a 100/s em `v0.2.1-83-gaf14a7c` (medida da ADR 0042)
+
+3m30s por degrau, com 30 s de aquecimento descartado e 2 min de pausa entre eles.
+
+| Degrau (UTC, medido) | CPU store % núcleo méd/p95/máx | backlog máx | Δ stream_lost | ingest_lag p95 | record_ready close / quic_close p95 | feed p99 | stray/s | midflow/s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 50/s, 200 (20:39:16–20:42:16) | 27,0 / 32,5 / 37,9 | 0,11 s | 0 | 251 ms | 265 / 316 ms | 534 ms | 0,8 | 0,00 |
+| 75/s, 300 (20:45:49–20:48:49) | 39,4 / 60,6 / 78,8 | 0,61 s | 0 | 1 042 ms | 1 040 / 1 102 ms | 1 273 ms | 0,7 | 0,00 |
+| 100/s, 400 (20:52:34–20:55:34) | 49,0 / 114,0 / 142,4 | 2,94 s | 0 | 2 365 ms | 2 340 / 2 359 ms | 2 705 ms | 2,4 | 0,15 |
+
+Nos três degraus: probes sem registro 0, health do store sempre `ok`, `flows_dropped` 0, `nr_throttled` 0, alheio
+≤ 0,23/s. No de 100/s o gerador pulou 705 conexões (teto de 400) em t=176–210 s, com ~186 conexões no web (provável
+lado do cliente); o `summary.json` desse degrau saiu vazio (vale o `summary.md`). Atraso em 75 e 100/s estável, sem
+crescer, nos 3 min.
+
+**`prefill-f01b`** (9 min a 100/400, 20:58:51–21:07:51 UTC): o atraso cresce sem parar (feed p99 por fatia de 30 s
+~10–16 s no 1º minuto e meio, ~2 s em 150 s e, de 180 s em diante, até ~55–63 s, o teto do `max_age`).
+`fs_store_stream_lost_total` 0 → **32 678**; health do store fora de `ok` em 92 amostras; feed p99 55,0 s, registro
+p95 TCP 55,2 s / QUIC 61,5 s; 1 060 de 53 997 probes sem registro; stray 8,2/s e midflow 7,6/s (a realimentação da
+ADR 0041 sumiu). CPU do store por fatia de 30 s: 32–67% de um núcleo de média, máx 119–143%; o store não satura um
+núcleo e mesmo assim não acompanha. `memory.current` do store estável em ~1 745 MiB (`file` ~1 585) de 210 s a
+480 s, abaixo do `MemoryMax`, enquanto o atraso crescia (a hipótese do cache de página não se confirmou, ADR 0042
+item 4). A janela **`official-f01b`** (21:08:40) foi abortada no minuto de aquecimento: health já em
+`stream lost 32678 messages in 5m`, backlog 0 → 27,7 s em 75 s; `stream_lost` 35 348 depois do aborto.
+
+Conclusão (ADR 0042): 100/s não se sustenta além de ~3 min; o RNF-01 da v0.3.0 recua para 200/50 e 400/100 vai para
+a fase F7 (tasks 246 e 247).
+
+#### Janela oficial `official-f01c` (200/50, ADR 0042)
+
+Pré-aquecimento `prefill-f01c` de 9 min a 200/50 (21:44:01–21:53:30 UTC, 30 s de aquecimento, sem medição oficial)
+emendado na janela, para o expurgo dele rodar dentro dela. Gate do pré-aquecimento ok: `stream_lost` Δ 0, health
+sem `ingest backlog`/`stream lost`, backlog máx 0,44 s. Janela: geração 21:53:37–22:03:37 UTC (medida
+21:54:37–22:03:37), expurgo conferido até ~22:05:03.
+
+| Meta | Medido | Resultado |
+| --- | --- | --- |
+| feed p99 ws / sse < 1 s | p50 108 / p95 1 340 / p99 1 908 / máx 2 613 ms (os dois) | **falhou** |
+| `stream.dropped` 0 | 0 / 0 | ok |
+| API p95 < 100 ms | `/connections/{id}` 21,3 ms, `/probes/{id}` 21,0 ms; 0 erro | ok |
+| registro p95 ≤ 500 ms | TCP 1 465 ms (p99 2 017); QUIC 1 490 ms (p99 2 065) | **falhou** |
+| probes sem registro 0 | 0 de 29 999; 0 erro no cliente; **1 pulada pelo teto do gerador** (200) | ok / **1 pulada** |
+| `degraded` 0 | 0 (Δ `connections_degraded_total` 0) | ok |
+| `dropped_events_total` 0, `kernel_drops` 0 | 0, 0 | ok |
+| `flows_dropped` sem crescer | Δ 0 | ok |
+| `nr_throttled` sem crescer | 0 em todas as units | ok |
+| `anon` < `MemoryMax` (MiB) | capture 10/512, web 28/768, raw 14/256, dns 4/256, store 81/2048, nats 180/1024 | ok |
+| maior frame ≤ 1514 | 1514, `offload_suspect` 0 | ok |
+| expurgo depois de 10 min | 20 primeiros 404; ~9 min 20 presentes | ok |
+| `stream_lost` Δ 0 (pré-aquecimento → fim) | 35 348 → 35 348 (Δ 0) | ok |
+| health do store sem `ingest backlog`/`stream lost` | 0 amostras com motivo em 257 (21:44:01–22:05:22) | ok |
+
+**Resultado: não passou** (feed p99 1 908 ms, registro p95 TCP 1 465 / QUIC 1 490 ms); **aceito pelo humano como
+limite conhecido da v0.3.0 (ADR 0043), correção na F7 (task 248)**. A conexão pulada pelo teto do gerador é do
+cliente (o servidor não recusou nada).
+
+**Sem meta.**
+- CPU (% de um núcleo, média/p95/máx): store 27,6/50,5/67,3 (pré-aquecimento 26,7/32,7/43,6); web 20,5, nats 7,9,
+  raw 3,7, capture 3,4, dns 0,1 de média; host 69/96/125% de um núcleo (4,3% dos 16 vCPU, steal 0,0).
+- Ingest: backlog máx 1,81 s na janela (0,44 s no pré-aquecimento), pendentes máx 933; avulsos 0,8/s, meio de fluxo
+  0,00/s. Decomposição na janela (p50/p95/p99 ms): `ingest_lag` 108/1 653/2 469, `record_ready{close}`
+  115/1 594/2 334, `record_ready{quic_close}` 224/1 688/2 354.
+- Rede e alheio: `conntrack -S` Δ 0, sem "table full" no `dmesg`; alheio média 0,07/s (máx 1,4/s em 5 s,
+  37 conexões), longe dos limites de descarte (1000 vivas, 250/s).
+- Memória do store (cgroup, a cada 5 s, `store_mem.txt.gz`): `memory.current` 108 → 1 183 MiB no fim do
+  pré-aquecimento e ~1 280 MiB estável na janela (máx 1 300; `file` ~1 160–1 205, `anon` 48–80) contra o
+  `MemoryMax` de 2 048; `memory.events` high 0, max 792 → 792 (Δ 0); `pgscan` 70 464, `pgsteal` 70 139,
+  `workingset_refault_file` 51 474 **sem crescer**; `memory.pressure` some avg10 0,00 o tempo todo.
+- `io.pressure` do store (full avg10): 8–17% no pré-aquecimento, **18–32% na janela**.
+- Banco (`db-antes.txt`, `db-depois.txt`): `finger-sniffer.sqlite` 7,75 MB → 1 203,8 MB; WAL 64 MiB nos dois
+  instantes (shm 256 KiB). Disco: VMware Virtual NVMe.
+
+**Paradas periódicas do escritor** (provável; a confirmar na task 248):
+- Não é memória: o store fica a ~750 MiB do `MemoryMax`, sem `pgscan`, `refault` nem pressão de memória crescendo
+  (o item 4 da ADR 0042 não se aplica).
+- O atraso vem em rajadas: o feed por segundo (`feed_delay_by_second.csv`) fica em p50 ~85–115 ms e, a cada ~6–7 s,
+  um segundo salta para p50 0,6–1,7 s / máx 1,2–2,2 s (96 dos 679 segundos do arquivo com p50 > 500 ms). As paradas
+  começam ~30 s depois do início da janela (~21:54, quando os registros do pré-aquecimento, de 21:44, passam dos
+  10 min de retenção) e somem ~22:03, quando o expurgo do pré-aquecimento termina; coincidem com o `io.pressure full`
+  subindo de ~10% para 20–30%. Hipótese: o expurgo (DELETE de linhas e BLOBs) mais o checkpoint do WAL na mesma
+  rodada travam o escritor único em IO/fsync no disco da VM.
+- Já no pré-aquecimento (banco crescendo, sem expurgo) as metas ficaram no limite: feed p99 881 ms, registro p95 TCP
+  494 ms / QUIC 548 ms (máx 29 s), 7 puladas pelo teto; o degrau `step-f01-50` (3 min, banco pequeno) tinha feed p99
+  534 ms. A 200/50 em regime (banco de ~1,2 GB com expurgo contínuo) o finger-01 não cumpre RNF-02/RNF-04, mas sem
+  perda no stream.
+
+**Brutos** (todos guardados, nenhuma rodada passa de ~2,2 MB): por rodada, `summary.md` e `summary.json`,
+`timeline.csv`, `feed_delay_by_second.csv`, `cpu_mem_by_second.csv`, `metrics_{start,warm,end}.prom`,
+`conntrack-{antes,depois}.txt`, `run.txt` (log do gerador, horários locais UTC−3) e, em gzip, `conns.csv.gz`,
+`cgroup.csv.gz` e `gen.json.gz`; nos degraus e na `official-f01b`, `health_watch.jsonl.gz` e
+`jsz-{antes,depois}.json`; na `official-f01a`, `foreign_watch.txt`, `foreign_api.jsonl.gz` e `lag.txt` (conexão mais
+nova na API a cada 30 s); em `official-f01c-side`, `health_watch.jsonl.gz` (health e `/metrics` do store a cada 5 s
+da `prefill-f01c` ao fim da `official-f01c`), `store_mem.txt.gz` (memória, `memory.events`, `memory.stat` e pressões
+do store a cada 5 s), `jsz-{antes,depois}.json` e `db-{antes,depois}.txt`. Os `conntrack-dmesg.txt` saíram vazios
+(sem "table full") e não foram copiados. Fora do Git ficou só o `prefill-f01` (pré-aquecimento da `official-f01a`,
+sem relatório).
 
 ### Orçamento de entrada do web (task 215, quarta rodada)
 

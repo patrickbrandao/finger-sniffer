@@ -1,0 +1,530 @@
+# HELP fs_buffered_bytes Value from the service heartbeat (buffered_bytes).
+# TYPE fs_buffered_bytes gauge
+fs_buffered_bytes{service="capture"} 0
+fs_buffered_bytes{service="dns"} 0
+fs_buffered_bytes{service="raw"} 0
+fs_buffered_bytes{service="store"} 0
+fs_buffered_bytes{service="web"} 0
+# HELP fs_buffered_events Value from the service heartbeat (buffered_events).
+# TYPE fs_buffered_events gauge
+fs_buffered_events{service="capture"} 0
+fs_buffered_events{service="dns"} 0
+fs_buffered_events{service="raw"} 0
+fs_buffered_events{service="store"} 0
+fs_buffered_events{service="web"} 0
+# HELP fs_capture_batches_total Value from the service heartbeat (capture_batches_total).
+# TYPE fs_capture_batches_total counter
+fs_capture_batches_total{service="capture"} 175289
+# HELP fs_capture_filtered_userspace_total Value from the service heartbeat (capture_filtered_userspace_total).
+# TYPE fs_capture_filtered_userspace_total counter
+fs_capture_filtered_userspace_total{service="capture"} 0
+# HELP fs_capture_kernel_drops_total Value from the service heartbeat (capture_kernel_drops_total).
+# TYPE fs_capture_kernel_drops_total counter
+fs_capture_kernel_drops_total{service="capture"} 0
+# HELP fs_capture_kernel_packets_total Value from the service heartbeat (capture_kernel_packets_total).
+# TYPE fs_capture_kernel_packets_total counter
+fs_capture_kernel_packets_total{service="capture"} 2.2633435e+07
+# HELP fs_capture_max_frame_bytes Value from the service heartbeat (capture_max_frame_bytes).
+# TYPE fs_capture_max_frame_bytes gauge
+fs_capture_max_frame_bytes{service="capture"} 1514
+# HELP fs_capture_offload_suspect_total Value from the service heartbeat (capture_offload_suspect_total).
+# TYPE fs_capture_offload_suspect_total counter
+fs_capture_offload_suspect_total{service="capture"} 0
+# HELP fs_capture_packets_in_total Value from the service heartbeat (capture_packets_in_total).
+# TYPE fs_capture_packets_in_total counter
+fs_capture_packets_in_total{service="capture"} 1.4496937e+07
+# HELP fs_capture_packets_out_total Value from the service heartbeat (capture_packets_out_total).
+# TYPE fs_capture_packets_out_total counter
+fs_capture_packets_out_total{service="capture"} 8.136498e+06
+# HELP fs_capture_queue_freezes_total Value from the service heartbeat (capture_queue_freezes_total).
+# TYPE fs_capture_queue_freezes_total counter
+fs_capture_queue_freezes_total{service="capture"} 0
+# HELP fs_capture_truncated_total Value from the service heartbeat (capture_truncated_total).
+# TYPE fs_capture_truncated_total counter
+fs_capture_truncated_total{service="capture"} 0
+# HELP fs_dns_queries_tcp_total Value from the service heartbeat (dns_queries_tcp_total).
+# TYPE fs_dns_queries_tcp_total counter
+fs_dns_queries_tcp_total{service="dns"} 2
+# HELP fs_dns_queries_udp_total Value from the service heartbeat (dns_queries_udp_total).
+# TYPE fs_dns_queries_udp_total counter
+fs_dns_queries_udp_total{service="dns"} 321
+# HELP fs_dropped_events_total Value from the service heartbeat (dropped_events_total).
+# TYPE fs_dropped_events_total counter
+fs_dropped_events_total{service="capture"} 0
+# HELP fs_host_syncookies_sent TcpExt SyncookiesSent of the host.
+# TYPE fs_host_syncookies_sent gauge
+fs_host_syncookies_sent 0
+# HELP fs_published_events_total Value from the service heartbeat (published_events_total).
+# TYPE fs_published_events_total counter
+fs_published_events_total{service="capture"} 176610
+fs_published_events_total{service="dns"} 1644
+fs_published_events_total{service="raw"} 254491
+fs_published_events_total{service="store"} 1321
+fs_published_events_total{service="web"} 1.045422e+06
+# HELP fs_raw_active_sessions Value from the service heartbeat (raw_active_sessions).
+# TYPE fs_raw_active_sessions gauge
+fs_raw_active_sessions{service="raw"} 0
+# HELP fs_raw_sessions_total Value from the service heartbeat (raw_sessions_total).
+# TYPE fs_raw_sessions_total counter
+fs_raw_sessions_total{service="raw"} 34288
+# HELP fs_service_info Version reported in the last heartbeat of each service.
+# TYPE fs_service_info gauge
+fs_service_info{service="capture",version="v0.2.1-75-g1f83ec0"} 1
+fs_service_info{service="dns",version="v0.2.1-75-g1f83ec0"} 1
+fs_service_info{service="raw",version="v0.2.1-75-g1f83ec0"} 1
+fs_service_info{service="store",version="v0.2.1-75-g1f83ec0"} 1
+fs_service_info{service="web",version="v0.2.1-75-g1f83ec0"} 1
+# HELP fs_service_up 1 while the service sends heartbeats (down after FS_HEALTH_DOWN_AFTER).
+# TYPE fs_service_up gauge
+fs_service_up{service="capture"} 1
+fs_service_up{service="dns"} 1
+fs_service_up{service="raw"} 1
+fs_service_up{service="store"} 1
+fs_service_up{service="web"} 1
+# HELP fs_store_api_request_duration_seconds API request duration, by mux pattern.
+# TYPE fs_store_api_request_duration_seconds histogram
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.001"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.00199526231496888"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.003981071705534973"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.007943282347242817"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.01584893192461114"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.031622776601683805"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.06309573444801936"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.12589254117941678"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.2511886431509582"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="0.5011872336272727"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="1.0000000000000009"} 8
+fs_store_api_request_duration_seconds_bucket{route="DELETE /api/v1/probes/{id}",le="+Inf"} 8
+fs_store_api_request_duration_seconds_sum{route="DELETE /api/v1/probes/{id}"} 0.001651154
+fs_store_api_request_duration_seconds_count{route="DELETE /api/v1/probes/{id}"} 8
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.001"} 403
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.00199526231496888"} 403
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.003981071705534973"} 404
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.007943282347242817"} 404
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.01584893192461114"} 405
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.031622776601683805"} 408
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.06309573444801936"} 410
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.12589254117941678"} 420
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.2511886431509582"} 420
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="0.5011872336272727"} 421
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="1.0000000000000009"} 422
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections",le="+Inf"} 422
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/connections"} 2.360436915999999
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/connections"} 422
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.001"} 5933
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.00199526231496888"} 5980
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.003981071705534973"} 5988
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.007943282347242817"} 5997
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.01584893192461114"} 6005
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.031622776601683805"} 6010
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.06309573444801936"} 6014
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.12589254117941678"} 6020
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.2511886431509582"} 6026
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="0.5011872336272727"} 6027
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="1.0000000000000009"} 6027
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}",le="+Inf"} 6027
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/connections/{conn_id}"} 4.841440919999999
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/connections/{conn_id}"} 6027
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.001"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.00199526231496888"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.003981071705534973"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.007943282347242817"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.01584893192461114"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.031622776601683805"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.06309573444801936"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.12589254117941678"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.2511886431509582"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="0.5011872336272727"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="1.0000000000000009"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/pcap",le="+Inf"} 68
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/connections/{conn_id}/pcap"} 0.019456183999999994
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/connections/{conn_id}/pcap"} 68
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.001"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.00199526231496888"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.003981071705534973"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.007943282347242817"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.01584893192461114"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.031622776601683805"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.06309573444801936"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.12589254117941678"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.2511886431509582"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="0.5011872336272727"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="1.0000000000000009"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/connections/{conn_id}/raw",le="+Inf"} 38
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/connections/{conn_id}/raw"} 0.008326886999999998
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/connections/{conn_id}/raw"} 38
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.001"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.00199526231496888"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.003981071705534973"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.007943282347242817"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.01584893192461114"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.031622776601683805"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.06309573444801936"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.12589254117941678"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.2511886431509582"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="0.5011872336272727"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="1.0000000000000009"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/dns",le="+Inf"} 16
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/dns"} 0.001883775
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/dns"} 16
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.001"} 0
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.00199526231496888"} 241
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.003981071705534973"} 633
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.007943282347242817"} 720
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.01584893192461114"} 722
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.031622776601683805"} 726
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.06309573444801936"} 726
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.12589254117941678"} 726
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.2511886431509582"} 727
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="0.5011872336272727"} 727
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="1.0000000000000009"} 727
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/health",le="+Inf"} 727
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/health"} 2.2043729200000004
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/health"} 727
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.001"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.00199526231496888"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.003981071705534973"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.007943282347242817"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.01584893192461114"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.031622776601683805"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.06309573444801936"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.12589254117941678"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.2511886431509582"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="0.5011872336272727"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="1.0000000000000009"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/openapi.yaml",le="+Inf"} 1
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/openapi.yaml"} 0.000301793
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/openapi.yaml"} 1
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.001"} 11
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.00199526231496888"} 12
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.003981071705534973"} 12
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.007943282347242817"} 12
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.01584893192461114"} 12
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.031622776601683805"} 12
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.06309573444801936"} 12
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.12589254117941678"} 15
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.2511886431509582"} 15
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="0.5011872336272727"} 15
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="1.0000000000000009"} 15
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/packets",le="+Inf"} 15
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/packets"} 0.2550382539999998
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/packets"} 15
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.001"} 42935
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.00199526231496888"} 43174
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.003981071705534973"} 43207
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.007943282347242817"} 43227
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.01584893192461114"} 43251
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.031622776601683805"} 43272
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.06309573444801936"} 43297
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.12589254117941678"} 43319
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.2511886431509582"} 43375
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="0.5011872336272727"} 43382
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="1.0000000000000009"} 43382
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/probes/{id}",le="+Inf"} 43406
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/probes/{id}"} 261.7054088340016
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/probes/{id}"} 43406
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.001"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.00199526231496888"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.003981071705534973"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.007943282347242817"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.01584893192461114"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.031622776601683805"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.06309573444801936"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.12589254117941678"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.2511886431509582"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="0.5011872336272727"} 30
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="1.0000000000000009"} 42
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/stream",le="+Inf"} 99
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/stream"} 1081.958723945
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/stream"} 99
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.001"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.00199526231496888"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.003981071705534973"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.007943282347242817"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.01584893192461114"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.031622776601683805"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.06309573444801936"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.12589254117941678"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.2511886431509582"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="0.5011872336272727"} 26
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="1.0000000000000009"} 39
+fs_store_api_request_duration_seconds_bucket{route="GET /api/v1/ws",le="+Inf"} 115
+fs_store_api_request_duration_seconds_sum{route="GET /api/v1/ws"} 1315.4816224340002
+fs_store_api_request_duration_seconds_count{route="GET /api/v1/ws"} 115
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.001"} 0
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.00199526231496888"} 2
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.003981071705534973"} 46
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.007943282347242817"} 77
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.01584893192461114"} 77
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.031622776601683805"} 78
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.06309573444801936"} 78
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.12589254117941678"} 78
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.2511886431509582"} 78
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="0.5011872336272727"} 78
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="1.0000000000000009"} 78
+fs_store_api_request_duration_seconds_bucket{route="GET /metrics",le="+Inf"} 78
+fs_store_api_request_duration_seconds_sum{route="GET /metrics"} 0.3065544440000001
+fs_store_api_request_duration_seconds_count{route="GET /metrics"} 78
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.001"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.00199526231496888"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.003981071705534973"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.007943282347242817"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.01584893192461114"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.031622776601683805"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.06309573444801936"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.12589254117941678"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.2511886431509582"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="0.5011872336272727"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="1.0000000000000009"} 44
+fs_store_api_request_duration_seconds_bucket{route="other",le="+Inf"} 44
+fs_store_api_request_duration_seconds_sum{route="other"} 0.0022712329999999992
+fs_store_api_request_duration_seconds_count{route="other"} 44
+# HELP fs_store_api_requests_total API requests, by mux pattern and status code.
+# TYPE fs_store_api_requests_total counter
+fs_store_api_requests_total{code="101",route="GET /api/v1/ws"} 89
+fs_store_api_requests_total{code="200",route="GET /api/v1/connections"} 394
+fs_store_api_requests_total{code="200",route="GET /api/v1/connections/{conn_id}"} 6011
+fs_store_api_requests_total{code="200",route="GET /api/v1/connections/{conn_id}/pcap"} 60
+fs_store_api_requests_total{code="200",route="GET /api/v1/connections/{conn_id}/raw"} 18
+fs_store_api_requests_total{code="200",route="GET /api/v1/dns"} 4
+fs_store_api_requests_total{code="200",route="GET /api/v1/health"} 727
+fs_store_api_requests_total{code="200",route="GET /api/v1/openapi.yaml"} 1
+fs_store_api_requests_total{code="200",route="GET /api/v1/packets"} 7
+fs_store_api_requests_total{code="200",route="GET /api/v1/probes/{id}"} 14444
+fs_store_api_requests_total{code="200",route="GET /api/v1/stream"} 69
+fs_store_api_requests_total{code="200",route="GET /metrics"} 78
+fs_store_api_requests_total{code="400",route="DELETE /api/v1/probes/{id}"} 4
+fs_store_api_requests_total{code="400",route="GET /api/v1/connections"} 28
+fs_store_api_requests_total{code="400",route="GET /api/v1/connections/{conn_id}"} 12
+fs_store_api_requests_total{code="400",route="GET /api/v1/connections/{conn_id}/pcap"} 4
+fs_store_api_requests_total{code="400",route="GET /api/v1/connections/{conn_id}/raw"} 12
+fs_store_api_requests_total{code="400",route="GET /api/v1/dns"} 12
+fs_store_api_requests_total{code="400",route="GET /api/v1/packets"} 8
+fs_store_api_requests_total{code="400",route="GET /api/v1/probes/{id}"} 24
+fs_store_api_requests_total{code="400",route="GET /api/v1/stream"} 28
+fs_store_api_requests_total{code="400",route="GET /api/v1/ws"} 24
+fs_store_api_requests_total{code="404",route="DELETE /api/v1/probes/{id}"} 4
+fs_store_api_requests_total{code="404",route="GET /api/v1/connections/{conn_id}"} 4
+fs_store_api_requests_total{code="404",route="GET /api/v1/connections/{conn_id}/pcap"} 4
+fs_store_api_requests_total{code="404",route="GET /api/v1/connections/{conn_id}/raw"} 8
+fs_store_api_requests_total{code="404",route="GET /api/v1/probes/{id}"} 28938
+fs_store_api_requests_total{code="404",route="other"} 44
+fs_store_api_requests_total{code="503",route="GET /api/v1/stream"} 2
+fs_store_api_requests_total{code="503",route="GET /api/v1/ws"} 2
+# HELP fs_store_app_events_total Value from the service heartbeat (store_app_events_total).
+# TYPE fs_store_app_events_total counter
+fs_store_app_events_total{service="store"} 408080
+# HELP fs_store_conn_id_requests_total Value from the service heartbeat (store_conn_id_requests_total).
+# TYPE fs_store_conn_id_requests_total counter
+fs_store_conn_id_requests_total{service="store"} 126522
+# HELP fs_store_connections Connections kept in the database.
+# TYPE fs_store_connections gauge
+fs_store_connections 38246
+# HELP fs_store_connections_degraded_total Connections created in degraded mode (no pcap or raw bytes).
+# TYPE fs_store_connections_degraded_total counter
+fs_store_connections_degraded_total 32594
+# HELP fs_store_connections_open Connections currently open in the ingest.
+# TYPE fs_store_connections_open gauge
+fs_store_connections_open 848
+# HELP fs_store_connections_total Finished connections recorded, by L4 and protocol stack.
+# TYPE fs_store_connections_total counter
+fs_store_connections_total{l4="tcp",proto="dns"} 2
+fs_store_connections_total{l4="tcp",proto="h2"} 3011
+fs_store_connections_total{l4="tcp",proto="h2c"} 4234
+fs_store_connections_total{l4="tcp",proto="http1.0"} 39
+fs_store_connections_total{l4="tcp",proto="http1.1"} 20294
+fs_store_connections_total{l4="tcp",proto="http1.1/ws"} 14
+fs_store_connections_total{l4="tcp",proto="raw"} 1586
+fs_store_connections_total{l4="tcp",proto="raw/unknown"} 6
+fs_store_connections_total{l4="tcp",proto="tcp"} 36653
+fs_store_connections_total{l4="tcp",proto="tls"} 2384
+fs_store_connections_total{l4="tcp",proto="tls/h2"} 1102
+fs_store_connections_total{l4="tcp",proto="tls/h2/ws"} 6
+fs_store_connections_total{l4="tcp",proto="tls/http1.1"} 829
+fs_store_connections_total{l4="tcp",proto="tls/http1.1/ws"} 14
+fs_store_connections_total{l4="tcp",proto="tls/raw"} 13
+fs_store_connections_total{l4="udp",proto="quic/h3"} 12125
+fs_store_connections_total{l4="udp",proto="udp"} 5146
+# HELP fs_store_db_bytes Size of the SQLite database in bytes.
+# TYPE fs_store_db_bytes gauge
+fs_store_db_bytes 3.768240344e+09
+# HELP fs_store_dns_queries_total DNS queries recorded.
+# TYPE fs_store_dns_queries_total counter
+fs_store_dns_queries_total 314
+# HELP fs_store_event_only_connections_total Value from the service heartbeat (store_event_only_connections_total).
+# TYPE fs_store_event_only_connections_total counter
+fs_store_event_only_connections_total{service="store"} 7457
+# HELP fs_store_events_ingested_total Messages consumed from the FS_EVENTS stream, by subject.
+# TYPE fs_store_events_ingested_total counter
+fs_store_events_ingested_total{subject="fs.v1.capture.packet"} 59556
+fs_store_events_ingested_total{subject="fs.v1.dns.query"} 314
+fs_store_events_ingested_total{subject="fs.v1.raw.read"} 65493
+fs_store_events_ingested_total{subject="fs.v1.raw.session"} 10204
+fs_store_events_ingested_total{subject="fs.v1.svc.heartbeat"} 5427
+fs_store_events_ingested_total{subject="fs.v1.web.http1.request"} 40774
+fs_store_events_ingested_total{subject="fs.v1.web.http2.connection"} 13295
+fs_store_events_ingested_total{subject="fs.v1.web.http2.stream"} 23153
+fs_store_events_ingested_total{subject="fs.v1.web.http3.connection"} 20421
+fs_store_events_ingested_total{subject="fs.v1.web.http3.request"} 23670
+fs_store_events_ingested_total{subject="fs.v1.web.raw.session"} 6
+fs_store_events_ingested_total{subject="fs.v1.web.stream.bytes"} 186758
+fs_store_events_ingested_total{subject="fs.v1.web.tls.client_hello"} 11910
+fs_store_events_ingested_total{subject="fs.v1.web.tls.handshake"} 11949
+fs_store_events_ingested_total{subject="fs.v1.web.websocket.frame"} 133
+# HELP fs_store_flows_dropped_total Flow table cap (8192 entries): unestablished entries evicted, and packets of new 5-tuples refused with no entry to evict.
+# TYPE fs_store_flows_dropped_total counter
+fs_store_flows_dropped_total{reason="evicted"} 0
+fs_store_flows_dropped_total{reason="table_full"} 0
+# HELP fs_store_ingest_errors_total Value from the service heartbeat (store_ingest_errors_total).
+# TYPE fs_store_ingest_errors_total counter
+fs_store_ingest_errors_total{service="store"} 2
+# HELP fs_store_ingest_lag_seconds Delay from the event timestamp to the commit of its batch.
+# TYPE fs_store_ingest_lag_seconds histogram
+fs_store_ingest_lag_seconds_bucket{le="0.01"} 660
+fs_store_ingest_lag_seconds_bucket{le="0.0199526231496888"} 4468
+fs_store_ingest_lag_seconds_bucket{le="0.039810717055349734"} 26669
+fs_store_ingest_lag_seconds_bucket{le="0.07943282347242817"} 94887
+fs_store_ingest_lag_seconds_bucket{le="0.1584893192461114"} 220876
+fs_store_ingest_lag_seconds_bucket{le="0.31622776601683805"} 275184
+fs_store_ingest_lag_seconds_bucket{le="0.6309573444801936"} 298509
+fs_store_ingest_lag_seconds_bucket{le="1.258925411794168"} 2.481473e+06
+fs_store_ingest_lag_seconds_bucket{le="2.511886431509582"} 4.571066e+06
+fs_store_ingest_lag_seconds_bucket{le="5.011872336272726"} 4.772385e+06
+fs_store_ingest_lag_seconds_bucket{le="10.000000000000009"} 4.876996e+06
+fs_store_ingest_lag_seconds_bucket{le="+Inf"} 5.987887e+06
+fs_store_ingest_lag_seconds_sum 6.4452956223559685e+07
+fs_store_ingest_lag_seconds_count 5.987887e+06
+# HELP fs_store_late_packets_total Value from the service heartbeat (store_late_packets_total).
+# TYPE fs_store_late_packets_total counter
+fs_store_late_packets_total{service="store"} 14948
+# HELP fs_store_live_clients Live clients connected, by transport.
+# TYPE fs_store_live_clients gauge
+fs_store_live_clients{transport="sse"} 1
+fs_store_live_clients{transport="ws"} 2
+# HELP fs_store_live_delay_seconds Delay from the source event to its delivery to a live client.
+# TYPE fs_store_live_delay_seconds histogram
+fs_store_live_delay_seconds_bucket{le="0.01"} 993312
+fs_store_live_delay_seconds_bucket{le="0.0199526231496888"} 1.705643e+06
+fs_store_live_delay_seconds_bucket{le="0.039810717055349734"} 1.807373e+06
+fs_store_live_delay_seconds_bucket{le="0.07943282347242817"} 1.845466e+06
+fs_store_live_delay_seconds_bucket{le="0.1584893192461114"} 1.866081e+06
+fs_store_live_delay_seconds_bucket{le="0.31622776601683805"} 1.901791e+06
+fs_store_live_delay_seconds_bucket{le="0.6309573444801936"} 1.913835e+06
+fs_store_live_delay_seconds_bucket{le="1.258925411794168"} 1.949418e+06
+fs_store_live_delay_seconds_bucket{le="2.511886431509582"} 2.011513e+06
+fs_store_live_delay_seconds_bucket{le="5.011872336272726"} 2.053727e+06
+fs_store_live_delay_seconds_bucket{le="10.000000000000009"} 2.10876e+06
+fs_store_live_delay_seconds_bucket{le="+Inf"} 3.212198e+06
+fs_store_live_delay_seconds_sum 5.823114065171233e+07
+fs_store_live_delay_seconds_count 3.212198e+06
+# HELP fs_store_live_dropped_total Live events dropped for slow clients.
+# TYPE fs_store_live_dropped_total counter
+fs_store_live_dropped_total 80025
+# HELP fs_store_live_events_total Live events emitted, by kind.
+# TYPE fs_store_live_events_total counter
+fs_store_live_events_total{kind="connection.closed"} 80001
+fs_store_live_events_total{kind="connection.opened"} 294814
+fs_store_live_events_total{kind="connection.updated"} 131344
+fs_store_live_events_total{kind="dns.query"} 314
+fs_store_live_events_total{kind="http.request"} 87564
+fs_store_live_events_total{kind="packet.stray"} 664294
+# HELP fs_store_packets_total Value from the service heartbeat (store_packets_total).
+# TYPE fs_store_packets_total counter
+fs_store_packets_total{service="store"} 5.579967e+06
+# HELP fs_store_pending_events_total Value from the service heartbeat (store_pending_events_total).
+# TYPE fs_store_pending_events_total counter
+fs_store_pending_events_total{service="store"} 55996
+# HELP fs_store_purged_total Connections purged by retention, by reason (age or size).
+# TYPE fs_store_purged_total counter
+fs_store_purged_total{reason="age"} 50024
+fs_store_purged_total{reason="size"} 0
+# HELP fs_store_raw_stream_bytes_total Value from the service heartbeat (store_raw_stream_bytes_total).
+# TYPE fs_store_raw_stream_bytes_total counter
+fs_store_raw_stream_bytes_total{service="store"} 3.2941821e+08
+# HELP fs_store_record_ready_seconds Delay from the end of a connection to its final record being written, by reason (close, quic_close or idle).
+# TYPE fs_store_record_ready_seconds histogram
+fs_store_record_ready_seconds_bucket{reason="close",le="0.01"} 1
+fs_store_record_ready_seconds_bucket{reason="close",le="0.0199526231496888"} 21
+fs_store_record_ready_seconds_bucket{reason="close",le="0.039810717055349734"} 127
+fs_store_record_ready_seconds_bucket{reason="close",le="0.07943282347242817"} 393
+fs_store_record_ready_seconds_bucket{reason="close",le="0.1584893192461114"} 746
+fs_store_record_ready_seconds_bucket{reason="close",le="0.31622776601683805"} 851
+fs_store_record_ready_seconds_bucket{reason="close",le="0.6309573444801936"} 911
+fs_store_record_ready_seconds_bucket{reason="close",le="1.258925411794168"} 3117
+fs_store_record_ready_seconds_bucket{reason="close",le="2.511886431509582"} 8064
+fs_store_record_ready_seconds_bucket{reason="close",le="5.011872336272726"} 9638
+fs_store_record_ready_seconds_bucket{reason="close",le="10.000000000000009"} 11556
+fs_store_record_ready_seconds_bucket{reason="close",le="+Inf"} 13953
+fs_store_record_ready_seconds_sum{reason="close"} 131734.55911962243
+fs_store_record_ready_seconds_count{reason="close"} 13953
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.01"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.0199526231496888"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.039810717055349734"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.07943282347242817"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.1584893192461114"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.31622776601683805"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="0.6309573444801936"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="1.258925411794168"} 0
+fs_store_record_ready_seconds_bucket{reason="idle",le="2.511886431509582"} 1
+fs_store_record_ready_seconds_bucket{reason="idle",le="5.011872336272726"} 2
+fs_store_record_ready_seconds_bucket{reason="idle",le="10.000000000000009"} 3
+fs_store_record_ready_seconds_bucket{reason="idle",le="+Inf"} 60038
+fs_store_record_ready_seconds_sum{reason="idle"} 6.5589842511956515e+06
+fs_store_record_ready_seconds_count{reason="idle"} 60038
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.01"} 0
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.0199526231496888"} 0
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.039810717055349734"} 0
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.07943282347242817"} 0
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.1584893192461114"} 57
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.31622776601683805"} 88
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="0.6309573444801936"} 105
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="1.258925411794168"} 129
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="2.511886431509582"} 220
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="5.011872336272726"} 448
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="10.000000000000009"} 908
+fs_store_record_ready_seconds_bucket{reason="quic_close",le="+Inf"} 6010
+fs_store_record_ready_seconds_sum{reason="quic_close"} 265344.75851889554
+fs_store_record_ready_seconds_count{reason="quic_close"} 6010
+# HELP fs_store_stray_packets_total Packets recorded without a connection.
+# TYPE fs_store_stray_packets_total counter
+fs_store_stray_packets_total 664295
+# HELP fs_web_connections_active Value from the service heartbeat (web_connections_active).
+# TYPE fs_web_connections_active gauge
+fs_web_connections_active{service="web"} 0
+# HELP fs_web_connections_total Value from the service heartbeat (web_connections_total).
+# TYPE fs_web_connections_total counter
+fs_web_connections_total{service="web"} 85535
+# HELP fs_web_h3_listening Value from the service heartbeat (web_h3_listening).
+# TYPE fs_web_h3_listening gauge
+fs_web_h3_listening{service="web"} 1
+# HELP fs_web_http1_requests_total Value from the service heartbeat (web_http1_requests_total).
+# TYPE fs_web_http1_requests_total counter
+fs_web_http1_requests_total{service="web"} 131124
+# HELP fs_web_http2_connections_total Value from the service heartbeat (web_http2_connections_total).
+# TYPE fs_web_http2_connections_total counter
+fs_web_http2_connections_total{service="web"} 22802
+# HELP fs_web_http2_streams_total Value from the service heartbeat (web_http2_streams_total).
+# TYPE fs_web_http2_streams_total counter
+fs_web_http2_streams_total{service="web"} 68408
+# HELP fs_web_http3_connections_total Value from the service heartbeat (web_http3_connections_total).
+# TYPE fs_web_http3_connections_total counter
+fs_web_http3_connections_total{service="web"} 22855
+# HELP fs_web_http3_requests_total Value from the service heartbeat (web_http3_requests_total).
+# TYPE fs_web_http3_requests_total counter
+fs_web_http3_requests_total{service="web"} 80780
+# HELP fs_web_input_budget_denied_total Value from the service heartbeat (web_input_budget_denied_total).
+# TYPE fs_web_input_budget_denied_total counter
+fs_web_input_budget_denied_total{service="web"} 39658
+# HELP fs_web_input_budget_used_bytes Value from the service heartbeat (web_input_budget_used_bytes).
+# TYPE fs_web_input_budget_used_bytes gauge
+fs_web_input_budget_used_bytes{service="web"} 0
+# HELP fs_web_websocket_connections_total Value from the service heartbeat (web_websocket_connections_total).
+# TYPE fs_web_websocket_connections_total counter
+fs_web_websocket_connections_total{service="web"} 13
+# HELP fs_web_websocket_frames_total Value from the service heartbeat (web_websocket_frames_total).
+# TYPE fs_web_websocket_frames_total counter
+fs_web_websocket_frames_total{service="web"} 19
+# HELP promhttp_metric_handler_errors_total Total number of internal errors encountered by the promhttp metric handler.
+# TYPE promhttp_metric_handler_errors_total counter
+promhttp_metric_handler_errors_total{cause="encoding"} 0
+promhttp_metric_handler_errors_total{cause="gathering"} 0
