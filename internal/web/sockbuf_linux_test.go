@@ -135,7 +135,7 @@ func TestUDPSocketBuffers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer pc.Close()
+			defer func() { _ = pc.Close() }()
 			u := &udpConn{c: pc}
 			if err := u.SetReadBuffer(tc.req); err != nil {
 				t.Fatal(err)
