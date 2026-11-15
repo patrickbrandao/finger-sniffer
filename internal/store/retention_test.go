@@ -251,6 +251,13 @@ func TestRetentionVacuumAfterShrink(t *testing.T) {
 
 // TestCheckpointOffWriter: o checkpoint pela conexão própria copia o WAL e não espera uma transação aberta do
 // escritor (PASSIVE), ou seja, não entra no caminho do ingest (task 105).
+//
+// Como a transação do escritor só termina depois que o checkpoint volta, uma espera por ela nunca é satisfeita:
+// um checkpoint que esperasse (FULL, RESTART, TRUNCATE) gastaria o busy_timeout inteiro. O tempo é bimodal:
+// sem espera, dezenas de ms (1,59 s no pior caso visto, sob -race em runner carregado do CI no PR #197); com
+// espera, >= checkpointBusyTimeout. O limite fica na metade dele, longe dos dois modos (task 237). Desligar o
+// busy handler (busy_timeout 0) não serve: o checkpoint que espera volta na hora, sem erro, só com busy=1, que
+// Checkpoint descarta.
 func TestCheckpointOffWriter(t *testing.T) {
 	db, path := testDB(t)
 	fillConns(t, db, "c", 200, time.Now().UnixNano())
@@ -260,6 +267,11 @@ func TestCheckpointOffWriter(t *testing.T) {
 	}
 	defer func() { _ = cdb.Close() }()
 	ctx := context.Background()
+	// OpenCheckpointDB limita o pool a 1 conexão, então o PRAGMA vale para a conexão usada pelo Checkpoint.
+	const checkpointBusyTimeout = 20 * time.Second
+	if _, err := cdb.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", checkpointBusyTimeout.Milliseconds())); err != nil {
+		t.Fatal(err)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -269,8 +281,8 @@ func TestCheckpointOffWriter(t *testing.T) {
 	}
 	t0 := time.Now()
 	wal, done, err := Checkpoint(ctx, cdb)
-	if err != nil || time.Since(t0) > time.Second {
-		t.Fatalf("checkpoint with an open write tx: %v after %v", err, time.Since(t0))
+	if elapsed := time.Since(t0); err != nil || elapsed >= checkpointBusyTimeout/2 {
+		t.Fatalf("checkpoint with an open write tx: %v after %v (waited for the writer?)", err, elapsed)
 	}
 	if wal <= 0 || done != wal {
 		t.Fatalf("checkpointed %d of %d WAL pages", done, wal)
