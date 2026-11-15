@@ -18,7 +18,7 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
-// liveCapture roda o capture de verdade na eth0 por d, publicando num NATS embutido, chama gen para gerar
+// liveCapture roda o capture de verdade na ens192 por d, publicando num NATS embutido, chama gen para gerar
 // tráfego e devolve os pacotes recebidos, o número de lotes e o serviço (para as métricas).
 func liveCapture(t *testing.T, d time.Duration, gen func()) ([]event.Packet, int, *service.Service) {
 	t.Helper()
@@ -83,11 +83,11 @@ func liveCapture(t *testing.T, d time.Duration, gen func()) ([]event.Packet, int
 	return pkts, batches, svc
 }
 
-// TestCaptureLive roda na vps602 como root (verify-full): captura de verdade na eth0, publica num NATS embutido
-// e confere direção, tráfego gerado e que a porta de gerência (a sessão ssh deste teste) não aparece.
+// TestCaptureLive roda no servidor de testes como root (verify-full): captura de verdade na interface padrão
+// (ens192), publica num NATS embutido e confere direção, tráfego gerado e que a porta de gerência (a sessão ssh deste teste) não aparece.
 func TestCaptureLive(t *testing.T) {
 	pkts, batches, svc := liveCapture(t, 8*time.Second, func() {
-		// Tráfego que passa pela eth0: TCP de saída para um host externo e ping para o gateway.
+		// Tráfego que passa pela ens192: TCP de saída para um host externo e ping para o gateway.
 		if c, err := net.DialTimeout("tcp", "1.1.1.1:443", 3*time.Second); err == nil {
 			_ = c.Close()
 		} else {

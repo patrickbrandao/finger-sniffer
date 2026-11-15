@@ -1,4 +1,4 @@
-// Comando finger-sniffer-capture: captura AF_PACKET da eth0 e publica lotes FSPB v1 no NATS (spec 003).
+// Comando finger-sniffer-capture: captura AF_PACKET da ens192 e publica lotes FSPB v1 no NATS (spec 003).
 package main
 
 import (

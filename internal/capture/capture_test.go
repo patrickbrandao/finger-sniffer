@@ -16,7 +16,7 @@ import (
 )
 
 func TestBatcher(t *testing.T) {
-	b := NewBatcher(3, 5*time.Millisecond, "eth0")
+	b := NewBatcher(3, 5*time.Millisecond, "ens192")
 	if b.Take() != nil {
 		t.Fatal("empty batch must return nil")
 	}
@@ -36,7 +36,7 @@ func TestBatcher(t *testing.T) {
 	msg := b.Take()
 	if msg.Subject != event.SubjectCapturePacket || msg.Header.Get(event.HeaderFormat) != event.FSPBFormat ||
 		msg.Header.Get(event.HeaderCount) != "3" || msg.Header.Get(event.HeaderService) != event.ServiceCapture ||
-		msg.Header.Get(event.HeaderIface) != "eth0" || msg.Header.Get(event.HeaderSchemaVersion) != strconv.Itoa(event.SchemaVersion) {
+		msg.Header.Get(event.HeaderIface) != "ens192" || msg.Header.Get(event.HeaderSchemaVersion) != strconv.Itoa(event.SchemaVersion) {
 		t.Fatalf("headers %v", msg.Header)
 	}
 	var got []event.Packet
@@ -111,7 +111,7 @@ func TestParseFrameAndClassifier(t *testing.T) {
 
 // Com offload de agregação ligado, todo pacote sai com offload_suspect, mesmo os pequenos (spec 003 RF-06).
 func TestFlagsAggregating(t *testing.T) {
-	h := NewHealth("eth0", filepath.Join(t.TempDir(), "none.json"))
+	h := NewHealth("ens192", filepath.Join(t.TempDir(), "none.json"))
 	features := "generic-receive-offload: on\n"
 	h.features = func(context.Context, string) (string, error) { return features, nil }
 	c := &classifier{mtu: 1500, aggregating: h.Aggregating}
@@ -181,7 +181,7 @@ func TestParseFrameIPv6Ext(t *testing.T) {
 
 // Frames de 64 KiB (agregação ligada) nunca geram lote acima do teto em bytes (spec 003 RF-04, max_payload 1 MB).
 func TestBatcherMaxBytes(t *testing.T) {
-	b := NewBatcher(256, time.Hour, "eth0")
+	b := NewBatcher(256, time.Hour, "ens192")
 	now := time.Now()
 	frame := make([]byte, 64<<10)
 	var msgs int
@@ -245,7 +245,7 @@ func TestLoadConfig(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	c, err := LoadConfig()
-	if err != nil || c.Iface != "eth0" || c.Snaplen != 65535 || c.BatchMax != 256 || c.BatchWait != 5*time.Millisecond ||
+	if err != nil || c.Iface != "ens192" || c.Snaplen != 65535 || c.BatchMax != 256 || c.BatchWait != 5*time.Millisecond ||
 		c.BlockTimeout != 10*time.Millisecond || len(c.Exclude) != 4 {
 		t.Fatalf("%+v %v", c, err)
 	}
@@ -287,7 +287,7 @@ func TestParsePorts(t *testing.T) {
 func TestHealth(t *testing.T) {
 	dir := t.TempDir()
 	ns := filepath.Join(dir, "net-status.json")
-	h := NewHealth("eth0", ns)
+	h := NewHealth("ens192", ns)
 	features := "generic-receive-offload: off\nrx-gro-hw: off\nlarge-receive-offload: off [fixed]\n"
 	h.features = func(context.Context, string) (string, error) { return features, nil }
 
