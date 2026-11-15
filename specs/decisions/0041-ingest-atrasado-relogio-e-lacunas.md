@@ -1,6 +1,6 @@
 # 0041 — Ingest atrasado: relógio de captura nos prazos, lacunas do stream visíveis e RNF-01 400/100 mantido
 
-Status: aceita
+Status: aceita (item 1, RNF-01 400/100 mantido: substituído por 0042, que recua para 200/50 com os degraus)
 Data: 2026-11-15
 
 ## Contexto
