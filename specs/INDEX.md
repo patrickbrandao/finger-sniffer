@@ -22,7 +22,7 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [015-acme-certificados.md](015-acme-certificados.md) | ACME e certificados | certmagic, DNS-01 próprio, HTTP-01, recarga a quente, falhas | 005, 007 | aprovada |
 | [016-infra-e-deploy.md](016-infra-e-deploy.md) | Infra, rede e deploy | finger-01, offloads, sysctls, units/hardening, limites e fatia, NATS, layout, `make deploy`, traefik do host | 001 | aprovada |
 | [017-verificacao.md](017-verificacao.md) | Verificação e testes | verify quick/full, níveis de teste, matriz e2e, carga | 002, 016 | aprovada |
-| [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F6 (F7 futura), paralelismo, critérios de saída | todas | aprovada |
+| [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F7 (F8 futura), paralelismo, critérios de saída | todas | aprovada |
 
 ## Contratos e pastas auxiliares
 | Caminho | Conteúdo |

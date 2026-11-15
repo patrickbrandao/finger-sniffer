@@ -73,8 +73,8 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - Privacidade: API totalmente aberta; tráfego de terceiros visível por até 10 min (ADR 0007).
 
 ## Requisitos
-- RNF-01: 400 conexões simultâneas e 100 conexões novas/s com análise completa (ADR 0039; provisório até a carga
-  oficial no finger-01). Acima do limite do modo degradado (configurável, padrão acima desta garantia para absorver
+- RNF-01: 200 conexões simultâneas e 50 conexões novas/s com análise completa (ADR 0042; 400/100 é a meta da fase
+  F7). Acima do limite do modo degradado (configurável, padrão acima desta garantia para absorver
   o tráfego alheio; spec 004 RF-11, ADRs 0030 e 0039) degrada:
   mantém o resumo, corta o pcap e marca `degraded` no registro.
 - RNF-02: evento ao vivo entregue ao cliente da 9000 em < 1 s após o espelho ter o fato (o pacote chegar ou o

@@ -78,12 +78,15 @@ túneis) é do cliente, que usa as receitas genéricas e a lista de campos está
 repetidas do mesmo cliente.
 
 ### Carga
-- RF-13: `test/load/`: 400 conexões simultâneas e 100 novas/s por 10 min (RNF-01, ADR 0039), mix h1/h2/h3/raw;
+- RF-13: `test/load/`: 200 conexões simultâneas e 50 novas/s por 10 min (RNF-01, ADR 0042), depois de 9 min de
+  pré-aquecimento no mesmo perfil (o expurgo roda dentro da janela), mix h1/h2/h3/raw;
   mede CPU/RAM por serviço, `cpu.stat nr_throttled` por unit, latência da API (p95), atraso do feed,
   `dropped_events_total`, `kernel_drops`, `fs_store_flows_dropped_total` e o `conntrack -S` antes e depois;
   `fs_store_stream_lost_total` sem crescer e health do store sem `ingest backlog`/`stream lost` (ADR 0041), com
-  `fs_store_ingest_backlog_seconds` máximo e `fs_store_stray_midflow_total`/s registrados. Antes da janela, degraus
-  de 3 min a 50, 75 e 100 novas/s registram o teto do ingest, sem meta.
+  `fs_store_ingest_backlog_seconds` máximo e `fs_store_stray_midflow_total`/s registrados; memória do store por 5 s
+  (`memory.current`, `file`, `anon`, `memory.events`, `pgscan`/`pgsteal`/`workingset_refault_file`,
+  `memory.pressure`, `io.pressure`) e tamanho do banco e do WAL registrados (ADR 0042). Degraus de 3 min (50, 75,
+  100 novas/s, sem meta) medem o teto do ingest quando ele muda (ADR 0041; fase F7).
   Gerador em Go fora do finger-01 (a máquina cliente), para medir o caminho real e não disputar CPU com o espelho e
   os sites; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;
   metas e percentis da ADR 0022, primeiro minuto descartado. Relatório em `test/load/RESULTS.md` com versão,

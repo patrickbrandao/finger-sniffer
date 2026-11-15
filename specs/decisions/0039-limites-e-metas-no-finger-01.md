@@ -1,7 +1,7 @@
 # 0039 — Limites por serviço e metas de RNF no finger-01
 
-Status: aceita (RNF-01 de 400/100 provisória até a carga oficial no finger-01: ver item 6; a 1ª carga falhou por
-causa pontual e a meta foi mantida: ver 0041)
+Status: aceita (RNF-01 de 400/100 do item 5 substituído por 0042: 200/50 na v0.3.0, 400/100 na fase F7; a 1ª carga
+falhou por causa pontual: ver 0041)
 Data: 2026-11-15
 
 ## Contexto

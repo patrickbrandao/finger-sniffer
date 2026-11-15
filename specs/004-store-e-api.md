@@ -46,7 +46,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 1000) conexões simultâneas ou
   `FS_MAX_NEW_CONNS_PER_S` (padrão 250) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas
-  conexões e marca `degraded=true`. A garantia continua a da spec 000 (400 e 100/s com análise completa); o padrão
+  conexões e marca `degraded=true`. A garantia continua a da spec 000 (200 e 50/s com análise completa, ADR 0042); o padrão
   fica acima dela, com margem para o tráfego alheio de um servidor público e dos sites do host, que também é
   capturado (ADRs 0030 e 0039). Contagem (ADR 0026):
   - simultâneas = conexões TCP e QUIC vivas, de qualquer cliente; as já fechadas (FIN dos dois lados ou RST) que
@@ -292,7 +292,7 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
       `close`, com `close.how = quic_close`; datagramas tardios entram no mesmo registro (ADR 0026).
 - [ ] FIN dos dois lados com ACK final fecha o registro no ACK; sem ACK, depois de `FS_TCP_CLOSE_GRACE`; RST fecha
       na hora; ACK/RST tardio até 2 s entra no registro gravado, sem conexão nova nem avulso.
-- [ ] Com os padrões (1000/250), o perfil do RNF-01 (400 vivas, 100 novas/s com jitter, consultas DNS, varreduras
+- [ ] Com os padrões (1000/250), o perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS, varreduras
       e algumas dezenas de conexões alheias por cima) não marca `degraded`; excesso sustentado acima de
       `FS_MAX_CONNS` vivas ou de `FS_MAX_NEW_CONNS_PER_S` novas/s marca (ADR 0030).
 - [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).

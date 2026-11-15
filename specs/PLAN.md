@@ -99,18 +99,30 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     implementer-capture (230): padrões de portas, zona, certificados, HTTPS RR, limites;
   - docs: `docs/`, `htdocs/`, README sem o servidor anterior (233);
   - tester: e2e, golden e carga apontando para o finger-01, matriz direta (234) → carga de verificação do
-    orçamento do web (215) e carga oficial 400/100 (235), sozinhas no servidor.
-- **Critério de saída**: matriz direta (13 casos) verde no finger-01; carga oficial com as metas da ADR 0039;
+    orçamento do web (215) e carga oficial 200/50 (235, ADR 0042), sozinhas no servidor.
+- **Critério de saída**: matriz direta (13 casos) verde no finger-01; carga oficial 200/50 com as metas das ADRs
+  0039 e 0042;
   carga do orçamento com as metas da ADR 0039 item 4 (task 215 fechada); `curl` sem `-k` em
   `https://<id>.finger-west-01.badblock.net.br:8443/`, `https://finger-01.badblock.net.br:9000/` e
   `https://finger-01.badblock.net.br/` (pelo traefik); nenhum script, spec ou doc com o servidor anterior como alvo;
   tag `v0.3.0`; CHANGELOG com a seção `[0.3.0]`.
 
-## F7 — Detecção de bots oferecida por API (futura)
+## F7 — Vazão do ingest: RNF-01 de volta a 400/100
+- **Objetivo**: o store sustenta 400 simultâneas e 100 novas/s no finger-01 com as metas da carga oficial, sem perda
+  no stream, e uma ADR nova devolve o RNF-01 a 400/100 (ADR 0042 item 5).
+- **Specs**: 000, 004, 016, 017.
+- **Dependências**: F6 (tag `v0.3.0`).
+- **Frentes**: implementer-store: diagnóstico e tratamento da vazão do ingest (task 246; mudanças de unit, limites
+  ou ADR voltam ao architect) → tester: degraus 50/75/100 e carga oficial 400/100 com pré-aquecimento de 9 min
+  (task 247).
+- **Critério de saída**: carga 247 com todas as metas da ADR 0042 item 3 a 400/100, `fs_store_stream_lost_total`
+  Δ 0 do pré-aquecimento ao fim; ADR nova com RNF-01 400/100; release seguinte.
+
+## F8 — Detecção de bots oferecida por API (futura)
 - **Objetivo**: a análise do espelho identifica bots e é oferecida por API (forwardAuth do traefik, consulta
   pelo site, feed/webhook) a sites próprios e a clientes externos com chave emitida pelo humano, com um traefik
   modificado mantido por um papel novo.
 - **Specs a escrever**: veredito e sinais (incoerências, listas de fingerprints, comportamento); API de veredito,
   chaves e limites; agregados por IP/fingerprint com 7 dias e LGPD; traefik modificado (dados capturados,
   cabeçalhos de correlação, imagem); licença não comercial com JA4+ e ja4db; papel `implementer-traefik`.
-- Começa só depois do critério de saída da F6; sem tarefas até lá.
+- Começa só depois do critério de saída da F7 (a análise de bots soma trabalho ao store); sem tarefas até lá.
