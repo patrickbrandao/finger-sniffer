@@ -80,7 +80,10 @@ repetidas do mesmo cliente.
 ### Carga
 - RF-13: `test/load/`: 400 conexões simultâneas e 100 novas/s por 10 min (RNF-01, ADR 0039), mix h1/h2/h3/raw;
   mede CPU/RAM por serviço, `cpu.stat nr_throttled` por unit, latência da API (p95), atraso do feed,
-  `dropped_events_total`, `kernel_drops`, `fs_store_flows_dropped_total` e o `conntrack -S` antes e depois.
+  `dropped_events_total`, `kernel_drops`, `fs_store_flows_dropped_total` e o `conntrack -S` antes e depois;
+  `fs_store_stream_lost_total` sem crescer e health do store sem `ingest backlog`/`stream lost` (ADR 0041), com
+  `fs_store_ingest_backlog_seconds` máximo e `fs_store_stray_midflow_total`/s registrados. Antes da janela, degraus
+  de 3 min a 50, 75 e 100 novas/s registram o teto do ingest, sem meta.
   Gerador em Go fora do finger-01 (a máquina cliente), para medir o caminho real e não disputar CPU com o espelho e
   os sites; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;
   metas e percentis da ADR 0022, primeiro minuto descartado. Relatório em `test/load/RESULTS.md` com versão,
@@ -101,3 +104,4 @@ repetidas do mesmo cliente.
 - specs/decisions/0022-prova-do-mvp-no-espelho.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
+- specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md
