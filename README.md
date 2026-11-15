@@ -8,7 +8,7 @@ Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com qu
 servidor: a mesma sondagem, repetida por caminhos diferentes (direto, por um proxy, por uma VPN), mostra o que cada
 caminho mudou.
 
-Instância pública: servidor `finger-01.badblock.net.br` (também `finger-01.tmsoft.com.br`), zona de sondagem
+Instância pública: servidor `finger-01.badblock.net.br` (para ssh também `finger-01.tmsoft.com.br`), zona de sondagem
 `<id>.finger-west-01.badblock.net.br`, API em `finger-01.badblock.net.br:9000` (HTTPS) e `:9001` (HTTP). A página
 `https://finger-01.badblock.net.br/` (pelo proxy reverso do host) ou `https://<id>.finger-west-01.badblock.net.br:8443/`
 (direto no espelho) mostra o feed global ao vivo.
