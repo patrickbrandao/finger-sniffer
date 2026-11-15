@@ -63,7 +63,7 @@ func TestInputBudget(t *testing.T) {
 	}
 }
 
-// TestLoadConfigInputBudget: FS_WEB_INPUT_BUDGET com padrão de 40 MiB e faixa 8–64 MiB (ADR 0033).
+// TestLoadConfigInputBudget: FS_WEB_INPUT_BUDGET com padrão de 24 MiB e faixa 8–32 MiB (ADR 0036).
 func TestLoadConfigInputBudget(t *testing.T) {
 	t.Setenv("FS_LISTEN_IPV4", "127.0.0.1")
 	t.Setenv("FS_LISTEN_IPV6", "")
@@ -72,10 +72,12 @@ func TestLoadConfigInputBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("FS_WEB_INPUT_BUDGET", "")
-	if c, err := LoadConfig(base); err != nil || c.InputBudget != 41943040 {
+	if c, err := LoadConfig(base); err != nil || c.InputBudget != 25165824 {
 		t.Fatalf("default: %v %d", err, c.InputBudget)
 	}
-	for v, ok := range map[string]bool{"8388608": true, "67108864": true, "8388607": false, "67108865": false, "0": false} {
+	for v, ok := range map[string]bool{
+		"8388608": true, "33554432": true, "8388607": false, "33554433": false, "41943040": false, "0": false,
+	} {
 		t.Setenv("FS_WEB_INPUT_BUDGET", v)
 		c, err := LoadConfig(base)
 		if (err == nil) != ok || (ok && fmt.Sprint(c.InputBudget) != v) {
@@ -87,7 +89,9 @@ func TestLoadConfigInputBudget(t *testing.T) {
 // TestHTTP1InputBudget (task 155): com orçamento pequeno, conexões com cabeçalhos grandes pendentes →
 // a excedente recebe 431 com head_too_large, as outras seguem, e o contador volta a zero ao fim de todas.
 func TestHTTP1InputBudget(t *testing.T) {
-	const budget = 1 << 20
+	// Cada cabeçalho parcial de 600 KiB reserva a capacidade de RawHead (1 MiB, dobrando) e as cópias
+	// (ADR 0036): duas não cabem em 2 MiB.
+	const budget = 2 << 20
 	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.InputBudget = budget }})
 	partial := "GET /p/" + testProbe + "/ HTTP/1.1\r\nHost: x\r\nX-Big: " + strings.Repeat("a", 600<<10)
 
@@ -117,8 +121,9 @@ func TestHTTP1InputBudget(t *testing.T) {
 	if resp, _ := cl1.response("GET"); resp.StatusCode != 200 {
 		t.Fatalf("first status %d", resp.StatusCode)
 	}
-	waitFor(t, 2*time.Second, func() bool { return h.srv.budget.inUse() == 0 },
-		func() string { return fmt.Sprint("after response ", h.srv.budget.inUse()) })
+	// Com a conexão aberta só fica o pendente do tap (a resposta ainda não publicada).
+	waitFor(t, 2*time.Second, func() bool { return pathInUse(h.srv.budget) == 0 },
+		func() string { return fmt.Sprint("after response ", pathInUse(h.srv.budget)) })
 
 	// Cabeçalho parcial abandonado (cliente fecha) também devolve.
 	c3 := dial(t, h.addr80)
@@ -127,9 +132,14 @@ func TestHTTP1InputBudget(t *testing.T) {
 		func() string { return fmt.Sprint("c3 in use ", h.srv.budget.inUse()) })
 	_ = c3.Close()
 	_ = c2.Close()
+	_ = c1.Close()
 	waitFor(t, 2*time.Second, func() bool { return h.srv.budget.inUse() == 0 },
 		func() string { return fmt.Sprint("after close ", h.srv.budget.inUse()) })
 	if h.srv.metrics.Get(MetricInputBudgetUsed) != 0 {
 		t.Fatalf("gauge %v", h.srv.metrics.Get(MetricInputBudgetUsed))
 	}
 }
+
+// pathInUse devolve a parte do orçamento em uso que não é dos pendentes do tap (que existem enquanto a
+// conexão está aberta, ADR 0036).
+func pathInUse(b *inputBudget) int64 { return b.inUse() - b.tapInUse() }

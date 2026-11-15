@@ -13,6 +13,7 @@ import (
 	"io"
 	"strings"
 	"unicode/utf8"
+	"unsafe"
 )
 
 // Terminadores de linha registrados em cada campo.
@@ -243,9 +244,11 @@ type Reader struct {
 	MaxHeadBytes int
 	// MaxFields é o teto de campos do cabeçalho e dos trailers; 0 usa DefaultMaxFields.
 	MaxFields int
-	// Reserve, quando definido, pede n bytes ao orçamento de entrada antes de guardar bytes do cabeçalho ou
-	// dos trailers (spec 009 RF-10, ADR 0033); false encerra a leitura com ErrHeadTooLarge (431 no cabeçalho,
-	// 400 nos trailers) sem guardar o pedaço. Quem define devolve a reserva ao fim da requisição.
+	// Reserve, quando definido, pede n bytes ao orçamento de entrada antes de alocar memória para guardar
+	// bytes do cabeçalho ou dos trailers (spec 009 RF-10, ADRs 0033 e 0036): o crescimento da capacidade de
+	// RawHead, as cópias de cada campo e da linha de requisição e o crescimento das fatias de campos. false
+	// encerra a leitura com ErrHeadTooLarge (431 no cabeçalho, 400 nos trailers) sem guardar o pedaço. Quem
+	// define devolve a reserva ao fim da requisição.
 	Reserve func(n int) bool
 	// consumed conta os bytes já consumidos de br, para o InOffset de cada requisição.
 	consumed int64
@@ -276,17 +279,80 @@ func (r *Reader) maxFields() int {
 	return DefaultMaxFields
 }
 
+// reserve pede n bytes ao orçamento (sempre true sem Reserve).
+func (r *Reader) reserve(n int) bool {
+	return n <= 0 || r.Reserve == nil || r.Reserve(n)
+}
+
+// minHeadBuf é a menor capacidade alocada para RawHead.
+const minHeadBuf = 512
+
+// fieldSize é o tamanho de um Field na fatia (4 cabeçalhos de string).
+const fieldSize = int(unsafe.Sizeof(Field{}))
+
+// growBuf garante capacidade para mais n bytes em *dst: a capacidade dobra (no mínimo minHeadBuf, no
+// máximo capMax, salvo se o pedido passar disso) e o crescimento é reservado antes de alocar (ADR 0036).
+func (r *Reader) growBuf(dst *[]byte, n, capMax int) bool {
+	need := len(*dst) + n
+	if need <= cap(*dst) {
+		return true
+	}
+	newCap := min(max(2*cap(*dst), need, minHeadBuf), max(capMax, need))
+	if !r.reserve(newCap - cap(*dst)) {
+		return false
+	}
+	nb := make([]byte, len(*dst), newCap)
+	copy(nb, *dst)
+	*dst = nb
+	return true
+}
+
+// appendField acrescenta f a *fs, reservando antes a cópia dos bytes do campo (size, feita por parseField)
+// e o crescimento da fatia (capacidade dobrada, no máximo maxFields). false: sem orçamento.
+func (r *Reader) appendField(fs *[]Field, f Field, size int) bool {
+	grow := 0
+	newCap := cap(*fs)
+	if len(*fs) == cap(*fs) {
+		newCap = min(max(2*cap(*fs), 8), max(r.maxFields(), len(*fs)+1))
+		grow = (newCap - cap(*fs)) * fieldSize
+	}
+	if !r.reserve(size + grow) {
+		return false
+	}
+	if grow > 0 {
+		nf := make([]Field, len(*fs), newCap)
+		copy(nf, *fs)
+		*fs = nf
+	}
+	*fs = append(*fs, f)
+	return true
+}
+
 // folder acumula as continuações obs-fold do último campo num strings.Builder e só grava o valor no campo
 // quando ele termina (próximo campo, fim do cabeçalho ou erro): concatenar a cada linha custaria O(n²).
 type folder struct {
 	b      strings.Builder
 	term   string
 	active bool
+	// reserve pede ao orçamento o crescimento do Builder antes de alocar (nil: sem orçamento).
+	reserve func(n int) bool
 }
 
 // add acrescenta a continuação content (terminada por term) ao valor do campo prev: entra literalmente, com o
-// terminador da linha anterior, sem desdobrar nada.
-func (f *folder) add(prev *Field, content []byte, term string) {
+// terminador da linha anterior, sem desdobrar nada. false: sem orçamento para o crescimento.
+func (f *folder) add(prev *Field, content []byte, term string) bool {
+	t, extra := f.term, len(content)
+	if !f.active {
+		t, extra = prev[3], extra+len(prev[2])
+	}
+	extra += len(termBytes(t))
+	if f.b.Cap()-f.b.Len() < extra {
+		// strings.Builder.Grow(n) aloca 2*cap+n: é isso que se reserva.
+		if f.reserve != nil && !f.reserve(f.b.Cap()+extra) {
+			return false
+		}
+		f.b.Grow(extra)
+	}
 	if !f.active {
 		f.active = true
 		f.b.WriteString(prev[2])
@@ -295,6 +361,7 @@ func (f *folder) add(prev *Field, content []byte, term string) {
 	f.b.WriteString(termBytes(f.term))
 	f.b.Write(content)
 	f.term = term
+	return true
 }
 
 // flush grava em prev o valor dobrado acumulado, se houver.
@@ -347,6 +414,45 @@ func (r *Reader) readLine(limit int, reserve bool) ([]byte, error) {
 	}
 }
 
+// readLineInto lê uma linha inteira (com o terminador) sem ultrapassar limit bytes e a acrescenta a *dst,
+// cuja capacidade cresce até capMax com o crescimento reservado antes de alocar (ADR 0036). Devolve a linha
+// (subfatia de *dst). Sem orçamento, ErrHeadTooLarge sem guardar o pedaço.
+func (r *Reader) readLineInto(dst *[]byte, limit, capMax int) ([]byte, error) {
+	start := len(*dst)
+	for {
+		chunk, err := r.br.ReadSlice('\n')
+		got := len(*dst) - start
+		if got+len(chunk) > limit {
+			// Consome só até o teto: o resto fica para trás porque a conexão vai ser encerrada com 431.
+			if keep := limit - got; keep > 0 && r.growBuf(dst, keep, capMax) {
+				*dst = append(*dst, chunk[:keep]...)
+			}
+			r.consumed += int64(len(chunk))
+			return (*dst)[start:], ErrHeadTooLarge
+		}
+		if len(chunk) > 0 && !r.growBuf(dst, len(chunk), capMax) {
+			// Orçamento de entrada esgotado: trata como cabeçalho grande demais, sem guardar o pedaço.
+			r.consumed += int64(len(chunk))
+			return (*dst)[start:], ErrHeadTooLarge
+		}
+		*dst = append(*dst, chunk...)
+		r.consumed += int64(len(chunk))
+		switch {
+		case err == nil:
+			return (*dst)[start:], nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			if len(*dst) == start {
+				return nil, io.EOF
+			}
+			return (*dst)[start:], io.ErrUnexpectedEOF
+		default:
+			return (*dst)[start:], err
+		}
+	}
+}
+
 // splitTerm separa o conteúdo da linha do terminador.
 func splitTerm(line []byte) ([]byte, string) {
 	if bytes.HasSuffix(line, []byte("\r\n")) {
@@ -369,7 +475,7 @@ func (r *Reader) ReadHead() (*Request, error) {
 		Duplicates:   []string{},
 		ProxySignals: []ProxySignal{},
 	}
-	var fold folder
+	fold := folder{reserve: r.Reserve}
 	flushFold := func() {
 		if len(req.Fields) > 0 {
 			fold.flush(&req.Fields[len(req.Fields)-1])
@@ -391,8 +497,7 @@ func (r *Reader) ReadHead() (*Request, error) {
 	// Linhas vazias antes da linha de requisição são toleradas (RFC 9112 §2.2) e ficam nos bytes crus.
 	var line []byte
 	for {
-		l, err := r.readLine(maxHead-len(req.RawHead), true)
-		req.RawHead = append(req.RawHead, l...)
+		l, err := r.readLineInto(&req.RawHead, maxHead-len(req.RawHead), maxHead)
 		if err != nil {
 			if len(bytes.Trim(req.RawHead, "\r\n")) == 0 && !errors.Is(err, ErrHeadTooLarge) {
 				// Nenhum byte da próxima requisição (no máximo linhas vazias toleradas): EOF limpo, prazo de
@@ -407,13 +512,16 @@ func (r *Reader) ReadHead() (*Request, error) {
 		line = l
 		break
 	}
+	// parseRequestLine copia a linha para uma string (método, alvo e versão apontam para ela).
+	if c, _ := splitTerm(line); !r.reserve(len(c)) {
+		return fail(ErrHeadTooLarge)
+	}
 	if err := parseRequestLine(line, &req.RequestLine); err != nil {
 		return fail(err)
 	}
 
 	for {
-		l, err := r.readLine(maxHead-len(req.RawHead), true)
-		req.RawHead = append(req.RawHead, l...)
+		l, err := r.readLineInto(&req.RawHead, maxHead-len(req.RawHead), maxHead)
 		if err != nil {
 			return fail(err)
 		}
@@ -427,7 +535,9 @@ func (r *Reader) ReadHead() (*Request, error) {
 			if len(req.Fields) == 0 {
 				return fail(ErrObsFoldFirst)
 			}
-			fold.add(&req.Fields[len(req.Fields)-1], content, term)
+			if !fold.add(&req.Fields[len(req.Fields)-1], content, term) {
+				return fail(ErrHeadTooLarge)
+			}
 			req.ObsFold = true
 			continue
 		}
@@ -440,7 +550,10 @@ func (r *Reader) ReadHead() (*Request, error) {
 		if len(req.Fields) >= r.maxFields() {
 			return fail(ErrHeadTooLarge)
 		}
-		req.Fields = append(req.Fields, f)
+		// O campo é uma cópia de content (parseField): reserva os bytes dela e o crescimento da fatia.
+		if !r.appendField(&req.Fields, f, len(content)) {
+			return fail(ErrHeadTooLarge)
+		}
 	}
 	flushFold()
 

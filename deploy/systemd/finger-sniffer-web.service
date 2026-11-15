@@ -15,7 +15,8 @@ Restart=always
 RestartSec=2
 RestartSteps=5
 RestartMaxDelaySec=30
-Environment=GOMEMLIMIT=80MiB
+# GOMEMLIMIT do web abaixo dos outros de 96M: ~24 MiB do cgroup ficam para a memória de kernel (ADR 0036).
+Environment=GOMEMLIMIT=64MiB
 # QUIC sem GSO nem ECN (ADR 0019): cada datagrama sai como o quic-go o montou e a captura vê o fio.
 Environment=QUIC_GO_DISABLE_GSO=true QUIC_GO_DISABLE_ECN=true
 MemoryMax=96M

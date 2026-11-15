@@ -354,7 +354,7 @@ func (r *Reader) readTrailers(b *Body, sink *bodySink, opts BodyOptions) error {
 		limit = r.maxHead()
 	}
 	used := 0
-	var fold folder
+	fold := folder{reserve: r.Reserve}
 	flushFold := func() {
 		if len(b.Trailers) > 0 {
 			fold.flush(&b.Trailers[len(b.Trailers)-1])
@@ -380,7 +380,9 @@ func (r *Reader) readTrailers(b *Body, sink *bodySink, opts BodyOptions) error {
 			if len(b.Trailers) == 0 {
 				return ErrObsFoldFirst
 			}
-			fold.add(&b.Trailers[len(b.Trailers)-1], content, term)
+			if !fold.add(&b.Trailers[len(b.Trailers)-1], content, term) {
+				return ErrHeadTooLarge
+			}
 			continue
 		}
 		flushFold()
@@ -392,6 +394,8 @@ func (r *Reader) readTrailers(b *Body, sink *bodySink, opts BodyOptions) error {
 		if len(b.Trailers) >= r.maxFields() {
 			return ErrHeadTooLarge
 		}
-		b.Trailers = append(b.Trailers, f)
+		if !r.appendField(&b.Trailers, f, len(content)) {
+			return ErrHeadTooLarge
+		}
 	}
 }

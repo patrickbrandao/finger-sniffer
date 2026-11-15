@@ -104,7 +104,7 @@ func unitDirectives(t *testing.T, name string) map[string][]string {
 func TestWebUnitQUIC(t *testing.T) {
 	d := unitDirectives(t, "finger-sniffer-web.service")
 	env := " " + strings.Join(d["Environment"], " ") + " "
-	for _, kv := range []string{"QUIC_GO_DISABLE_GSO=true", "QUIC_GO_DISABLE_ECN=true", "GOMEMLIMIT=80MiB"} {
+	for _, kv := range []string{"QUIC_GO_DISABLE_GSO=true", "QUIC_GO_DISABLE_ECN=true", "GOMEMLIMIT=64MiB"} {
 		if !strings.Contains(env, " "+kv+" ") {
 			t.Errorf("Environment sem %s: %v", kv, d["Environment"])
 		}

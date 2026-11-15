@@ -16,7 +16,7 @@ const maxRawReads = 8192
 // o schema do raw (spec 006). Uma primeira linha "PROBE <id>" é reconhecida como nas portas cruas.
 func (c *conn) serveRaw(ic *idleConn, res detect.Result) {
 	s := c.srv
-	t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream)
+	t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
 	sess := rawSession{Mode: probe.ModeSink, ReadsIn: [][2]any{}, WritesOut: [][2]any{}}
 	var first []byte
 	buf := make([]byte, 32<<10)

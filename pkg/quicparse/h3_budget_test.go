@@ -29,19 +29,24 @@ func TestRequestStreamBudget(t *testing.T) {
 		t.Fatalf("used %d peak %d held %d buf %d", used, peak, r.Held(), len(r.fr.buf))
 	}
 
-	// Recusa no meio do frame: erro e o que já foi reservado fica em Held para quem chamou devolver.
+	// Recusa no meio do frame: a capacidade cresce dobrando (512, 1024, ...) e cada crescimento é reservado
+	// antes de alocar (ADR 0036); a recusa dá erro e o que já foi reservado fica em Held para quem chamou
+	// devolver.
+	big := AppendH3FrameHeader(nil, H3FrameHeaders, 4000)
 	used = 0
 	r = NewRequestStream(0, 0)
 	r.SetBudget(func(n int) bool {
-		if used+n > 5 {
+		if used+n > 1000 {
 			return false
 		}
 		used += n
 		return true
 	}, func(n int) { used -= n })
-	r.Feed(frame[:4])
-	r.Feed(frame[4:])
-	if !errors.Is(r.Err(), ErrH3Budget) || r.HeadersSeen || r.Held() != used || used == 0 {
-		t.Fatalf("deny: %v held %d used %d", r.Err(), r.Held(), used)
+	r.Feed(big)
+	for range 20 {
+		r.Feed(make([]byte, 100))
+	}
+	if !errors.Is(r.Err(), ErrH3Budget) || r.HeadersSeen || r.Held() != used || used != 512 || cap(r.fr.buf) != 512 {
+		t.Fatalf("deny: %v held %d used %d cap %d", r.Err(), r.Held(), used, cap(r.fr.buf))
 	}
 }

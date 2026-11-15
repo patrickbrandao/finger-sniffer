@@ -55,6 +55,12 @@ type h3State struct {
 	tracker *initTracker
 }
 
+// Janelas máximas de recepção do quic-go (ADR 0036).
+const (
+	h3MaxStreamReceiveWindow = 2 << 20
+	h3MaxConnReceiveWindow   = 4 << 20
+)
+
 // quicConfig é a configuração do QUIC (spec 011 RF-06): ociosidade = FS_IDLE_DEFAULT, sem 0-RTT, sem
 // datagramas. Retry fica desligado (Transport.VerifySourceAddress nil) e o quic-go não oferece endereço
 // preferido nem migra a conexão por conta própria.
@@ -66,6 +72,10 @@ func (s *Server) quicConfig() *quic.Config {
 		EnableDatagrams:       false,
 		MaxIncomingStreams:    100,
 		MaxIncomingUniStreams: 16,
+		// Tetos das janelas de recepção (ADR 0036; padrões do quic-go: 6 MiB e 15 MiB). As iniciais ficam
+		// no padrão, então os transport parameters anunciados não mudam.
+		MaxStreamReceiveWindow:     h3MaxStreamReceiveWindow,
+		MaxConnectionReceiveWindow: h3MaxConnReceiveWindow,
 	}
 }
 

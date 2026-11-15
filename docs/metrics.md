@@ -83,7 +83,7 @@ fs_dropped_events_total{service="capture"} 0
 | `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total` | WebSockets estabelecidos (HTTP/1.1 ou RFC 8441) e frames recebidos |
 | `fs_web_h3_listening` | 1 com o listener UDP 443 de pé, 0 sem ele (gauge) |
 | `fs_web_h3_init_table_full_total` | 5-tuplas QUIC novas que acharam cheia a tabela de Initials em análise (4096 entradas), com ou sem despejo: com despejo sai a entrada não reclamada encerrada mais antiga; sem nada para despejar, a conexão segue no h3, mas sem a análise do Initial. Sobe sob inundação de UDP forjado |
-| `fs_web_input_budget_used_bytes` | bytes reservados agora do orçamento de entrada `FS_WEB_INPUT_BUDGET` (gauge, ADR 0033) |
+| `fs_web_input_budget_used_bytes` | bytes reservados agora do orçamento de entrada `FS_WEB_INPUT_BUDGET` (gauge; memória alocada para guardar entrada do cliente, ADRs 0033 e 0036) |
 | `fs_web_input_budget_denied_total` | reservas recusadas pelo orçamento global ou pelo teto do dono (requisição, conexão, sessão): 431, 503, `H3_EXCESSIVE_LOAD` ou `fields_truncated` |
 | `fs_web_events_oversize_total` | eventos acima de 900 KiB (`event.MaxEventBytes`, ADR 0018) descartados antes de publicar |
 | `fs_web_events_marshal_errors_total` | eventos que falharam ao serializar, descartados |
