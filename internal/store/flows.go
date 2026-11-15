@@ -91,6 +91,9 @@ type conn struct {
 	// countedLive = conta em liveLim (TCP/QUIC vivas do modo degradado).
 	halfEl      *list.Element
 	countedLive bool
+	// suspect: o fluxo estava aberto quando um salto de sequência do stream revelou mensagens perdidas e não viu
+	// pacote desde então; vence na ociosidade do meio-aberto (ADR 0041 item 4). Um pacote novo tira a marca.
+	suspect bool
 }
 
 // dataSeg é um segmento com dados, guardado para medir a ociosidade antes do fechamento.
@@ -106,6 +109,7 @@ func (c *conn) fromClient(fi frameInfo) bool { return fi.srcAP() == c.client }
 // observe atualiza o estado com um pacote.
 func (c *conn) observe(fi frameInfo, ts int64, grace time.Duration) {
 	c.lastSeen = ts
+	c.suspect = false
 	cli := c.fromClient(fi)
 	if cli {
 		c.inSegs++
@@ -620,6 +624,9 @@ func (t *flowTable) due(now int64) []*conn {
 		case c.l4 == protoUDP:
 			idle = t.udpIdle
 		}
+		if c.suspect {
+			idle = min(idle, halfOpenIdle) // aberto antes de uma lacuna do stream (ADR 0041 item 4)
+		}
 		if (c.closing() && now >= c.closeAt) || now-c.lastSeen > idle.Nanoseconds() {
 			out = append(out, c)
 			t.drop(k, c)
@@ -642,6 +649,21 @@ func (t *flowTable) due(now int64) []*conn {
 		}
 	}
 	return out
+}
+
+// markSuspect marca os fluxos abertos cujo último pacote é anterior a before (instante de publicação da mensagem
+// que revelou um salto de sequência do stream): o FIN/RST deles pode ter expirado no stream (ADR 0041 item 4).
+func (t *flowTable) markSuspect(before int64) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, c := range t.conns {
+		if c.lastSeen < before && !c.suspect {
+			c.suspect = true
+			n++
+		}
+	}
+	return n
 }
 
 // quicInitialDCID devolve o DCID (hex) de um pacote Initial QUIC de cabeçalho longo; udp é o cabeçalho UDP com
