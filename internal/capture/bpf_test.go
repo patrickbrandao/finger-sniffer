@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"encoding/binary"
 	"fmt"
 	"testing"
 
@@ -62,15 +63,53 @@ func TestExcludeFilter(t *testing.T) {
 			}
 		})
 	}
-	// ARP é aceito (o filtro não deve descartar o que não entende); frames curtos: TestExcludeFilterTruncated.
-	arp := buildFrame(frameOpt{})
-	arp[12], arp[13] = 0x08, 0x06
-	if n, _ := vm.Run(arp); n == 0 {
-		t.Fatal("arp must be accepted")
-	}
+	checkNonIP(t, vm)
 	if _, err := bpf.Assemble(prog); err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
+}
+
+// ethFrame monta um quadro Ethernet (com ou sem VLAN) do tipo etype e 28 bytes de carga (o tamanho de um ARP).
+func ethFrame(vlan bool, etype uint16) []byte {
+	f := make([]byte, 12, 64)
+	if vlan {
+		f = binary.BigEndian.AppendUint16(f, 0x8100)
+		f = binary.BigEndian.AppendUint16(f, 100)
+	}
+	f = binary.BigEndian.AppendUint16(f, etype)
+	return append(f, make([]byte, 28)...)
+}
+
+// checkNonIP confere que o ARP é descartado com e sem VLAN (ADR 0040) e que os outros quadros não IP (RARP, LLDP)
+// entram com o frame inteiro (maxSnap: a VM não limita o retorno ao tamanho do quadro).
+func checkNonIP(t *testing.T, vm *bpf.VM) {
+	t.Helper()
+	for _, vlan := range []bool{false, true} {
+		for _, tc := range []struct {
+			etype  uint16
+			accept bool
+		}{{etherARP, false}, {0x8035, true}, {0x88cc, true}} {
+			f := ethFrame(vlan, tc.etype)
+			n, err := vm.Run(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := n > 0; got != tc.accept {
+				t.Fatalf("etype %#04x vlan=%v: accept=%v, want %v (ret %d)", tc.etype, vlan, got, tc.accept, n)
+			}
+			if tc.accept && n != maxSnap {
+				t.Fatalf("etype %#04x vlan=%v: ret %d, want %d", tc.etype, vlan, n, maxSnap)
+			}
+		}
+	}
+}
+
+// isARP diz se o quadro é ARP, com ou sem VLAN, como o filtro o lê.
+func isARP(b []byte) bool {
+	if len(b) >= 14 && binary.BigEndian.Uint16(b[12:]) == etherARP {
+		return true
+	}
+	return len(b) >= 18 && binary.BigEndian.Uint16(b[12:]) == 0x8100 && binary.BigEndian.Uint16(b[16:]) == etherARP
 }
 
 // Frames curtos demais para o filtro ler as portas são aceitos (spec 003 RF-02, "todo o resto entra"): no
@@ -176,10 +215,30 @@ func TestExcludeFilterTruncated(t *testing.T) {
 	}
 }
 
+// Sem portas excluídas o filtro só descarta ARP (ADR 0040); IP de qualquer porta e frames curtos entram.
 func TestExcludeFilterNoPorts(t *testing.T) {
 	prog, err := ExcludeFilter(nil, 0)
-	if err != nil || len(prog) != 1 || prog[0] != (bpf.RetConstant{Val: maxSnap}) {
-		t.Fatalf("%v %v", prog, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bpf.Assemble(prog); err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	vm, err := bpf.NewVM(prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNonIP(t, vm)
+	for _, f := range [][]byte{
+		buildFrame(frameOpt{proto: 6, sport: 1, dport: 48022}),
+		buildFrame(frameOpt{vlan: true, v6: true, proto: 17, sport: 9000, dport: 1}),
+		buildFrame(frameOpt{proto: 1}),
+		ethFrame(false, etherARP)[:13],
+		ethFrame(true, etherARP)[:17],
+	} {
+		if n, _ := vm.Run(f); n != maxSnap {
+			t.Fatalf("frame len %d: ret %d", len(f), n)
+		}
 	}
 }
 
@@ -251,6 +310,9 @@ func FuzzExcludeFilter(f *testing.F) {
 	f.Add(buildFrame(frameOpt{v6: true, v6ext: []byte{0, 44, 51}, proto: 6, sport: 1, dport: 48022}))
 	f.Add(buildFrame(frameOpt{proto: 6, ihlWords: 15, sport: 1, dport: 48022})[:74])
 	f.Add(buildFrame(frameOpt{vlan: true, v6: true, v6ext: []byte{0}, proto: 17, sport: 1, dport: 9000})[:60])
+	f.Add(ethFrame(false, etherARP))
+	f.Add(ethFrame(true, etherARP))
+	f.Add(ethFrame(true, 0x88cc))
 	c := &classifier{excluded: toSet(excluded)}
 	f.Fuzz(func(t *testing.T, b []byte) {
 		// A VM não pode falhar com nenhum frame (no kernel, leituras fora do pacote viram "drop").
@@ -265,8 +327,9 @@ func FuzzExcludeFilter(f *testing.F) {
 			t.Fatalf("bpf accepted excluded frame %+v", fr)
 		}
 		// O que o parser vê sem porta excluída (inclusive truncado, sem portas ou não IP) o filtro aceita
-		// (spec 003 RF-02, "todo o resto entra").
-		if n == 0 && !c.excludedPort(fr) {
+		// (spec 003 RF-02, "todo o resto entra"), menos o ARP.
+		// ARP é a exceção: o filtro o descarta sempre (ADR 0040).
+		if n == 0 && !c.excludedPort(fr) && !isARP(b) {
 			t.Fatalf("bpf dropped frame without excluded port (len %d) %+v", len(b), fr)
 		}
 	})
