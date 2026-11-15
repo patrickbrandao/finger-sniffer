@@ -139,6 +139,36 @@ func (s *Server) listenLoop(ctx context.Context, addr string) {
 	}
 }
 
+// tcpSocketBuf é o SO_RCVBUF/SO_SNDBUF de toda conexão TCP aceita pelo web (ADR 0037): o kernel dobra o valor
+// (32 KiB por sentido) e, com FS_MAX_CONNS = 250, os buffers de socket cabem em ~15,6 MiB do cgroup do web, em
+// vez do autoajuste até tcp_rmem/tcp_wmem. Vale para h1, TLS, h2, h2c e WebSocket.
+const tcpSocketBuf = 16 << 10
+
+// limitSocketBuffers fixa SO_RCVBUF e SO_SNDBUF do TCP por baixo de c (atravessando TLS e embrulhos com
+// NetConn); sem TCP por baixo (testes com net.Pipe), não faz nada. O kernel dobra o valor pedido.
+func limitSocketBuffers(c net.Conn, n int) error {
+	tc := tcpConnOf(c)
+	if tc == nil {
+		return nil
+	}
+	return errors.Join(tc.SetReadBuffer(n), tc.SetWriteBuffer(n))
+}
+
+// tcpConnOf acha o *net.TCPConn por baixo de c.
+func tcpConnOf(c net.Conn) *net.TCPConn {
+	for c != nil {
+		switch v := c.(type) {
+		case *net.TCPConn:
+			return v
+		case interface{ NetConn() net.Conn }:
+			c = v.NetConn()
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
 // tfoQueue é a fila de pedidos TFO pendentes dos listeners TCP (ADR 0029).
 const tfoQueue = 256
 
@@ -194,6 +224,11 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		}
 		backoff = 5 * time.Millisecond
 		at := s.now()
+		// Teto dos buffers de kernel antes da primeira leitura (TLS, detecção, tap), nunca no listener: o
+		// SYN-ACK continua o dos sysctls (ADR 0011, ADR 0037).
+		if err := limitSocketBuffers(c, tcpSocketBuf); err != nil {
+			s.log.Warn("web socket buffers", "remote", c.RemoteAddr().String(), "err", err)
+		}
 		// Vaga de FS_MAX_CONNS: o accept para até abrir uma (no máximo uma conexão por listener espera aqui,
 		// as outras ficam no backlog do kernel).
 		select {

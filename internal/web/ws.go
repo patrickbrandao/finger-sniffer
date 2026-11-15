@@ -35,10 +35,6 @@ const (
 	// cresce por append até ~2 × o tamanho dela.
 	wsMaxSessions   = 32
 	wsSessionBudget = 2 * wsReadLimit
-	// wsSocketBuf é o SO_RCVBUF/SO_SNDBUF do TCP de uma sessão WebSocket sobre HTTP/1 (ADR 0036): o eco
-	// travado para de ler e, com o autoajuste do kernel, os buffers do socket chegariam a vários MiB por
-	// sessão, cobrados do cgroup do web.
-	wsSocketBuf = 64 << 10
 	// wsDummyKey é a Sec-WebSocket-Key usada para o coder/websocket aceitar o CONNECT estendido do h2, que não
 	// tem chave (RFC 8441 §5); a Sec-WebSocket-Accept calculada com ela não vai para o cliente.
 	wsDummyKey = "dGhlIHNhbXBsZSBub25jZQ=="
@@ -344,8 +340,7 @@ func (s *h1Session) serveWS(req *h1.Request, probeID string, outOffset int64, pa
 	}
 	w := &wsResponse{hdr: http.Header{}, conn: wc}
 	w.onSwitch = func(hdr http.Header) error {
-		// Upgrade aceito: buffers do socket pequenos antes do 101 (ADR 0036).
-		limitSocketBuffers(c.raw, wsSocketBuf)
+		// Os buffers do socket já têm o teto de tcpSocketBuf desde o accept (ADR 0037).
 		ws.upgrade.Extensions = headerPtr(hdr, "Sec-WebSocket-Extensions")
 		ws.upgrade.Subprotocol = headerPtr(hdr, "Sec-WebSocket-Protocol")
 		fields := []h1.HeaderField{{Name: "Upgrade", Value: "websocket"}, {Name: "Connection", Value: "Upgrade"}}
@@ -371,32 +366,6 @@ func (s *h1Session) serveWS(req *h1.Request, probeID string, outOffset int64, pa
 	// A ociosidade é a do idleConn (prazos da conexão); o laço HTTP/1 termina com o WebSocket.
 	ws.echo(c.ctx, conn, func() time.Duration { return 0 }, func() { _ = s.t.Close() })
 	return false
-}
-
-// limitSocketBuffers fixa SO_RCVBUF e SO_SNDBUF do TCP por baixo de c (atravessando TLS e embrulhos com
-// NetConn); sem TCP por baixo (testes com net.Pipe), não faz nada. O kernel dobra o valor pedido.
-func limitSocketBuffers(c net.Conn, n int) {
-	tc := tcpConnOf(c)
-	if tc == nil {
-		return
-	}
-	_ = tc.SetReadBuffer(n)
-	_ = tc.SetWriteBuffer(n)
-}
-
-// tcpConnOf acha o *net.TCPConn por baixo de c.
-func tcpConnOf(c net.Conn) *net.TCPConn {
-	for c != nil {
-		switch v := c.(type) {
-		case *net.TCPConn:
-			return v
-		case interface{ NetConn() net.Conn }:
-			c = v.NetConn()
-		default:
-			return nil
-		}
-	}
-	return nil
 }
 
 // refusal converte a resposta de erro do Accept numa resposta HTTP/1.

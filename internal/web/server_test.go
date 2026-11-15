@@ -222,7 +222,8 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 	h.srv = NewServer(cfg, d)
 	ctx, cancel := context.WithCancel(context.Background())
 	for _, a := range []*string{&h.addr80, &h.addr443} {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		lc := testListenConfig()
+		ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
