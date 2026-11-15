@@ -8,10 +8,11 @@ Derivado das specs [005](../specs/005-web.md) (web), [006](../specs/006-raw.md) 
 caminhos é do cliente). Em caso de divergência, valem as specs e o contrato
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml).
 
-As saídas são reais (caminho direto), obtidas no servidor anterior e adaptadas aos nomes, IPs e portas do
-finger-01 ([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)); estão
-resumidas, com o IP do cliente trocado por `203.0.113.10` e o probe ID trocado por `k3x9q2mz7a`. Valores que
-dependem da pilha do servidor (TTL e janela do SYN-ACK, contagens) podem diferir no finger-01. Os comandos por proxy usam um proxy genérico
+As saídas são reais (caminho direto), resumidas, com o IP do cliente trocado por `203.0.113.10` e o probe ID
+trocado por `k3x9q2mz7a`. As de `Date` e dos casos 4, 10, 11 (TCP Fast Open), 12 e 13 foram recapturadas no finger-01
+([ADR 0038](../specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md)); as demais foram obtidas
+no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores que dependem da pilha do
+servidor (TTL e janela do SYN-ACK, contagens) podem diferir. Os comandos por proxy usam um proxy genérico
 (`PROXY:PORTA`) e são o ponto de partida para quem compara caminhos; o projeto do espelho só roda o caminho
 direto (ADR 0028).
 
@@ -102,22 +103,23 @@ HTTP/1, o primeiro campo depois da linha de status; no h2 e no h3, o primeiro ca
 ```console
 $ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/' | head -3
 HTTP/1.1 200 OK
-Date: Mon, 09 Nov 2026 09:03:32 GMT
+Date: Sun, 15 Nov 2026 15:39:17 GMT
 Content-Type: text/plain; charset=utf-8
 $ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?date=0' | grep -ci '^date:'
 0
-$ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?h=Date:x' | head -4
+$ curl -si --http1.1 'https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/r?h=Date:x' | head -5
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
+Alt-Svc: h3=":8443"; ma=60
 Date: x
 $ curl -si 'http://k3x9q2mz7a.finger-west-01.badblock.net.br:8080/p/k3x9q2mz7a/r?date=1' | head -2
 HTTP/1.1 400 Bad Request
-Date: Mon, 09 Nov 2026 09:03:33 GMT
+Date: Sun, 15 Nov 2026 15:39:17 GMT
 ```
 
 O mesmo vale para h2 (`date` logo depois de `:status`) e h3 (`--http3-only`, com e sem `?date=0`), conferidos no
-servidor anterior.
+finger-01.
 
 ### Controles de resposta: `/p/<id>/r?...`
 
@@ -352,8 +354,8 @@ $ curl -s --http1.1 -H 'Expect: 100-continue' --expect100-timeout 0.5 --data-bin
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[].http[] | {body: .body|{framing,size,chunks,trailers}, expect_continue}'
 {"body":{"framing":"content-length","size":11,"chunks":null,"trailers":null},"expect_continue":null}
 {"body":{"framing":"chunked","size":11,"chunks":[{"size":5,"size_literal":"5","ext":";name=a"},{"size":6,"size_literal":"6","ext":null},{"size":0,"size_literal":"0","ext":null}],"trailers":[["X-Sum",": ","42","crlf"]]},"expect_continue":null}
-{"body":{"framing":"content-length","size":3000,"chunks":null,"trailers":null},"expect_continue":{"waited":true,"wait_ms":19.248859}}
-{"body":{"framing":"content-length","size":3000,"chunks":null,"trailers":null},"expect_continue":{"waited":true,"wait_ms":506.160271}}
+{"body":{"framing":"content-length","size":3000,"chunks":null,"trailers":null},"expect_continue":{"waited":true,"wait_ms":16.964881}}
+{"body":{"framing":"content-length","size":3000,"chunks":null,"trailers":null},"expect_continue":{"waited":true,"wait_ms":507.484832}}
 ```
 
 - **Procurar**: `body.framing`, `size`, `sha256` (sempre do corpo inteiro), `chunks` (tamanho literal e
@@ -608,7 +610,7 @@ $ dig +short @finger-01.badblock.net.br $H A
 170.247.40.86
 $ dig +short @finger-01.badblock.net.br +subnet=198.51.100.0/24 $H AAAA
 2804:231c:e500:cafe::86
-$ dig +short @finger-01.badblock.net.br _8443._https.$H HTTPS
+$ dig +short @finger-01.badblock.net.br _8443._https.$H HTTPS     # dig 9.20
 1 k3x9q2mz7a.finger-west-01.badblock.net.br. alpn="h3,h2" ipv4hint=170.247.40.86 ipv6hint=2804:231c:e500:cafe::86
 $ dig +short @8.8.8.8 $H A
 170.247.40.86
@@ -616,7 +618,7 @@ $ dig +short +tcp @finger-01.badblock.net.br $H A
 170.247.40.86
 $ curl -s "$api/dns?probe=$id" | jq -c '.[] | {resolver: .resolver.ip, proto, qname, qtype, flags, ecs: .edns.ecs, udp: .edns.udp_size, rcode: .response.rcode}'
 {"resolver":"203.0.113.10","proto":"tcp","qname":"k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"A","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
-{"resolver":"172.253.92.93","proto":"udp","qname":"K3x9Q2mz7A.fINgeR-wEsT-01.BaDbLoCK.nEt.bR.","qtype":"A","flags":{"ad":false,"cd":true,"rd":false},"ecs":{"address":"203.0.113.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":1400,"rcode":"NOERROR"}
+{"resolver":"172.253.92.88","proto":"udp","qname":"k3X9q2mZ7a.FinGer-West-01.bAdbLock.NeT.BR.","qtype":"A","flags":{"ad":false,"cd":true,"rd":false},"ecs":{"address":"203.0.113.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":1400,"rcode":"NOERROR"}
 {"resolver":"203.0.113.10","proto":"udp","qname":"_8443._https.k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"HTTPS","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
 {"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"AAAA","flags":{"ad":true,"cd":false,"rd":true},"ecs":{"address":"198.51.100.0","family":1,"scope_prefix":0,"source_prefix":24},"udp":4096,"rcode":"NOERROR"}
 {"resolver":"203.0.113.10","proto":"udp","qname":"k3x9q2mz7a.finger-west-01.badblock.net.br.","qtype":"A","flags":{"ad":true,"cd":false,"rd":true},"ecs":null,"udp":4096,"rcode":"NOERROR"}
@@ -693,14 +695,15 @@ $ for i in 1 2; do curl -s -4 --tcp-fastopen "http://$H:8080/p/$id/" >/dev/null;
 $ curl -s "$api/probes/$id?wait=30s&settle=1s&min_conns=2" | jq -c '.connections[] | {tfo: .tcp.syn.tfo,
     syn_data: (.tcp.syn.payload_b64 // null | if . then (@base64d | split("\r\n")[0]) else null end),
     syn_len: .ip.packets.syn.total_length, first_data_len: .ip.packets.first_data.total_length}'
-{"tfo":true,"syn_data":"GET /p/qob262bswh21/ HTTP/1.1","syn_len":188,"first_data_len":188}
-{"tfo":true,"syn_data":"GET /p/qob262bswh21/ HTTP/1.1","syn_len":188,"first_data_len":188}
+{"tfo":true,"syn_data":null,"syn_len":64,"first_data_len":162}
+{"tfo":true,"syn_data":"GET /p/k3x9q2mz7a/ HTTP/1.1","syn_len":194,"first_data_len":194}
 ```
 
 - **Procurar**: a opção `tfo` em `tcp.syn.options`, `tcp.syn.tfo` e `tcp.syn.payload_b64` (os dados do SYN). Na
   primeira conexão de um cliente sem cookie guardado, o SYN leva só o pedido de cookie (sem `payload_b64`); no 2º
   SYN em diante os dados aparecem, e `ip.packets.first_data` é o próprio SYN (mesmo `total_length`). No exemplo
-  o macOS já tinha o cookie de uma execução anterior, por isso as duas conexões trazem dados.
+  o macOS ainda não tinha o cookie do finger-01: a primeira conexão só pede o cookie (SYN de 64 bytes, dados no
+  segmento seguinte) e a segunda já manda o `GET` no SYN.
 - **Diferenças esperadas**: por proxy, o TFO é do proxy (a maioria não usa); um caminho que remove a opção ou os
   dados do SYN aparece como `tfo: false` ou sem `payload_b64` onde o direto tinha.
 
@@ -797,12 +800,12 @@ fim da conexão.
 ### Caso 12: HTTP/3 (só caminho direto)
 
 ```console
-$ curl -si --http3-only "https://$H:8443/p/$id/" | head -4
+$ curl -6 -si --http3-only "https://$H:8443/p/$id/" | head -4
 HTTP/3 200
-date: Mon, 09 Nov 2026 09:03:32 GMT
+date: Sun, 15 Nov 2026 15:41:18 GMT
 content-type: text/plain; charset=utf-8
 cache-control: no-store
-$ curl -s --http3-only "https://$H:8443/p/$id/r?close=after" -o /dev/null -w '%{http_code}\n'
+$ curl -6 -s --http3-only "https://$H:8443/p/$id/r?close=after" -o /dev/null -w '%{http_code}\n'
 400
 $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto, close: .close|{by,how}, h3: .http3|{version, padded_to_1200,
     client_hello_datagrams, tp: [.transport_params[] | .[1]], ja4: .client_hello.ja4, h3_settings, close: .close|{by,how},
@@ -811,7 +814,8 @@ $ curl -s "$api/probes/$id?wait=30s&settle=1s" | jq -c '.connections[] | {proto,
 {"proto":"quic/h3","close":{"by":"client","how":"quic_close"},"h3":{"version":"00000001","padded_to_1200":true,"client_hello_datagrams":2,"tp":["initial_source_connection_id","initial_max_stream_data_bidi_local","initial_max_stream_data_bidi_remote","initial_max_stream_data_uni","initial_max_data","initial_max_streams_bidi","initial_max_streams_uni","version_information"],"ja4":"q13d0311h3_55b375c5d22e_df5ee7f3ca36","h3_settings":[[6,4611686018427387903],[1,0],[7,0]],"close":{"by":"client","how":"connection_close"},"reqs":[{"stream_id":0,"pseudo_order":[":method",":scheme",":authority",":path"],"status":400,"controls":{"params":{"close":"after"},"invalid":["close"]}}]}}
 ```
 
-O curl precisa ser compilado com HTTP/3 (ngtcp2 ou quiche; `curl --version` lista `HTTP3`). Detalhes do
+O curl precisa ser compilado com HTTP/3 (ngtcp2 ou quiche; `curl --version` lista `HTTP3`). O exemplo foi por IPv6
+(`-6`): há caminhos IPv4 que perdem datagramas UDP grandes, e aí o h3 expira sem resposta. Detalhes do
 registro em [http3.md](http3.md).
 
 O registro QUIC fecha na folga de `FS_TCP_CLOSE_GRACE` (100 ms) depois do `http3.connection` com `close` (o
@@ -835,8 +839,8 @@ $ curl -sN --max-time 4 "https://finger-01.badblock.net.br:9000/api/v1/stream?pr
 $ sleep 1; curl -s "https://$H:8443/p/$id/" >/dev/null; wait
 $ grep '^event' feed.sse | sort | uniq -c
    1 event: connection.closed
-   2 event: connection.updated
-   1 event: dns.query
+   1 event: connection.updated
+   2 event: dns.query
    1 event: http.request
 $ curl -s -o /dev/null -w '%{http_code}\n' 'https://finger-01.badblock.net.br:9000/api/v1/stream?kind=nope'
 400

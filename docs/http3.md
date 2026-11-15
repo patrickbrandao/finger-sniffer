@@ -38,18 +38,19 @@ A origem de um probe é `<nome>:8443`, então, pelo RFC 9460 §2.3, o dns respon
 443 é do traefik; o rótulo `noh3` tira o registro. A consulta com prefixo registra o probe (os rótulos iniciados por
 `_` são pulados).
 
-Saída obtida no servidor anterior (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use o do Homebrew),
-adaptada à porta 8443; o registro HTTPS é o esperado pela ADR 0038:
+Saída real no finger-01 (curl 8.23 com ngtcp2/nghttp3; o curl do macOS não tem HTTP/3, use o do Homebrew). O h3
+de fora foi por IPv6: alguns caminhos IPv4 perdem datagramas UDP grandes (o Initial tem 1200 bytes), e aí o
+`--http3-only` expira sem resposta; nesse caso tente `-6` ou outro caminho. Os registros HTTPS vieram do `dig` 9.20:
 
 ```console
-$ curl -si --http3-only https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/
+$ curl -6 -si --http3-only https://k3x9q2mz7a.finger-west-01.badblock.net.br:8443/p/k3x9q2mz7a/
 HTTP/3 200
-date: Mon, 09 Nov 2026 09:03:32 GMT
+date: Sun, 15 Nov 2026 15:36:55 GMT
 content-type: text/plain; charset=utf-8
 cache-control: no-store
 content-length: 81
 
-conn_id: 01M6ZM07Y12Q61G2GYYXJV6C49
+conn_id: 01M7FXNE9J5227TKGMQH5APY6S
 request: 0
 stream_id: 0
 probe_id: k3x9q2mz7a
@@ -109,7 +110,7 @@ referência dinâmica aparece com `static: false` e sem valor resolvido.
 Trecho real do registro da conexão acima (listas encurtadas):
 
 ```console
-$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZM07Y12Q61G2GYYXJV6C49 | jq '{proto, l4, close,
+$ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M7FXNE9J5227TKGMQH5APY6S | jq '{proto, l4, close,
     http3: (.http3 | {version, dcid_hex, token_len, initial_datagram_size, padded_to_1200, coalesced_packets,
     client_hello_datagrams, initial_frames: .initial_frames[0:5], transport_params: .transport_params[0:3],
     ja4: .client_hello.ja4, negotiated: .client_hello.negotiated, h3_control_stream_seen, h3_settings, close,
@@ -120,15 +121,15 @@ $ curl -s https://finger-01.badblock.net.br:9000/api/v1/connections/01M6ZM07Y12Q
   "close": { "by": "client", "how": "quic_close", "idle_before_close_ms": null, "half_close": false },
   "http3": {
     "version": "00000001",
-    "dcid_hex": "c971f00d583474c033b5128bc61a219e086889eb",
+    "dcid_hex": "414a52db235f113c5433de665846753947186d8e",
     "token_len": 0,
     "initial_datagram_size": 1200,
     "padded_to_1200": true,
     "coalesced_packets": 1,
     "client_hello_datagrams": 2,
-    "initial_frames": ["CRYPTO", "PING", "CRYPTO", "CRYPTO", "PADDING"],
+    "initial_frames": ["CRYPTO", "CRYPTO", "CRYPTO", "CRYPTO", "CRYPTO"],
     "transport_params": [
-      [15, "initial_source_connection_id", "e0044b096db5565dcafc8091e9dec57717ebeec2"],
+      [15, "initial_source_connection_id", "6972f409c8e68558687e1f30478a10f06009042d"],
       [5, "initial_max_stream_data_bidi_local", "80008000"],
       [6, "initial_max_stream_data_bidi_remote", "80008000"]
     ],
