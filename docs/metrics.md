@@ -149,6 +149,7 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_connections_total{l4,proto}` | contador | conexões registradas, por L4 e pilha |
 | `fs_store_connections_degraded_total` | contador | conexões gravadas em modo degradado (sem pcap nem bytes crus) |
 | `fs_store_stray_packets_total` | contador | pacotes avulsos |
+| `fs_store_stray_midflow_total` | contador | pacotes TCP (exceto RST) que viraram avulsos num fluxo cujo início o store não viu (nenhum SYN nem SYN-ACK no fluxo); com o ingest em dia e sem lacuna do stream, só tráfego alheio (varreduras, sessões de antes da partida do store) o faz crescer; `fs_store_stray_packets_total` continua contando todos (ADR 0041) |
 | `fs_store_stream_lost_total` | contador | mensagens do `FS_EVENTS` que nunca chegaram ao store (expiradas por `max_age` ou `max_bytes`), somando os saltos de `Sequence.Stream` no metadado das mensagens recebidas; reentrega não conta e a primeira mensagem depois da partida não conta salto (ADR 0041) |
 | `fs_store_ingest_backlog_seconds` | gauge | parede menos o instante em que a última mensagem processada entrou no stream; volta a 0 quando um Fetch não traz mensagens (consumidor em dia) (ADR 0041) |
 | `fs_store_ingest_pending_messages` | gauge | `NumPending` do metadado da última mensagem processada (ADR 0041) |

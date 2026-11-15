@@ -1,0 +1,1 @@
+- Ingest: ao detectar um salto de sequência do `FS_EVENTS`, os fluxos abertos sem pacote desde antes da mensagem do salto ficam suspeitos e vencem por ociosidade em 10 s (relógio de captura), em vez de 630 s; um pacote novo tira a marca (ADR 0041 item 4, task 244).

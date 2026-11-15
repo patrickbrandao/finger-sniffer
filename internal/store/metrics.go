@@ -44,6 +44,7 @@ type storeMetrics struct {
 	connsTotal  *prometheus.CounterVec
 	degraded    prometheus.Counter
 	stray       prometheus.Counter
+	midflow     prometheus.Counter
 	dnsQueries  prometheus.Counter
 	purged      *prometheus.CounterVec
 	recordReady *prometheus.HistogramVec
@@ -74,6 +75,9 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 		stray: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "fs_store_stray_packets_total", Help: "Packets recorded without a connection.",
 		}),
+		midflow: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "fs_store_stray_midflow_total", Help: "Stray TCP packets (not RST) of flows whose start (SYN or SYN-ACK) the store never saw.",
+		}),
 		dnsQueries: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "fs_store_dns_queries_total", Help: "DNS queries recorded.",
 		}),
@@ -97,7 +101,7 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 		Name: "fs_store_flows_dropped_total",
 		Help: "Flow table cap (8192 entries): unestablished entries evicted, and packets of new 5-tuples refused with no entry to evict.",
 	}, []string{"reason"})
-	reg.MustRegister(m.ingested, m.ingestLag, m.connsTotal, m.degraded, m.stray, m.dnsQueries, m.purged, m.recordReady,
+	reg.MustRegister(m.ingested, m.ingestLag, m.connsTotal, m.degraded, m.stray, m.midflow, m.dnsQueries, m.purged, m.recordReady,
 		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop)
 	for _, r := range []string{dropEvicted, dropTableFull} {
 		m.flowsDrop.WithLabelValues(r)
@@ -165,6 +169,12 @@ func (m *storeMetrics) degradedConn() {
 func (m *storeMetrics) strayPackets(n int) {
 	if m != nil {
 		m.stray.Add(float64(n))
+	}
+}
+
+func (m *storeMetrics) strayMidflow(n int) {
+	if m != nil && n > 0 {
+		m.midflow.Add(float64(n))
 	}
 }
 

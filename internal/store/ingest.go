@@ -272,8 +272,12 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 		subject := m.Subject()
 		in.prom.event(subject)
 		md := metadataOf(m)
-		if md != nil {
-			in.stream.observe(md, time.Unix(0, received))
+		if md != nil && in.stream.observe(md, time.Unix(0, received)) > 0 && !md.Timestamp.IsZero() {
+			// Mensagens perdidas antes desta: os fluxos abertos sem pacote desde então podem ter perdido o
+			// fechamento (ADR 0041 item 4).
+			if n := in.flows.markSuspect(md.Timestamp.UnixNano()); n > 0 {
+				in.log.Warn("stream gap: open flows marked suspect", "flows", n)
+			}
 		}
 		if isAppSubject(subject) {
 			if err := in.appMessage(ctx, tx, subject, m.Data(), publishedFrom(md, received)); err != nil {
@@ -592,6 +596,7 @@ func (in *Ingestor) closeUnfinalized(ctx context.Context, c *conn) {
 type finalStat struct {
 	l4, proto string
 	stray     int
+	midflow   int // dos avulsos, os de meio de fluxo (ADR 0041 item 5)
 }
 
 // finalizeTx finaliza as conexões numa transação.
@@ -620,6 +625,7 @@ func (in *Ingestor) finalizeTx(ctx context.Context, conns []*conn) error {
 		if s.stray > 0 {
 			in.metrics.Add("store_stray_total", float64(s.stray))
 			in.prom.strayPackets(s.stray)
+			in.prom.strayMidflow(s.midflow)
 			continue
 		}
 		in.prom.connection(s.l4, s.proto)
@@ -669,8 +675,22 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		// store decide, na saída da tabela (ociosidade de 30 s no UDP, por exemplo): o ts do feed é esse instante
 		// (ADR 0025, task 108); o registro e /api/v1/packets continuam com o ts do pacote.
 		decided := in.now().UnixNano()
-		for _, p := range pkts {
-			fi := parseFrame(p.frame)
+		// Fluxo TCP cujo início o store não viu (nenhum SYN nem SYN-ACK): os pacotes, menos os RST, são avulsos
+		// de meio de fluxo (ADR 0041 item 5).
+		midflow := c.l4 == protoTCP
+		parsed := make([]frameInfo, len(pkts))
+		for i, p := range pkts {
+			parsed[i] = parseFrame(p.frame)
+			if parsed[i].tcpFlags&tcpSYN != 0 {
+				midflow = false
+			}
+		}
+		nMid := 0
+		for i, p := range pkts {
+			fi := parsed[i]
+			if midflow && fi.ok && fi.proto == protoTCP && fi.tcpFlags&tcpRST == 0 {
+				nMid++
+			}
 			sr := strayRecord(fi, p.ts, p.dir, p.wireLen)
 			in.liveStray(fi, max(decided, p.ts), sr)
 			rec, _ := json.Marshal(sr)
@@ -679,7 +699,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 			}
 		}
 		if len(pkts) > 0 {
-			in.finalStats = append(in.finalStats, finalStat{stray: len(pkts)})
+			in.finalStats = append(in.finalStats, finalStat{stray: len(pkts), midflow: nMid})
 		}
 		_, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", c.id)
 		return err

@@ -46,7 +46,7 @@ func benchKinds() []string {
 }
 
 // benchWorkload monta as mensagens da carga, em ordem de chegada ao stream, e o instante (ms) de cada uma.
-func benchWorkload(b *testing.B) ([]fakeMsg, []int) {
+func benchWorkload(b testing.TB, conns int) ([]fakeMsg, []int) {
 	b.Helper()
 	kinds := benchKinds()
 	var items []benchItem
@@ -61,9 +61,9 @@ func benchWorkload(b *testing.B) ([]fakeMsg, []int) {
 		items = append(items, benchItem{ms: at, pkt: &p})
 	}
 	addApp := func(at int, m fakeMsg) { items = append(items, benchItem{ms: at + 1, app: &m}) } // publicado 1 ms depois
-	for i := range benchConns {
+	for i := range conns {
 		kind := kinds[i%len(kinds)]
-		s := i * 1000 / benchRate
+		s := i*1000/benchRate + i%5 // o handshake cai às vezes entre duas janelas do capture
 		cli := netip.AddrPortFrom(netip.AddrFrom4([4]byte{198, 51, byte(i >> 8), byte(i)}), 40000)
 		if kind == "h3" {
 			srv := quicMirror
@@ -171,7 +171,7 @@ func benchWorkload(b *testing.B) ([]fakeMsg, []int) {
 }
 
 func benchIngest(b *testing.B, lag time.Duration) {
-	msgs, at := benchWorkload(b)
+	msgs, at := benchWorkload(b, benchConns)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := IngestConfig{
 		PcapMax: 1 << 20, TCPIdle: 630 * time.Second, QUICIdle: 330 * time.Second, UDPIdle: 30 * time.Second,
