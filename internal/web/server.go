@@ -41,6 +41,9 @@ type Deps struct {
 	CertReasons func(now time.Time) []string
 	// ACME responde o desafio HTTP-01; nil = 404.
 	ACME ACMEFunc
+	// ACMETLSALPN devolve o certificado de desafio do TLS-ALPN-01 para um ClientHello "acme-tls/1"
+	// (spec 005 RF-11); nil ou ok false = handshake normal.
+	ACMETLSALPN func(*tls.ClientHelloInfo) (*tls.Certificate, bool)
 	// Now é o relógio (padrão time.Now).
 	Now func() time.Time
 }
@@ -70,8 +73,6 @@ type Server struct {
 
 	// h3 são os listeners UDP e as conexões QUIC (h3.go).
 	h3 h3State
-	// h3AnyPort faz qualquer porta UDP contar como "listener 443" para o Alt-Svc (testes com porta efêmera).
-	h3AnyPort bool
 }
 
 // NewServer cria o servidor.
@@ -140,8 +141,8 @@ func (s *Server) listenLoop(ctx context.Context, addr string) {
 }
 
 // tcpSocketBuf é o SO_RCVBUF/SO_SNDBUF de toda conexão TCP aceita pelo web (ADR 0037): o kernel dobra o valor
-// (32 KiB por sentido) e, com FS_MAX_CONNS = 250, os buffers de socket cabem em ~15,6 MiB do cgroup do web, em
-// vez do autoajuste até tcp_rmem/tcp_wmem. Vale para h1, TLS, h2, h2c e WebSocket.
+// (32 KiB por sentido) e, com FS_MAX_CONNS = 1000, os buffers de socket cabem em ~62,5 MiB do cgroup do web
+// (ADR 0039), em vez do autoajuste até tcp_rmem/tcp_wmem. Vale para h1, TLS, h2, h2c e WebSocket.
 const tcpSocketBuf = 16 << 10
 
 // limitSocketBuffers fixa SO_RCVBUF e SO_SNDBUF do TCP por baixo de c (atravessando TLS e embrulhos com
@@ -282,6 +283,25 @@ func (s *Server) Addrs() []net.Addr {
 	return out
 }
 
+// ListeningOn diz se há um listener TCP do web de pé exatamente em addr (host:porta).
+func (s *Server) ListeningOn(addr string) bool {
+	want, err := netip.ParseAddrPort(addr)
+	if err != nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped {
+		return false
+	}
+	for _, ln := range s.listeners {
+		if ap, err := netip.ParseAddrPort(ln.Addr().String()); err == nil && ap.Addr().Unmap() == want.Addr().Unmap() && ap.Port() == want.Port() {
+			return true
+		}
+	}
+	return false
+}
+
 // Close fecha os listeners e as conexões abertas (parada do serviço) e espera as goroutines.
 func (s *Server) Close() {
 	s.mu.Lock()
@@ -329,22 +349,27 @@ func Run(svc *service.Service, cfg Config) error {
 		return err
 	}
 	defer func() { _ = store.Close() }()
-	acmeCfg, err := LoadACMEConfig(acmeListenHost(cfg))
+	acmeCfg, err := LoadACMEConfig(acmeListenHost(cfg), cfg.TCPPorts)
 	if err != nil {
 		return err
 	}
+	// srv é criado logo abaixo; o ACME só consulta os listeners depois de srv.Run (StartDelay).
+	var srv *Server
+	acmeCfg.ListenerUp = func(addr string) bool { return srv != nil && srv.ListeningOn(addr) }
 	var acme *ACMEManager
 	var acmeFunc ACMEFunc
+	var acmeTLSALPN func(*tls.ClientHelloInfo) (*tls.Certificate, bool)
 	if acmeCfg.Enable {
 		if acme, err = NewACMEManager(acmeCfg, svc.NC, svc.Log, svc.Metrics); err != nil {
 			return err
 		}
 		defer acme.Close()
 		acmeFunc = acme.HTTPChallenge
+		acmeTLSALPN = acme.TLSALPNChallenge
 	} else {
 		svc.Log.Info("acme disabled (FS_ACME_ENABLE=0): using FS_CERT_DIR or self-signed")
 	}
-	srv := NewServer(cfg, Deps{
+	srv = NewServer(cfg, Deps{
 		Log:     svc.Log,
 		Metrics: svc.Metrics,
 		Publish: svc.Producer.Publish,
@@ -355,6 +380,7 @@ func Run(svc *service.Service, cfg Config) error {
 		TLS:         store.TLSConfig(),
 		CertReasons: store.Reasons,
 		ACME:        acmeFunc,
+		ACMETLSALPN: acmeTLSALPN,
 	})
 	svc.SetStatus(srv.Status)
 	svc.Log.Info("web config", "listen", cfg.listenAddrs(), "udp", cfg.udpAddrs(), "htdocs", cfg.Htdocs,
@@ -367,7 +393,7 @@ func Run(svc *service.Service, cfg Config) error {
 	})
 }
 
-// acmeListenHost é o IP onde o web atende a porta 80 do HTTP-01 (IPv4 de preferência).
+// acmeListenHost é o IP onde o web atende os desafios do certificado B (IPv4 de preferência).
 func acmeListenHost(cfg Config) netip.Addr {
 	if cfg.ListenIPv4.IsValid() {
 		return cfg.ListenIPv4

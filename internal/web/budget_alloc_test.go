@@ -203,11 +203,12 @@ func TestTapPendingBudget(t *testing.T) {
 	}
 }
 
-// TestWSBudgetDefault503 (task 215, ADR 0036): com o orçamento padrão (24 MiB) e 2 MiB por sessão, no máximo
-// 12 sessões recebem 101; a seguinte recebe 503 antes do 101 (resposta normal, a conexão segue) e conta como
-// recusa.
+// TestWSBudgetDefault503 (task 215, ADR 0036): com orçamento de 24 MiB (o padrão até a ADR 0039; com os 192 MiB
+// de hoje o teto de 32 sessões vem antes) e 2 MiB por sessão, no máximo 12 sessões recebem 101; a seguinte
+// recebe 503 antes do 101 (resposta normal, a conexão segue) e conta como recusa.
 func TestWSBudgetDefault503(t *testing.T) {
-	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.InputBudget = DefaultInputBudget }})
+	const budget = 24 << 20
+	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.InputBudget = budget }})
 	opened := 0
 	for opened < 13 {
 		cl := newClient(t, dial(t, h.addr80))
@@ -225,7 +226,7 @@ func TestWSBudgetDefault503(t *testing.T) {
 	if opened < 11 || opened > 12 {
 		t.Fatalf("sessions with 101: %d", opened)
 	}
-	if h.srv.metrics.Get(MetricInputBudgetDenied) < 1 || h.srv.budget.inUse() > DefaultInputBudget {
+	if h.srv.metrics.Get(MetricInputBudgetDenied) < 1 || h.srv.budget.inUse() > budget {
 		t.Fatalf("denied %v in use %d", h.srv.metrics.Get(MetricInputBudgetDenied), h.srv.budget.inUse())
 	}
 	// A 13ª, com as abertas ainda de pé, também recebe 503.

@@ -28,20 +28,20 @@ func TestHost(t *testing.T) {
 		controls []string
 		unknown  []string
 	}{
-		{"t1a2b3c4.dns-monitor.tmsoft.com.br", true, "t1a2b3c4", "dns-monitor.tmsoft.com.br", nil, nil},
-		{"T1A2b3C4.DNS-Monitor.tmsoft.com.br.", true, "t1a2b3c4", "dns-monitor.tmsoft.com.br", nil, nil},
-		{"t1a2b3c4.dns-monitor.tmsoft.com.br:443", true, "t1a2b3c4", "dns-monitor.tmsoft.com.br", nil, nil},
-		{"t1a2b3c4.v4.noh3.dns-monitor.tmsoft.com.br", true, "t1a2b3c4", "dns-monitor.tmsoft.com.br", []string{"v4", "noh3"}, nil},
-		{"t1a2b3c4.foo.nx.dns-monitor.tmsoft.com.br", true, "t1a2b3c4", "dns-monitor.tmsoft.com.br", []string{"nx"}, []string{"foo"}},
-		{"abcdefgh.vps602.tmsoft.com.br", true, "abcdefgh", "vps602.tmsoft.com.br", nil, nil},
-		{"dns-monitor.tmsoft.com.br", true, "", "dns-monitor.tmsoft.com.br", nil, nil},
-		{"_acme-challenge.dns-monitor.tmsoft.com.br", true, "", "dns-monitor.tmsoft.com.br", nil, []string{"_acme-challenge"}},
-		{"short.dns-monitor.tmsoft.com.br", true, "", "dns-monitor.tmsoft.com.br", nil, []string{"short"}},
-		{"nodata.dns-monitor.tmsoft.com.br", true, "", "dns-monitor.tmsoft.com.br", []string{"nodata"}, nil},
+		{"t1a2b3c4.finger-west-01.badblock.net.br", true, "t1a2b3c4", "finger-west-01.badblock.net.br", nil, nil},
+		{"T1A2b3C4.Finger-West-01.badblock.net.br.", true, "t1a2b3c4", "finger-west-01.badblock.net.br", nil, nil},
+		{"t1a2b3c4.finger-west-01.badblock.net.br:8443", true, "t1a2b3c4", "finger-west-01.badblock.net.br", nil, nil},
+		{"t1a2b3c4.v4.noh3.finger-west-01.badblock.net.br", true, "t1a2b3c4", "finger-west-01.badblock.net.br", []string{"v4", "noh3"}, nil},
+		{"t1a2b3c4.foo.nx.finger-west-01.badblock.net.br", true, "t1a2b3c4", "finger-west-01.badblock.net.br", []string{"nx"}, []string{"foo"}},
+		{"abcdefgh.finger-01.badblock.net.br", true, "abcdefgh", "finger-01.badblock.net.br", nil, nil},
+		{"finger-west-01.badblock.net.br", true, "", "finger-west-01.badblock.net.br", nil, nil},
+		{"_acme-challenge.finger-west-01.badblock.net.br", true, "", "finger-west-01.badblock.net.br", nil, []string{"_acme-challenge"}},
+		{"short.finger-west-01.badblock.net.br", true, "", "finger-west-01.badblock.net.br", nil, []string{"short"}},
+		{"nodata.finger-west-01.badblock.net.br", true, "", "finger-west-01.badblock.net.br", []string{"nodata"}, nil},
 		{"t1a2b3c4.example.com", false, "", "", nil, nil},
-		{"xdns-monitor.tmsoft.com.br", false, "", "", nil, nil},
+		{"xfinger-west-01.badblock.net.br", false, "", "", nil, nil},
 		{"172.233.24.85", false, "", "", nil, nil},
-		{"[2600:3c0d::1]:443", false, "", "", nil, nil},
+		{"[2600:3c0d::1]:8443", false, "", "", nil, nil},
 		{"", false, "", "", nil, nil},
 	}
 	for _, tt := range tests {
@@ -56,7 +56,7 @@ func TestHost(t *testing.T) {
 }
 
 func TestHostInfoHas(t *testing.T) {
-	info, _ := NewExtractor().Host("t1a2b3c4.v6.dns-monitor.tmsoft.com.br")
+	info, _ := NewExtractor().Host("t1a2b3c4.v6.finger-west-01.badblock.net.br")
 	if !info.Has(ControlV6) || info.Has(ControlV4) {
 		t.Fatalf("Has: %+v", info)
 	}
@@ -67,7 +67,7 @@ func TestNewExtractorCustomZones(t *testing.T) {
 	if info, ok := e.Host("abcdefgh.example.com"); !ok || info.ID != "abcdefgh" {
 		t.Fatalf("custom zone: %+v %v", info, ok)
 	}
-	if _, ok := e.Host("abcdefgh.dns-monitor.tmsoft.com.br"); ok {
+	if _, ok := e.Host("abcdefgh.finger-west-01.badblock.net.br"); ok {
 		t.Fatal("default zone must not apply when zones are given")
 	}
 }
@@ -90,7 +90,7 @@ func TestFromTarget(t *testing.T) {
 		{"/q/t1a2b3c4/", "", false},
 		{"/", "", false},
 		{"*", "", false},
-		{"host:443", "", false},
+		{"host:8443", "", false},
 		{"http://[::1", "", false},
 	}
 	for _, tt := range tests {
@@ -149,7 +149,7 @@ func TestParseLine(t *testing.T) {
 
 // FuzzHost: nunca há pânico e todo ID devolvido é válido e pertence a uma zona reconhecida.
 func FuzzHost(f *testing.F) {
-	for _, s := range []string{"t1a2b3c4.dns-monitor.tmsoft.com.br", "a.b.v4.vps602.tmsoft.com.br:80", "[::1]:53", "..", ""} {
+	for _, s := range []string{"t1a2b3c4.finger-west-01.badblock.net.br", "a.b.v4.finger-01.badblock.net.br:80", "[::1]:53", "..", ""} {
 		f.Add(s)
 	}
 	e := NewExtractor()

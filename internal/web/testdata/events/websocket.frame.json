@@ -1,17 +1,17 @@
 {
   "flow": {
     "dst_ip": "127.0.0.1",
-    "dst_port": 55987,
+    "dst_port": 51284,
     "l4": "tcp",
     "src_ip": "127.0.0.1",
-    "src_port": 55989
+    "src_port": 51288
   },
   "payload": {
     "close": null,
     "dir": "in",
     "fin": true,
     "length": 1,
-    "mask_key_hex": "6691fa47",
+    "mask_key_hex": "c9beae73",
     "masked": true,
     "opcode": 1,
     "rsv": 0,
@@ -26,5 +26,5 @@
   "schema_version": 1,
   "service": "web",
   "service_version": "0.0.0-dev",
-  "ts": "2026-11-09T05:03:43.280884000Z"
+  "ts": "2026-11-15T14:03:37.261851000Z"
 }

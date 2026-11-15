@@ -164,7 +164,7 @@ func TestH3HandshakeFailed(t *testing.T) {
 	checkContract(t, contractBlocks(t), evs[0])
 }
 
-// TestUDPPortsConfig: FS_WEB_UDP_PORTS ausente vale 443; vazio desliga o h3; inválido falha.
+// TestUDPPortsConfig: FS_WEB_UDP_PORTS ausente vale 8443 (ADR 0038); vazio desliga o h3; inválido falha.
 func TestUDPPortsConfig(t *testing.T) {
 	t.Setenv("FS_LISTEN_IPV4", "192.0.2.1")
 	t.Setenv("FS_LISTEN_IPV6", "")
@@ -181,10 +181,10 @@ func TestUDPPortsConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, err = LoadConfig(base)
-	if err != nil || len(c.udpAddrs()) != 1 || c.udpAddrs()[0] != "192.0.2.1:443" {
+	if err != nil || len(c.udpAddrs()) != 1 || c.udpAddrs()[0] != "192.0.2.1:8443" {
 		t.Fatal(c.udpAddrs(), err)
 	}
-	t.Setenv("FS_WEB_UDP_PORTS", "443,x")
+	t.Setenv("FS_WEB_UDP_PORTS", "8443,x")
 	if _, err := LoadConfig(base); err == nil {
 		t.Fatal("aceitou porta inválida")
 	}

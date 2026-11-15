@@ -38,7 +38,7 @@ func TestTarget(t *testing.T) {
 		{h1.RequestLine{Target: "http://h", Form: h1.FormAbsolute}, "/", "", true},
 		{h1.RequestLine{Target: "http://h?x=1", Form: h1.FormAbsolute}, "/", "x=1", true},
 		{h1.RequestLine{Target: "*", Form: h1.FormAsterisk}, "", "", false},
-		{h1.RequestLine{Target: "h:443", Form: h1.FormAuthority}, "", "", false},
+		{h1.RequestLine{Target: "h:8443", Form: h1.FormAuthority}, "", "", false},
 	}
 	for _, c := range cases {
 		p, q, ok := target(c.rl)
@@ -140,11 +140,11 @@ func TestACMEHook(t *testing.T) {
 	}})
 	c := dial(t, h.addr80)
 	cl := newClient(t, c)
-	cl.send(get("/.well-known/acme-challenge/good", "vps602.tmsoft.com.br"))
+	cl.send(get("/.well-known/acme-challenge/good", "finger-01.badblock.net.br"))
 	if resp, body := cl.response("GET"); resp.StatusCode != 200 || body != "good.key-auth" {
 		t.Fatalf("acme %d %q", resp.StatusCode, body)
 	}
-	cl.send(get("/.well-known/acme-challenge/bad", "vps602.tmsoft.com.br"))
+	cl.send(get("/.well-known/acme-challenge/bad", "finger-01.badblock.net.br"))
 	if resp, _ := cl.response("GET"); resp.StatusCode != 404 {
 		t.Fatalf("acme bad %d", resp.StatusCode)
 	}

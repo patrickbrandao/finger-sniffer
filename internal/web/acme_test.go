@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,8 +39,8 @@ import (
 )
 
 var (
-	testNamesDNS01  = []string{"dns-monitor.tmsoft.com.br", "*.dns-monitor.tmsoft.com.br"}
-	testNamesHTTP01 = []string{"vps602.tmsoft.com.br", "fingerprint.tmsoft.com.br"}
+	testNamesDNS01  = []string{"finger-west-01.badblock.net.br", "*.finger-west-01.badblock.net.br"}
+	testNamesHTTP01 = []string{"finger-01.badblock.net.br", "finger-01.tmsoft.com.br"}
 )
 
 func TestLoadACMEConfig(t *testing.T) {
@@ -47,22 +48,32 @@ func TestLoadACMEConfig(t *testing.T) {
 	t.Setenv("FS_ACME_CA", "")
 	t.Setenv("FS_ACME_DIR", "")
 	t.Setenv("FS_CERT_DIR", "/tmp/certs-x")
-	c, err := LoadACMEConfig(netip.MustParseAddr("192.0.2.1"))
-	if err != nil || c.Enable || c.Dir != DefaultACMEDir || c.CertDir != "/tmp/certs-x" || c.HTTPListenHost != "192.0.2.1" ||
-		c.HTTPPort != 80 || c.RenewBefore != 30*24*time.Hour || c.RetryMax != time.Hour {
+	// portas padrão (8080,8443): B só por TLS-ALPN-01, HTTP-01 desligado sem a 80 (ADR 0038)
+	c, err := LoadACMEConfig(netip.MustParseAddr("192.0.2.1"), []int{8080, 8443})
+	if err != nil || c.Enable || c.Dir != DefaultACMEDir || c.CertDir != "/tmp/certs-x" || c.ListenHost != "192.0.2.1" ||
+		c.HTTPPort != 0 || c.TLSALPNPort != 8080 || c.RenewBefore != 30*24*time.Hour || c.RetryMax != time.Hour {
 		t.Fatalf("defaults %+v %v", c, err)
 	}
+	// com a 80 entre as portas, HTTP-01 ligado e o TLS-ALPN-01 numa porta TLS diferente da 80
+	if c, err = LoadACMEConfig(netip.MustParseAddr("192.0.2.1"), []int{80, 443, 8443}); err != nil ||
+		c.HTTPPort != 80 || c.TLSALPNPort != 443 {
+		t.Fatalf("with 80: %+v %v", c, err)
+	}
+	if _, err := NewACMEManager(ACMEConfig{CA: "https://ca.example/dir", Dir: t.TempDir(), NamesHTTP01: testNamesHTTP01},
+		nil, nil, nil); err == nil {
+		t.Fatal("manager for B without challenge port accepted")
+	}
 	t.Setenv("FS_ACME_ENABLE", "1")
-	if _, err := LoadACMEConfig(netip.Addr{}); err == nil {
+	if _, err := LoadACMEConfig(netip.Addr{}, nil); err == nil {
 		t.Fatal("enable without CA accepted")
 	}
 	t.Setenv("FS_ACME_CA", "https://ca.example/dir")
 	t.Setenv("FS_ACME_EMAIL", "ops@example.com")
-	if c, err = LoadACMEConfig(netip.Addr{}); err != nil || !c.Enable || c.CA != "https://ca.example/dir" || c.Email != "ops@example.com" {
+	if c, err = LoadACMEConfig(netip.Addr{}, nil); err != nil || !c.Enable || c.CA != "https://ca.example/dir" || c.Email != "ops@example.com" {
 		t.Fatalf("enabled %+v %v", c, err)
 	}
 	t.Setenv("FS_ACME_ENABLE", "yes")
-	if _, err := LoadACMEConfig(netip.Addr{}); err == nil {
+	if _, err := LoadACMEConfig(netip.Addr{}, nil); err == nil {
 		t.Fatal("invalid FS_ACME_ENABLE accepted")
 	}
 	if _, err := NewACMEManager(ACMEConfig{Dir: t.TempDir()}, nil, nil, nil); err == nil {
@@ -111,7 +122,7 @@ func TestACMEFailureSelfSigned(t *testing.T) {
 	metrics := service.NewMetrics()
 	m, err := NewACMEManager(ACMEConfig{
 		CA: "https://" + closed + "/dir", Dir: t.TempDir(), CertDir: certDir,
-		NamesDNS01: testNamesDNS01, NamesHTTP01: testNamesHTTP01,
+		NamesDNS01: testNamesDNS01, NamesHTTP01: testNamesHTTP01, TLSALPNPort: 8443,
 		RetryMin: 20 * time.Millisecond, RetryMax: 80 * time.Millisecond,
 	}, startNATS(t), nil, metrics)
 	if err != nil {
@@ -156,18 +167,25 @@ func openStore(t *testing.T, dir string) *certs.Store {
 // --- Pebble ---
 
 // pebbleEnv é o ambiente de um teste com Pebble: NATS, dns real (zona da task 016) atrás de um responder
-// miekg, web com a rota do HTTP-01 e o Pebble apontando para esse dns e para a porta do web.
+// miekg, web com a rota do HTTP-01 e o TLS-ALPN-01, e o Pebble apontando para esse dns e para as portas do web.
 type pebbleEnv struct {
 	nc      *nats.Conn
 	ca      string
 	roots   *x509.CertPool
 	dnsAddr string
+	web     *harness
 	webHost string
-	webPort int
+	webPort int // listener que faz o papel da porta 80 (HTTP-01)
+	tlsPort int // listener TLS do web (TLS-ALPN-01)
 	mgr     atomic.Pointer[ACMEManager]
-	cmd     *exec.Cmd
-	exited  chan struct{} // fechado quando o processo do Pebble termina (Wait concluído)
-	out     *syncBuffer
+	// alpnServed conta os certificados de desafio TLS-ALPN-01 entregues pelo web; alpnListen guarda as portas
+	// TCP em escuta do processo no momento de cada entrega (nil sem lsof).
+	alpnServed atomic.Int32
+	alpnMu     sync.Mutex
+	alpnListen [][]int
+	cmd        *exec.Cmd
+	exited     chan struct{} // fechado quando o processo do Pebble termina (Wait concluído)
+	out        *syncBuffer
 }
 
 type syncBuffer struct {
@@ -208,10 +226,24 @@ func startPebbleEnv(t *testing.T, validity time.Duration) *pebbleEnv {
 	// web com o gancho do HTTP-01 ligado ao gerenciador (atribuído depois).
 	h := newHarness(t, harnessOpts{deps: func(d *Deps) {
 		d.ACME = func(tok string) ([]byte, bool) { return e.mgr.Load().HTTPChallenge(tok) }
+		d.ACMETLSALPN = func(hello *tls.ClientHelloInfo) (*tls.Certificate, bool) {
+			crt, ok := e.mgr.Load().TLSALPNChallenge(hello)
+			if ok {
+				e.alpnServed.Add(1)
+				ports := listeningPorts(t)
+				e.alpnMu.Lock()
+				e.alpnListen = append(e.alpnListen, ports)
+				e.alpnMu.Unlock()
+			}
+			return crt, ok
+		}
 	}})
+	e.web = h
 	host, port, _ := net.SplitHostPort(h.addr80)
 	e.webHost = host
 	_, _ = fmt.Sscan(port, &e.webPort)
+	_, port, _ = net.SplitHostPort(h.addr443)
+	_, _ = fmt.Sscan(port, &e.tlsPort)
 
 	dir := t.TempDir()
 	certPEM, keyPEM, pool := pebbleTLS(t)
@@ -247,7 +279,11 @@ var errPebblePortInUse = errors.New("pebble: address already in use")
 // startPebble escolhe portas livres, escreve a configuração e sobe o Pebble até o diretório responder 200.
 // Se o processo sair antes disso por conflito de porta, devolve errPebblePortInUse.
 func (e *pebbleEnv) startPebble(bin, dir string, validity time.Duration) error {
-	apiPort, mgmtPort, tlsPort := freePortT(), freePortT(), freePortT()
+	apiPort, mgmtPort := freePortT(), freePortT()
+	tlsPort := e.tlsPort
+	if tlsPort == 0 {
+		tlsPort = freePortT()
+	}
 	if apiPort == 0 || mgmtPort == 0 || tlsPort == 0 {
 		return errors.New("no free port")
 	}
@@ -321,12 +357,14 @@ func (e *pebbleEnv) stopPebble() {
 	}
 }
 
-// config devolve a configuração do ACME para este ambiente.
+// config devolve a configuração do ACME para este ambiente: B só por TLS-ALPN-01 na porta TLS do web, como no
+// finger-01 (sem a 80 entre as portas, ADR 0038).
 func (e *pebbleEnv) config(acmeDir, certDir string) ACMEConfig {
 	return ACMEConfig{
 		Enable: true, CA: e.ca, Dir: acmeDir, CertDir: certDir,
 		NamesDNS01: testNamesDNS01, NamesHTTP01: testNamesHTTP01,
-		HTTPListenHost: e.webHost, HTTPPort: e.webPort,
+		ListenHost: e.webHost, TLSALPNPort: e.tlsPort,
+		ListenerUp:   e.web.srv.ListeningOn,
 		DNSResolvers: []string{e.dnsAddr}, DNSTimeout: 2 * time.Second,
 		TrustedRoots: e.roots,
 		RetryMin:     200 * time.Millisecond, RetryMax: time.Second,
@@ -445,10 +483,12 @@ func leafOf(t *testing.T, dir, slot string) *x509.Certificate {
 	return pair.Leaf
 }
 
-// TestACMEPebbleIssueAndRenew: A por DNS-01 (dns real pelo NATS) e B por HTTP-01 (rota do web), exportados
-// para FS_CERT_DIR com modo 0600 na chave, carregados a quente por pkg/certs e renovados antes de vencer.
+// TestACMEPebbleIssueAndRenew: A por DNS-01 (dns real pelo NATS) e B por TLS-ALPN-01 (handshake "acme-tls/1"
+// atendido pelo web na porta TLS dele, sem listener do certmagic), exportados para FS_CERT_DIR com modo 0600 na
+// chave, carregados a quente por pkg/certs e renovados antes de vencer.
 func TestACMEPebbleIssueAndRenew(t *testing.T) {
 	e := startPebbleEnv(t, 30*time.Second)
+	before := listeningPorts(t)
 	certDir := t.TempDir()
 	st := openStore(t, certDir)
 	metrics := service.NewMetrics()
@@ -484,7 +524,21 @@ func TestACMEPebbleIssueAndRenew(t *testing.T) {
 		s := st.State()
 		return len(s) == 2 && !s[0].SelfSigned && !s[1].SelfSigned
 	}, func() string { return fmt.Sprintf("state %+v", st.State()) })
-	for sni, want := range map[string]*x509.Certificate{"abc.dns-monitor.tmsoft.com.br": a, "fingerprint.tmsoft.com.br": b, "": b} {
+	// TLS-ALPN-01: o web entregou o certificado de desafio dos dois nomes do B, e nesse momento as portas em
+	// escuta do processo eram as mesmas de antes da emissão (o certmagic não abriu listener).
+	if n := e.alpnServed.Load(); n < int32(len(testNamesHTTP01)) {
+		t.Fatalf("tls-alpn-01 served %d times", n)
+	}
+	if before != nil {
+		e.alpnMu.Lock()
+		for _, during := range e.alpnListen {
+			if !slices.Equal(during, before) {
+				t.Errorf("listening ports changed during the challenge: before %v during %v", before, during)
+			}
+		}
+		e.alpnMu.Unlock()
+	}
+	for sni, want := range map[string]*x509.Certificate{"abc.finger-west-01.badblock.net.br": a, "finger-01.tmsoft.com.br": b, "": b} {
 		c, err := st.GetCertificate(&tls.ClientHelloInfo{ServerName: sni})
 		if err != nil || !bytes.Equal(c.Leaf.Raw, want.Raw) {
 			t.Fatalf("sni %q: %v", sni, err)
@@ -506,10 +560,12 @@ func TestACMEPebbleIssueAndRenew(t *testing.T) {
 
 // TestACMEPebbleRestartAndKeepOld: depois da emissão, um novo processo (mesmo FS_ACME_DIR) não emite de novo,
 // reexporta se FS_CERT_DIR foi apagado; renovação que falha (CA fora do ar) mantém o certificado anterior.
+// O B sai aqui por HTTP-01 (porta 80 entre as portas do web), o caminho que continua valendo com a 80.
 func TestACMEPebbleRestartAndKeepOld(t *testing.T) {
 	e := startPebbleEnv(t, 90*24*time.Hour)
 	acmeDir, certDir := t.TempDir(), t.TempDir()
 	cfg := e.config(acmeDir, certDir)
+	cfg.TLSALPNPort, cfg.HTTPPort = 0, e.webPort
 	metrics := service.NewMetrics()
 	m := e.manager(t, cfg, metrics)
 	ctx := context.Background()
@@ -581,6 +637,67 @@ func TestACMEPebbleDNSDown(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(certDir, certs.SlotDNS01+".crt")); !os.IsNotExist(err) {
 		t.Fatalf("exported despite failure: %v", err)
 	}
+}
+
+// TestACMEListenerGate: sem o listener do web no endereço do desafio, o B não é emitido (erro antes de falar
+// com a CA) e o certmagic não abre listener próprio: a porta continua livre.
+func TestACMEListenerGate(t *testing.T) {
+	free := freePortT()
+	m, err := NewACMEManager(ACMEConfig{
+		CA: "https://127.0.0.1:1/dir", Dir: t.TempDir(), CertDir: t.TempDir(),
+		NamesHTTP01: testNamesHTTP01, ListenHost: "127.0.0.1", TLSALPNPort: free,
+		ListenerUp: func(string) bool { return false },
+	}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(m.Close)
+	if _, err := m.Ensure(context.Background(), certs.SlotHTTP01); err == nil || !strings.Contains(err.Error(), "not up") {
+		t.Fatalf("gate: %v", err)
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(free)))
+	if err != nil {
+		t.Fatalf("port taken after the gate: %v", err)
+	}
+	_ = ln.Close()
+}
+
+// TestListeningOn: o web informa os listeners de pé por endereço exato.
+func TestListeningOn(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	waitFor(t, 2*time.Second, func() bool { return h.srv.ListeningOn(h.addr443) }, func() string { return h.addr443 })
+	_, port, _ := net.SplitHostPort(h.addr443)
+	// o lsof do teste do TLS-ALPN-01 enxerga os listeners do web
+	if ports := listeningPorts(t); ports != nil && !slices.Contains(ports, func() int { p, _ := strconv.Atoi(port); return p }()) {
+		t.Fatalf("lsof listening ports %v without %s", ports, h.addr443)
+	}
+	for _, a := range []string{"127.0.0.2:" + port, "127.0.0.1:1", "x"} {
+		if h.srv.ListeningOn(a) {
+			t.Fatalf("%s reported up", a)
+		}
+	}
+}
+
+// listeningPorts devolve as portas TCP em escuta deste processo (lsof), ordenadas; nil sem lsof.
+func listeningPorts(t *testing.T) []int {
+	t.Helper()
+	out, err := exec.Command("lsof", "-nP", "-a", "-p", fmt.Sprint(os.Getpid()), "-iTCP", "-sTCP:LISTEN", "-Fn").Output() //nolint:gosec // argumentos fixos
+	if err != nil && len(out) == 0 {
+		return nil
+	}
+	var ports []int
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if !strings.HasPrefix(line, "n") {
+			continue
+		}
+		i := strings.LastIndexByte(line, ':')
+		var p int
+		if _, err := fmt.Sscan(line[i+1:], &p); err == nil {
+			ports = append(ports, p)
+		}
+	}
+	slices.Sort(ports)
+	return slices.Compact(ports)
 }
 
 func waitFor(t *testing.T, d time.Duration, cond func() bool, msg func() string) {

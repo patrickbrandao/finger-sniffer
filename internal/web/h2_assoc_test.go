@@ -116,7 +116,7 @@ func TestH2AssocConnect(t *testing.T) {
 	c := dial(t, h.addr80)
 	r := newH2Raw(t, c, true)
 	_ = r.fr.WriteSettings()
-	r.rawHeaders(1, false, [2]string{":method", "CONNECT"}, [2]string{":authority", "example.com:443"})
+	r.rawHeaders(1, false, [2]string{":method", "CONNECT"}, [2]string{":authority", "example.com:8443"})
 	hf := r.until(func(f http2.Frame) bool { m, ok := f.(*http2.MetaHeadersFrame); return ok && m.StreamID == 1 }).(*http2.MetaHeadersFrame)
 	if hf.PseudoValue("status") != "405" {
 		t.Fatalf("status %s", hf.PseudoValue("status"))

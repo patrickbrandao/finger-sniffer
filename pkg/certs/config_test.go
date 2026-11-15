@@ -12,7 +12,7 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FS_CERT_NAMES_DNS01", "")
 	t.Setenv("FS_CERT_NAMES_HTTP01", "")
 	c := LoadConfig()
-	if c.Dir != DefaultDir || len(c.NamesDNS01) != 2 || len(c.NamesHTTP01) != 4 {
+	if c.Dir != DefaultDir || len(c.NamesDNS01) != 2 || len(c.NamesHTTP01) != 2 {
 		t.Fatalf("padrões: %+v", c)
 	}
 	t.Setenv("FS_CERT_DIR", "/x/certs")
@@ -64,7 +64,7 @@ func TestDescribe(t *testing.T) {
 func TestHandshakeVersions(t *testing.T) {
 	rsaStore := openStore(t, testConfig(t.TempDir()))
 	ecDir := t.TempDir()
-	crt, key := genPair(t, "ec", []string{"vps602.tmsoft.com.br"}, time.Now().Add(90*24*time.Hour))
+	crt, key := genPair(t, "ec", []string{"finger-01.badblock.net.br"}, time.Now().Add(90*24*time.Hour))
 	if err := WritePair(ecDir, SlotHTTP01, crt, key); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestHandshakeVersions(t *testing.T) {
 			if tc.suite != 0 {
 				cc.CipherSuites = []uint16{tc.suite}
 			}
-			c, _ := dial(t, addr, "vps602.tmsoft.com.br", cc)
+			c, _ := dial(t, addr, "finger-01.badblock.net.br", cc)
 			defer func() { _ = c.Close() }()
 			st := c.ConnectionState()
 			if st.Version != tc.version {

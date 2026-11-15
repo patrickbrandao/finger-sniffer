@@ -40,7 +40,10 @@ func startH3(t *testing.T, h *harness) *net.UDPConn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.srv.h3AnyPort = true
+	// a porta efêmera passa a ser a de FS_WEB_UDP_PORTS: o Alt-Svc anuncia h3=":<porta>" (ADR 0038)
+	h.srv.h3.mu.Lock()
+	h.srv.cfg.UDPPorts = []int{pc.LocalAddr().(*net.UDPAddr).Port}
+	h.srv.h3.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { _ = h.srv.ServeQUIC(ctx, pc); close(done) }()
@@ -205,10 +208,10 @@ func itoa(n int) string {
 	return string(b)
 }
 
-// TestAltSvc: Alt-Svc em h1 e h2 sobre TLS com o h3 de pé; ausente com alt_svc=0, na porta em claro e
-// sem listener (heartbeat degraded com h3_listener_down).
+// TestAltSvc: Alt-Svc h3=":<U>" em h1 e h2 sobre TLS com o h3 de pé (U = porta UDP do listener); ausente com
+// alt_svc=0, na porta em claro e sem listener (heartbeat degraded com h3_listener_down).
 func TestAltSvc(t *testing.T) {
-	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.UDPPorts = []int{443} }})
+	h := newHarness(t, harnessOpts{cfg: func(c *Config) { c.UDPPorts = []int{8443} }})
 	if st, reasons := h.srv.Status(); st != event.StatusDegraded || !strings.Contains(strings.Join(reasons, ","), ReasonH3Down) {
 		t.Fatalf("sem listener: %s %v", st, reasons)
 	}
@@ -241,13 +244,14 @@ func TestAltSvc(t *testing.T) {
 	if v := get("h1", h.addr443, "/"); v != "" {
 		t.Fatalf("Alt-Svc sem listener: %q", v)
 	}
-	startH3(t, h)
+	pc := startH3(t, h)
+	want := `h3=":` + itoa(pc.LocalAddr().(*net.UDPAddr).Port) + `"; ma=60`
 	if st, reasons := h.srv.Status(); strings.Contains(strings.Join(reasons, ","), ReasonH3Down) {
 		t.Fatalf("listener de pé: %s %v", st, reasons)
 	}
 	for _, proto := range []string{"h1", "h2"} {
 		for _, path := range []string{"/", "/p/" + testProbe + "/", "/r?size=1"} {
-			if v := get(proto, h.addr443, path); v != altSvcH3 {
+			if v := get(proto, h.addr443, path); v != want {
 				t.Errorf("%s %s: Alt-Svc %q", proto, path, v)
 			}
 		}

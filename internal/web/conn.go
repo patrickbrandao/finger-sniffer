@@ -178,8 +178,20 @@ func (c *conn) serveTLS(ic *idleConn) {
 	}
 	cfg := s.deps.TLS.Clone()
 	cfg.NextProtos = []string{http2.NextProtoTLS, "http/1.1"}
-	cfg.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+	cfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 		publishHello()
+		// TLS-ALPN-01 do certificado B (spec 005 RF-11, ADR 0038): com desafio ativo, o certificado de desafio e
+		// o ALPN "acme-tls/1"; a conexão fecha depois do handshake (RFC 8737 §3).
+		if f := s.deps.ACMETLSALPN; f != nil && isACMETLSHello(hello) {
+			if crt, ok := f(hello); ok {
+				ac := s.deps.TLS.Clone()
+				ac.GetCertificate, ac.GetConfigForClient = nil, nil
+				ac.Certificates = []tls.Certificate{*crt}
+				ac.NextProtos = []string{acmeTLS1}
+				ac.MinVersion = max(ac.MinVersion, tls.VersionTLS12)
+				return ac, nil
+			}
+		}
 		return nil, nil
 	}
 	ts := tls.Server(tc, cfg)
@@ -192,6 +204,11 @@ func (c *conn) serveTLS(ic *idleConn) {
 	if err != nil {
 		// Sessão TLS morta: espera o cliente fechar (ou a ociosidade) sem fechar antes (RF-08).
 		drain(ic)
+		return
+	}
+	if ts.ConnectionState().NegotiatedProtocol == acmeTLS1 {
+		// Validação TLS-ALPN-01 concluída: nada é trocado depois do handshake (RFC 8737 §3).
+		_ = ts.Close()
 		return
 	}
 	c.mu.Lock()

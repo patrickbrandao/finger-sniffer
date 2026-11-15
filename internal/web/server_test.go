@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +32,7 @@ import (
 
 const (
 	testProbe = "abcdefgh"
-	testSNI   = testProbe + ".dns-monitor.tmsoft.com.br"
+	testSNI   = testProbe + ".finger-west-01.badblock.net.br"
 )
 
 // startNATS sobe um nats-server embutido em porta efêmera.
@@ -164,7 +165,7 @@ func testConfig(htdocs string) Config {
 		RawBodyMax:     h1.DefaultRawBodyMax,
 		RawStreamMax:   event.DefaultRawStreamMaxBytes,
 		MaxHeadBytes:   h1.DefaultMaxHeadBytes,
-		Zones:          []string{"dns-monitor.tmsoft.com.br", "vps602.tmsoft.com.br"},
+		Zones:          []string{"finger-west-01.badblock.net.br", "finger-01.badblock.net.br"},
 	}
 }
 
@@ -405,7 +406,7 @@ func TestConnIDUnknown(t *testing.T) {
 	c := dial(t, h.addr80)
 	start := time.Now()
 	cl := newClient(t, c)
-	cl.send(get("/p/"+testProbe+"/", "vps602.tmsoft.com.br"))
+	cl.send(get("/p/"+testProbe+"/", "finger-01.badblock.net.br"))
 	_, body := cl.response("GET")
 	if !strings.HasPrefix(body, "conn_id: unknown\n") {
 		t.Fatalf("body %q", body)
@@ -636,9 +637,9 @@ func TestLoadConfig(t *testing.T) {
 	if c.RawBodyMax != base.EventInlineMax || len(c.Warnings) != 1 || c.IdleDefault != 30*time.Second {
 		t.Fatalf("config %+v", c)
 	}
-	// padrão de FS_MAX_CONNS igual ao do store (ADR 0030)
-	if c.MaxConns != 250 {
-		t.Fatalf("MaxConns %d, quer 250", c.MaxConns)
+	// padrão de FS_MAX_CONNS igual ao do store e do raw (ADRs 0030 e 0039)
+	if c.MaxConns != 1000 || DefaultMaxConns != 1000 {
+		t.Fatalf("MaxConns %d, quer 1000", c.MaxConns)
 	}
 	if got := c.listenAddrs(); len(got) != 2 || got[0] != "127.0.0.1:80" || got[1] != "127.0.0.1:8080" {
 		t.Fatalf("addrs %v", got)
@@ -659,6 +660,13 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatalf("FS_MAX_CONNS=300: %v %+v", err, c)
 	}
 	t.Setenv("FS_MAX_CONNS", "")
+	// padrão de FS_WEB_TCP_PORTS: 8080 e 8443 (80/443 são do traefik no finger-01, ADR 0038)
+	if err := os.Unsetenv("FS_WEB_TCP_PORTS"); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := LoadConfig(base); err != nil || !slices.Equal(c.TCPPorts, []int{8080, 8443}) {
+		t.Fatalf("default TCP ports: %v %v", err, c.TCPPorts)
+	}
 	t.Setenv("FS_WEB_TCP_PORTS", "80,x")
 	if _, err := LoadConfig(base); err == nil {
 		t.Fatal("bad port accepted")

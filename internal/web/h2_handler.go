@@ -352,8 +352,8 @@ func (st *h2Stream) altSvc(hdr http.Header) {
 	c.mu.Lock()
 	tlsOn := c.tlsOn
 	c.mu.Unlock()
-	if c.srv.altSvcOn(tlsOn, rawQuery) {
-		hdr["Alt-Svc"] = []string{altSvcH3}
+	if v := c.srv.altSvc(tlsOn, rawQuery); v != "" {
+		hdr["Alt-Svc"] = []string{v}
 	}
 }
 
