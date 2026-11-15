@@ -1,9 +1,12 @@
 package raw
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -97,12 +100,23 @@ func TestRunEndsWithAcceptWaiting(t *testing.T) {
 	}
 }
 
-// TestMaxConnsZeroUsesDefault: FS_MAX_CONNS <= 0 vira o padrão de 250 (ADR 0034 item 12).
+// TestMaxConnsZeroUsesDefault: FS_MAX_CONNS <= 0 vira o padrão de 1000 com aviso no log (ADR 0034 item 12,
+// ADR 0039 item 5).
 func TestMaxConnsZeroUsesDefault(t *testing.T) {
+	if DefaultMaxConns != 1000 {
+		t.Fatalf("DefaultMaxConns = %d, want 1000", DefaultMaxConns)
+	}
 	for _, v := range []int{0, -3} {
-		srv := New(Config{MaxConns: v}, &fakePub{}, quietLog(), nil)
-		if cap(srv.sem) != DefaultMaxConns || srv.cfg.MaxConns != DefaultMaxConns {
+		var buf bytes.Buffer
+		log := slog.New(slog.NewTextHandler(&buf, nil))
+		srv := New(Config{MaxConns: v}, &fakePub{}, log, nil)
+		if cap(srv.sem) != 1000 || srv.cfg.MaxConns != 1000 {
 			t.Fatalf("MaxConns %d: cap=%d", v, cap(srv.sem))
+		}
+		out := buf.String()
+		if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "FS_MAX_CONNS") ||
+			!strings.Contains(out, "default=1000") {
+			t.Errorf("MaxConns %d: aviso ausente: %q", v, out)
 		}
 	}
 }

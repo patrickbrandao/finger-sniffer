@@ -30,8 +30,8 @@ const DefaultPorts = "7:echo,21:banner,22:banner,25:banner,110:banner,143:banner
 // Valores padrão.
 const (
 	DefaultIdle = 120 * time.Second
-	// DefaultMaxConns é o padrão de FS_MAX_CONNS, o mesmo do web e do store (ADR 0030, ADR 0035).
-	DefaultMaxConns    = 250
+	// DefaultMaxConns é o padrão de FS_MAX_CONNS, o mesmo do web e do store (ADR 0030, ADR 0035, ADR 0039).
+	DefaultMaxConns    = 1000
 	DefaultSourceBytes = 1 << 20
 	// MaxSourceBytes é o máximo de n= no modo source (= FS_SIZE_MAX do web); acima, n é cortado (ADR 0035).
 	MaxSourceBytes   = 64 << 20
