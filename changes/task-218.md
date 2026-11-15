@@ -1,0 +1,1 @@
+- Teste: `TestServerListenerFailure` (dns) reserva a mesma porta em UDP e TCP sem soltá-la e tenta outra quando a TCP já está ocupada, eliminando o `bind: address already in use` instável (task 218).
