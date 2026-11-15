@@ -40,7 +40,7 @@ import (
 
 var (
 	testNamesDNS01  = []string{"finger-west-01.badblock.net.br", "*.finger-west-01.badblock.net.br"}
-	testNamesHTTP01 = []string{"finger-01.badblock.net.br", "finger-01.tmsoft.com.br"}
+	testNamesHTTP01 = []string{"finger-01.badblock.net.br"}
 )
 
 func TestLoadACMEConfig(t *testing.T) {
@@ -538,7 +538,7 @@ func TestACMEPebbleIssueAndRenew(t *testing.T) {
 		}
 		e.alpnMu.Unlock()
 	}
-	for sni, want := range map[string]*x509.Certificate{"abc.finger-west-01.badblock.net.br": a, "finger-01.tmsoft.com.br": b, "": b} {
+	for sni, want := range map[string]*x509.Certificate{"abc.finger-west-01.badblock.net.br": a, "unknown.example": b, "": b} {
 		c, err := st.GetCertificate(&tls.ClientHelloInfo{ServerName: sni})
 		if err != nil || !bytes.Equal(c.Leaf.Raw, want.Raw) {
 			t.Fatalf("sni %q: %v", sni, err)
