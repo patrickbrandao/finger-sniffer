@@ -77,6 +77,12 @@ type Ingestor struct {
 	pendKeysSnap map[flowKey]int     // pendingKeys no início do lote em curso
 	toFinalize   []*conn             // conexões fora da tabela à espera da finalização (saem só depois do commit)
 	finalStats   []finalStat         // métricas da transação de finalização em curso
+
+	// Relógio de captura (ADR 0041 item 2) e parede do lote em curso (P das observações do lote).
+	clock     captureClock
+	batchWall int64
+	// stream é a posição do consumidor no FS_EVENTS: perdidas, backlog e pendentes (ADR 0041 item 3).
+	stream streamStats
 }
 
 // maxFinalizeTries é o máximo de tentativas de finalizar uma conexão; esgotadas, a linha é fechada com ended_ns
@@ -129,6 +135,9 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 		for m := range batch.Messages() {
 			msgs = append(msgs, m)
 		}
+		if len(msgs) == 0 && batch.Error() == nil {
+			in.stream.caughtUp() // nada a buscar: o consumidor alcançou o stream
+		}
 		if len(msgs) > 0 || len(in.pending) > 0 || len(in.eventOnly) > 0 {
 			// Só erro antes do commit chega aqui (rollback): o lote volta por Nak (ADR 0034).
 			if err := in.Process(work, msgs); err != nil {
@@ -143,14 +152,22 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 				_ = m.Ack()
 			}
 		}
-		// As que falharam antes ficam na fila e são tentadas de novo aqui, uma a uma.
-		in.toFinalize = append(in.toFinalize, in.flows.due(in.now().UnixNano())...)
-		if err := in.finalizeQueued(work); err != nil {
-			in.log.Error("finalize", "err", err)
-		}
+		in.afterBatch(work)
 	}
 	in.drainPending()
 	return nil
+}
+
+// captureNow é o "agora" do ingest para os prazos comparados a instantes de captura (ADR 0041 item 2).
+func (in *Ingestor) captureNow() int64 { return in.clock.at(in.now().UnixNano()) }
+
+// afterBatch encerra as conexões vencidas pelo relógio de captura e processa a fila de finalização; as que
+// falharam antes ficam na fila e são tentadas de novo aqui, uma a uma.
+func (in *Ingestor) afterBatch(ctx context.Context) {
+	in.toFinalize = append(in.toFinalize, in.flows.due(in.captureNow())...)
+	if err := in.finalizeQueued(ctx); err != nil {
+		in.log.Error("finalize", "err", err)
+	}
 }
 
 // drainPending, no desligamento, grava os eventos ainda pendentes como conexões só de eventos: as mensagens já
@@ -200,11 +217,11 @@ type metadataSource interface {
 }
 
 // publishedAt devolve quando a mensagem entrou no stream (JetStream) ou, sem metadado, received (ADR 0025).
-func publishedAt(m msgSource, received int64) int64 {
-	if ms, ok := m.(metadataSource); ok {
-		if md, err := ms.Metadata(); err == nil && md != nil && !md.Timestamp.IsZero() {
-			return md.Timestamp.UnixNano()
-		}
+func publishedAt(m msgSource, received int64) int64 { return publishedFrom(metadataOf(m), received) }
+
+func publishedFrom(md *jetstream.MsgMetadata, received int64) int64 {
+	if md != nil && !md.Timestamp.IsZero() {
+		return md.Timestamp.UnixNano()
 	}
 	return received
 }
@@ -250,11 +267,16 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	var tss []int64
 	in.appTs = in.appTs[:0]
 	received := in.now().UnixNano()
+	in.batchWall = received
 	for _, m := range msgs {
 		subject := m.Subject()
 		in.prom.event(subject)
+		md := metadataOf(m)
+		if md != nil {
+			in.stream.observe(md, time.Unix(0, received))
+		}
 		if isAppSubject(subject) {
-			if err := in.appMessage(ctx, tx, subject, m.Data(), publishedAt(m, received)); err != nil {
+			if err := in.appMessage(ctx, tx, subject, m.Data(), publishedFrom(md, received)); err != nil {
 				return err
 			}
 			continue
@@ -283,6 +305,7 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 		// Erro aqui é de banco, não de formato: aborta a transação e o lote volta por Nak.
 		if _, err := event.DecodePackets(m.Data(), func(p event.Packet) error {
 			tss = append(tss, p.TsNs)
+			in.clock.observe(p.TsNs, received)
 			return in.packet(ctx, tx, st, p)
 		}); err != nil {
 			return fmt.Errorf("store packet: %w", err)

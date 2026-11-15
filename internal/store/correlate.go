@@ -186,6 +186,7 @@ func (in *Ingestor) appMessage(ctx context.Context, tx *sql.Tx, subject string, 
 		return nil
 	}
 	ev.published = published
+	in.clock.observe(ev.ts, in.batchWall)
 	in.appTs = append(in.appTs, ev.ts)
 	in.metrics.Add("store_app_events_total", 1)
 	// DNS por UDP (ou sem 5-tupla) não tem conexão: vai direto para dns_queries.
@@ -224,9 +225,12 @@ func (in *Ingestor) addPending(ev appEvent) {
 // flushPending tenta de novo os eventos pendentes; os que passaram de pendingWait (ou todos, com force, no
 // desligamento) criam a conexão só com os eventos. Também expira as conexões só de eventos ociosas.
 func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx, force bool) error {
+	// A espera na fila conta desde a chegada (parede); a ociosidade das conexões só de eventos compara com o ts
+	// dos eventos (relógio de captura, ADR 0041 item 2).
 	now := in.now().UnixNano()
+	capNow := in.clock.at(now)
 	for k, eo := range in.eventOnly {
-		if now-eo.last > eventOnlyIdle.Nanoseconds() {
+		if capNow-eo.last > eventOnlyIdle.Nanoseconds() {
 			delete(in.eventOnly, k)
 		}
 	}
@@ -256,7 +260,7 @@ func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx, force bool) er
 				continue
 			}
 			// Evento mais antigo que a retenção: a conexão dele já foi expurgada (ou seria no próximo ciclo);
-			// não cria um registro só de eventos falso (task 080).
+			// não cria um registro só de eventos falso (task 080). Parede, como a própria retenção.
 			if in.cfg.Retention > 0 && p.ev.ts < now-in.cfg.Retention.Nanoseconds() {
 				in.log.Debug("app event older than retention dropped", "subject", p.ev.subject, "client", p.ev.client.String(), "server", p.ev.server.String())
 				continue
@@ -288,8 +292,9 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()})
 	in.liveConn(LiveConnOpened, summaryFrom(eventOnlyRecord(id, ev, ev.ts)), ev.ts)
 	in.prom.connection(l4Name(ev.l4), l4Name(ev.l4))
-	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID.
-	in.flows.reserveFor(k, id, now)
+	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID; a validade é comparada ao ts dos
+	// pacotes, por isso conta no relógio de captura.
+	in.flows.reserveFor(k, id, in.clock.at(now))
 	in.metrics.Add("store_event_only_connections_total", 1)
 	return target{id: id, eventOnly: true}, nil
 }

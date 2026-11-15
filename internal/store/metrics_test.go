@@ -58,6 +58,7 @@ func TestMetrics(t *testing.T) {
 	in, _, _ := liveAPI(t, 64, 4)
 	in.now = func() time.Time { return time.Unix(0, base+6e9) }
 	m := newStoreMetrics(metricsHealth, in.flows.open, in.live)
+	m.registerStream(&in.stream)
 	in.SetMetrics(m)
 	r := NewRetention(in.db, time.Minute, 1<<30)
 	r.OnPurge = m.purge
@@ -111,6 +112,7 @@ func TestMetrics(t *testing.T) {
 		"fs_store_record_ready_seconds": hist, "fs_store_live_clients": gauge, "fs_store_live_events_total": counter,
 		"fs_store_live_dropped_total": counter, "fs_store_live_delay_seconds": hist, "fs_store_api_requests_total": counter,
 		"fs_store_api_request_duration_seconds": hist,
+		"fs_store_stream_lost_total":            counter, "fs_store_ingest_backlog_seconds": gauge, "fs_store_ingest_pending_messages": gauge,
 		// nomes antigos preservados
 		"fs_store_connections": gauge, "fs_host_syncookies_sent": gauge, "fs_store_app_events_total": counter,
 	}

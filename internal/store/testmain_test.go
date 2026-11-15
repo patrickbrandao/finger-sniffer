@@ -11,7 +11,7 @@ import (
 
 // testDB abre um banco de teste. Com FS_TEST_DB=local (verify-quick), copia o banco-modelo já migrado
 // (spec 017 RF-06); senão cria e migra um banco novo (verify-full, banco isolado).
-func testDB(t *testing.T) (*sql.DB, string) {
+func testDB(t testing.TB) (*sql.DB, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "store.sqlite")
 	if os.Getenv("FS_TEST_DB") == "local" {
@@ -27,7 +27,7 @@ func testDB(t *testing.T) (*sql.DB, string) {
 	return db, path
 }
 
-func copyFile(t *testing.T, from, to string) {
+func copyFile(t testing.TB, from, to string) {
 	t.Helper()
 	in, err := os.Open(from) //nolint:gosec // caminho de teste
 	if err != nil {

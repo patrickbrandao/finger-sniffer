@@ -192,6 +192,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.ingest.SetLive(s.live)
 	s.prom = newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, time.Now()) }, s.ingest.flows.open, s.live)
 	s.ingest.SetMetrics(s.prom)
+	s.prom.registerStream(&s.ingest.stream)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen).WithOpenSummary(s.ingest.flows.openSummary)
 	s.queries.SetHideOpen(s.ingest.flows.hide, s.ingest.flows.unhide)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
@@ -201,6 +202,8 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		if s.certs != nil {
 			reasons = append(reasons, s.certs.Reasons(time.Now())...)
 		}
+		// Atraso e perda do consumidor do FS_EVENTS (ADR 0041 item 3).
+		reasons = append(reasons, s.ingest.stream.reasons(time.Now())...)
 		if len(reasons) > 0 {
 			return event.StatusDegraded, reasons
 		}

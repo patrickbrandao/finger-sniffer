@@ -11,7 +11,7 @@ import (
 )
 
 // appMsg monta um evento de aplicação sintético (envelope v1) da 5-tupla cli → srv em base+ms.
-func appMsg(t *testing.T, subject string, l4 string, cli, srv netip.AddrPort, ms int, probeID string, payload any) fakeMsg {
+func appMsg(t testing.TB, subject string, l4 string, cli, srv netip.AddrPort, ms int, probeID string, payload any) fakeMsg {
 	t.Helper()
 	svc := event.ServiceWeb
 	switch subject {

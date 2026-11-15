@@ -120,6 +120,22 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 	return m
 }
 
+// registerStream expõe a posição do consumidor no FS_EVENTS (ADR 0041 item 3): mensagens que nunca chegaram
+// (saltos de sequência), backlog em segundos e mensagens pendentes.
+func (m *storeMetrics) registerStream(st *streamStats) {
+	m.reg.MustRegister(
+		prometheus.NewCounterFunc(prometheus.CounterOpts{
+			Name: "fs_store_stream_lost_total", Help: "FS_EVENTS messages that never reached the store (stream sequence gaps: expired by max_age or max_bytes).",
+		}, func() float64 { l, _, _ := st.snapshot(); return float64(l) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "fs_store_ingest_backlog_seconds", Help: "Wall clock minus the stream timestamp of the last message processed (0 once the consumer catches up).",
+		}, func() float64 { _, b, _ := st.snapshot(); return b }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "fs_store_ingest_pending_messages", Help: "Messages still pending for the store consumer (NumPending of the last message processed).",
+		}, func() float64 { _, _, p := st.snapshot(); return float64(p) }),
+	)
+}
+
 // Os métodos abaixo aceitam receptor nil (ingest sem métricas, nos testes).
 
 func (m *storeMetrics) event(subject string) {
