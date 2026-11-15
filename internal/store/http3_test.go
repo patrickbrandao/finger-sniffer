@@ -123,7 +123,7 @@ func respAt(status int, ms int64) *string {
 func ptrTo[T any](v T) *T { return &v }
 
 // h3Msg monta o evento h3 com flow.l4 = udp e flow.quic_dcid_hex.
-func h3Msg(t *testing.T, subject string, cli netip.AddrPort, dcid []byte, ms int, payload any) fakeMsg {
+func h3Msg(t testing.TB, subject string, cli netip.AddrPort, dcid []byte, ms int, payload any) fakeMsg {
 	t.Helper()
 	flow := &event.Flow{
 		L4: "udp", SrcIP: cli.Addr().String(), SrcPort: int(cli.Port()), DstIP: quicMirror.Addr().String(),
