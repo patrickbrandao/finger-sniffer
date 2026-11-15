@@ -21,10 +21,10 @@ Testa se proxies repassam `ws://` e `wss://` intactos (caso 9 da matriz).
   razão. Quando o cliente inicia, a resposta é do próprio espelho e não diz nada sobre o caminho; quando o espelho
   inicia (1001 por ociosidade), basta saber se a resposta chegou. Depois da troca de closes o espelho fecha o TCP
   primeiro (RFC 6455 §7.1.1; exceção da spec 005 RF-08, ADR 0023).
-- RF-07: tetos (ADR 0033, ADR 0036): no máximo 32 sessões simultâneas somando HTTP/1.1 e h2, e cada sessão
+- RF-07: tetos (ADR 0033, ADR 0036, ADR 0037): no máximo 32 sessões simultâneas somando HTTP/1.1 e h2, e cada sessão
   reserva 2 MiB do orçamento de entrada do web (spec 005 RF-12) no Upgrade (com o padrão de 24 MiB, até 12
-  sessões no orçamento vazio); a sessão sobre HTTP/1.1 tem `SO_RCVBUF` e `SO_SNDBUF` de 64 KiB no socket TCP,
-  aplicados antes do 101; sem vaga ou sem orçamento, 503 antes do 101 (resposta
+  sessões no orçamento vazio); o socket TCP da sessão tem `SO_RCVBUF` e `SO_SNDBUF` de 16 KiB,
+  os mesmos de toda conexão TCP do web, aplicados no `accept` (spec 005 RF-12, ADR 0037); sem vaga ou sem orçamento, 503 antes do 101 (resposta
   normal, registrada; sem evento de WebSocket). Mensagem até 1 MiB (acima, o `coder/websocket` fecha com 1009). O
   eco tem prazo de escrita de 30 s: um cliente que não lê (janela zerada) tem a sessão e o TCP encerrados pelo
   espelho.
