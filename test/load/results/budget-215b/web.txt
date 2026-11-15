@@ -1,0 +1,36 @@
+# antes (2026-11-15T00:40:45Z)
+MainPID=65375
+NRestarts=0
+MemoryMax=100663296
+ActiveEnterTimestamp=Sun 2026-11-15 00:40:39 UTC
+memory.peak=9080832
+memory.current=8847360
+max=0
+oom=0
+oom_kill=0
+# depois (2026-11-15T00:44:53Z)
+MainPID=65375
+NRestarts=0
+MemoryMax=100663296
+ActiveEnterTimestamp=Sun 2026-11-15 00:40:39 UTC
+memory.peak=49700864
+memory.current=32669696
+max=0
+oom=0
+oom_kill=0
+# pico do memory.current do web nas amostras de 1 s (bytes)
+mem_current_max=49430528
+anon_max=32944128
+# memória do web por janela de 30 s (kernel = memory.current − anon − file)
+| janela (s) | amostras | memory.current máx (MiB) | anon máx (MiB) | kernel máx (MiB) |
+| --- | --- | --- | --- | --- |
+| 0–30 | 30 | 36.1 | 28.3 | 4.2 |
+| 30–60 | 30 | 44.4 | 28.3 | 12.6 |
+| 60–90 | 30 | 44.4 | 29.5 | 12.5 |
+| 90–120 | 30 | 42.6 | 29.8 | 10.3 |
+| 120–150 | 30 | 44.9 | 30.9 | 10.4 |
+| 150–180 | 30 | 45.4 | 30.9 | 10.8 |
+| 180–210 | 30 | 47.1 | 31.4 | 11.9 |
+| 210–240 | 30 | 46.4 | 30.6 | 12.1 |
+| 240–270 | 6 | 45.1 | 29.1 | 12.1 |
+# journal do web durante a carga (OOM, reinício, pânico)

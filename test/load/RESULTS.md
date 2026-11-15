@@ -9,6 +9,71 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
+## Orçamento de entrada depois da ADR 0036 (tasks 215 e 220)
+
+Rodada de 2026-11-15 contra a `main` implantada `v0.2.1-54-g91c7f25` (`FS_WEB_INPUT_BUDGET=25165824`,
+`GOMEMLIMIT=64MiB`, `MemoryMax=96M`), vps602 só para esta carga (`/tmp/fs-load-running`), web reiniciado antes de
+cada janela (`RESTART_WEB=1`: o `memory.peak` é só da janela). Brutos em
+[`results/budget-215a/`](results/budget-215a/) e [`results/budget-215b/`](results/budget-215b/).
+
+```sh
+RESTART_WEB=1 OUT=tmp/load/raw/budget-215a test/load/budget.sh -duration 4m        # A: mesmo cenário da 214
+RESTART_WEB=1 OUT=tmp/load/raw/budget-215b test/load/budget.sh -duration 4m \
+	-h1 0 -ws 24 -h3 0 -ws-ramp 100ms                                               # B: só WebSocket, 10 aberturas/s
+```
+
+| Meta (ADR 0036 item 6) | A (00:35:47–00:39:56 UTC) | B (00:40:45–00:44:51 UTC) |
+| --- | --- | --- |
+| `memory.peak` ≤ 92 274 688 | **104 792 064 — falhou** | 49 700 864 — ok |
+| `memory.events max` delta 0 | **0 → 304 563 — falhou** | 0 → 0 — ok |
+| `anon` máx ≤ 75 497 472 | 64 552 960 — ok | 32 944 128 — ok |
+| `NRestarts` 0, `oom_kill` 0, mesmo `MainPID` | ok (65060) | ok (65375) |
+| `web_input_budget_used_bytes` ≤ 25 165 824 | 25 165 793 (≥ 24 MB em 229 de 237 amostras) — ok | 23 466 510 — ok |
+| `web_input_budget_denied_total` crescendo | 0 → 15 476 — ok | 0 → 2843 — ok |
+| health do web | 235 `ok`, 2 `down` | 240 `ok` |
+
+Memória do web por janela de 30 s (máx. de `memory.current` / `anon` / kernel = `memory.current − anon − file`,
+MiB):
+
+| janela (s) | A | B |
+| --- | --- | --- |
+| 0–30 | 96,5 / 61,6 / 53,1 | 36,1 / 28,3 / 4,2 |
+| 30–60 | 96,3 / 54,9 / 64,7 | 44,4 / 28,3 / 12,6 |
+| 60–90 | 96,0 / 46,9 / 60,3 | 44,4 / 29,5 / 12,5 |
+| 90–120 | 96,1 / 48,0 / 54,5 | 42,6 / 29,8 / 10,3 |
+| 120–150 | 96,3 / 48,7 / 55,4 | 44,9 / 30,9 / 10,4 |
+| 150–180 | 96,1 / 48,1 / 55,1 | 45,4 / 30,9 / 10,8 |
+| 180–210 | 96,2 / 47,5 / 55,8 | 47,1 / 31,4 / 11,9 |
+| 210–240 | 96,6 / 47,3 / 53,3 | 46,4 / 30,6 / 12,1 |
+| 240–270 | 96,0 / 53,7 / 52,3 | 45,1 / 29,1 / 12,1 |
+
+**Janela A (meta não atingida).** O `anon` caiu de 88,6 MiB (214) para no máximo 61,6 MiB, abaixo do `GOMEMLIMIT`
+de 64 MiB: a parte da ADR 0036 sobre o heap funcionou. Mas o `memory.current` ficou colado em 96 MiB a janela
+inteira (não só 150 s, como na 214) e os eventos `max` subiram 6× (304 563 contra 47 403). O que enche o cgroup é a
+**memória de kernel**: 52–65 MiB em todas as janelas de 30 s, quase toda buffer de recepção dos sockets — 220
+conexões h1 que mandam 64 KiB a cada 250 ms (1,3 GB enviados) e 14 conexões h3 (3,8 GB). O `SetReadBuffer` da
+ADR 0036 vale só para o WebSocket; os sockets h1 seguem com o `tcp_rmem` autoajustado. CPU média na janela: web
+52%, store 23%, nats 8%, capture 5% (1 vCPU). Por esta tarefa (papel tester) não se corrige: o próximo passo
+previsto pelo architect na task 215 é o padrão de 16 MiB, mas com o `anon` já dentro da meta, baixar o orçamento
+não deve tirar os ~55 MiB de kernel.
+
+**Janela B (todas as metas).** 2939 aberturas, **88 × 101 e 2850 × 503** antes do 101; no health, 11 sessões
+WebSocket de pé em 224 de 240 amostras e no máximo 12 (`max_ws_sessions` 12 no cliente, conforme a previsão do
+implementer-web: 11, ≤ 12). As 77 sessões encerradas durante a carga terminaram com RST do servidor (eco travado);
+nenhuma tentativa sem resposta. O 503 está na API: conexão `01M7EACXR0NHXSYM3G57AF1YJE` (probe
+`bgu80u3rfmwuz0ku`, 00:40:59 UTC), `GET /p/bgu80u3rfmwuz0ku/ws`, `status` 503. Janela C (opcional) não rodada.
+
+**Fechamentos sem resposta (task 220).** O `budgetload` agora separa a causa de cada conexão h1/WebSocket que
+termina sem linha de resposta (`close_causes` no `summary.json`: `server_fin`, `server_rst`,
+`client_write_timeout`, `client_read_timeout`, `client_hold_expired`, `other_error`; `ws_session_ends` para as
+sessões com 101; `closed_no_response`, antes `closed_by_server`). Na janela A: h1 **1805, todas
+`client_write_timeout`** (o web parou de ler o cabeçalho por 10 s; 0 FIN, 0 RST); WebSocket **183, todas
+`client_read_timeout`** (a resposta do Upgrade não chegou em 10 s), mais 217 × 503 e 0 × 101 (o orçamento já estava
+cheio dos cabeçalhos h1 quando os WS abriram). `web_connections_active` = 236 em 229 de 237 amostras (< 250).
+Causa medida: não é recusa do servidor nem limite de conexões, é o web sem ler a tempo, com o cgroup em
+`memory.max` a janela inteira (reclaim contínuo) e a CPU perto do teto. Como a memória não ficou dentro da meta,
+não se abriu tarefa nova para o implementer-web (task 220, item 2): fica com a revisão da 215.
+
 ## Orçamento de memória de entrada do web (task 214; critério da task 155, spec 005 RF-12, ADR 0033)
 
 Rodada de 2026-11-14, 23:01:55–23:06:05 UTC (250 s), contra a `main` implantada `v0.2.1-42-gb76caec`
@@ -54,9 +119,9 @@ este perfil: o que não é reservado do orçamento (buffers de leitura das 250 c
 Não corrigido aqui (papel tester): registrado para o architect decidir (rever o padrão de `FS_WEB_INPUT_BUDGET`
 ou o que fica fora dele).
 
-Observações do cliente: os 4220 fechamentos h1 sem resposta e os 289 do WebSocket devem ser (não conferido no log do web) as
-conexões acima de `FS_MAX_CONNS=250` e de `FS_MAX_NEW_CONNS_PER_S=60` (os trabalhadores reabrem 1 s depois de
-cada recusa); o 503 do WebSocket por orçamento não apareceu porque as 16 sessões iniciais ficaram de pé e as
+Observações do cliente: os 4220 fechamentos h1 sem resposta e os 289 do WebSocket não eram `FS_MAX_CONNS` nem
+`FS_MAX_NEW_CONNS_PER_S` (conferido na task 215: `web_connections_active` 236 < 250, e o web não aplica o limite de
+novas/s); a causa foi medida na janela A da task 220, acima; o 503 do WebSocket por orçamento não apareceu porque as 16 sessões iniciais ficaram de pé e as
 seguintes nem chegaram ao Upgrade. O cenário mede o orçamento sob saturação, não a capacidade do RNF-01.
 
 ## Como reproduzir

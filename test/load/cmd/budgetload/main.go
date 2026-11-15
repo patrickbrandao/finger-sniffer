@@ -41,6 +41,7 @@ import (
 	"github.com/quic-go/quic-go"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/quicparse"
+	"github.com/patrickbrandao/finger-sniffer/test/load/loadstat"
 )
 
 const zone = "dns-monitor.tmsoft.com.br"
@@ -54,29 +55,65 @@ type counters struct {
 	Status101  atomic.Int64
 	Status503  atomic.Int64
 	OtherResp  atomic.Int64
-	Closed     atomic.Int64 // fechada pelo servidor sem resposta
+	Closed     atomic.Int64 // encerrada sem linha de resposta (h1/WS: soma de causes; h3: conexão ou stream caiu)
 	Excessive  atomic.Int64 // h3: stream recusado com H3_EXCESSIVE_LOAD
 	ResetOther atomic.Int64
 	SentBytes  atomic.Int64
 	Active     atomic.Int64
 	MaxActive  atomic.Int64
+	// WebSocket: sessões com 101 de pé ao mesmo tempo
+	Sessions    atomic.Int64
+	MaxSessions atomic.Int64
+	// causas das encerradas sem resposta no h1 e no WebSocket (task 220; loadstat.CloseCauses)
+	causes sync.Map // string → *atomic.Int64
+	// WebSocket: como terminaram as sessões com 101 (mesmas causas, vistas na escrita das mensagens)
+	sessionEnds sync.Map
 }
 
-func (c *counters) snapshot() map[string]int64 {
-	return map[string]int64{
+func addCause(m *sync.Map, cause string) {
+	v, _ := m.LoadOrStore(cause, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1) //nolint:forcetypeassert // só *atomic.Int64 entra no mapa
+}
+
+func causeMap(m *sync.Map) map[string]int64 {
+	out := make(map[string]int64, len(loadstat.CloseCauses))
+	for _, k := range loadstat.CloseCauses {
+		out[k] = 0
+	}
+	m.Range(func(k, v any) bool {
+		out[k.(string)] = v.(*atomic.Int64).Load() //nolint:forcetypeassert // tipos fixos
+		return true
+	})
+	return out
+}
+
+// noResponse conta uma conexão encerrada sem linha de resposta, pela causa.
+func (c *counters) noResponse(cause string) {
+	c.Closed.Add(1)
+	addCause(&c.causes, cause)
+}
+
+func (c *counters) snapshot() map[string]any {
+	return map[string]any{
 		"dials": c.Dials.Load(), "dial_errors": c.DialErrors.Load(), "held_full_head": c.Held.Load(),
 		"status_431": c.Status431.Load(), "status_101": c.Status101.Load(), "status_503": c.Status503.Load(),
-		"other_response": c.OtherResp.Load(), "closed_by_server": c.Closed.Load(),
+		"other_response": c.OtherResp.Load(), "closed_no_response": c.Closed.Load(),
+		"close_causes": causeMap(&c.causes), "ws_session_ends": causeMap(&c.sessionEnds),
 		"h3_excessive_load": c.Excessive.Load(), "h3_reset_other": c.ResetOther.Load(),
-		"sent_bytes": c.SentBytes.Load(), "max_active": c.MaxActive.Load(),
+		"sent_bytes": c.SentBytes.Load(), "max_active": c.MaxActive.Load(), "max_ws_sessions": c.MaxSessions.Load(),
 	}
 }
 
-func (c *counters) enter() {
-	n := c.Active.Add(1)
+func (c *counters) enter() { raise(&c.Active, &c.MaxActive) }
+
+func (c *counters) enterSession() { raise(&c.Sessions, &c.MaxSessions) }
+
+// raise soma 1 em cur e guarda o máximo em peak.
+func raise(cur, peak *atomic.Int64) {
+	n := cur.Add(1)
 	for {
-		m := c.MaxActive.Load()
-		if n <= m || c.MaxActive.CompareAndSwap(m, n) {
+		m := peak.Load()
+		if n <= m || peak.CompareAndSwap(m, n) {
 			return
 		}
 	}
@@ -103,9 +140,15 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 }
 
 // h1Worker: cabeçalho parcial de headBytes, em pedaços de 64 KiB a cada 250 ms, e depois 1 byte a cada 5 s
-// (sem fechar o cabeçalho) até o servidor responder ou fechar ou passar hold.
+// (sem fechar o cabeçalho) até o servidor responder ou fechar ou passar hold. Sem resposta, separa a causa
+// (task 220): FIN/RST do servidor visto na leitura ou na escrita, prazo de 10 s da escrita vencido (o servidor
+// parou de ler), prazo da leitura vencido ou o cliente desistiu depois de hold.
 func h1Worker(ctx context.Context, host string, port, headBytes int, hold time.Duration, c *counters) {
 	line := "X-Fill: " + strings.Repeat("a", 1100) + "\r\n"
+	type readResult struct {
+		line string
+		err  error
+	}
 	for ctx.Err() == nil {
 		id := newProbeID()
 		c.Dials.Add(1)
@@ -116,25 +159,31 @@ func h1Worker(ctx context.Context, host string, port, headBytes int, hold time.D
 			continue
 		}
 		c.enter()
-		resp := make(chan string, 1)
+		resp := make(chan readResult, 1)
 		go func() {
-			// primeira linha da resposta (ou "" quando o servidor fecha sem responder)
+			// primeira linha da resposta, ou o erro quando o servidor fecha sem responder
 			_ = conn.SetReadDeadline(time.Now().Add(hold + time.Minute))
-			l, _ := bufio.NewReader(conn).ReadString('\n')
-			resp <- l
+			l, err := bufio.NewReader(conn).ReadString('\n')
+			resp <- readResult{l, err}
 		}()
 		var buf strings.Builder
 		buf.WriteString("GET /p/" + id + "/r HTTP/1.1\r\nHost: " + id + "." + zone + "\r\nUser-Agent: fs-budgetload\r\n")
-		sent, got := 0, ""
-		done := false
+		var (
+			sent        int
+			rr          readResult
+			gotRead     bool
+			writeErr    error
+			holdExpired bool
+		)
 		write := func(s string) bool {
 			_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			n, err := io.WriteString(conn, s)
 			sent += n
 			c.SentBytes.Add(int64(n))
+			writeErr = err
 			return err == nil
 		}
-		for sent < headBytes && !done {
+		for sent < headBytes && !gotRead && ctx.Err() == nil {
 			for buf.Len() < 64<<10 && sent+buf.Len() < headBytes {
 				buf.WriteString(line)
 			}
@@ -143,24 +192,25 @@ func h1Worker(ctx context.Context, host string, port, headBytes int, hold time.D
 			}
 			buf.Reset()
 			select {
-			case got = <-resp:
-				done = true
+			case rr = <-resp:
+				gotRead = true
 			case <-ctx.Done():
-				done = true
 			case <-time.After(250 * time.Millisecond):
 			}
 		}
-		if !done && sent >= headBytes {
+		if !gotRead && writeErr == nil && ctx.Err() == nil && sent >= headBytes {
 			c.Held.Add(1)
 			end := time.After(hold)
 		trickle:
 			for {
 				select {
-				case got = <-resp:
+				case rr = <-resp:
+					gotRead = true
 					break trickle
 				case <-ctx.Done():
 					break trickle
 				case <-end:
+					holdExpired = true
 					break trickle
 				case <-time.After(5 * time.Second):
 					if !write("b") {
@@ -169,22 +219,30 @@ func h1Worker(ctx context.Context, host string, port, headBytes int, hold time.D
 				}
 			}
 		}
-		_ = conn.Close()
-		if got == "" {
+		if !gotRead {
+			// resposta ou fechamento em trânsito: espera 1 s antes de fechar do lado do cliente
 			select {
-			case got = <-resp:
+			case rr = <-resp:
+				gotRead = true
 			case <-time.After(time.Second):
 			}
 		}
+		_ = conn.Close()
 		switch {
-		case strings.Contains(got, " 431 "):
+		case gotRead && strings.Contains(rr.line, " 431 "):
 			c.Status431.Add(1)
-		case got == "":
-			if ctx.Err() == nil {
-				c.Closed.Add(1)
-			}
-		default:
+		case gotRead && rr.line != "":
 			c.OtherResp.Add(1)
+		case ctx.Err() != nil:
+			// fim da carga: não conta
+		case gotRead && rr.err != nil:
+			c.noResponse(loadstat.CloseCause(rr.err, false))
+		case writeErr != nil:
+			c.noResponse(loadstat.CloseCause(writeErr, true))
+		case holdExpired:
+			c.noResponse(loadstat.CauseClientHoldExpired)
+		default:
+			c.noResponse(loadstat.CauseOther)
 		}
 		c.Active.Add(-1)
 		// recuo para não passar de FS_MAX_NEW_CONNS_PER_S com 220 trabalhadores
@@ -223,15 +281,19 @@ func wsWorker(ctx context.Context, host string, port int, frame []byte, c *count
 			"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
 		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 		_, err = io.WriteString(conn, req)
+		wrote := err == nil
 		var st string
-		if err == nil {
+		if wrote {
 			st, err = bufio.NewReader(conn).ReadString('\n')
 		}
 		switch {
+		case err != nil && ctx.Err() != nil:
+			// fim da carga: não conta
 		case err != nil:
-			c.Closed.Add(1)
+			c.noResponse(loadstat.CloseCause(err, !wrote))
 		case strings.Contains(st, " 101 "):
 			c.Status101.Add(1)
+			c.enterSession()
 			_ = conn.SetDeadline(time.Time{})
 			// não lê mais nada: a janela de recepção do cliente enche e o eco do servidor trava
 			for ctx.Err() == nil {
@@ -239,9 +301,13 @@ func wsWorker(ctx context.Context, host string, port int, frame []byte, c *count
 				n, err := conn.Write(frame)
 				c.SentBytes.Add(int64(n))
 				if err != nil {
+					if ctx.Err() == nil {
+						addCause(&c.sessionEnds, loadstat.CloseCause(err, true))
+					}
 					break
 				}
 			}
+			c.Sessions.Add(-1)
 		case strings.Contains(st, " 503 "):
 			c.Status503.Add(1)
 		default:
@@ -336,7 +402,18 @@ func main() {
 	h3Streams := flag.Int("h3-streams", 2, "streams h3 simultâneos por conexão")
 	h3Decl := flag.Int("h3-declared", 1<<20-1024, "tamanho declarado do HEADERS h3 (teto de 1 MiB por frame)")
 	h3Sent := flag.Int("h3-sent", 1<<20-2048, "bytes do HEADERS h3 enviados")
+	wsDelay := flag.Duration("ws-delay", 0, "atraso do início dos WebSocket depois da rampa do h1 (janela C da task 215)")
+	wsRamp := flag.Duration("ws-ramp", 0, "intervalo entre as aberturas iniciais dos WebSocket (100ms = 10/s)")
+	analyze := flag.String("analyze", "", "só analisa um cgroup.csv do loadmon: memória do web por janela de 30 s")
 	flag.Parse()
+	if *analyze != "" {
+		ws, err := loadstat.MemWindowsFile(*analyze, "web", 30*time.Second)
+		if err != nil {
+			log.Fatal(err)
+		}
+		loadstat.PrintMemWindows(os.Stdout, ws)
+		return
+	}
 	if *out == "" {
 		log.Fatal("-out obrigatório")
 	}
@@ -369,9 +446,18 @@ func main() {
 		wg.Go(func() { h1Worker(ctx, ip, ports[i%2], *head, *hold, &h1c) })
 		time.Sleep(15 * time.Millisecond) // rampa: ~65 novas/s no início, abaixo do limitador depois do recuo
 	}
-	for i := range *nWS {
-		wg.Go(func() { wsWorker(ctx, ip, ports[i%2], frame, &wsc) })
-	}
+	// WebSocket: começa -ws-delay depois da rampa do h1 e abre um a cada -ws-ramp (sem bloquear o amostrador)
+	wg.Go(func() {
+		if *wsDelay > 0 && !sleepCtx(ctx, *wsDelay) {
+			return
+		}
+		for i := range *nWS {
+			wg.Go(func() { wsWorker(ctx, ip, ports[i%2], frame, &wsc) })
+			if *wsRamp > 0 && !sleepCtx(ctx, *wsRamp) {
+				return
+			}
+		}
+	})
 	for range *nH3 {
 		wg.Go(func() { h3Worker(ctx, ip, *h3Streams, *h3Decl, *h3Sent, &h3c) })
 	}
@@ -382,7 +468,7 @@ func main() {
 		log.Fatal(err)
 	}
 	w := bufio.NewWriter(f)
-	_, _ = fmt.Fprintln(w, "t_s,web_status,budget_used_bytes,budget_denied_total,web_connections_active,h1_active,ws_active,h3_active")
+	_, _ = fmt.Fprintln(w, "t_s,web_status,budget_used_bytes,budget_denied_total,web_connections_active,h1_active,ws_active,ws_sessions,h3_active")
 	var (
 		maxUsed, denied0, denied1 float64
 		first                     = true
@@ -414,8 +500,8 @@ func main() {
 		denied1 = den
 		maxUsed = max(maxUsed, used)
 		statuses[web.Status]++
-		_, _ = fmt.Fprintf(w, "%.0f,%s,%.0f,%.0f,%.0f,%d,%d,%d\n", time.Since(start).Seconds(), web.Status, used, den,
-			m["web_connections_active"], h1c.Active.Load(), wsc.Active.Load(), h3c.Active.Load())
+		_, _ = fmt.Fprintf(w, "%.0f,%s,%.0f,%.0f,%.0f,%d,%d,%d,%d\n", time.Since(start).Seconds(), web.Status, used, den,
+			m["web_connections_active"], h1c.Active.Load(), wsc.Active.Load(), wsc.Sessions.Load(), h3c.Active.Load())
 		_ = w.Flush()
 	}
 	tick.Stop()
