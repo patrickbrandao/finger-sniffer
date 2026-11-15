@@ -24,14 +24,15 @@ const (
 	ipv6DstOpts  = 60
 )
 
-// ExcludeFilter monta o programa BPF clássico que descarta, no kernel, os pacotes TCP e UDP cuja porta de origem
-// ou de destino está em ports (spec 003 RF-02) e corta o que aceita em snaplen bytes (RF-01; <= 0 ou acima de
-// maxSnap: o frame inteiro). Todo o resto é aceito: ICMP, fragmentos não iniciais, ARP etc. Atravessa até
-// v6ExtMax cabeçalhos de extensão IPv6 (Hop-by-Hop, Routing, Fragment, AH, Destination Options) e suporta
-// Ethernet com e sem uma etiqueta VLAN 802.1Q. Frame curto demais para o filtro ler as portas (cabeçalho IP
-// incompleto, extensão IPv6 com tamanho declarado além do fim, L4 cortado) também é aceito: no BPF clássico uma
-// carga fora do pacote encerra o filtro com 0 (drop), por isso cada carga dependente do conteúdo é precedida por
-// need, e o parser em espaço de usuário decide sobre o frame truncado.
+// ExcludeFilter monta o programa BPF clássico que descarta, no kernel, os quadros ARP (tipo Ethernet 0x0806, com
+// e sem etiqueta VLAN, sempre, mesmo com ports vazia: ADR 0040) e os pacotes TCP e UDP cuja porta de origem ou de
+// destino está em ports (spec 003 RF-02), e corta o que aceita em snaplen bytes (RF-01; <= 0 ou acima de
+// maxSnap: o frame inteiro). Todo o resto é aceito: ICMP, fragmentos não iniciais, RARP, LLDP e outros quadros
+// não IP etc. Atravessa até v6ExtMax cabeçalhos de extensão IPv6 (Hop-by-Hop, Routing, Fragment, AH, Destination
+// Options) e suporta Ethernet com e sem uma etiqueta VLAN 802.1Q. Frame curto demais para o filtro ler o tipo
+// Ethernet ou as portas (cabeçalho IP incompleto, extensão IPv6 com tamanho declarado além do fim, L4 cortado)
+// também é aceito: no BPF clássico uma carga fora do pacote encerra o filtro com 0 (drop), por isso cada carga
+// dependente do conteúdo é precedida por need, e o parser em espaço de usuário decide sobre o frame truncado.
 func ExcludeFilter(ports []uint16, snaplen int) ([]bpf.Instruction, error) {
 	if len(ports) > 50 {
 		return nil, fmt.Errorf("capture: too many excluded ports (%d)", len(ports))
@@ -41,22 +42,34 @@ func ExcludeFilter(ports []uint16, snaplen int) ([]bpf.Instruction, error) {
 		snap = uint32(snaplen) //nolint:gosec // conferido acima
 	}
 	a := &asm{snap: snap}
-	if len(ports) == 0 {
-		a.emit(bpf.RetConstant{Val: snap})
-		return a.resolve()
-	}
-
 	// Tipo Ethernet; VLAN desloca tudo em 4 bytes.
 	a.need(14, false)
 	a.emit(bpf.LoadAbsolute{Off: 12, Size: 2})
 	vlan := a.uniq("vlan")
 	a.farIf(0x8100, vlan)
-	a.l2(14, ports)
+	a.l3(14, ports)
 	a.label(vlan)
 	a.need(18, false)
 	a.emit(bpf.LoadAbsolute{Off: 16, Size: 2})
-	a.l2(18, ports)
+	a.l3(18, ports)
 	return a.resolve()
+}
+
+// etherARP é o tipo Ethernet do ARP, descartado sempre (ADR 0040).
+const etherARP = 0x0806
+
+// l3 gera o trecho que segue o tipo Ethernet (já no acumulador): ARP → drop; sem portas excluídas → accept;
+// senão o percurso de l2.
+func (a *asm) l3(l2len uint32, ports []uint16) {
+	keep := a.uniq("keep")
+	a.jeq(etherARP, "", keep)
+	a.emit(bpf.RetConstant{Val: 0})
+	a.label(keep)
+	if len(ports) == 0 {
+		a.emit(bpf.RetConstant{Val: a.snap})
+		return
+	}
+	a.l2(l2len, ports)
 }
 
 // l2 gera o trecho para um cabeçalho L2 de tamanho l2len, com o tipo Ethernet já no acumulador. Cada trecho
