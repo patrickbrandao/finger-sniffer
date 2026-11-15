@@ -10,7 +10,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 
 ## Requisitos
 - RF-01: consumidor durável `store` do stream JetStream `FS_EVENTS`; cria/ajusta o stream no start
-  (`MemoryStorage`, `max_age` 60 s, `max_bytes` 32 MiB, `DiscardOld` — ADR 0016), com a lista explícita de subjects
+  (`MemoryStorage`, `max_age` 60 s, `max_bytes` 128 MiB, `DiscardOld` — ADRs 0016 e 0039), com a lista explícita de subjects
   de eventos da ADR 0017 (request/reply fica fora).
 - RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC pela 5-tupla UDP, e um Initial com
   DCID novo depois do fim da conexão QUIC anterior abre conexão nova (ADR 0019); associação ao probe assim que o
@@ -26,7 +26,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   recuperação de órfãs do reinício aplica o mesmo teto e grava `pcap_truncated` correto (ADR 0034).
 - RF-05: persistência em SQLite (modernc, WAL) — registros, índices e **BLOBs** (pcap, bytes crus de cada sentido).
   Schema em [database/sqlite/migrations/](../database/sqlite/migrations/) aplicado por goose embutido no start.
-- RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (2 GiB): o primeiro atingido expurga o mais
+- RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (8 GiB, ADR 0039): o primeiro atingido expurga o mais
   antigo, em lotes, com `incremental_vacuum`. O expurgo por tamanho cobre `connections` (com as filhas),
   `dns_queries` e `stray_packets`, do mais antigo para o mais novo, e só desiste quando nada mais pode ser apagado
   (ADR 0034).
@@ -41,10 +41,11 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
   "Métricas") e as recebidas no heartbeat dos demais.
-- RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 250) conexões simultâneas ou
-  `FS_MAX_NEW_CONNS_PER_S` (padrão 60) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas conexões
-  e marca `degraded=true`. A garantia continua a da spec 000 (200 e 50/s com análise completa); o padrão fica
-  acima dela, com margem para o tráfego alheio de um servidor público (ADR 0030). Contagem (ADR 0026):
+- RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 1000) conexões simultâneas ou
+  `FS_MAX_NEW_CONNS_PER_S` (padrão 250) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas
+  conexões e marca `degraded=true`. A garantia continua a da spec 000 (400 e 100/s com análise completa); o padrão
+  fica acima dela, com margem para o tráfego alheio de um servidor público e dos sites do host, que também é
+  capturado (ADRs 0030 e 0039). Contagem (ADR 0026):
   - simultâneas = conexões TCP e QUIC vivas, de qualquer cliente; as já fechadas (FIN dos dois lados ou RST) que
     só esperam a folga não contam; fluxos UDP que não são QUIC (DNS e outros) não entram nos limites, mas saem
     `degraded` se chegarem com o limite passado; `fs_store_connections_open` continua contando a tabela inteira;
@@ -54,7 +55,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     captura (ADR 0027): a rajada de SYNs à frente dos FINs depois de uma pausa da rede não degrada; o excesso
     dentro da janela fica limitado pelo balde de novas/s; `FS_MAX_CONNS=0` degrada tudo, sem janela. O zero só
     tem esse significado no store: o web e o raw, que leem o mesmo env, tratam `FS_MAX_CONNS` ≤ 0 como o padrão
-    deles (250), com aviso no log (ADR 0034).
+    deles (1000), com aviso no log (ADR 0034).
 - RF-11a: tabela de fluxos com teto (ADR 0034): no máximo 8192 conexões e fluxos em memória. Com a tabela cheia,
   uma 5-tupla nova despeja a entrada não estabelecida mais antiga (TCP sem o ACK do handshake, UDP não-QUIC sem
   resposta), sem gravar registro nem avulso dela; sem entrada a despejar, a 5-tupla nova é recusada (nenhuma
@@ -239,7 +240,7 @@ Formato do registro (resumo; o completo está no openapi.yaml):
 ```json
 {
   "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S8W", "probe_id": "t1a2b3c4", "proto": "tls/http1.1",
-  "src": {"ip": "45.170.76.49", "port": 41234}, "dst": {"ip": "172.233.24.85", "port": 443},
+  "src": {"ip": "45.170.76.49", "port": 41234}, "dst": {"ip": "170.247.40.86", "port": 8443},
   "family": 4, "l4": "tcp", "degraded": false,
   "times": {"syn": "2026-11-07T12:00:00.000000123Z", "established": "...", "first_data": "...", "end": "..."},
   "close": {"by": "client", "how": "fin", "idle_before_close_ms": 15000, "half_close": false},
@@ -262,7 +263,7 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 ## Critérios de aceite
 - [ ] Uma sondagem por probe aparece completa em `GET /api/v1/probes/{id}` em ≤ 500 ms após o fechamento.
 - [ ] Após 10 min sem tráfego, `GET` do mesmo probe devolve 404.
-- [ ] Com 2 GiB atingidos, o mais antigo é expurgado e o banco não passa de 2,2 GiB.
+- [ ] Com o teto atingido, o mais antigo é expurgado e o banco não passa de 110% do teto.
 - [ ] O pcap baixado abre no tshark e mostra os dois sentidos.
 - [ ] Respostas de todas as rotas validam contra o openapi.yaml (teste de contrato).
 - [ ] Parar o capture faz `/api/v1/health` mostrar `capture: down` em ≤ 15 s.
@@ -276,7 +277,7 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
       `close`, com `close.how = quic_close`; datagramas tardios entram no mesmo registro (ADR 0026).
 - [ ] FIN dos dois lados com ACK final fecha o registro no ACK; sem ACK, depois de `FS_TCP_CLOSE_GRACE`; RST fecha
       na hora; ACK/RST tardio até 2 s entra no registro gravado, sem conexão nova nem avulso.
-- [ ] Com os padrões (250/60), o perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS, varreduras
+- [ ] Com os padrões (1000/250), o perfil do RNF-01 (400 vivas, 100 novas/s com jitter, consultas DNS, varreduras
       e algumas dezenas de conexões alheias por cima) não marca `degraded`; excesso sustentado acima de
       `FS_MAX_CONNS` vivas ou de `FS_MAX_NEW_CONNS_PER_S` novas/s marca (ADR 0030).
 - [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).
@@ -300,3 +301,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0030-margem-do-modo-degradado.md
 - specs/decisions/0032-campos-da-auditoria-de-2026-11.md
 - specs/decisions/0034-tetos-e-falhas-do-store.md
+- specs/decisions/0039-limites-e-metas-no-finger-01.md

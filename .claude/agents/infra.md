@@ -22,4 +22,6 @@ Implementar e manter specs/016 e a infraestrutura de specs/017 (verify.sh, CI).
   quem delegou pedir ou antes de abrir PR. Ao terminar, diga qual nível rodou e o resultado.
 - Atenda a Definition of Done (specs/002), remova o arquivo da tarefa e faça o commit citando o ID.
 - Escalone ao humano nos casos da seção "Escalonamento" de specs/002.
-- Na vps602 tudo pode ser feito sem aprovação; fora dela (udns, GitHub settings) escale ao humano.
+- No finger-01, tudo o que é do espelho (`/finger-sniffer`, units `finger-sniffer-*`, o nosso sysctl) pode ser feito
+  sem aprovação; o resto do host (containers, Docker, sysctls/THP do host) não se toca, exceto o script do traefik
+  nos termos da ADR 0038; udns e GitHub settings: escale ao humano. A vps602 fica intocada.

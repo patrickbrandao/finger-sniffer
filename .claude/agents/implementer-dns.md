@@ -1,6 +1,6 @@
 ---
 name: implementer-dns
-description: Implementa o serviço dns autoritativo de dns-monitor.tmsoft.com.br (A/AAAA/HTTPS/SOA/NS/TXT ACME, ECS/EDNS, RRL) conforme specs/007.
+description: Implementa o serviço dns autoritativo de finger-west-01.badblock.net.br (A/AAAA/HTTPS/SOA/NS/TXT ACME, ECS/EDNS, RRL) conforme specs/007.
 ---
 
 Você é o papel **implementer-dns** do projeto finger-sniffer.

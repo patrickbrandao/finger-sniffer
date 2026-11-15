@@ -4,12 +4,13 @@ Status: aprovada
 Depende de: 001, 016
 
 ## Contexto
-Captura na íntegra todos os pacotes que passam pela `eth0` (exceto portas de gerência e da API) e os publica no
-NATS para o store correlacionar e analisar. Não analisa nada além do necessário para o envelope.
+Captura na íntegra todos os pacotes que passam pela `ens192` (exceto portas de gerência e da API; inclusive o
+tráfego do traefik e dos sites do host, ADR 0038) e os publica no NATS para o store correlacionar e analisar.
+Não analisa nada além do necessário para o envelope.
 
 ## Requisitos
 - RF-01: captura AF_PACKET TPACKET_V3 (gopacket/gopacket `afpacket`, Go puro), snaplen completo
-  (`FS_CAPTURE_SNAPLEN`, padrão 65535), nos dois sentidos, na interface `FS_CAPTURE_IFACE` (eth0).
+  (`FS_CAPTURE_SNAPLEN`, padrão 65535), nos dois sentidos, na interface `FS_CAPTURE_IFACE` (padrão `ens192`).
 - RF-02: filtro BPF exclui as portas `FS_CAPTURE_EXCLUDE_PORTS` (padrão 48022, 48161, 9000, 9001) em TCP e UDP,
   origem ou destino. Todo o resto entra: TCP, UDP, ICMP/ICMPv6, fragmentos, inclusive fluxos iniciados pelo próprio
   servidor (ACME, NTP, apt), e inclusive frames truncados pelo snaplen (o filtro não pode depender de bytes além
@@ -25,7 +26,8 @@ NATS para o store correlacionar e analisar. Não analisa nada além do necessár
 - RF-06: no start, verifica os offloads (spec 016); se algum agregador estiver ligado, publica health `degraded`
   e marca os pacotes com `offload_suspect=true`.
 - RF-07: conta pacotes perdidos pelo kernel (estatísticas do socket) e publica em métricas e heartbeat.
-- RNF-01: sustentar a carga de RNF-01 (spec 000) com < 30% de 1 vCPU (provisório; medido no spike, task 006).
+- RNF-01: sustentar a carga de RNF-01 (spec 000) com < 30% de um núcleo (ADR 0039; no spike da task 006 e na carga
+  oficial da v0.1.0, < 3% de uma vCPU a 200/50).
 - RNF-02: nenhum frame capturado > MTU + 14 bytes (verificação de offload).
 
 ## Comportamento
@@ -42,7 +44,7 @@ NATS para o store correlacionar e analisar. Não analisa nada além do necessár
 Não persiste nada. Pacotes pertencem ao store após o ingest.
 
 ## Critérios de aceite
-- [ ] Um `curl` à porta 80 gera eventos `in` e `out` com SYN, SYN-ACK, ACK, dados e FIN.
+- [ ] Um `curl` à porta 8080 gera eventos `in` e `out` com SYN, SYN-ACK, ACK, dados e FIN.
 - [ ] Tráfego em 48022 e 9000/9001 não aparece em nenhum evento.
 - [ ] Com offloads desligados, nenhum frame > MTU + 14 em 1 min de tráfego de download de 64 MiB.
 - [ ] Com NATS parado por 10 s, os pacotes chegam depois que ele volta; parado por 60 s, `dropped_events_total` > 0.
@@ -55,3 +57,4 @@ Não persiste nada. Pacotes pertencem ao store após o ingest.
 - specs/decisions/0015-lote-binario-de-pacotes.md
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
 - specs/decisions/0006-portas-e-api-sem-captura.md
+- specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md

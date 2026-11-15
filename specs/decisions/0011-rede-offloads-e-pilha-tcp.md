@@ -1,6 +1,7 @@
 # 0011 — Offloads desligados e pilha TCP fixada
 
-Status: aceita
+Status: aceita (interface `ens192`, sysctls que não reduzem o host e conntrack/nftables do host tolerados sem NAT
+nas portas do espelho: alterada pela 0038 em 2026-11-15)
 Data: 2026-11-07
 
 ## Contexto

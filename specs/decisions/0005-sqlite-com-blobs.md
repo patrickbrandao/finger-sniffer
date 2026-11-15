@@ -1,7 +1,8 @@
 # 0005 — SQLite com BLOBs, goose e limites de memória
 
 Status: aceita (confirmada pelo spike da task 006 em 2026-11-07: commit p99 ≤ 27 ms, consulta p95 ~1 ms, store
-≤ 50 MiB; o `MemoryMax` do NATS mudou para 192M na ADR 0016)
+≤ 50 MiB; o `MemoryMax` do NATS mudou para 192M na ADR 0016; `MemoryMax` das units e teto de 2 GiB substituídos
+pela 0039 em 2026-11-15)
 Data: 2026-11-07
 
 ## Contexto

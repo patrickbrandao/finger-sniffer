@@ -1,6 +1,6 @@
 # 0037 — Buffers de socket do web com teto fixo
 
-Status: aceita
+Status: aceita (conta e `rmem_max` de 7 MiB substituídos pela 0039 e pela 0038 em 2026-11-15; os tetos de socket ficam)
 Data: 2026-11-15
 
 ## Contexto

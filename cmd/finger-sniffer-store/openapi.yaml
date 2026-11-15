@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.6.0
+  version: 0.6.1
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -21,7 +21,8 @@ info:
     `TLSInfo.lists_truncated`, `HTTP3Info.transport_params_truncated`/`h3_settings_truncated`, `websocket` com
     `frames` vazio (upgrade sem frames) e descrições de `stream_id` 0, `status` 0, `src_ip` de `/packets`,
     `kind`, `probe_line`, `head_too_large`, `chunks_truncated`, `rate_limited` e do `DELETE` de probe. Todo
-    booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0).
+    booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0). 0.6.1 (documental, ADR 0038):
+    servidor `finger-01.badblock.net.br`.
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -36,9 +37,9 @@ info:
 # Sem autenticação (ADR 0007).
 security: []
 servers:
-  - url: https://vps602.tmsoft.com.br:9000
+  - url: https://finger-01.badblock.net.br:9000
     description: HTTPS (mesmo certificado do espelho)
-  - url: http://vps602.tmsoft.com.br:9001
+  - url: http://finger-01.badblock.net.br:9001
     description: HTTP
 tags:
   - name: health

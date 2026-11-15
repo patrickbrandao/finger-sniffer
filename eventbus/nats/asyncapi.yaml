@@ -1,10 +1,10 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.5.0
+  version: 0.5.1
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
-    (em memória, max_age 60 s, max_bytes 32 MiB — ADR 0016) assina a lista explícita de subjects de eventos
+    (em memória, max_age 60 s, max_bytes 128 MiB — ADRs 0016 e 0039) assina a lista explícita de subjects de eventos
     `fs.v1.capture.>`, `fs.v1.web.>`, `fs.v1.raw.>`, `fs.v1.dns.query`, `fs.v1.svc.>` (ADR 0017). Os request/reply
     `fs.v1.dns.acme.*` e `fs.v1.store.conn_id` são NATS core e ficam fora do stream (senão o JetStream responderia
     um PubAck no inbox da requisição). Um subject de evento novo entra nessa lista no mesmo PR.
@@ -31,7 +31,8 @@ info:
     0.5.0, aditivo, com o openapi 0.6.0, ADR 0032: `upgrade_only` no `WebSocketFramePayload`,
     `request_line.target_truncated` no `HTTP1Request`, `lists_truncated` no `TLSInfo`,
     `transport_params_truncated` e `h3_settings_truncated` no `HTTP3Info`, e as descrições de `stream_id` 0 e
-    `status` 0 no `HTTP2Stream`, de `probe_line` no `RawInfo` e de `rate_limited` no `DNSQuery`).
+    `status` 0 no `HTTP2Stream`, de `probe_line` no `RawInfo` e de `rate_limited` no `DNSQuery`; 0.5.1, documental, com
+    o openapi 0.6.1, ADRs 0038 e 0039: stream de 128 MiB e zona `finger-west-01.badblock.net.br` nos exemplos).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -577,7 +578,7 @@ components:
         type: object
         required: [name, value]
         properties:
-          name: { type: string, description: "Nome completo, ex. _acme-challenge.dns-monitor.tmsoft.com.br." }
+          name: { type: string, description: "Nome completo, ex. _acme-challenge.finger-west-01.badblock.net.br." }
           value: { type: string }
     ACMEReply:
       name: ACMEReply

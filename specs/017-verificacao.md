@@ -35,8 +35,9 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
   arquivo SQLite temporário novo migrado do zero), metas de cobertura (≥ 80% em `pkg/{detect,probe,tlsparse,h1,
   h2passive,quicparse,fingerprint}`, ≥ 60% total sem contar `cmd/`, cujas funções `main` o e2e cobre), fuzz curto (10 s por alvo; 60 s por alvo antes de cada release com `FS_FUZZ_TIME=60s`, registrado no PR de
   release), `govulncheck ./...`,
-  build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados na vps602 por ssh.
-- RF-09: `--e2e` acrescenta a matriz abaixo contra a vps602 (exige deploy da versão em teste).
+  build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados no finger-01 por ssh
+  (`FS_VPS_SSH`, padrão `root@finger-01.tmsoft.com.br`, porta 48022; ADR 0038).
+- RF-09: `--e2e` acrescenta a matriz abaixo contra o finger-01 (exige deploy da versão em teste).
 - RF-10: para na primeira falha.
 - RF-11: CI (GitHub Actions) roda `verify-full` sem `--e2e` e sem `linux_priv` em todo PR e na `main`. Toda action
   dos workflows é fixada pelo SHA de 40 caracteres do commit da release, com a tag em comentário (nunca tag nem
@@ -77,9 +78,11 @@ túneis) é do cliente, que usa as receitas genéricas e a lista de campos está
 repetidas do mesmo cliente.
 
 ### Carga
-- RF-13: `test/load/`: 200 conexões simultâneas e 50 novas/s por 10 min, mix h1/h2/h3/raw; mede CPU/RAM por
-  serviço, latência da API (p95), atraso do feed, `dropped_events_total`, `kernel_drops`. Gerador em Go fora da
-  vps602 (a máquina cliente), para não disputar a 1 vCPU; amostragem de CPU/RAM por unit (cgroup) na vps602;
+- RF-13: `test/load/`: 400 conexões simultâneas e 100 novas/s por 10 min (RNF-01, ADR 0039), mix h1/h2/h3/raw;
+  mede CPU/RAM por serviço, `cpu.stat nr_throttled` por unit, latência da API (p95), atraso do feed,
+  `dropped_events_total`, `kernel_drops`, `fs_store_flows_dropped_total` e o `conntrack -S` antes e depois.
+  Gerador em Go fora do finger-01 (a máquina cliente), para medir o caminho real e não disputar CPU com o espelho e
+  os sites; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;
   metas e percentis da ADR 0022, primeiro minuto descartado. Relatório em `test/load/RESULTS.md` com versão,
   data, perfil, números por meta (passou/falhou) e a decomposição do atraso do feed.
 
@@ -96,3 +99,5 @@ repetidas do mesmo cliente.
 ## Decisões relacionadas
 - specs/decisions/0013-verificacao-dois-niveis.md
 - specs/decisions/0022-prova-do-mvp-no-espelho.md
+- specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
+- specs/decisions/0039-limites-e-metas-no-finger-01.md
