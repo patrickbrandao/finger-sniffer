@@ -3,8 +3,10 @@
 > **Servidor anterior (vps602).** As capturas e as saídas de referência abaixo foram feitas na vps602 (interface
 > `eth0`, IP 172.233.24.85) e ficam como registro. Desde a ADR 0038 os scripts apontam para o finger-01
 > (`root@finger-01.tmsoft.com.br`, interface `ens192`, `FS_CAPTURE_IFACE`); uma regravação troca pcaps, saídas e
-> os valores do servidor conferidos nos testes (SNI e IP) juntos. O finger-01 precisa das mesmas ferramentas
-> (`tshark` 4.4, `tcpdump`, `p0f`, `ja4` em `/root/ja4-rust`).
+> os valores do servidor conferidos nos testes (SNI e IP) juntos. Ferramentas instaladas no finger-01 em
+> 2026-11-15 (task 234): `tshark` 4.4.19 e `p0f` 3.09b-4 (apt, `wireshark-common/install-setuid=false`),
+> `build-essential` e Rust 1.100 (rustup em `/root/.cargo`) e o `ja4` 0.18.6 compilado em `/root/ja4-rust` a partir
+> do commit `c6469a7b0dbf8fe963810162429fbfd9d1acc4d5` da FoxIO (o mesmo dos pcaps; a tag `v0.18.6` diz 0.18.5).
 
 Capturas reais de clientes conhecidos contra a vps602, com as saídas das ferramentas de referência sobre o
 mesmo arquivo. Usadas por `internal/store/golden_test.go`. Esse teste passa cada pcap pelo ingest e confere
