@@ -101,21 +101,24 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   - tester: e2e, golden e carga apontando para o finger-01, matriz direta (234) → carga de verificação do
     orçamento do web (215) e carga oficial 200/50 (235, ADR 0042), sozinhas no servidor.
 - **Critério de saída**: matriz direta (13 casos) verde no finger-01; carga oficial 200/50 com as metas das ADRs
-  0039 e 0042;
+  0039 e 0042 (exceção aceita pelo humano: RNF-02 e RNF-04 não atingidos, limite conhecido da ADR 0043);
   carga do orçamento com as metas da ADR 0039 item 4 (task 215 fechada); `curl` sem `-k` em
   `https://<id>.finger-west-01.badblock.net.br:8443/`, `https://finger-01.badblock.net.br:9000/` e
   `https://finger-01.badblock.net.br/` (pelo traefik); nenhum script, spec ou doc com o servidor anterior como alvo;
   tag `v0.3.0`; CHANGELOG com a seção `[0.3.0]`.
 
-## F7 — Vazão do ingest: RNF-01 de volta a 400/100
-- **Objetivo**: o store sustenta 400 simultâneas e 100 novas/s no finger-01 com as metas da carga oficial, sem perda
-  no stream, e uma ADR nova devolve o RNF-01 a 400/100 (ADR 0042 item 5).
+## F7 — Escrita e vazão do ingest: metas a 200/50 e RNF-01 de volta a 400/100
+- **Objetivo**: o store cumpre RNF-02 e RNF-04 no finger-01 (limite conhecido da v0.3.0, ADR 0043) e sustenta 400
+  simultâneas e 100 novas/s com as metas da carga oficial, sem perda no stream, e uma ADR nova devolve o RNF-01 a
+  400/100 (ADR 0042 item 5).
 - **Specs**: 000, 004, 016, 017.
 - **Dependências**: F6 (tag `v0.3.0`).
-- **Frentes**: implementer-store: diagnóstico e tratamento da vazão do ingest (task 246; mudanças de unit, limites
+- **Frentes**: implementer-store: paradas do escritor por IO do disco (task 248, ADR 0043; primeiro, partindo do
+  rascunho `ef6c2a9`) → diagnóstico e tratamento da vazão do ingest (task 246; mudanças de unit, limites, durabilidade
   ou ADR voltam ao architect) → tester: degraus 50/75/100 e carga oficial 400/100 com pré-aquecimento de 9 min
   (task 247).
-- **Critério de saída**: carga 247 com todas as metas da ADR 0042 item 3 a 400/100, `fs_store_stream_lost_total`
+- **Critério de saída**: limite conhecido da ADR 0043 resolvido (248, RNF-02 e RNF-04 a 200/50 no finger-01);
+  carga 247 com todas as metas da ADR 0042 item 3 a 400/100, `fs_store_stream_lost_total`
   Δ 0 do pré-aquecimento ao fim; ADR nova com RNF-01 400/100; release seguinte.
 
 ## F8 — Detecção de bots oferecida por API (futura)

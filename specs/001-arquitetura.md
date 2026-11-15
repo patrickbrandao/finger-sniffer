@@ -65,8 +65,8 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 | Integração | Uso | Se falhar |
 | --- | --- | --- |
 | Let's Encrypt (ACME) | certificados válidos | mantém o anterior; sem nenhum, autoassinado; backoff até 1 h; health `degraded` (spec 015) |
-| udns.com.br (zona pai `badblock.net.br`) | delegação NS de `finger-west-01` e nomes `finger-01`, `*.finger-01` (e `finger-01.tmsoft.com.br`) | fora do nosso controle; health não cobre |
-| traefik do host (container do humano) | entrega `https://finger-01.badblock.net.br` e `https://finger-01.tmsoft.com.br` ao web na 8443 (passthrough) e a validação TLS-ALPN-01 do certificado B (ADR 0038) | a página continua direta em `:8443` e a API direta na 9000; o B não renova até voltar (health avisa < 14 dias) |
+| udns.com.br (zona pai `badblock.net.br`) | delegação NS de `finger-west-01` e nomes `finger-01`, `*.finger-01` | fora do nosso controle; health não cobre |
+| traefik do host (container do humano) | entrega `https://finger-01.badblock.net.br` ao web na 8443 (passthrough) e a validação TLS-ALPN-01 do certificado B (ADRs 0038 e 0044) | a página continua direta em `:8443` e a API direta na 9000; o B não renova até voltar (health avisa < 14 dias) |
 | NTP (systemd-timesyncd) | tempos ns UTC | health `degraded` se não sincronizado |
 | NATS local | barramento | produtores guardam 30 s / 16 MiB e reenviam; depois descartam e contam `dropped_events` |
 | Store fora do ar | — | JetStream retém 60 s / 128 MiB em memória (ADRs 0016 e 0039); consumidor durável retoma |

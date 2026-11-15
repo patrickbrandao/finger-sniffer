@@ -17,9 +17,9 @@ que o traefik entrega ao web por passthrough.
   em teste; a emissão de produção é um passo explícito.
 - RF-02: certificado A (DNS-01): `finger-west-01.badblock.net.br`, `*.finger-west-01.badblock.net.br`
   (`FS_CERT_NAMES_DNS01`). Provedor DNS-01 próprio (interface libdns) que chama `fs.v1.dns.acme.set|clear`.
-- RF-03: certificado B: `finger-01.badblock.net.br`, `finger-01.tmsoft.com.br` (`FS_CERT_NAMES_HTTP01`, nome
+- RF-03: certificado B: `finger-01.badblock.net.br` (ADR 0044) (`FS_CERT_NAMES_HTTP01`, nome
   mantido por compatibilidade), por **TLS-ALPN-01** (RFC 8737): o web responde `acme-tls/1` com o certificado de
-  desafio em qualquer porta TLS; a validação chega pela 443 do traefik, que encaminha esses nomes por passthrough
+  desafio em qualquer porta TLS; a validação chega pela 443 do traefik, que encaminha esse nome por passthrough
   para a 8443 (ADR 0038). HTTP-01 só quando `FS_WEB_TCP_PORTS` contém 80 (não é o caso do finger-01); o certmagic
   nunca abre listener próprio. Escolha por SNI.
 - RF-04: o certmagic guarda o próprio estado (conta, chaves, certificados, travas) em `FS_ACME_DIR`

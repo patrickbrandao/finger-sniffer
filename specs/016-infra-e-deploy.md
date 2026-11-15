@@ -75,7 +75,7 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   pedido, e a configuração que ele instalou para os demais é aplicada no deploy completo seguinte, que reinicia
   toda unit cujo hash mudou.
 - RF-12: sem aprovação (servidor de testes), dentro do que é do espelho (ADR 0038 item 9).
-- RF-13: traefik do host: a rota que entrega `finger-01.badblock.net.br` e `finger-01.tmsoft.com.br` ao web (TLS
+- RF-13: traefik do host: a rota que entrega `finger-01.badblock.net.br` ao web (ADR 0044; TLS
   passthrough por SNI para `170.247.40.86:8443`) fica no script do traefik do repositório do humano
   (`tmsoft-servers/tmsoft-finger-01/setup-902-docker-traefik-app.sh`); o infra só edita esse script e o reaplica
   (ADR 0038 item 6).
