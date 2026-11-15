@@ -3,7 +3,7 @@
 package e2e
 
 // Funções comuns dos testes da F3 e da F4 (tasks 039 e 060): probe ID novo, long-poll do probe, tipos do registro, socket TCP
-// cru, conferências na vps602 (tshark e ja4 da FoxIO) e a validação de contrato de todas as respostas reais no
+// cru, conferências no finger-01 (tshark e ja4 da FoxIO) e a validação de contrato de todas as respostas reais no
 // fim da suíte (TestMain).
 
 import (
@@ -28,10 +28,19 @@ import (
 	"time"
 )
 
-const zone = "dns-monitor.tmsoft.com.br"
+// zone é a zona dos probes (ADR 0038 item 2).
+var zone = env("FS_E2E_ZONE", "finger-west-01.badblock.net.br")
 
-// vpsHost é o nome da vps602 (certificado da 9000 e das portas web).
-var vpsHost = env("FS_E2E_HOST", "vps602.tmsoft.com.br")
+// vpsHost é o nome do servidor (certificado B da 9000 e das portas web; ADR 0038).
+var vpsHost = env("FS_E2E_HOST", "finger-01.badblock.net.br")
+
+// Portas do web no finger-01 (ADR 0038 item 3): TCP 8080 e 8443, UDP 8443 para o QUIC. A 80/443 é do traefik.
+const (
+	portHTTP = 8080
+	portTLS  = 8443
+	onHTTP   = ":8080" // sufixo de origem em claro
+	onTLS    = ":8443" // sufixo de origem com TLS (também a do h3)
+)
 
 // TestMain roda a suíte e, se ela passou, valida contra o openapi.yaml todas as respostas reais guardadas
 // pelos testes da F3 (live). O TestF2ExitCriterion continua validando as dele por conta própria.
@@ -459,9 +468,9 @@ func (c *rawConn) readResponse(t *testing.T) response {
 	return r
 }
 
-// ---------------------------------------------------------------- vps602
+// ---------------------------------------------------------------- servidor
 
-// remoteIn roda um comando na vps602 com stdin.
+// remoteIn roda um comando no servidor com stdin.
 func remoteIn(t *testing.T, cmd string, stdin []byte) string {
 	t.Helper()
 	c := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, cmd)
@@ -488,7 +497,7 @@ func pcapOf(t *testing.T, connID string) []byte {
 	return b
 }
 
-// toolRef é o que as ferramentas de referência (tshark 4.4 e ja4 da FoxIO na vps602, ref.py do golden da
+// toolRef é o que as ferramentas de referência (tshark 4.4 e ja4 da FoxIO no servidor, ref.py do golden da
 // task 036) dizem sobre o pcap de uma conexão.
 type toolRef struct {
 	ClientHellos []struct {
@@ -505,15 +514,38 @@ type toolRef struct {
 	ClientBytes []byte `json:"-"`
 }
 
+// ja4Bin é o ja4 da FoxIO (Rust, 0.18.6 nos golden) no servidor.
+var ja4Bin = env("FS_E2E_JA4", "/root/ja4-rust/target/release/ja4")
+
+// toolsMissing confere uma vez se o servidor tem as ferramentas de referência (tshark, ja4, p0f e python3).
+var toolsMissing = sync.OnceValue(func() string {
+	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, //nolint:gosec // destino do teste
+		"for c in tshark p0f python3; do command -v $c >/dev/null || echo $c; done; [ -x "+ja4Bin+" ] || echo "+ja4Bin).CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("ssh: %v %s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+})
+
+// requireTools falha o teste com a lista das ferramentas de referência que faltam no servidor.
+func requireTools(t *testing.T) {
+	t.Helper()
+	if m := toolsMissing(); m != "" {
+		t.Fatalf("ferramentas de referência ausentes em %s: %s (pré-requisitos em test/golden/README.md)", vpsSSH,
+			strings.ReplaceAll(m, "\n", ", "))
+	}
+}
+
 var refPy = sync.OnceValues(func() ([]byte, error) {
 	_, file, _, _ := runtime.Caller(0)
 	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "tls", "ref.py")) //nolint:gosec // repositório
 })
 
-// analyzePcap manda o pcap (e o keylog do cliente, se houver) para a vps602 e roda tshark, ja4 e ref.py
+// analyzePcap manda o pcap (e o keylog do cliente, se houver) para o servidor e roda tshark, ja4 e ref.py
 // sobre ele, como no golden da task 036. serverPort é a porta do espelho na conexão.
 func analyzePcap(t *testing.T, connID string, serverPort int, keylog []byte) toolRef {
 	t.Helper()
+	requireTools(t)
 	pcap := pcapOf(t, connID)
 	py, err := refPy()
 	if err != nil {
@@ -529,7 +561,7 @@ func analyzePcap(t *testing.T, connID string, serverPort int, keylog []byte) too
 	out := remote(t, fmt.Sprintf("cd %s && "+
 		"tshark -r c.pcap -o tls.keylog_file:c.keys -T json --no-duplicate-keys -J 'tcp tls http2 http' "+
 		"-Y 'tls.handshake.type == 1 || http2 || http' > c.tshark.json 2>/dev/null && "+
-		"{ /root/ja4-rust/target/release/ja4 -j -r --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > c.ja4.jsonl || true; } && "+
+		"{ "+ja4Bin+" -j -r --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > c.ja4.jsonl || true; } && "+
 		"python3 ref.py c >/dev/null && cat c.ref.json && echo '=====' && "+
 		"tshark -r c.pcap -Y 'tcp.dstport == %d && tcp.len > 0' -T fields -e tcp.seq -e tcp.payload 2>/dev/null", dir, serverPort))
 	js, segs, ok := strings.Cut(out, "=====")

@@ -6,8 +6,8 @@ package e2e
 // Chrome headless. Para cada conexão TLS do probe: o ClientHello do registro é byte a byte o início do fluxo do
 // cliente no pcap da própria conexão; JA3/JA4/JA4_r batem com o tshark 4.4 e o ja4 da FoxIO sobre esse pcap; o
 // Akamai h2 (e o JA4H) batem com o tshark/ja4 decifrando o pcap com o keylog do cliente (SSLKEYLOGFILE). Também
-// os critérios de saída da F3: certificado válido (sem -k) em *.dns-monitor e na 9000, TLS na 80 e HTTP em
-// claro na 443 (spec 005).
+// os critérios de saída da F3: certificado válido (sem -k) em *.<zona> e na 9000, TLS na 8080 e HTTP em
+// claro na 8443 (spec 005; portas da ADR 0038).
 
 import (
 	"bytes"
@@ -118,7 +118,7 @@ func TestCase7TLSFingerprints(t *testing.T) {
 				}
 			}
 			id := newID(t)
-			url := "https://" + probeHost(id) + "/p/" + id + "/"
+			url := "https://" + probeHost(id) + onTLS + "/p/" + id + "/"
 			keylog := filepath.Join(t.TempDir(), "keys")
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
@@ -130,7 +130,7 @@ func TestCase7TLSFingerprints(t *testing.T) {
 				t.Fatalf("%s não gravou o SSLKEYLOGFILE", cl.name)
 			}
 			p := waitProbe(t, id, func(p *probeResp) bool {
-				for _, c := range p.conns(443) {
+				for _, c := range p.conns(portTLS) {
 					if c.TLS != nil && len(c.HTTP)+h2Streams(c) > 0 {
 						return true
 					}
@@ -138,7 +138,7 @@ func TestCase7TLSFingerprints(t *testing.T) {
 				return false
 			})
 			checked := 0
-			for _, c := range p.conns(443) {
+			for _, c := range p.conns(portTLS) {
 				if c.TLS == nil {
 					continue // ex.: preconnect do Chrome sem dados de aplicação
 				}
@@ -181,7 +181,7 @@ func checkTLSConn(t *testing.T, cl tlsClient, c record, keys []byte) {
 	case !cl.h2 && len(c.HTTP) > 0:
 		keysF = append(keysF, "7/h1")
 	}
-	ref := analyzePcap(t, c.ConnID, 443, keys)
+	ref := analyzePcap(t, c.ConnID, portTLS, keys)
 	if len(ref.ClientHellos) != 1 {
 		t.Fatalf("%s: tshark achou %d ClientHellos no pcap da conexão", c.ConnID, len(ref.ClientHellos))
 	}
@@ -250,15 +250,16 @@ func checkTLSConn(t *testing.T, cl tlsClient, c record, keys []byte) {
 	}
 }
 
-// TestF3Certificates: curl sem -k (cadeia do sistema) em <id>.dns-monitor nas portas web TLS e na 9000 da API;
+// TestF3Certificates: curl sem -k (cadeia do sistema) em <id>.<zona> nas portas web (TLS na 8443 e na 8080) e na
+// 9000 da API;
 // e o Go com a verificação padrão.
 func TestF3Certificates(t *testing.T) {
 	t.Parallel()
 	id := newID(t)
 	urls := []string{
-		"https://" + probeHost(id) + "/p/" + id + "/",
-		"https://" + probeHost(id) + ":8443/p/" + id + "/",
-		"https://" + zone + "/",
+		"https://" + probeHost(id) + onTLS + "/p/" + id + "/",
+		"https://" + probeHost(id) + onHTTP + "/p/" + id + "/",
+		"https://" + zone + onTLS + "/",
 		"https://" + vpsHost + ":9000/api/v1/health",
 	}
 	for _, u := range urls {
@@ -288,25 +289,25 @@ func TestF3Certificates(t *testing.T) {
 	addLive("health-example.json", b)
 }
 
-// TestF3CrossPortDetection: TLS na porta 80 e HTTP em claro na 443 (detecção pelos primeiros bytes, spec 005
+// TestF3CrossPortDetection: TLS na porta 8080 e HTTP em claro na 8443 (detecção pelos primeiros bytes, spec 005
 // RF-02).
 func TestF3CrossPortDetection(t *testing.T) {
 	t.Parallel()
 	id := newID(t)
 	for _, u := range []string{
-		"https://" + probeHost(id) + ":80/p/" + id + "/",
-		"http://" + probeHost(id) + ":443/p/" + id + "/",
+		"https://" + probeHost(id) + onHTTP + "/p/" + id + "/",
+		"http://" + probeHost(id) + onTLS + "/p/" + id + "/",
 	} {
 		out, err := exec.Command(curlLibreSSL, "-4", "-sS", "--http1.1", "--max-time", "20", u).CombinedOutput()
 		if err != nil || !strings.Contains(string(out), "probe_id: "+id) {
 			t.Errorf("%s: %v %s", u, err, out)
 		}
 	}
-	p := waitProbe(t, id, func(p *probeResp) bool { return len(p.conns(80)) >= 1 && len(p.conns(443)) >= 1 })
-	if c := p.conns(80)[0]; c.Proto != "tls/http1.1" || c.TLS == nil {
-		t.Errorf("porta 80 com TLS: proto = %q", c.Proto)
+	p := waitProbe(t, id, func(p *probeResp) bool { return len(p.conns(portHTTP)) >= 1 && len(p.conns(portTLS)) >= 1 })
+	if c := p.conns(portHTTP)[0]; c.Proto != "tls/http1.1" || c.TLS == nil {
+		t.Errorf("porta %d com TLS: proto = %q", portHTTP, c.Proto)
 	}
-	if c := p.conns(443)[0]; c.Proto != "http1.1" || c.TLS != nil {
-		t.Errorf("porta 443 em claro: proto = %q", c.Proto)
+	if c := p.conns(portTLS)[0]; c.Proto != "http1.1" || c.TLS != nil {
+		t.Errorf("porta %d em claro: proto = %q", portTLS, c.Proto)
 	}
 }

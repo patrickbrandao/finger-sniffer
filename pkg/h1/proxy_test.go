@@ -54,13 +54,13 @@ func TestProxySignalsDefaults(t *testing.T) {
 
 func TestProxySignalsHostSNI(t *testing.T) {
 	req := head(t, "GET / HTTP/1.1\r\nHost: other.example:443\r\n\r\n")
-	sigs := DetectProxySignals(req, ProxyContext{SNI: "abc.dns-monitor.tmsoft.com.br"})
+	sigs := DetectProxySignals(req, ProxyContext{SNI: "abc.finger-west-01.badblock.net.br"})
 	if len(sigs) != 1 || sigs[0].Kind != SignalHostSNIMismatch || *sigs[0].Field != "Host" {
 		t.Fatalf("%+v", sigs)
 	}
-	for _, h := range []string{"abc.dns-monitor.tmsoft.com.br:443", "ABC.dns-monitor.tmsoft.com.br."} {
+	for _, h := range []string{"abc.finger-west-01.badblock.net.br:443", "ABC.finger-west-01.badblock.net.br."} {
 		req = head(t, "GET / HTTP/1.1\r\nHost: "+h+"\r\n\r\n")
-		if s := DetectProxySignals(req, ProxyContext{SNI: "abc.dns-monitor.tmsoft.com.br"}); len(s) != 0 {
+		if s := DetectProxySignals(req, ProxyContext{SNI: "abc.finger-west-01.badblock.net.br"}); len(s) != 0 {
 			t.Fatalf("%s: %+v", h, s)
 		}
 	}

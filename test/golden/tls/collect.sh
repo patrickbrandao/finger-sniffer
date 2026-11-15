@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Gera os golden de ClientHello e h2 decifrado (task 036) contra a vps602.
+# Gera os golden de ClientHello e h2 decifrado (task 036) contra o servidor (finger-01, ADR 0038).
 #
-# Roda no Mac. Sobe na vps602 um servidor TLS + h2 temporário (server/, Go, KeyLogWriter) na porta capturada
-# 7702 e captura cada caso com tcpdump -s0 na eth0. Clientes do Mac: curl do macOS (LibreSSL), curl do Homebrew
+# Roda no Mac. Sobe no servidor um servidor TLS + h2 temporário (server/, Go, KeyLogWriter) na porta capturada
+# 7702 e captura cada caso com tcpdump -s0 na interface capturada ($IFACE). Clientes do Mac: curl do macOS
+# (LibreSSL), curl do Homebrew
 # (OpenSSL), Go (goclient/), Chrome e Firefox headless, cada um em h2 e em h1. O certificado é autoassinado e
 # gerado a cada coleta: curl e Go o recebem como raiz (--cacert/-ca), o Chrome o aceita pelo hash da chave
 # (--ignore-certificate-errors-spki-list, só para essa chave). O Firefox não tem como confiar nele sem mexer no
 # sistema; ele recebe uma exceção de certificado (cert_override.txt) num perfil descartável, só para essa chave.
 #
 # Antes das saídas de referência o IP do Mac vira endereço de documentação (../anon.py). Saídas por caso, geradas
-# na vps602, em pcaps/:
+# no servidor, em pcaps/:
 #   <caso>.pcap         captura anonimizada
 #   <caso>.keys         chaves TLS da sessão (NSS SSLKEYLOGFILE) gravadas pelo servidor
 #   <caso>.tshark.json  tshark -T json (camadas tls, http2 e http) com as chaves: JA3/JA4, SETTINGS,
@@ -21,17 +22,18 @@
 # A cópia mínima para os testes do parser passivo vai para pkg/h2passive/testdata/clients/.
 #
 # No fim (inclusive em erro) o servidor e o tcpdump são parados, os arquivos temporários apagados e a limpeza é
-# conferida ("vps602 limpa").
+# conferida ("servidor limpo").
 #
 # Uso: test/golden/tls/collect.sh            (todos os casos)
 #      ONLY="curl-libressl-h2 go-h1" test/golden/tls/collect.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VPS="${VPS_SSH:-root@vps602.tmsoft.com.br}"
+VPS="${VPS_SSH:-root@finger-01.tmsoft.com.br}"
 SSH_PORT="${VPS_PORT:-48022}"
-HOST=vps602.tmsoft.com.br
-VPS4=172.233.24.85
+IFACE="${FS_CAPTURE_IFACE:-ens192}" # interface capturada do finger-01 (ADR 0038)
+HOST=finger-01.badblock.net.br
+VPS4=170.247.40.86
 PORT=7702
 URL="https://$HOST:$PORT/"
 JA4="${JA4_BIN:-/root/ja4-rust/target/release/ja4}"
@@ -52,14 +54,14 @@ log() { echo "[golden-tls] $*"; }
 
 cleanup() {
 	set +e
-	remote "pkill -f '[f]s-golden-tls-srv'; pkill -f '[t]cpdump -i eth0 -s0 -U -w $R'; rm -rf $R; true"
+	remote "pkill -f '[f]s-golden-tls-srv'; pkill -f '[t]cpdump -i $IFACE -s0 -U -w $R'; rm -rf $R; true"
 	local left
-	left=$(remote "pgrep -fc '[f]s-golden-tls-srv'; pgrep -fc '[t]cpdump -i eth0 -s0 -U -w $R'; \
+	left=$(remote "pgrep -fc '[f]s-golden-tls-srv'; pgrep -fc '[t]cpdump -i $IFACE -s0 -U -w $R'; \
 		ss -ltnH 'sport = :$PORT' | wc -l; test -e $R && echo 1 || echo 0")
 	if [ "$(echo "$left" | tr -d ' \n')" = "0000" ]; then
-		log "vps602 limpa: sem servidor, sem tcpdump, sem listener na $PORT e sem $R"
+		log "servidor limpo: sem servidor, sem tcpdump, sem listener na $PORT e sem $R"
 	else
-		log "ATENÇÃO: sobras na vps602 (servidor, tcpdump, listener, diretório): $(echo "$left" | tr '\n' ' ')"
+		log "ATENÇÃO: sobras no servidor (servidor, tcpdump, listener, diretório): $(echo "$left" | tr '\n' ' ')"
 	fi
 	rm -rf "$LOCAL_TMP"
 }
@@ -91,12 +93,12 @@ go build -tags golden -o "$GOCLIENT" ./goclient
 capture() {
 	remote "cd $R && setsid -f ./fs-golden-tls-srv -addr $VPS4:$PORT -cert cert.pem -key key.pem -keylog $1.keys \
 		>/dev/null 2>&1 </dev/null; \
-		setsid -f tcpdump -i eth0 -s0 -U -w $R/$1.raw.pcap 'tcp port $PORT and $MACF' >/dev/null 2>&1 </dev/null"
+		setsid -f tcpdump -i $IFACE -s0 -U -w $R/$1.raw.pcap 'tcp port $PORT and $MACF' >/dev/null 2>&1 </dev/null"
 	sleep 1.5
 }
 stop() {
 	sleep 1.5
-	remote "pkill -INT -f '[t]cpdump -i eth0 -s0 -U -w $R/$1.raw.pcap'; pkill -f '[f]s-golden-tls-srv'; sleep 0.5"
+	remote "pkill -INT -f '[t]cpdump -i $IFACE -s0 -U -w $R/$1.raw.pcap'; pkill -f '[f]s-golden-tls-srv'; sleep 0.5"
 }
 
 CASES=()
@@ -162,7 +164,7 @@ if want firefox-h2 || want firefox-h1; then
 	fi
 fi
 
-log "saídas de referência na vps602"
+log "saídas de referência no servidor"
 MAP="$MAC4=$DOC4"
 [ -n "$MAC6" ] && MAP="$MAP $MAC6=$DOC6"
 for name in "${CASES[@]}"; do

@@ -47,13 +47,13 @@ type case11Client struct {
 }
 
 func case11URLs(id string) []string {
-	base := "https://" + probeHost(id) + "/p/" + id + "/"
+	base := "https://" + probeHost(id) + onTLS + "/p/" + id + "/"
 	return []string{base + "r?delay_head=300", base + "?second=1"}
 }
 
 func curlCase11(ctx context.Context, id string) error {
 	args := []string{
-		"-4", "-s", "--http1.1", "--resolve", probeHost(id) + ":443:" + vps4, "-o", "/dev/null", "-o", "/dev/null",
+		"-4", "-s", "--http1.1", "--resolve", probeHost(id) + onTLS + ":" + vps4, "-o", "/dev/null", "-o", "/dev/null",
 		"-w", "%{http_code}\n", "-A", "fs-e2e-case11-curl",
 	}
 	args = append(args, case11URLs(id)...)
@@ -67,7 +67,7 @@ func curlCase11(ctx context.Context, id string) error {
 func goCase11(ctx context.Context, id string) error {
 	tr := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "tcp4", vps4+":443")
+			return (&net.Dialer{}).DialContext(ctx, "tcp4", vps4+onTLS)
 		},
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 		// HTTP/1.1 só: as duas requisições na mesma conexão TCP
@@ -105,8 +105,8 @@ func TestCase11TCPConsistency(t *testing.T) {
 				if err != nil {
 					t.Fatalf("execução %d: %v", i+1, err)
 				}
-				p := waitProbe(t, id, atLeast(1, 443))
-				cs := p.conns(443)
+				p := waitProbe(t, id, atLeast(1, portTLS))
+				cs := p.conns(portTLS)
 				if len(cs) != 1 || len(cs[0].HTTP) != 2 {
 					t.Fatalf("execução %d: %d conexões (esperado 1 com 2 requisições)", i+1, len(cs))
 				}

@@ -155,6 +155,7 @@ func TestClientHelloTsharkVsJA4(t *testing.T) {
 					ch.JA4, ch.JA4Tool)
 				continue
 			}
+			// SNI gravado nos pcaps: registro histórico do servidor anterior (vps602), onde o golden foi capturado
 			if ch.SNI != "vps602.tmsoft.com.br" {
 				t.Errorf("%s stream %d: SNI %q", name, ch.TCPStream, ch.SNI)
 			}

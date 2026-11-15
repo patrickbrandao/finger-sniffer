@@ -2,7 +2,7 @@
 
 package e2e
 
-// Caso 6 da matriz da spec 017 no caminho direto (task 066): ociosidade. Conexões h1 (porta 80), h2 (TLS na 443)
+// Caso 6 da matriz da spec 017 no caminho direto (task 066): ociosidade. Conexões h1 (porta 8080), h2 (TLS na 8443)
 // e raw (echo na 7) ficam ociosas, depois de uma troca, por 30, 90 e 180 s. Abaixo de FS_IDLE_DEFAULT (120 s) quem
 // fecha é o cliente e o registro tem de dizer isso (spec 005 RF-08, spec 006 RF-07); com 180 s o servidor fecha
 // aos 120 s; com idle=30 (h1 e h2) o servidor fecha aos 30 s e não antes. O registro mostra quem fechou, como e
@@ -27,7 +27,7 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
-// serverIdleDefault é o FS_IDLE_DEFAULT da vps602 (web e raw).
+// serverIdleDefault é o FS_IDLE_DEFAULT do servidor (web e raw).
 const serverIdleDefault = 120 * time.Second
 
 // idleConn6 é uma conexão do caso 6 depois da primeira troca: wait espera o servidor fechar até d (true = o
@@ -155,7 +155,7 @@ func checkIdle6(t *testing.T, tc idleCase6, res idleResult6) {
 	t.Logf("probe %s: %s fechou após %s ociosa", res.id, map[bool]string{true: "servidor", false: "cliente"}[res.serverClose],
 		res.took.Round(10*time.Millisecond))
 
-	port := map[string]int{"h1": 80, "h2": 443, "raw": 7}[tc.proto]
+	port := map[string]int{"h1": portHTTP, "h2": portTLS, "raw": 7}[tc.proto]
 	p := waitProbe(t, res.id, atLeast(1, port))
 	cs := p.conns(port)
 	if len(cs) != 1 {
@@ -231,7 +231,7 @@ func dialIdle(port int) (*net.TCPConn, error) {
 }
 
 func openIdleH1(id, query string) (idleConn6, error) {
-	c, err := dialIdle(80)
+	c, err := dialIdle(portHTTP)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +334,7 @@ type idleH2 struct {
 
 func openIdleH2(id, query string) (idleConn6, error) {
 	host := probeHost(id)
-	tc, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp4", vps4+":443",
+	tc, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp4", vps4+onTLS,
 		&tls.Config{ServerName: host, NextProtos: []string{"h2"}, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		return nil, err

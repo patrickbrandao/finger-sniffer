@@ -5,15 +5,15 @@ import (
 	"time"
 )
 
-// ClockSample é uma medição do deslocamento entre o relógio da vps602 e o local.
+// ClockSample é uma medição do deslocamento entre o relógio do servidor e o local.
 type ClockSample struct {
 	Local    int64 `json:"local"`     // instante local da medição (ns)
-	OffsetNs int64 `json:"offset_ns"` // vps602 − local
+	OffsetNs int64 `json:"offset_ns"` // servidor − local
 	RTTNs    int64 `json:"rtt_ns"`    // ida e volta da medição
 	Accepted bool  `json:"accepted"`
 }
 
-// ClockTrack acompanha o deslocamento ao longo da carga. O timesyncd da vps602 corrige o relógio por
+// ClockTrack acompanha o deslocamento ao longo da carga. O timesyncd do servidor corrige o relógio por
 // rampa (até 500 ppm, ~0,3 s em 10 min), então um deslocamento fixo medido no início distorce o atraso do
 // feed. Cada medição nova substitui a anterior se a ida e volta dela não passar de 2× a melhor vista
 // (ou da melhor + 10 ms): medições com ida e volta longa têm erro maior que a própria rampa.

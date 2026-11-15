@@ -1,7 +1,7 @@
 //go:build load
 
 // Comando budgetload: carga do orçamento de memória de entrada do web (task 214, critério que ficou da task 155;
-// spec 005 RF-12, ADR 0033). Roda na máquina cliente (fora da vps602) e segura, ao mesmo tempo:
+// spec 005 RF-12, ADR 0033). Roda na máquina cliente (fora do servidor) e segura, ao mesmo tempo:
 //
 //   - -h1 conexões HTTP/1 em claro com cabeçalho parcial de ~1 MiB (abaixo do teto de 1 MiB e de 1024 campos),
 //     que nunca termina: o web reserva o cabeçalho do orçamento e, sem espaço, responde 431;
@@ -12,7 +12,7 @@
 // (web_input_budget_used_bytes, web_input_budget_denied_total, conexões ativas) e grava health.csv; no fim grava
 // summary.json em -out. A memória do cgroup vem do loadmon (budget.sh).
 //
-//	budgetload -out DIR [-host vps602.tmsoft.com.br] [-duration 3m] [-h1 220] [-ws 16] [-h3 14]
+//	budgetload -out DIR [-host finger-01.badblock.net.br] [-duration 3m] [-h1 220] [-ws 16] [-h3 14]
 package main
 
 import (
@@ -44,7 +44,13 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/test/load/loadstat"
 )
 
-const zone = "dns-monitor.tmsoft.com.br"
+// zone é a zona dos probes; webPorts e quicPort são as portas do web no finger-01 (ADR 0038 itens 2 e 3).
+const (
+	zone     = "finger-west-01.badblock.net.br"
+	quicPort = "8443"
+)
+
+var webPorts = []int{8080}
 
 // contadores do cliente, por caminho
 type counters struct {
@@ -329,7 +335,7 @@ func h3Worker(ctx context.Context, host string, streams, declared, sent int, c *
 		id := newProbeID()
 		c.Dials.Add(1)
 		dctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		qc, err := quic.DialAddr(dctx, net.JoinHostPort(host, "443"),
+		qc, err := quic.DialAddr(dctx, net.JoinHostPort(host, quicPort),
 			&tls.Config{ServerName: id + "." + zone, NextProtos: []string{"h3"}, MinVersion: tls.VersionTLS13},
 			&quic.Config{MaxIdleTimeout: 30 * time.Second, KeepAlivePeriod: 10 * time.Second})
 		cancel()
@@ -390,7 +396,8 @@ type webHealth struct {
 }
 
 func main() {
-	host := flag.String("host", "vps602.tmsoft.com.br", "alvo (nome ou IP)")
+	host := flag.String("host", "finger-01.badblock.net.br", "alvo (nome ou IP)")
+	h3Family := flag.String("h3-family", "6", "família do h3 (4 ou 6): do Mac ao finger-01 o UDP IPv4 grande se perde")
 	out := flag.String("out", "", "pasta dos resultados (health.csv, summary.json)")
 	duration := flag.Duration("duration", 3*time.Minute, "duração da carga")
 	nH1 := flag.Int("h1", 220, "conexões HTTP/1 com cabeçalho parcial")
@@ -448,6 +455,15 @@ func main() {
 			break
 		}
 	}
+	h3IP := ip
+	if *h3Family == "6" {
+		for _, a := range ips {
+			if a.To4() == nil {
+				h3IP = a.String()
+				break
+			}
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -458,9 +474,9 @@ func main() {
 	var wg sync.WaitGroup
 	start := time.Now()
 	frame := wsFrame(*wsMsg)
-	ports := []int{80, 8080}
+	ports := webPorts
 	for i := range *nH1 {
-		wg.Go(func() { h1Worker(ctx, ip, ports[i%2], *head, *hold, &h1c) })
+		wg.Go(func() { h1Worker(ctx, ip, ports[i%len(ports)], *head, *hold, &h1c) })
 		time.Sleep(15 * time.Millisecond) // rampa: ~65 novas/s no início, abaixo do limitador depois do recuo
 	}
 	// WebSocket: começa -ws-delay depois da rampa do h1 e abre um a cada -ws-ramp (sem bloquear o amostrador)
@@ -469,14 +485,14 @@ func main() {
 			return
 		}
 		for i := range *nWS {
-			wg.Go(func() { wsWorker(ctx, ip, ports[i%2], frame, &wsc) })
+			wg.Go(func() { wsWorker(ctx, ip, ports[i%len(ports)], frame, &wsc) })
 			if *wsRamp > 0 && !sleepCtx(ctx, *wsRamp) {
 				return
 			}
 		}
 	})
 	for range *nH3 {
-		wg.Go(func() { h3Worker(ctx, ip, *h3Streams, *h3Decl, *h3Sent, &h3c) })
+		wg.Go(func() { h3Worker(ctx, h3IP, *h3Streams, *h3Decl, *h3Sent, &h3c) })
 	}
 
 	// amostrador do health
@@ -527,7 +543,7 @@ func main() {
 	_ = f.Close()
 
 	sum := map[string]any{
-		"target": *host, "ip": ip, "start": start.UTC().Format(time.RFC3339), "end": time.Now().UTC().Format(time.RFC3339),
+		"target": *host, "ip": ip, "h3_ip": h3IP, "start": start.UTC().Format(time.RFC3339), "end": time.Now().UTC().Format(time.RFC3339),
 		"duration_s": time.Since(start).Seconds(), "h1_workers": *nH1, "ws_workers": *nWS, "h3_workers": *nH3,
 		"h1_head_bytes": *head, "ws_msg_bytes": *wsMsg, "h3_streams": *h3Streams, "h3_declared": *h3Decl, "h3_sent": *h3Sent,
 		"h1": h1c.snapshot(), "ws": wsc.snapshot(), "h3": h3c.snapshot(),

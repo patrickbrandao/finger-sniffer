@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Regenera ja4h.golden.json e os dados derivados do h2 (pkg/h2passive/testdata) na vps602.
+# Regenera ja4h.golden.json e os dados derivados do h2 (pkg/h2passive/testdata) no servidor (finger-01, ADR 0038;
+# os atuais são da vps602, servidor anterior). FS_VPS_SSH troca o destino.
 set -euo pipefail
 cd "$(dirname "$0")"
 H2=../../../h2passive/testdata
-SSH=(ssh -p 48022 root@vps602.tmsoft.com.br)
+VPS="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
+SSH=(ssh -p 48022 "$VPS")
 JA4=/root/ja4-rust/target/release/ja4
 "${SSH[@]}" 'rm -rf /root/regen-ja4h && mkdir -p /root/regen-ja4h'
-scp -q -P 48022 http1-with-cookies.pcapng http2-with-cookies.pcapng root@vps602.tmsoft.com.br:/root/regen-ja4h/
+scp -q -P 48022 http1-with-cookies.pcapng http2-with-cookies.pcapng "$VPS:/root/regen-ja4h/"
 "${SSH[@]}" "cd /root/regen-ja4h && JA4=$JA4 python3 -" <<'PY' >ja4h.golden.json
 import json, os, subprocess
 out = {}

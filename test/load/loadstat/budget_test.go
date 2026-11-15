@@ -127,6 +127,21 @@ func TestMemWindowsStat(t *testing.T) {
 	}
 }
 
+// TestMemWindowsThrottled: o formato de 11 colunas (nr_throttled no fim, ADR 0039) é lido como o de 10.
+func TestMemWindowsThrottled(t *testing.T) {
+	csv := "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu,nr_throttled\n" +
+		"1000000000,web,1,100,50,10,7,20,5,1,0\n" +
+		"2000000000,web,1,90,40,10,9,15,6,2,3\n" +
+		"2000000000,host,1,2,3,16,0,0,0,0,0\n"
+	ws, err := MemWindows(strings.NewReader(csv), "web", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws) != 1 || !ws[0].HasStat || ws[0].Samples != 2 || ws[0].SockMax != 9 || ws[0].CurrentMax != 100 {
+		t.Fatalf("janelas = %+v", ws)
+	}
+}
+
 func TestNstatDelta(t *testing.T) {
 	before := "#kernel\nTcpExtTCPRcvQDrop               57643              0.0\nUdpRcvbufErrors 361 0.0\n"
 	after := "#kernel\nTcpExtTCPRcvQDrop 57700 0.0\nUdpRcvbufErrors 361 0.0\nTcpExtPruneCalled 4 0.0\n"

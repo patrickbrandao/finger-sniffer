@@ -2,9 +2,10 @@
 
 package e2e
 
-// Caso 10 da matriz da spec 017 no caminho direto: consultas ao autoritativo de dns-monitor direto na vps602 e
+// Caso 10 da matriz da spec 017 no caminho direto: consultas ao autoritativo da zona dos probes direto no servidor e
 // por resolvedores públicos (8.8.8.8, 1.1.1.1), com e sem ECS; A/AAAA/HTTPS, rótulos de controle, caixa
-// original (0x20), REFUSED fora da zona, TCP. O registro mostra quem consultou (o resolvedor).
+// original (0x20), REFUSED fora da zona, TCP. O HTTPS RR fica no nome com prefixo de porta (_8443._https, ADR 0038
+// item 4); o nome sem prefixo (porta 443, do traefik) responde NODATA. O registro mostra quem consultou (o resolvedor).
 
 import (
 	"fmt"
@@ -42,6 +43,19 @@ func query(t *testing.T, server, proto, name string, qtype uint16, ecs *net.IPNe
 	return nil
 }
 
+// httpsRR confere o HTTPS RR de um nome com prefixo de porta: ServiceMode, prioridade 1, alvo = o nome sem o
+// prefixo (ADR 0038 item 4), o alpn pedido e o ipv4hint do servidor.
+func httpsRR(target, alpn string) func(*dns.Msg) error {
+	return func(m *dns.Msg) error {
+		h, ok := m.Answer[0].(*dns.HTTPS)
+		if !ok || h.Priority != 1 || !strings.EqualFold(h.Target, target) || !strings.Contains(h.String(), alpn+" ") ||
+			!strings.Contains(h.String(), `ipv4hint="`+vps4) {
+			return fmt.Errorf("HTTPS: %v (esperado alvo %s, %s)", m.Answer, target, alpn)
+		}
+		return nil
+	}
+}
+
 // mixedCase troca a caixa de letras alternadas (teste do 0x20).
 func mixedCase(s string) string {
 	b := []byte(s)
@@ -53,7 +67,7 @@ func mixedCase(s string) string {
 	return string(b)
 }
 
-// TestCase10DNSDirect: consultas direto ao vps602 (o resolvedor registrado é esta máquina).
+// TestCase10DNSDirect: consultas direto ao servidor (o resolvedor registrado é esta máquina).
 func TestCase10DNSDirect(t *testing.T) {
 	t.Parallel()
 	mac := macIPv4(t)
@@ -81,14 +95,10 @@ func TestCase10DNSDirect(t *testing.T) {
 			return nil
 		}},
 		{name: base, qtype: dns.TypeAAAA, proto: "udp", rcode: dns.RcodeSuccess, answers: 1},
-		{name: base, qtype: dns.TypeHTTPS, proto: "udp", rcode: dns.RcodeSuccess, answers: 1, check: func(m *dns.Msg) error {
-			h, ok := m.Answer[0].(*dns.HTTPS)
-			if !ok || !strings.Contains(h.String(), `alpn="h3,h2"`) || !strings.Contains(h.String(), `ipv4hint="`+vps4) {
-				return fmt.Errorf("HTTPS: %v", m.Answer)
-			}
-			return nil
-		}},
-		{name: id + ".noh3." + zone + ".", qtype: dns.TypeHTTPS, proto: "udp", rcode: dns.RcodeSuccess, answers: 0},
+		{name: "_8443._https." + base, qtype: dns.TypeHTTPS, proto: "udp", rcode: dns.RcodeSuccess, answers: 1, check: httpsRR(base, `alpn="h3,h2"`)},
+		{name: "_8080._https." + base, qtype: dns.TypeHTTPS, proto: "udp", rcode: dns.RcodeSuccess, answers: 1, check: httpsRR(base, `alpn="h2"`)},
+		{name: base, qtype: dns.TypeHTTPS, proto: "udp", rcode: dns.RcodeSuccess, answers: 0},
+		{name: "_8443._https." + id + ".noh3." + zone + ".", qtype: dns.TypeHTTPS, proto: "udp", rcode: dns.RcodeSuccess, answers: 0},
 		{name: id + ".v4." + zone + ".", qtype: dns.TypeAAAA, proto: "udp", rcode: dns.RcodeSuccess, answers: 0},
 		{name: id + ".v4." + zone + ".", qtype: dns.TypeA, proto: "udp", rcode: dns.RcodeSuccess, answers: 1},
 		{name: id + ".v6." + zone + ".", qtype: dns.TypeA, proto: "udp", rcode: dns.RcodeSuccess, answers: 0},
@@ -168,7 +178,11 @@ func TestCase10DNSPublicResolvers(t *testing.T) {
 					ecs = ecsNet
 				}
 				for _, qt := range []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeHTTPS} {
-					m := query(t, res+":53", "udp", id+"."+zone+".", qt, ecs, true)
+					name := id + "." + zone + "."
+					if qt == dns.TypeHTTPS {
+						name = "_8443._https." + name // origem :8443 (ADR 0038 item 4); sem prefixo é NODATA
+					}
+					m := query(t, res+":53", "udp", name, qt, ecs, true)
 					if m.Rcode != dns.RcodeSuccess || len(m.Answer) == 0 {
 						t.Errorf("%s via %s: rcode=%s answers=%v", dns.TypeToString[qt], res, dns.RcodeToString[m.Rcode], m.Answer)
 					}

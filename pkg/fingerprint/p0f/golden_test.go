@@ -8,11 +8,11 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/internal/pcaptest"
 )
 
-// requireRealDB é ligado pelos testes linux_priv (vps602), onde o p0f.fp do deploy precisa existir.
+// requireRealDB é ligado pelos testes linux_priv (no servidor, finger-01), onde o p0f.fp do deploy precisa existir.
 var requireRealDB = false
 
 // realDB carrega o p0f.fp real: FS_P0F_DB ou o caminho do deploy. Sem ele o teste é pulado (o p0f.fp é
-// LGPL e não vai para o repositório; na vps602 o verify-full roda este teste com o arquivo instalado).
+// LGPL e não vai para o repositório; no servidor o verify-full roda este teste com o arquivo instalado).
 func realDB(t *testing.T) *DB {
 	t.Helper()
 	p := os.Getenv("FS_P0F_DB")

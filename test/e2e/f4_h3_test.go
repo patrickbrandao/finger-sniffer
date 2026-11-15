@@ -104,16 +104,17 @@ var quicRefPy = sync.OnceValues(func() ([]byte, error) {
 	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "quic", "ref.py")) //nolint:gosec // repositório
 })
 
-// analyzeQUIC manda o pcap da conexão (e o keylog do cliente) para a vps602 e roda tshark, ja4 e o ref.py do
+// analyzeQUIC manda o pcap da conexão (e o keylog do cliente) para o servidor e roda tshark, ja4 e o ref.py do
 // golden QUIC (task 050) sobre ele, como o collect.sh; devolve a conexão QUIC do ref.json.
 func analyzeQUIC(t *testing.T, connID string, keylog []byte) quicRef {
 	t.Helper()
+	requireTools(t)
 	pcap := pcapOf(t, connID)
 	py, err := quicRefPy()
 	if err != nil {
 		t.Fatal(err)
 	}
-	py = bytes.Replace(py, []byte(`SERVER_PORT = "7703"`), []byte(`SERVER_PORT = "443"`), 1)
+	py = bytes.Replace(py, []byte(`SERVER_PORT = "7703"`), []byte(fmt.Sprintf(`SERVER_PORT = "%d"`, portTLS)), 1)
 	dir := "/tmp/fs-e2e-f4/" + connID
 	t.Cleanup(func() { remote(t, "rm -rf "+dir+"; rmdir /tmp/fs-e2e-f4 2>/dev/null; true") })
 	remoteIn(t, "mkdir -p "+dir+" && cat > "+dir+"/c.pcap", pcap)
@@ -122,7 +123,7 @@ func analyzeQUIC(t *testing.T, connID string, keylog []byte) quicRef {
 	out := remote(t, "cd "+dir+" && "+
 		"tshark -r c.pcap -o tls.keylog_file:c.keys -T json --no-duplicate-keys -J 'frame ip ipv6 udp quic tls http3' "+
 		"-Y quic > c.tshark.json 2>/dev/null && "+
-		"{ /root/ja4-rust/target/release/ja4 -j -r --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > c.ja4.jsonl || true; } && "+
+		"{ "+ja4Bin+" -j -r --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > c.ja4.jsonl || true; } && "+
 		"python3 ref.py c && cat c.ref.json")
 	var ref struct {
 		Connections []quicRef `json:"connections"`
@@ -156,7 +157,7 @@ func curlHTTP3() string {
 
 func curlH3Run(bin string) func(ctx context.Context, url, keylog string) error {
 	return func(ctx context.Context, url, keylog string) error {
-		cmd := exec.CommandContext(ctx, bin, "-4", "-sS", "-o", "/dev/null", "--max-time", "20", "--http3-only", url)
+		cmd := exec.CommandContext(ctx, bin, "-"+h3Family, "-sS", "-o", "/dev/null", "--max-time", "20", "--http3-only", url)
 		cmd.Env = append(os.Environ(), "SSLKEYLOGFILE="+keylog)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("%w: %s", err, out)
@@ -165,16 +166,20 @@ func curlH3Run(bin string) func(ctx context.Context, url, keylog string) error {
 	}
 }
 
-// newH3Transport é o http3.Transport padrão do quic-go, só com IPv4 e o keylog (w pode ser nil).
+// h3Family é a família dos clientes h3 ("4" ou "6"). Padrão IPv6: do Mac ao finger-01 os datagramas UDP IPv4
+// acima de ~600 bytes se perdem no caminho (rede, não o espelho) e o Initial de 1200 bytes não chega.
+var h3Family = env("FS_E2E_H3_FAMILY", "6")
+
+// newH3Transport é o http3.Transport padrão do quic-go, só com a família h3Family e o keylog (w pode ser nil).
 func newH3Transport(w io.Writer) *http3.Transport {
 	return &http3.Transport{
 		TLSClientConfig: &tls.Config{KeyLogWriter: w},
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-			ua, err := net.ResolveUDPAddr("udp4", addr)
+			ua, err := net.ResolveUDPAddr("udp"+h3Family, addr)
 			if err != nil {
 				return nil, err
 			}
-			pc, err := net.ListenUDP("udp4", nil)
+			pc, err := net.ListenUDP("udp"+h3Family, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -217,7 +222,7 @@ func TestCase12HTTP3(t *testing.T) {
 		t.Run(cl.name, func(t *testing.T) {
 			t.Parallel()
 			id := newID(t)
-			url := "https://" + probeHost(id) + "/p/" + id + "/"
+			url := "https://" + probeHost(id) + onTLS + "/p/" + id + "/"
 			keylog := filepath.Join(t.TempDir(), "keys")
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
@@ -291,7 +296,7 @@ func checkH3Conn(t *testing.T, name string, c record, ref quicRef) {
 	t.Helper()
 	h := c.HTTP3
 	known := false
-	if c.Proto != "quic/h3" || c.L4 != "udp" || c.Dst.Port != 443 || h == nil {
+	if c.Proto != "quic/h3" || c.L4 != "udp" || c.Dst.Port != portTLS || h == nil {
 		t.Fatalf("%s: proto=%s l4=%s porta=%d http3=%v", name, c.Proto, c.L4, c.Dst.Port, h != nil)
 	}
 	if c.Src.Port != ref.ClientPort {
@@ -416,7 +421,7 @@ func checkH3Settings(t *testing.T, got, want [][2]json.Number) bool {
 func TestCase12H3Controls(t *testing.T) {
 	t.Parallel()
 	id := newID(t)
-	base := "https://" + probeHost(id) + "/p/" + id + "/r?"
+	base := "https://" + probeHost(id) + onTLS + "/p/" + id + "/r?"
 	tr := newH3Transport(nil)
 	cl := &http.Client{Transport: tr, Timeout: 30 * time.Second}
 	do := func(q string) (*http.Response, []byte, time.Duration) {
@@ -484,12 +489,12 @@ func TestCase12H3Controls(t *testing.T) {
 	}
 }
 
-// TestCase12AltSvc: Alt-Svc h3 nas respostas h1/h2 em TLS (htdocs e /p/), ausente com alt_svc=0, e HTTPS RR com
-// alpn="h3,h2".
+// TestCase12AltSvc: Alt-Svc h3 nas respostas h1/h2 em TLS (htdocs direto e pelo traefik, e /p/), ausente com
+// alt_svc=0, e HTTPS RR com alpn="h3,h2" em _8443._https (ADR 0038 itens 3 e 4).
 func TestCase12AltSvc(t *testing.T) {
 	t.Parallel()
 	id := newID(t)
-	const want = `h3=":443"; ma=60`
+	want := fmt.Sprintf(`h3=":%d"; ma=60`, portTLS)
 	for _, h2 := range []bool{false, true} {
 		tr := &http.Transport{}
 		tr.Protocols = new(http.Protocols)
@@ -503,10 +508,11 @@ func TestCase12AltSvc(t *testing.T) {
 			url    string
 			altSvc bool
 		}{
-			{"https://" + probeHost(id) + "/p/" + id + "/", true},
-			{"https://" + probeHost(id) + "/p/" + id + "/r?alt_svc=0", false},
-			{"https://" + vpsHost + "/", true},
-			{"http://" + probeHost(id) + "/p/" + id + "/", false}, // em claro não anuncia
+			{"https://" + probeHost(id) + onTLS + "/p/" + id + "/", true},
+			{"https://" + probeHost(id) + onTLS + "/p/" + id + "/r?alt_svc=0", false},
+			{"https://" + vpsHost + onTLS + "/", true},
+			{"https://" + vpsHost + "/", true},                             // pelo traefik (passthrough até o web na 8443)
+			{"http://" + probeHost(id) + onHTTP + "/p/" + id + "/", false}, // em claro não anuncia
 		} {
 			if h2 && strings.HasPrefix(tc.url, "http:") {
 				continue
@@ -524,7 +530,7 @@ func TestCase12AltSvc(t *testing.T) {
 		}
 		tr.CloseIdleConnections()
 	}
-	m := query(t, vps4+":53", "udp", probeHost(id)+".", dns.TypeHTTPS, nil, false)
+	m := query(t, vps4+":53", "udp", "_8443._https."+probeHost(id)+".", dns.TypeHTTPS, nil, false)
 	if len(m.Answer) != 1 || !strings.Contains(m.Answer[0].String(), `alpn="h3,h2"`) {
 		t.Errorf("HTTPS RR: %v", m.Answer)
 	}

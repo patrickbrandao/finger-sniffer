@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Parte remota do regen.sh: roda na vps602.
+# Parte remota do regen.sh: roda no servidor (finger-01).
 #   syn: no diretório com os pcaps de SYN; entrada JA4 e FP; saída ja4t.json e p0f.log.
 #   tls: no diretório com src/ (pcaps completos da FoxIO) e bin/ (ClientHellos crus); entrada JA4;
 #        saída em out/: pcaps reduzidos, ja4.golden.json e ja3.golden.json.

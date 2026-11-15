@@ -63,8 +63,8 @@ type MemWindow struct {
 	SlabMax, PercpuMax    int64
 }
 
-// MemWindows lê o cgroup.csv do loadmon (t_ns,unit,cpu_usec,mem_current,anon,file[,sock,kernel,slab,percpu]) e
-// agrupa as amostras da unit em janelas de width a partir da primeira amostra. Aceita o formato antigo, de 6
+// MemWindows lê o cgroup.csv do loadmon (t_ns,unit,cpu_usec,mem_current,anon,file[,sock,kernel,slab,percpu[,nr_throttled]]) e
+// agrupa as amostras da unit em janelas de width a partir da primeira amostra. Aceita os formatos antigos, de 6 e 10
 // colunas, dos brutos já gravados.
 func MemWindows(r io.Reader, unit string, width time.Duration) ([]MemWindow, error) {
 	sc := bufio.NewScanner(r)
@@ -74,10 +74,10 @@ func MemWindows(r io.Reader, unit string, width time.Duration) ([]MemWindow, err
 	)
 	for sc.Scan() {
 		f := strings.Split(sc.Text(), ",")
-		if (len(f) != 6 && len(f) != 10) || f[1] != unit {
+		if (len(f) != 6 && len(f) != 10 && len(f) != 11) || f[1] != unit {
 			continue
 		}
-		var v [10]int64
+		var v [11]int64
 		bad := false
 		for i, s := range f {
 			if i == 1 {
@@ -108,7 +108,7 @@ func MemWindows(r io.Reader, unit string, width time.Duration) ([]MemWindow, err
 		w.AnonMax = max(w.AnonMax, v[4])
 		w.KernelMax = max(w.KernelMax, kern)
 		w.KernelLast = kern
-		if len(f) == 10 {
+		if len(f) >= 10 {
 			w.HasStat = true
 			w.SockMax = max(w.SockMax, v[6])
 			w.KStatMax = max(w.KStatMax, v[7])

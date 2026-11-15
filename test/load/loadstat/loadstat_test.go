@@ -122,3 +122,27 @@ func TestCgroup(t *testing.T) {
 		t.Fatal("ProcStatCPU sem linha cpu deveria falhar")
 	}
 }
+
+func TestProcStatNCPU(t *testing.T) {
+	text := "cpu  10 0 5 100 0 0 0 1 0 0\ncpu0 5 0 2 50 0 0 0 0 0 0\ncpu1 5 0 3 50 0 0 0 1 0 0\n" +
+		"cpu15 1 0 0 1 0 0 0 0 0 0\nintr 1\ncpuX 1\n"
+	if n := ProcStatNCPU(text); n != 3 {
+		t.Fatalf("ProcStatNCPU = %d, esperava 3", n)
+	}
+	if n := ProcStatNCPU(""); n != 0 {
+		t.Fatalf("vazio: %d", n)
+	}
+}
+
+func TestParseConntrackS(t *testing.T) {
+	text := "cpu=0   \tfound=1 invalid=2 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=3\n" +
+		"cpu=1   \tfound=4 invalid=0 insert=0 insert_failed=1 drop=2 early_drop=0 error=0 search_restart=0\n" +
+		"conntrack v1.4.8 (conntrack-tools): ok\n"
+	m := ParseConntrackS(text)
+	if m["found"] != 5 || m["invalid"] != 2 || m["insert_failed"] != 1 || m["drop"] != 2 || m["search_restart"] != 3 {
+		t.Fatalf("ParseConntrackS = %v", m)
+	}
+	if _, ok := m["cpu"]; ok {
+		t.Fatal("a chave cpu não deveria ser somada")
+	}
+}

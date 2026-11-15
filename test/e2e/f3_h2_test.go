@@ -19,7 +19,7 @@ import (
 func TestH2Cleartext(t *testing.T) {
 	t.Parallel()
 	id := newID(t)
-	base := "http://" + probeHost(id) + "/p/" + id + "/"
+	base := "http://" + probeHost(id) + onHTTP + "/p/" + id + "/"
 
 	// h2c por prior knowledge: HTTP/2 sem TLS desde o primeiro byte (net/http, Protocols)
 	protos := new(http.Protocols)
@@ -48,9 +48,9 @@ func TestH2Cleartext(t *testing.T) {
 		t.Fatalf("curl --http2 (Upgrade: h2c): %v %s", err, out)
 	}
 
-	p := waitProbe(t, id, atLeast(2, 80))
+	p := waitProbe(t, id, atLeast(2, portHTTP))
 	modes := map[string]record{}
-	for _, c := range p.conns(80) {
+	for _, c := range p.conns(portHTTP) {
 		if c.HTTP2 != nil {
 			modes[c.HTTP2.Mode] = c
 		}
@@ -93,7 +93,7 @@ func TestH2Cleartext(t *testing.T) {
 func TestH2Controls(t *testing.T) {
 	t.Parallel()
 	id := newID(t)
-	base := "https://" + probeHost(id) + "/p/" + id + "/r?"
+	base := "https://" + probeHost(id) + onTLS + "/p/" + id + "/r?"
 	tr := &http.Transport{ForceAttemptHTTP2: true}
 	defer tr.CloseIdleConnections()
 	cl := &http.Client{Transport: tr, Timeout: 20 * time.Second}
@@ -122,9 +122,9 @@ func TestH2Controls(t *testing.T) {
 	_ = resp.Body.Close()
 	tr.CloseIdleConnections()
 
-	p := waitProbe(t, id, atLeast(1, 443))
+	p := waitProbe(t, id, atLeast(1, portTLS))
 	var c *record
-	for _, x := range p.conns(443) {
+	for _, x := range p.conns(portTLS) {
 		if x.HTTP2 != nil && len(x.HTTP2.Streams) >= 3 {
 			c = &x
 		}

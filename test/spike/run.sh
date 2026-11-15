@@ -3,15 +3,19 @@
 #
 #   test/spike/run.sh [duração] [conexões_novas_por_s]     # padrão: 10m 50
 #
-# Na vps602 cada programa roda numa unit transitória (systemd-run) com o mesmo MemoryMax/GOMEMLIMIT das
-# units reais (spec 016 RF-07). O NATS é o da unit finger-sniffer-nats. Resultados em tmp/spike-results/.
+# No servidor (finger-01, ADR 0038; os resultados da F1 são da vps602) cada programa roda numa unit transitória
+# (systemd-run) com o MemoryMax/GOMEMLIMIT que as units tinham na F1 (spec 016 RF-07 de então). O NATS é o da unit
+# finger-sniffer-nats. O alvo HTTP do spike fica na porta FS_SPIKE_PORT (padrão 7710, capturada e livre): a 8080
+# do F1 agora é do web. Resultados em tmp/spike-results/.
 set -euo pipefail
 
 DUR="${1:-10m}"
 RATE="${2:-50}"
-HOST="${FS_VPS_SSH:-root@vps602.tmsoft.com.br}"
+HOST="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
 PORT="${FS_VPS_PORT:-48022}"
-TARGET_IP="${FS_SPIKE_TARGET_IP:-172.233.24.85}"
+TARGET_IP="${FS_SPIKE_TARGET_IP:-170.247.40.86}"
+SPIKE_PORT="${FS_SPIKE_PORT:-7710}"
+IFACE="${FS_CAPTURE_IFACE:-ens192}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$ROOT/tmp/spike-results/$(date -u +%Y%m%dT%H%M%SZ)-${DUR}-${RATE}${FS_SPIKE_LABEL:+-$FS_SPIKE_LABEL}"
 BIN="$ROOT/tmp/spike-bin"
@@ -30,23 +34,23 @@ echo "== envio"
 ssh_ "systemctl stop spike-cap spike-store spike-web spike-mon spike-vmstat 2>/dev/null || true; rm -rf $R; mkdir -p $R"
 scp -q -P "$PORT" "$BIN"/spikecap "$BIN"/spikestore "$BIN"/spikeweb "$BIN"/spikemon "$HOST:$R/"
 
-echo "== início na vps602"
+echo "== início no servidor"
 ssh_ "set -e
 systemctl reset-failed spike-cap spike-store spike-web spike-mon spike-vmstat 2>/dev/null || true
 run() { name=\$1; mem=\$2; gomem=\$3; shift 3
   systemd-run --quiet --unit=\$name -p MemoryMax=\$mem -E GOMEMLIMIT=\$gomem \
     -p StandardOutput=file:$R/\$name.jsonl -p StandardError=file:$R/\$name.err \"\$@\"; }
-run spike-web   96M  80MiB  $R/spikeweb -addr $TARGET_IP:8080
+run spike-web   96M  80MiB  $R/spikeweb -addr $TARGET_IP:$SPIKE_PORT
 run spike-store 384M 320MiB $R/spikestore -db $R/spike.sqlite ${STORE_ARGS:--retention 2m}
 sleep 2
-run spike-cap   96M  80MiB  $R/spikecap -iface eth0
+run spike-cap   96M  80MiB  $R/spikecap -iface $IFACE
 run spike-mon   32M  24MiB  $R/spikemon -procs spikecap,nats-server,spikestore,spikeweb
 systemd-run --quiet --unit=spike-vmstat -p StandardOutput=file:$R/vmstat.txt vmstat -t 1
 sleep 2
 systemctl is-active spike-web spike-store spike-cap spike-mon"
 
 echo "== carga: $RATE conexões/s por $DUR"
-"$BIN/spikeload" -target "http://$TARGET_IP:8080" -rate "$RATE" -duration "$DUR" | tee "$OUT/load.jsonl"
+"$BIN/spikeload" -target "http://$TARGET_IP:$SPIKE_PORT" -rate "$RATE" -duration "$DUR" | tee "$OUT/load.jsonl"
 
 echo "== drenagem e parada"
 sleep 15

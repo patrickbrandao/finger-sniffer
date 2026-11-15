@@ -39,11 +39,11 @@ type liveEvent struct {
 	ConnID  *string         `json:"conn_id"`
 	ProbeID *string         `json:"probe_id"`
 	Data    json.RawMessage `json:"data"`
-	// Recv é a hora de chegada nesta máquina, já no relógio da vps602 (clockOffset aplicado).
+	// Recv é a hora de chegada nesta máquina, já no relógio do servidor (clockOffset aplicado).
 	Recv time.Time `json:"-"`
 }
 
-// delay é o atraso do evento: ts (relógio da vps602) até a chegada aqui.
+// delay é o atraso do evento: ts (relógio do servidor) até a chegada aqui.
 func (e liveEvent) delay() time.Duration { return e.Recv.Sub(e.TS) }
 
 // apiWS é a base ws:// da API em claro (9001).
@@ -51,7 +51,7 @@ func apiWS() string { return "ws" + strings.TrimPrefix(api, "http") }
 
 // ---------------------------------------------------------------- relógio
 
-// clockOffset estima quanto o relógio da vps602 está à frente do daqui: uma sessão ssh devolve time.time() a
+// clockOffset estima quanto o relógio do servidor está à frente do daqui: uma sessão ssh devolve time.time() a
 // cada linha recebida; vale a amostra de menor ida e volta (erro ≤ metade dela).
 var clockOffset = sync.OnceValues(func() (time.Duration, error) {
 	cmd := sshCmd(`python3 -u -c 'import sys,time
@@ -76,7 +76,7 @@ for l in sys.stdin: print(repr(time.time()), flush=True)'`)
 		t1 := time.Now()
 		f, err := strconv.ParseFloat(strings.TrimSpace(line), 64)
 		if err != nil {
-			return 0, fmt.Errorf("relógio da vps602: %q", line)
+			return 0, fmt.Errorf("relógio do servidor: %q", line)
 		}
 		remoteT := time.Unix(0, int64(f*1e9))
 		if rtt := t1.Sub(t0); rtt < best {
@@ -89,7 +89,7 @@ for l in sys.stdin: print(repr(time.time()), flush=True)'`)
 	return off, nil
 })
 
-// vpsNow é a hora atual no relógio da vps602.
+// vpsNow é a hora atual no relógio do servidor.
 func vpsNow(t *testing.T) time.Time {
 	t.Helper()
 	off, err := clockOffset()
@@ -271,12 +271,16 @@ func collect(ch <-chan liveEvent, d time.Duration, done func([]liveEvent) bool) 
 
 // ---------------------------------------------------------------- requisições de teste
 
-// probeRequests faz uma requisição h1 (TLS), uma h2 e uma h3 ao probe e devolve quantas fez.
+// probeRequests faz uma requisição h1 (TLS), uma h2 e uma h3 ao probe e devolve quantas fez. h1 e h2 vão por
+// IPv4 (o filtro src_ip do teste é o IPv4 desta máquina); o h3 vai pela família h3Family.
 func probeRequests(t *testing.T, id string) int {
 	t.Helper()
-	url := "https://" + probeHost(id) + "/p/" + id + "/"
+	url := "https://" + probeHost(id) + onTLS + "/p/" + id + "/"
+	dial4 := func(ctx context.Context, _, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp4", addr)
+	}
 	for _, h2 := range []bool{false, true} {
-		tr := &http.Transport{}
+		tr := &http.Transport{DialContext: dial4}
 		tr.Protocols = new(http.Protocols)
 		if h2 {
 			tr.Protocols.SetHTTP2(true)
@@ -322,6 +326,8 @@ func reqProto(data json.RawMessage) string {
 // TestCase13LiveFilters: /ws e /stream com filtros (probe, kind, dst_port, src_ip), filtro inválido → 400, e
 // cada http.request de h1/h2/h3 chega em < 1 s do ts do evento.
 func TestCase13LiveFilters(t *testing.T) {
+	// relógio medido antes de abrir as assinaturas: a primeira chegada não espera a medição (15 idas e voltas)
+	vpsNow(t)
 	id := newID(t)
 	other := newID(t)
 	mac := macIPv4(t)
@@ -336,7 +342,7 @@ func TestCase13LiveFilters(t *testing.T) {
 	wsReq, _ := openWS(t, "probe="+id+"&kind=http.request")
 	wsAll, _ := openWS(t, "probe="+id)
 	wsOther, _ := openWS(t, "probe="+other)
-	sse443, _ := openSSE(t, "probe="+id+"&dst_port=443&src_ip="+mac, 0, true)
+	sseTLS, _ := openSSE(t, "probe="+id+"&dst_port="+strconv.Itoa(portTLS)+"&src_ip="+mac, 0, true)
 	sse53, _ := openSSE(t, "probe="+id+"&dst_port=53", 0, true)
 	time.Sleep(300 * time.Millisecond) // assinaturas ativas antes do tráfego
 	// DNS do probe direto ao autoritativo (dns.query com dst_port 53 e src_ip = esta máquina)
@@ -405,7 +411,7 @@ func TestCase13LiveFilters(t *testing.T) {
 			if e.ProbeID == nil || *e.ProbeID != id {
 				t.Errorf("%s: evento de outro probe %s", name, e.Kind)
 			}
-			if port == 53 && e.Kind != "dns.query" || port == 443 && e.Kind == "dns.query" {
+			if port == 53 && e.Kind != "dns.query" || port == portTLS && e.Kind == "dns.query" {
 				t.Errorf("%s: recebeu %s", name, e.Kind)
 			}
 		}
@@ -413,7 +419,7 @@ func TestCase13LiveFilters(t *testing.T) {
 			t.Errorf("%s: nenhum evento", name)
 		}
 	}
-	checkPorts("/stream?dst_port=443&src_ip", collect(sse443.events, 2*time.Second, nil), 443)
+	checkPorts("/stream?dst_port=8443&src_ip", collect(sseTLS.events, 2*time.Second, nil), portTLS)
 	checkPorts("/stream?dst_port=53", collect(sse53.events, 500*time.Millisecond, nil), 53)
 	if evs := collect(wsOther.events, 200*time.Millisecond, nil); len(evs) > 0 {
 		t.Errorf("/ws?probe=%s (sem tráfego) recebeu %d eventos: %s", other, len(evs), evs[0].Kind)
@@ -476,7 +482,7 @@ func TestCase13LiveDropped(t *testing.T) {
 			defer tr.CloseIdleConnections()
 			cl := &http.Client{Transport: tr, Timeout: 60 * time.Second}
 			// a primeira requisição sozinha abre a conexão h2; as outras multiplexam nela
-			if resp, err := cl.Get("https://" + probeHost(id) + "/p/" + id + "/"); err == nil {
+			if resp, err := cl.Get("https://" + probeHost(id) + onTLS + "/p/" + id + "/"); err == nil {
 				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 			}
@@ -487,7 +493,7 @@ func TestCase13LiveDropped(t *testing.T) {
 				<-tick.C
 				iw.Go(func() {
 					defer func() { <-sem }()
-					resp, err := cl.Get("https://" + probeHost(id) + "/p/" + id + "/")
+					resp, err := cl.Get("https://" + probeHost(id) + onTLS + "/p/" + id + "/")
 					if err != nil {
 						mu.Lock()
 						failed++
@@ -655,7 +661,7 @@ func TestCase13LongPoll(t *testing.T) {
 		t.Fatalf("long-poll respondeu com só DNS em %v: %v %s", r.took, r.err, r.b)
 	default:
 	}
-	c := dialTCP(t, 80)
+	c := dialTCP(t, portHTTP)
 	c.send(t, "GET /p/"+id+"/ HTTP/1.1\r\nHost: "+probeHost(id)+"\r\nConnection: close\r\n\r\n")
 	if r := c.readResponse(t); r.Status != 200 {
 		t.Fatalf("GET /p/: %d", r.Status)
@@ -679,7 +685,7 @@ func TestCase13LongPoll(t *testing.T) {
 // idInRoute acha um conn_id (ULID) ou probe ID do e2e num rótulo route.
 var idInRoute = regexp.MustCompile(`[0-9A-Z]{26}|f3[a-z0-9]{14}`)
 
-// sshCmd monta o ssh para a vps602 (sem rodar).
+// sshCmd monta o ssh para o servidor (sem rodar).
 func sshCmd(cmd string) *exec.Cmd {
 	return exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, cmd)
 }

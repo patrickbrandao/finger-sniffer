@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regenera os gabaritos a partir das ferramentas oficiais, executadas na vps602.
+# Regenera os gabaritos a partir das ferramentas oficiais, executadas no servidor (finger-01, ADR 0038; os gabaritos
+# atuais foram gerados na vps602, servidor anterior, com as mesmas versões).
 #
 #   syn: ja4 (FoxIO, Rust, compilado em /root/ja4-rust) → ja4t.golden.json
 #        p0f 3.09b (Debian, `p0f -r`) com o mesmo p0f.fp do deploy → p0f.golden.log
@@ -15,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 MODE="${1:-all}"
-VPS="${VPS_SSH:-root@vps602.tmsoft.com.br}"
+VPS="${VPS_SSH:-root@finger-01.tmsoft.com.br}"
 PORT="${VPS_PORT:-48022}"
 JA4="${JA4_BIN:-/root/ja4-rust/target/release/ja4}"
 FP="${P0F_FP:-/finger-sniffer/etc/p0f.fp}"

@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package e2e roda os testes ponta a ponta contra a vps602 com a main implantada (spec 017, PLAN.md F2).
+// Package e2e roda os testes ponta a ponta contra o finger-01 (ADR 0038) com a main implantada (spec 017, PLAN.md F2).
 // Uso: make verify-full ARGS="--e2e"  ou  go test -count=1 -tags e2e ./test/e2e/
 // O teste de retenção (10 min) só roda com FS_E2E_LONG=1; com ele a suíte passa de 10 min e precisa de
 // GOFLAGS=-timeout=45m (o padrão do go test é 10 min).
@@ -24,14 +24,14 @@ import (
 )
 
 var (
-	vpsSSH  = env("VPS_SSH", "root@vps602.tmsoft.com.br")
+	vpsSSH  = env("VPS_SSH", env("FS_VPS_SSH", "root@finger-01.tmsoft.com.br"))
 	vpsPort = env("VPS_PORT", "48022")
-	vps4    = env("FS_E2E_VPS4", "172.233.24.85")
-	api     = env("FS_E2E_API", "http://vps602.tmsoft.com.br:9001/api/v1")
+	vps4    = env("FS_E2E_VPS4", "170.247.40.86")
+	api     = env("FS_E2E_API", "http://finger-01.badblock.net.br:9001/api/v1")
 )
 
 const (
-	listenPort = 7701 // capturada e livre na vps602 (web/raw ainda são stubs)
+	listenPort = 7701 // capturada e livre no servidor
 	closedPort = 7799 // capturada e sem listener: o kernel responde RST
 )
 
@@ -42,7 +42,7 @@ func env(k, def string) string {
 	return def
 }
 
-// remote roda um comando na vps602.
+// remote roda um comando no servidor.
 func remote(t *testing.T, cmd string) string {
 	t.Helper()
 	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, cmd).CombinedOutput()
@@ -52,7 +52,7 @@ func remote(t *testing.T, cmd string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// macIPv4 é o IPv4 público desta máquina como a vps602 vê (o ssh por IPv4 mostra a origem).
+// macIPv4 é o IPv4 público desta máquina como o servidor vê (o ssh por IPv4 mostra a origem).
 func macIPv4(t *testing.T) string {
 	t.Helper()
 	ip := remote(t, `echo ${SSH_CLIENT%% *}`)
@@ -62,7 +62,7 @@ func macIPv4(t *testing.T) string {
 	return ip
 }
 
-// startListener sobe um http.server temporário na vps602 e o remove no fim do teste.
+// startListener sobe um http.server temporário no servidor e o remove no fim do teste.
 func startListener(t *testing.T) {
 	t.Helper()
 	remote(t, fmt.Sprintf("mkdir -p /tmp/fs-e2e && echo e2e > /tmp/fs-e2e/index.html && cd /tmp/fs-e2e && "+

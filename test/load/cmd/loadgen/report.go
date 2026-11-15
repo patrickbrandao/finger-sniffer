@@ -2,7 +2,7 @@
 
 package main
 
-// Modo report: junta gen.json (gerador), cgroup.csv (vps602) e as coletas do /metrics, aplica as metas da
+// Modo report: junta gen.json (gerador), cgroup.csv (servidor) e as coletas do /metrics, aplica as metas da
 // ADR 0022/0024 e escreve summary.json, summary.md e cpu_mem_by_second.csv.
 
 import (
@@ -21,9 +21,9 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/test/load/loadstat"
 )
 
-// memoryMax das units (deploy/systemd/*.service).
+// memoryMax das units (deploy/systemd/*.service; ADR 0039 item 2).
 var memoryMax = map[string]float64{
-	"capture": 96 << 20, "web": 96 << 20, "raw": 96 << 20, "dns": 96 << 20, "store": 384 << 20, "nats": 192 << 20,
+	"capture": 512 << 20, "web": 768 << 20, "raw": 256 << 20, "dns": 256 << 20, "store": 2 << 30, "nats": 1 << 30,
 }
 
 type check struct {
@@ -41,6 +41,14 @@ type unitUsage struct {
 	MemMaxMiB float64 `json:"mem_max_mib"`
 	AnonMax   float64 `json:"anon_max_mib"`
 	MemoryMax float64 `json:"memory_max_mib"`
+	// Throttled é o crescimento do nr_throttled do cpu.stat na janela (-1 = o cgroup.csv não tem a coluna).
+	Throttled int64 `json:"nr_throttled_delta"`
+}
+
+// hostUsage é a CPU do host na janela: % da capacidade do host (média, p95, máx), steal médio e núcleos.
+type hostUsage struct {
+	Mean, P95, Max, Steal float64
+	NCPU                  int64
 }
 
 type summaryDoc struct {
@@ -168,7 +176,22 @@ func reportCmd(args []string) error {
 		memV = append(memV, fmt.Sprintf("%s %.0f (%.0f)/%.0f", u, us.AnonMax, us.MemMaxMiB, us.MemoryMax))
 	}
 	add("RNF-01", "RAM por unit: anon máx (memory.current máx) / MemoryMax, MiB", "anon < MemoryMax", strings.Join(memV, ", "), len(usage) > 0 && memOK)
-	add("RNF-01", "CPU do host (média / p95 / máx, % de 1 vCPU)", "informativo", fmt.Sprintf("%.0f / %.0f / %.0f (steal médio %.1f)", hostCPU[0], hostCPU[1], hostCPU[2], hostCPU[3]), true)
+	var thrV []string
+	thrOK, thrSeen := true, false
+	for _, u := range []string{"capture", "web", "raw", "dns", "store", "nats"} {
+		if d := usage[u].Throttled; d >= 0 {
+			thrSeen = true
+			thrOK = thrOK && d == 0
+			thrV = append(thrV, fmt.Sprintf("%s %d", u, d))
+		}
+	}
+	if thrSeen {
+		add("RNF-01", "cpu.stat nr_throttled por unit (Δ na medição)", "0 em todas", strings.Join(thrV, ", "), thrOK)
+	}
+	add("RNF-01", "CPU do host (média / p95 / máx)", "informativo", hostCPUText(hostCPU), true)
+	if ct := conntrackDelta(*dir); ct != "" {
+		add("—", "conntrack -S (Δ antes → depois: drop, insert_failed, early_drop, error)", "informativo", ct, true)
+	}
 
 	// RNF-05: retenção
 	maxAge := 0.0
@@ -272,20 +295,50 @@ func readProm(p string) ([]loadstat.Sample, error) {
 	return loadstat.ParseProm(string(b))
 }
 
-// cgroupUsage calcula CPU (% de 1 vCPU por segundo) e memória por unit no intervalo [from, to] (ns da vps602),
-// grava a série por segundo e devolve também a CPU do host: média, p95, máximo e steal médio.
-func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, [4]float64, error) {
-	var host [4]float64
+// hostCPUText escreve a CPU do host em % da capacidade e, com o número de núcleos, em % de um núcleo.
+func hostCPUText(h hostUsage) string {
+	s := fmt.Sprintf("%.1f / %.1f / %.1f %% do host (steal médio %.1f)", h.Mean, h.P95, h.Max, h.Steal)
+	if h.NCPU > 1 {
+		n := float64(h.NCPU)
+		s += fmt.Sprintf("; %.0f / %.0f / %.0f %% de um núcleo (%d vCPU)", h.Mean*n, h.P95*n, h.Max*n, h.NCPU)
+	}
+	return s
+}
+
+// conntrackDelta lê conntrack-antes.txt e conntrack-depois.txt (saída do conntrack -S gravada pelo run.sh) e
+// devolve os deltas dos contadores de perda; vazio se os arquivos não existem.
+func conntrackDelta(dir string) string {
+	before, err1 := os.ReadFile(filepath.Join(dir, "conntrack-antes.txt")) //nolint:gosec // pasta do operador
+	after, err2 := os.ReadFile(filepath.Join(dir, "conntrack-depois.txt")) //nolint:gosec // pasta do operador
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	b, a := loadstat.ParseConntrackS(string(before)), loadstat.ParseConntrackS(string(after))
+	var out []string
+	for _, k := range []string{"drop", "insert_failed", "early_drop", "error"} {
+		out = append(out, fmt.Sprintf("%s %d", k, a[k]-b[k]))
+	}
+	return strings.Join(out, ", ")
+}
+
+// cgroupUsage calcula CPU (% de um núcleo por segundo), memória e nr_throttled por unit no intervalo [from, to]
+// (ns do servidor), grava a série por segundo e devolve também a CPU do host: média, p95, máximo, steal médio e
+// núcleos.
+func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, hostUsage, error) {
+	var host hostUsage
 	f, err := os.Open(in) //nolint:gosec // pasta do operador
 	if err != nil {
 		return nil, host, err
 	}
 	defer f.Close() //nolint:errcheck // leitura
-	rows, err := csv.NewReader(f).ReadAll()
+	cr := csv.NewReader(f)
+	cr.FieldsPerRecord = -1 // brutos antigos (10 colunas) e novos (11, com nr_throttled)
+	rows, err := cr.ReadAll()
 	if err != nil {
 		return nil, host, err
 	}
-	type pt struct{ t, cpu, mem, anon int64 }
+	// thr = nr_throttled (-1 sem a coluna, formato de antes da ADR 0039); file = núcleos na linha host
+	type pt struct{ t, cpu, mem, anon, file, thr int64 }
 	series := map[string][]pt{}
 	for _, row := range rows[1:] {
 		if len(row) < 6 {
@@ -295,26 +348,38 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, [4]float
 		for i, s := range []string{row[0], row[2], row[3], row[4], row[5]} {
 			v[i], _ = strconv.ParseInt(s, 10, 64)
 		}
-		series[row[1]] = append(series[row[1]], pt{v[0], v[1], v[2], v[3]})
+		thr := int64(-1)
+		if len(row) >= 11 {
+			thr, _ = strconv.ParseInt(row[10], 10, 64)
+		}
+		series[row[1]] = append(series[row[1]], pt{v[0], v[1], v[2], v[3], v[4], thr})
 	}
 	usage := map[string]unitUsage{}
 	perSec := map[string][]float64{}
 	for unit, s := range series {
 		var cpus []float64
 		var memMax, anonMax float64
+		thrFirst, thrLast := int64(-1), int64(-1)
 		for i := 1; i < len(s); i++ {
 			if s[i].t < from || s[i].t > to {
 				continue
 			}
 			dt := (s[i].t - s[i-1].t) / 1000
 			if unit == "host" {
-				// busy/total em jiffies; steal na coluna anon
+				// busy/total em jiffies; steal na coluna anon; núcleos na coluna file
 				dTotal := s[i].mem - s[i-1].mem
 				if dTotal > 0 {
 					cpus = append(cpus, 100*float64(s[i].cpu-s[i-1].cpu)/float64(dTotal))
-					host[3] += 100 * float64(s[i].anon-s[i-1].anon) / float64(dTotal)
+					host.Steal += 100 * float64(s[i].anon-s[i-1].anon) / float64(dTotal)
 				}
+				host.NCPU = max(host.NCPU, s[i].file)
 				continue
+			}
+			if s[i].thr >= 0 {
+				if thrFirst < 0 {
+					thrFirst = s[i-1].thr
+				}
+				thrLast = s[i].thr
 			}
 			cpus = append(cpus, loadstat.CPUPercent(s[i-1].cpu, s[i].cpu, dt))
 			memMax = math.Max(memMax, float64(s[i].mem))
@@ -323,13 +388,20 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, [4]float
 		perSec[unit] = cpus
 		sm := loadstat.Summarize(cpus)
 		if unit == "host" {
-			host[0], host[1], host[2] = sm.Mean, sm.P95, sm.Max
+			host.Mean, host.P95, host.Max = sm.Mean, sm.P95, sm.Max
 			if len(cpus) > 0 {
-				host[3] /= float64(len(cpus))
+				host.Steal /= float64(len(cpus))
 			}
 			continue
 		}
-		usage[unit] = unitUsage{CPUMean: sm.Mean, CPUP95: sm.P95, CPUMax: sm.Max, MemMaxMiB: memMax / (1 << 20), AnonMax: anonMax / (1 << 20), MemoryMax: memoryMax[unit] / (1 << 20)}
+		thr := int64(-1)
+		if thrFirst >= 0 && thrLast >= 0 {
+			thr = thrLast - thrFirst
+		}
+		usage[unit] = unitUsage{
+			CPUMean: sm.Mean, CPUP95: sm.P95, CPUMax: sm.Max, MemMaxMiB: memMax / (1 << 20), AnonMax: anonMax / (1 << 20),
+			MemoryMax: memoryMax[unit] / (1 << 20), Throttled: thr,
+		}
 	}
 	// série por segundo (CPU % por unit)
 	o, err := os.Create(out) //nolint:gosec // pasta do operador
@@ -370,11 +442,15 @@ func renderMD(sd summaryDoc, g gen) string {
 		}
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", c.Goal, c.Metric, c.Target, c.Value, res)
 	}
-	b.WriteString("\nCPU e RAM por unit (cgroup, a cada 1 s, sem o aquecimento):\n\n")
-	b.WriteString("| Unit | CPU média % | CPU p95 % | CPU máx % | RAM máx MiB | anon máx MiB | MemoryMax MiB |\n| --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nCPU (% de um núcleo) e RAM por unit (cgroup, a cada 1 s, sem o aquecimento):\n\n")
+	b.WriteString("| Unit | CPU média % | CPU p95 % | CPU máx % | RAM máx MiB | anon máx MiB | MemoryMax MiB | Δ nr_throttled |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, u := range []string{"capture", "web", "raw", "dns", "store", "nats"} {
 		us := sd.Usage[u]
-		fmt.Fprintf(&b, "| %s | %.1f | %.1f | %.1f | %.0f | %.0f | %.0f |\n", u, us.CPUMean, us.CPUP95, us.CPUMax, us.MemMaxMiB, us.AnonMax, us.MemoryMax)
+		thr := "—"
+		if us.Throttled >= 0 {
+			thr = strconv.FormatInt(us.Throttled, 10)
+		}
+		fmt.Fprintf(&b, "| %s | %.1f | %.1f | %.1f | %.0f | %.0f | %.0f | %s |\n", u, us.CPUMean, us.CPUP95, us.CPUMax, us.MemMaxMiB, us.AnonMax, us.MemoryMax, thr)
 	}
 	b.WriteString("\nDecomposição (ms; histogramas do store por diferença aquecimento → fim, interpolados nos buckets):\n\n")
 	b.WriteString("| Etapa | p50 | p95 | p99 |\n| --- | --- | --- | --- |\n")
@@ -411,7 +487,7 @@ func renderMD(sd summaryDoc, g gen) string {
 	for _, k := range keys(sd.Health) {
 		fmt.Fprintf(&b, "- `%s`: %s\n", k, fmtF(sd.Health[k]))
 	}
-	fmt.Fprintf(&b, "\nRelógio: vps602 − local %v no início, %v no fim (ida e volta do ssh %v).\n",
+	fmt.Fprintf(&b, "\nRelógio: servidor − local %v no início, %v no fim (ida e volta do ssh %v).\n",
 		time.Duration(g.OffsetStartNs), time.Duration(g.OffsetEndNs), time.Duration(g.ClockRTTNs))
 	if len(g.Clock) > 0 {
 		var lo, hi time.Duration

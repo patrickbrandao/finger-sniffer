@@ -2,7 +2,7 @@
 
 package e2e
 
-// Contrato das respostas de erro contra a vps602 (task 089): a mesma tabela do internal/store
+// Contrato das respostas de erro contra o servidor (task 089): a mesma tabela do internal/store
 // TestAPIErrorContract (que confere a tabela contra o openapi.yaml e cobre 500/503 com falhas provocadas), aqui
 // só os casos sem falha, nas duas portas da API (9001 HTTP e 9000 HTTPS).
 
