@@ -9,6 +9,25 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
+## E2e pendentes do store (task 217, itens das tasks 151 e 201)
+
+Rodada de 2026-11-15 contra `v0.2.1-54-g91c7f25` (`FS_IDLE_DEFAULT=120s`, `FS_IDLE_MAX=600s`), do Mac.
+
+- **Ociosidade do TCP estabelecido (151, ADR 0034 item 2)**: `TestStoreIdleKeepsOneConnection`
+  (`test/e2e/f5_idle_store_test.go`), 00:48:51–00:52:10 UTC: h1 na porta 80 com `idle=300`, parada 200 s (além de
+  `FS_IDLE_DEFAULT` + 30 s = 150 s), segunda requisição na mesma conexão e FIN do cliente. O web não fechou e o
+  store registrou **uma conexão só** (`01M7EAV9RY2Q42CV3ACV8YN3T5`, probe `f3qpo9aa1up7ot4c`, 2 requisições,
+  `close` client/fin). Passou.
+- **`ts_clock_hz` (201), caso 11 em 5 execuções seguidas** (`go test -run '^TestCase11TCPConsistency$'`, curl e Go,
+  3 conexões cada por execução = 30 conexões por rodada):
+  - 00:48:51–00:49:18 UTC: 29 valores entre 997,45 e 1001,79 Hz (nominal 1000 Hz, todos a < 0,3%) e **1 `null`**
+    (curl, execução 3 da 4ª rodada, `01M7EAVYCP71TJ0Q854CGEAR7M`). O `null` é o comportamento da task 201 (erro
+    acima de 5%), mas o teste ainda exigia o campo não nulo (`requireConnFields` "11" e `checkCase11`): 4 de 5
+    rodadas passaram. Corrigido o teste: `null` numa execução é aceito, exige-se ao menos uma estimativa por
+    cliente e o mesmo nominal nas publicadas.
+  - 00:50:06–00:50:34 UTC, com o teste corrigido: **5 de 5 passaram**, 30 valores entre 998,09 e 1001,18 Hz, nenhum
+    `null`. Estável: mesmo nominal (1000 Hz) ou `null`.
+
 ## Orçamento de entrada depois da ADR 0036 (tasks 215 e 220)
 
 Rodada de 2026-11-15 contra a `main` implantada `v0.2.1-54-g91c7f25` (`FS_WEB_INPUT_BUDGET=25165824`,
