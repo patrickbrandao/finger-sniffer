@@ -3,7 +3,8 @@
 // Comando loadmon: lado vps602 do teste de carga (task 068). Dois modos:
 //
 //	loadmon sample -out /tmp/fs-load/cgroup.csv [-interval 1s]
-//	    a cada intervalo, CPU (usage_usec) e memória (memory.current, anon, file) do cgroup de cada unit
+//	    a cada intervalo, CPU (usage_usec) e memória (memory.current e, do memory.stat, anon, file, sock,
+//	    kernel, slab e percpu; task 215) do cgroup de cada unit
 //	    finger-sniffer-* e a CPU agregada do host (/proc/stat), até SIGTERM/SIGINT;
 //	loadmon clock
 //	    para cada linha recebida na entrada, escreve o relógio local em ns (estimativa do deslocamento de
@@ -70,8 +71,8 @@ func readFile(p string) string {
 	return string(b)
 }
 
-// sample grava uma linha por unit e por intervalo: t_ns,unit,cpu_usec,mem_current,anon,file; a linha da unit
-// "host" leva busy/total/steal do /proc/stat em jiffies nas colunas cpu_usec/mem_current/anon.
+// sample grava uma linha por unit e por intervalo: t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,
+// percpu; a linha da unit "host" leva busy/total/steal do /proc/stat em jiffies nas colunas cpu_usec/mem_current/anon.
 func sample(out string, interval time.Duration, root string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -81,7 +82,7 @@ func sample(out string, interval time.Duration, root string) error {
 	}
 	defer f.Close() //nolint:errcheck // fechado no fim
 	w := bufio.NewWriter(f)
-	_, _ = fmt.Fprintln(w, "t_ns,unit,cpu_usec,mem_current,anon,file")
+	_, _ = fmt.Fprintln(w, "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu")
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
@@ -91,10 +92,11 @@ func sample(out string, interval time.Duration, root string) error {
 			cpu := loadstat.ParseKV(readFile(filepath.Join(dir, "cpu.stat")))["usage_usec"]
 			cur, _ := strconv.ParseInt(strings.TrimSpace(readFile(filepath.Join(dir, "memory.current"))), 10, 64)
 			ms := loadstat.ParseKV(readFile(filepath.Join(dir, "memory.stat")))
-			_, _ = fmt.Fprintf(w, "%d,%s,%d,%d,%d,%d\n", now, u, cpu, cur, ms["anon"], ms["file"])
+			_, _ = fmt.Fprintf(w, "%d,%s,%d,%d,%d,%d,%d,%d,%d,%d\n", now, u, cpu, cur, ms["anon"], ms["file"],
+				ms["sock"], ms["kernel"], ms["slab"], ms["percpu"])
 		}
 		if busy, total, steal, err := loadstat.ProcStatCPU(readFile("/proc/stat")); err == nil {
-			_, _ = fmt.Fprintf(w, "%d,host,%d,%d,%d,0\n", now, busy, total, steal)
+			_, _ = fmt.Fprintf(w, "%d,host,%d,%d,%d,0,0,0,0,0\n", now, busy, total, steal)
 		}
 		_ = w.Flush()
 		select {

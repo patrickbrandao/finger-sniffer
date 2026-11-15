@@ -102,3 +102,47 @@ func TestMemWindows(t *testing.T) {
 		t.Fatalf("tabela:\n%s", b.String())
 	}
 }
+
+func TestMemWindowsStat(t *testing.T) {
+	csv := "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu\n" +
+		"1000000000,web,1,100,50,10,7,20,5,1\n" +
+		"2000000000,web,1,90,40,10,9,15,6,2\n" +
+		"2000000000,host,1,2,3,0,0,0,0,0\n"
+	ws, err := MemWindows(strings.NewReader(csv), "web", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws) != 1 {
+		t.Fatalf("janelas = %d", len(ws))
+	}
+	w := ws[0]
+	if !w.HasStat || w.Samples != 2 || w.SockMax != 9 || w.KStatMax != 20 || w.SlabMax != 6 || w.PercpuMax != 2 ||
+		w.KernelMax != 40 {
+		t.Fatalf("janela = %+v", w)
+	}
+	var b bytes.Buffer
+	PrintMemWindows(&b, ws)
+	if !strings.Contains(b.String(), "sock máx") || !strings.Contains(b.String(), "| 0–30 | 2 |") {
+		t.Fatalf("tabela:\n%s", b.String())
+	}
+}
+
+func TestNstatDelta(t *testing.T) {
+	before := "#kernel\nTcpExtTCPRcvQDrop               57643              0.0\nUdpRcvbufErrors 361 0.0\n"
+	after := "#kernel\nTcpExtTCPRcvQDrop 57700 0.0\nUdpRcvbufErrors 361 0.0\nTcpExtPruneCalled 4 0.0\n"
+	var b bytes.Buffer
+	NstatDelta(&b, before, after)
+	out := b.String()
+	for _, want := range []string{
+		"TcpExtTCPRcvQDrop 57643 → 57700 (delta 57)\n",
+		"UdpRcvbufErrors 361 → 361 (delta 0)\n",
+		"TcpExtPruneCalled 0 → 4 (delta 4)\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("falta %q em:\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "\n") != len(NstatKeys) {
+		t.Fatalf("linhas:\n%s", out)
+	}
+}

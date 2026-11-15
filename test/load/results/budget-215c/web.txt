@@ -1,0 +1,44 @@
+# antes (2026-11-15T02:30:09Z)
+MainPID=69207
+NRestarts=0
+MemoryMax=100663296
+ActiveEnterTimestamp=Sun 2026-11-15 02:30:04 UTC
+memory.peak=5439488
+memory.current=5206016
+max=0
+oom=0
+oom_kill=0
+# depois (2026-11-15T02:34:42Z)
+MainPID=69207
+NRestarts=0
+MemoryMax=100663296
+ActiveEnterTimestamp=Sun 2026-11-15 02:30:04 UTC
+memory.peak=100941824
+memory.current=92258304
+max=1663
+oom=0
+oom_kill=0
+# pico do memory.current do web nas amostras de 1 s (bytes)
+mem_current_max=100474880
+anon_max=63787008
+# memória do web por janela de 30 s (kernel = memory.current − anon − file)
+| janela (s) | amostras | memory.current máx (MiB) | anon máx (MiB) | kernel máx (MiB) | sock máx (MiB) | stat kernel máx (MiB) | slab máx (MiB) | percpu máx (MiB) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0–30 | 30 | 94.8 | 60.8 | 37.4 | 9.7 | 1.7 | 1.2 | 0.0 |
+| 30–60 | 30 | 94.9 | 58.7 | 38.3 | 9.4 | 1.7 | 1.2 | 0.0 |
+| 60–90 | 30 | 93.9 | 58.3 | 34.8 | 9.1 | 1.7 | 1.2 | 0.0 |
+| 90–120 | 30 | 94.8 | 58.3 | 32.7 | 7.8 | 1.7 | 1.2 | 0.0 |
+| 120–150 | 30 | 95.8 | 59.7 | 39.9 | 12.1 | 1.8 | 1.3 | 0.0 |
+| 150–180 | 30 | 94.4 | 59.4 | 32.3 | 7.8 | 2.0 | 1.5 | 0.0 |
+| 180–210 | 30 | 94.7 | 59.2 | 33.1 | 8.3 | 1.8 | 1.3 | 0.0 |
+| 210–240 | 30 | 93.5 | 57.6 | 33.2 | 8.1 | 1.7 | 1.2 | 0.0 |
+| 240–270 | 30 | 94.0 | 59.1 | 32.8 | 7.7 | 1.7 | 1.2 | 0.0 |
+# nstat da vps602 (host inteiro), antes → depois
+TcpExtTCPRcvQDrop 57643 → 61153 (delta 3510)
+TcpExtTCPMemoryPressures 2 → 2 (delta 0)
+TcpExtPruneCalled 182471 → 187235 (delta 4764)
+TcpExtRcvPruned 55 → 3603 (delta 3548)
+TcpExtTCPOFODrop 42493 → 42504 (delta 11)
+TcpExtTCPZeroWindowDrop 47338 → 47887 (delta 549)
+UdpRcvbufErrors 361 → 3762 (delta 3401)
+# journal do web durante a carga (OOM, reinício, pânico)

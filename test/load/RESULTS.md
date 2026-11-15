@@ -28,6 +28,66 @@ Rodada de 2026-11-15 contra `v0.2.1-54-g91c7f25` (`FS_IDLE_DEFAULT=120s`, `FS_ID
   - 00:50:06–00:50:34 UTC, com o teste corrigido: **5 de 5 passaram**, 30 valores entre 998,09 e 1001,18 Hz, nenhum
     `null`. Estável: mesmo nominal (1000 Hz) ou `null`.
 
+## Orçamento de entrada depois da ADR 0037 (task 215, terceira rodada)
+
+Rodada de 2026-11-15 contra a `main` implantada `v0.2.1-58-gea48c88` (ADR 0037: `SO_RCVBUF`/`SO_SNDBUF` de 16 KiB
+em toda conexão TCP do web, UDP do QUIC com 1 MiB pedido; `FS_WEB_INPUT_BUDGET=25165824`, `GOMEMLIMIT=64MiB`,
+`MemoryMax=96M`), vps602 só para esta carga, web reiniciado antes (`RESTART_WEB=1`), clientes na máquina de
+desenvolvimento (caminho real pela eth0, não o loopback da vps602). Brutos em
+[`results/budget-215c/`](results/budget-215c/). O `budget.sh` agora grava também `sock`, `kernel`, `slab` e
+`percpu` do `memory.stat` (máximo por janela de 30 s) e o `nstat -asz` antes e depois (deltas no `web.txt`).
+
+```sh
+RESTART_WEB=1 OUT=tmp/load/raw/budget-215c test/load/budget.sh -duration 4m -h1 220 -ws 16 -h3 14   # janela A
+```
+
+| Meta (ADR 0036 item 6, ADR 0037 item 5) | 215a (ADR 0036) | 215c (02:30:11–02:34:39 UTC) |
+| --- | --- | --- |
+| `memory.peak` ≤ 92 274 688 | 104 792 064 — falhou | **100 941 824 — falhou** |
+| `memory.events max` delta 0 | 0 → 304 563 — falhou | **0 → 1663 — falhou** (183× menos) |
+| `anon` máx ≤ 75 497 472 | 64 552 960 — ok | 63 787 008 — ok |
+| `NRestarts` 0, `oom_kill` 0, mesmo `MainPID` | ok | ok (69207) |
+| `web_input_budget_used_bytes` ≤ 25 165 824 | 25 165 793 — ok | 25 165 379 — ok |
+| `web_input_budget_denied_total` crescendo | 0 → 15 476 — ok | 356 → 27 077 — ok |
+| health do web | 235 `ok`, 2 `down` | 237 `ok`, 0 `down` |
+
+Memória do web por janela de 30 s (máx., MiB; "estimado" = `memory.current − anon − file`; `sock`, `kernel`,
+`slab` do `memory.stat`; `percpu` < 0,1 em todas):
+
+| janela (s) | memory.current | anon | estimado | sock | kernel | slab |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0–30 | 94,8 | 60,8 | 37,4 | 9,7 | 1,7 | 1,2 |
+| 30–60 | 94,9 | 58,7 | 38,3 | 9,4 | 1,7 | 1,2 |
+| 60–90 | 93,9 | 58,3 | 34,8 | 9,1 | 1,7 | 1,2 |
+| 90–120 | 94,8 | 58,3 | 32,7 | 7,8 | 1,7 | 1,2 |
+| 120–150 | 95,8 | 59,7 | 39,9 | 12,1 | 1,8 | 1,3 |
+| 150–180 | 94,4 | 59,4 | 32,3 | 7,8 | 2,0 | 1,5 |
+| 180–210 | 94,7 | 59,2 | 33,1 | 8,3 | 1,8 | 1,3 |
+| 210–240 | 93,5 | 57,6 | 33,2 | 8,1 | 1,7 | 1,2 |
+| 240–270 | 94,0 | 59,1 | 32,8 | 7,7 | 1,7 | 1,2 |
+
+**Meta não atingida, mas não pela memória de kernel.** A ADR 0037 funcionou onde mirava: `sock` ficou em 7,7–12,1
+MiB (esperado ≤ ~10) e o `kernel` do `memory.stat` em 1,7–2,0 MiB; somados, ≤ 14 MiB, dentro da conta de ~24 MiB. O
+`memory.current` saiu de colado em 96 MiB para 93,5–95,8 MiB e os eventos `max` caíram de 304 563 para 1663. O
+que falta para os 88 MiB é uma terceira parcela: **`memory.current − anon − file − sock − kernel` = 22,6–27,9 MiB
+(média 23,9) em todas as amostras depois dos primeiros 15 s**, que não é socket nem slab. No `memory.stat` depois
+da carga, `active_anon + inactive_anon` = 74,3 MiB contra `anon` 48,1 MiB (e `swapcached` 1,5 MiB): são páginas
+anônimas no LRU do cgroup que não estão mapeadas. Causa provável (não confirmada): THP em `always` na vps602
+(`/sys/kernel/mm/transparent_hugepage/enabled`; `thp_fault_alloc` 22 no cgroup, `thp_deferred_split_page` 1870 no
+host) — o scavenger do Go devolve pedaços de 4 KiB de páginas de 2 MiB com `MADV_DONTNEED`, a página grande vai
+para a fila de divisão adiada e as sub-páginas livres seguem cobradas do cgroup até a divisão; o `anon`
+(mapeado) não as conta. A vps602 também tem 512 MiB de swap (28,8 MiB em uso). Por esta tarefa (papel tester) não
+se corrige: volta ao architect.
+
+**Sem meta (ADR 0037 item 3).** h1: 21 393 aberturas, 21 370 × 431, **0 fechadas sem resposta** (1805
+`client_write_timeout` na 215a), 2 erros de conexão. h3: 4257 `H3_EXCESSIVE_LOAD`. WebSocket: 1713 aberturas,
+15 × 101 (no máximo 5 sessões ao mesmo tempo; as 12 encerradas com RST do servidor, eco travado), 1628 × 503 antes
+do 101 e 70 outras respostas; 0 sem resposta (183 `client_read_timeout` na 215a). `nstat` do host, deltas:
+`TcpExtTCPRcvQDrop` 3510, `TcpExtTCPMemoryPressures` 0, `TcpExtPruneCalled` 4764, `TcpExtRcvPruned` 3548,
+`TcpExtTCPOFODrop` 11, `TcpExtTCPZeroWindowDrop` 549, `UdpRcvbufErrors` 3401 (filas de 32 KiB/2 MiB cheias com o
+web sem ler: o descarte acontece no socket, não no cgroup). CPU média na janela (1 vCPU): web 36%, store 34%,
+nats 13%, capture 5%.
+
 ## Orçamento de entrada depois da ADR 0036 (tasks 215 e 220)
 
 Rodada de 2026-11-15 contra a `main` implantada `v0.2.1-54-g91c7f25` (`FS_WEB_INPUT_BUDGET=25165824`,

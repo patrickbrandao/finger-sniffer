@@ -405,7 +405,24 @@ func main() {
 	wsDelay := flag.Duration("ws-delay", 0, "atraso do início dos WebSocket depois da rampa do h1 (janela C da task 215)")
 	wsRamp := flag.Duration("ws-ramp", 0, "intervalo entre as aberturas iniciais dos WebSocket (100ms = 10/s)")
 	analyze := flag.String("analyze", "", "só analisa um cgroup.csv do loadmon: memória do web por janela de 30 s")
+	nstatDelta := flag.String("nstat-delta", "", "só compara duas saídas de nstat -asz: ANTES,DEPOIS (task 215)")
 	flag.Parse()
+	if *nstatDelta != "" {
+		before, after, ok := strings.Cut(*nstatDelta, ",")
+		if !ok {
+			log.Fatal("-nstat-delta ANTES,DEPOIS")
+		}
+		b, err := os.ReadFile(before) //nolint:gosec // caminho do operador
+		if err != nil {
+			log.Fatal(err)
+		}
+		a, err := os.ReadFile(after) //nolint:gosec // caminho do operador
+		if err != nil {
+			log.Fatal(err)
+		}
+		loadstat.NstatDelta(os.Stdout, string(b), string(a))
+		return
+	}
 	if *analyze != "" {
 		ws, err := loadstat.MemWindowsFile(*analyze, "web", 30*time.Second)
 		if err != nil {
