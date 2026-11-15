@@ -10,6 +10,8 @@
 # Segura /tmp/fs-load-running na vps602 (ninguém implanta nem roda e2e), anota NRestarts, memory.peak e o PID do
 # web, sobe o loadmon (memória por unit a cada 1 s), roda o budgetload, traz o cgroup.csv e grava em
 # $OUT/web.txt o estado do web depois (NRestarts, memory.peak, PID, OOM no journal) e o pico do memory.current.
+# O loadmon também lê sock, kernel, slab e percpu do memory.stat (máximo por janela de 30 s) e o nstat -asz é
+# gravado antes e depois (nstat-antes.txt, nstat-depois.txt; deltas no web.txt; task 215, ADR 0037).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -55,12 +57,14 @@ fi
 	echo "# antes ($(date -u +%FT%TZ))"
 	web_state
 } >"$OUT/web.txt"
+ssh_vps "nstat -asz" >"$OUT/nstat-antes.txt"
 START=$(date -u +'%F %T')
 ssh_vps "setsid -f $REMOTE/loadmon sample -out $REMOTE/cgroup.csv -interval 1s >/dev/null 2>&1 </dev/null"
 
 "$BIN/budgetload" -out "$OUT" "$@" 2>&1 | tee "$OUT/run.txt"
 
 ssh_vps "pkill -INT -f '[l]oadmon sample' || true; sleep 2"
+ssh_vps "nstat -asz" >"$OUT/nstat-depois.txt"
 scp -q -P "$VPS_PORT" "$VPS_SSH:$REMOTE/cgroup.csv" "$OUT/cgroup.csv"
 {
 	echo "# depois ($(date -u +%FT%TZ))"
@@ -70,6 +74,8 @@ scp -q -P "$VPS_PORT" "$VPS_SSH:$REMOTE/cgroup.csv" "$OUT/cgroup.csv"
 	awk -F, '$2=="web" && $5>m {m=$5} END {print "anon_max=" m}' "$OUT/cgroup.csv"
 	echo "# memória do web por janela de 30 s (kernel = memory.current − anon − file)"
 	"$BIN/budgetload" -analyze "$OUT/cgroup.csv"
+	echo "# nstat da vps602 (host inteiro), antes → depois"
+	"$BIN/budgetload" -nstat-delta "$OUT/nstat-antes.txt,$OUT/nstat-depois.txt"
 	echo "# journal do web durante a carga (OOM, reinício, pânico)"
 	ssh_vps "journalctl -u finger-sniffer-web --since '$START UTC' --no-pager -o short-iso |
 		grep -iE 'oom|killed|panic|started|stopped' | tail -20" || true

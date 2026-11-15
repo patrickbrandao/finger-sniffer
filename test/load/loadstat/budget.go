@@ -50,16 +50,22 @@ func CloseCause(err error, write bool) string {
 }
 
 // MemWindow é o máximo da memória de uma unit numa janela de tempo do cgroup.csv do loadmon: memory.current,
-// anon e a memória de kernel estimada (memory.current − anon − file: buffers de socket, slab, pilhas).
+// anon e a memória de kernel estimada (memory.current − anon − file: buffers de socket, slab, pilhas). Com o CSV
+// de 10 colunas (task 215), também o máximo das chaves sock, kernel, slab e percpu do memory.stat; HasStat diz se
+// alguma amostra da janela as trouxe.
 type MemWindow struct {
 	StartS, EndS          int
 	Samples               int
 	CurrentMax, AnonMax   int64
 	KernelMax, KernelLast int64
+	HasStat               bool
+	SockMax, KStatMax     int64
+	SlabMax, PercpuMax    int64
 }
 
-// MemWindows lê o cgroup.csv do loadmon (t_ns,unit,cpu_usec,mem_current,anon,file) e agrupa as amostras da unit
-// em janelas de width a partir da primeira amostra.
+// MemWindows lê o cgroup.csv do loadmon (t_ns,unit,cpu_usec,mem_current,anon,file[,sock,kernel,slab,percpu]) e
+// agrupa as amostras da unit em janelas de width a partir da primeira amostra. Aceita o formato antigo, de 6
+// colunas, dos brutos já gravados.
 func MemWindows(r io.Reader, unit string, width time.Duration) ([]MemWindow, error) {
 	sc := bufio.NewScanner(r)
 	var (
@@ -68,10 +74,10 @@ func MemWindows(r io.Reader, unit string, width time.Duration) ([]MemWindow, err
 	)
 	for sc.Scan() {
 		f := strings.Split(sc.Text(), ",")
-		if len(f) != 6 || f[1] != unit {
+		if (len(f) != 6 && len(f) != 10) || f[1] != unit {
 			continue
 		}
-		var v [6]int64
+		var v [10]int64
 		bad := false
 		for i, s := range f {
 			if i == 1 {
@@ -102,21 +108,72 @@ func MemWindows(r io.Reader, unit string, width time.Duration) ([]MemWindow, err
 		w.AnonMax = max(w.AnonMax, v[4])
 		w.KernelMax = max(w.KernelMax, kern)
 		w.KernelLast = kern
+		if len(f) == 10 {
+			w.HasStat = true
+			w.SockMax = max(w.SockMax, v[6])
+			w.KStatMax = max(w.KStatMax, v[7])
+			w.SlabMax = max(w.SlabMax, v[8])
+			w.PercpuMax = max(w.PercpuMax, v[9])
+		}
 	}
 	return out, sc.Err()
 }
 
-// PrintMemWindows escreve a tabela das janelas em MiB, em Markdown.
+// PrintMemWindows escreve a tabela das janelas em MiB, em Markdown; as colunas do memory.stat só aparecem quando
+// alguma janela as tem.
 func PrintMemWindows(w io.Writer, ws []MemWindow) {
 	mib := func(b int64) string { return strconv.FormatFloat(float64(b)/(1<<20), 'f', 1, 64) }
-	_, _ = fmt.Fprintln(w, "| janela (s) | amostras | memory.current máx (MiB) | anon máx (MiB) | kernel máx (MiB) |")
-	_, _ = fmt.Fprintln(w, "| --- | --- | --- | --- | --- |")
+	stat := false
+	for _, x := range ws {
+		stat = stat || x.HasStat
+	}
+	if stat {
+		_, _ = fmt.Fprintln(w, "| janela (s) | amostras | memory.current máx (MiB) | anon máx (MiB) | kernel máx (MiB) | "+
+			"sock máx (MiB) | stat kernel máx (MiB) | slab máx (MiB) | percpu máx (MiB) |")
+		_, _ = fmt.Fprintln(w, "| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	} else {
+		_, _ = fmt.Fprintln(w, "| janela (s) | amostras | memory.current máx (MiB) | anon máx (MiB) | kernel máx (MiB) |")
+		_, _ = fmt.Fprintln(w, "| --- | --- | --- | --- | --- |")
+	}
 	for _, x := range ws {
 		if x.Samples == 0 {
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "| %d–%d | %d | %s | %s | %s |\n", x.StartS, x.EndS, x.Samples, mib(x.CurrentMax),
+		_, _ = fmt.Fprintf(w, "| %d–%d | %d | %s | %s | %s |", x.StartS, x.EndS, x.Samples, mib(x.CurrentMax),
 			mib(x.AnonMax), mib(x.KernelMax))
+		if stat {
+			_, _ = fmt.Fprintf(w, " %s | %s | %s | %s |", mib(x.SockMax), mib(x.KStatMax), mib(x.SlabMax), mib(x.PercpuMax))
+		}
+		_, _ = fmt.Fprintln(w)
+	}
+}
+
+// NstatKeys são os contadores do nstat cujos deltas a carga do orçamento registra (task 215, ADR 0037).
+var NstatKeys = []string{
+	"TcpExtTCPRcvQDrop", "TcpExtTCPMemoryPressures", "TcpExtPruneCalled", "TcpExtRcvPruned",
+	"TcpExtTCPOFODrop", "TcpExtTCPZeroWindowDrop", "UdpRcvbufErrors",
+}
+
+// ParseNstat lê a saída de "nstat -asz" (nome, valor absoluto, taxa; "#kernel" no topo).
+func ParseNstat(text string) map[string]int64 {
+	out := map[string]int64{}
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || strings.HasPrefix(f[0], "#") {
+			continue
+		}
+		if v, err := strconv.ParseInt(f[1], 10, 64); err == nil {
+			out[f[0]] = v
+		}
+	}
+	return out
+}
+
+// NstatDelta escreve, para cada chave de NstatKeys, "chave antes → depois (delta)"; chave ausente vale 0.
+func NstatDelta(w io.Writer, before, after string) {
+	b, a := ParseNstat(before), ParseNstat(after)
+	for _, k := range NstatKeys {
+		_, _ = fmt.Fprintf(w, "%s %d → %d (delta %d)\n", k, b[k], a[k], a[k]-b[k])
 	}
 }
 
