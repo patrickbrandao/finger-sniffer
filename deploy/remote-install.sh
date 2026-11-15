@@ -28,6 +28,18 @@ install_if_changed() {
 	return 0
 }
 
+# 0. Bootstrap (Debian 13 sem /finger-sniffer, com Docker/traefik já rodando; task 225): só instala os pacotes das
+#    ferramentas que faltam. Nada aqui toca outras units, containers, /etc/docker ou os sysctls do host: o espelho
+#    instala apenas o próprio arquivo de sysctl, as próprias units (finger-sniffer-*, finger-sniffer.slice/.target)
+#    e o drop-in do journald, e não cria regra de firewall.
+missing=$(missing_packages | paste -sd' ' -)
+if [ -n "$missing" ]; then
+	log "instalando pacotes ausentes: $missing"
+	# shellcheck disable=SC2086
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends $missing ||
+		{ apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends $missing; }
+fi
+
 # 1. Usuário de sistema e layout
 if ! id finger-sniffer >/dev/null 2>&1; then
 	useradd --system --home-dir "$DEST/var" --no-create-home --shell /usr/sbin/nologin finger-sniffer
@@ -133,26 +145,40 @@ sleep 2
 fail=0
 for u in finger-sniffer-net $UNITS; do
 	state=$(systemctl is-active "$u" || true)
-	printf "  %-24s %s\n" "$u" "$state"
+	slice=$(unit_slice "$u")
+	printf "  %-24s %s %s\n" "$u" "$state" "$slice"
 	[ "$state" = active ] || fail=1
+	# todas na fatia comum (ADR 0039 item 1)
+	[ "$slice" = finger-sniffer.slice ] || {
+		echo "  $u: fora de finger-sniffer.slice"
+		fail=1
+	}
 done
-if grep -q '"aggregating_offload":true' /run/finger-sniffer/net-status.json; then
+NET_STATUS=/run/finger-sniffer/net-status.json
+if grep -q '"aggregating_offload":true' "$NET_STATUS"; then
 	echo "  offloads: AGREGAÇÃO LIGADA"
 	fail=1
 else
 	echo "  offloads: agregação desligada"
 fi
-if [ "$(sysctl -n net.core.somaxconn)" != 4096 ]; then
+# todas as chaves do nosso arquivo com o valor dele no kernel (ADR 0038 item 7: iguais às do host ou acima)
+mismatch=$(sysctl_mismatches "$DEST/deploy/sysctl/90-finger-sniffer.conf")
+if [ -n "$mismatch" ]; then
 	echo "  sysctl: NÃO aplicado"
+	printf '%s\n' "$mismatch" | sed 's/^/    /'
 	fail=1
 else
 	echo "  sysctl: aplicado"
 fi
-# sem firewall com estado nem conntrack (spec 016 RF-03): só avisa, o health também aponta
-if [ "$(nft list ruleset 2>/dev/null | grep -c . || true)" -gt 0 ]; then
-	echo "  nft: AVISO ruleset não vazio"
+# conntrack e nftables são tolerados e só informados; NAT/redirecionamento numa porta do espelho reprova
+# (ADR 0038 item 7; o health fica degraded com "nat on mirror ports")
+echo "  nft: $(grep -o '"nft_ruleset_lines":[0-9]*' "$NET_STATUS" | cut -d: -f2) linhas;" \
+	"conntrack: $(grep -o '"conntrack_loaded":[a-z]*' "$NET_STATUS" | cut -d: -f2)"
+if grep -q '"nat_on_mirror_ports":true' "$NET_STATUS"; then
+	echo "  nat: REGRA DE NAT NUMA PORTA DO ESPELHO (journalctl -u finger-sniffer-net)"
+	fail=1
 else
-	echo "  nft: ruleset vazio"
+	echo "  nat: nenhuma regra nas portas do espelho"
 fi
 # serviços respondendo (deploy/smoke.sh): com SVC=<svc>, só os passos daquele serviço + health
 SVC="$SVC" bash "$DEST/deploy/smoke.sh" || fail=1

@@ -1,4 +1,4 @@
-# Serviço dns (spec 001, spec 016 RF-05..RF-07).
+# Serviço dns (spec 001, spec 016 RF-05..RF-07, ADR 0039).
 [Unit]
 Description=finger-sniffer: dns
 After=finger-sniffer-net.service finger-sniffer-nats.service finger-sniffer-store.service
@@ -15,8 +15,13 @@ Restart=always
 RestartSec=2
 RestartSteps=5
 RestartMaxDelaySec=30
-Environment=GOMEMLIMIT=80MiB
-MemoryMax=96M
+# Limites no finger-01 (ADR 0039): fatia comum, sem swap, GOMEMLIMIT abaixo do MemoryMax e cota de CPU
+# (o GOMAXPROCS do runtime Go segue o CPUQuota). disablethp: o heap Go fica fora do THP "always" do host.
+Slice=finger-sniffer.slice
+Environment=GOMEMLIMIT=192MiB GODEBUG=disablethp=1
+MemoryMax=256M
+MemorySwapMax=0
+CPUQuota=100%
 LimitNOFILE=65536
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE

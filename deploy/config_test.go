@@ -56,9 +56,10 @@ func sysctlValues(t *testing.T) map[string]string {
 
 func TestSysctlMatchesSpec016(t *testing.T) {
 	want := map[string]string{
-		"net.ipv4.tcp_syncookies":         "1",
-		"net.core.somaxconn":              "4096",
-		"net.ipv4.tcp_max_syn_backlog":    "4096",
+		"net.ipv4.tcp_syncookies": "1",
+		// iguais aos do host no finger-01, que este arquivo não pode reduzir (ADR 0038 item 7)
+		"net.core.somaxconn":              "65535",
+		"net.ipv4.tcp_max_syn_backlog":    "65535",
 		"net.ipv4.tcp_timestamps":         "1",
 		"net.ipv4.tcp_ecn":                "2",
 		"net.ipv4.tcp_sack":               "1",
@@ -66,9 +67,11 @@ func TestSysctlMatchesSpec016(t *testing.T) {
 		"net.ipv4.tcp_congestion_control": "htcp",
 		"net.core.default_qdisc":          "fq_codel",
 		"net.ipv4.tcp_fastopen":           "3",
-		// buffer UDP do quic-go (ADR 0019)
-		"net.core.rmem_max": "7340032",
-		"net.core.wmem_max": "7340032",
+		// teto do host, acima dos ~7 MiB do quic-go (ADRs 0019 e 0038)
+		"net.core.rmem_max": "134217728",
+		"net.core.wmem_max": "134217728",
+		// 8080/8443/9000/9001 fora da faixa efêmera
+		"net.ipv4.ip_local_port_range": "32768 60999",
 	}
 	got := sysctlValues(t)
 	for k, v := range want {
@@ -76,8 +79,11 @@ func TestSysctlMatchesSpec016(t *testing.T) {
 			t.Errorf("%s = %q, quer %q", k, got[k], v)
 		}
 	}
-	if got["net.ipv4.ip_local_port_range"] == "" {
-		t.Error("ip_local_port_range ausente")
+	// só as chaves do espelho: os sysctls do host que ele não fixa ficam de fora (ADR 0038 item 7)
+	for k := range got {
+		if _, ok := want[k]; !ok {
+			t.Errorf("chave %s fora da lista da spec 016", k)
+		}
 	}
 }
 
@@ -101,20 +107,91 @@ func unitDirectives(t *testing.T, name string) map[string][]string {
 	return d
 }
 
+// unitLimits é a tabela da ADR 0039 item 2: MemoryMax, GOMEMLIMIT e CPUQuota por unit.
+var unitLimits = map[string][3]string{
+	"store":   {"2G", "1792MiB", "400%"},
+	"nats":    {"1G", "896MiB", "200%"},
+	"web":     {"768M", "512MiB", "400%"},
+	"capture": {"512M", "384MiB", "200%"},
+	"raw":     {"256M", "192MiB", "100%"},
+	"dns":     {"256M", "192MiB", "100%"},
+}
+
+// envOf junta as linhas Environment= da unit, com espaço nas pontas para casar "chave=valor" inteiro.
+func envOf(d map[string][]string) string { return " " + strings.Join(d["Environment"], " ") + " " }
+
+// ADR 0039 (task 225): fatia, limites, swap, arquivos e THP de cada unit.
+func TestUnitLimitsADR0039(t *testing.T) {
+	for svc, lim := range unitLimits {
+		d := unitDirectives(t, "finger-sniffer-"+svc+".service")
+		one := func(k, want string) {
+			if got := strings.Join(d[k], ","); got != want {
+				t.Errorf("%s: %s = %q, quer %q", svc, k, got, want)
+			}
+		}
+		one("Slice", "finger-sniffer.slice")
+		one("MemoryMax", lim[0])
+		one("CPUQuota", lim[2])
+		one("MemorySwapMax", "0")
+		one("LimitNOFILE", "65536")
+		env := envOf(d)
+		for _, kv := range []string{"GOMEMLIMIT=" + lim[1], "GODEBUG=disablethp=1"} {
+			if !strings.Contains(env, " "+kv+" ") {
+				t.Errorf("%s: Environment sem %s: %v", svc, kv, d["Environment"])
+			}
+		}
+		if n := strings.Count(env, "GOMEMLIMIT="); n != 1 {
+			t.Errorf("%s: GOMEMLIMIT aparece %d vezes", svc, n)
+		}
+	}
+	// a unit de rede também fica na fatia (as 7 units)
+	if got := strings.Join(unitDirectives(t, "finger-sniffer-net.service")["Slice"], ","); got != "finger-sniffer.slice" {
+		t.Errorf("net: Slice = %q", got)
+	}
+}
+
+// A fatia comum segura a soma: 6G e 800% (ADR 0039 item 1), acima da soma dos MemoryMax.
+func TestSliceUnit(t *testing.T) {
+	d := unitDirectives(t, "finger-sniffer.slice")
+	for k, want := range map[string]string{"MemoryMax": "6G", "CPUQuota": "800%", "MemorySwapMax": "0"} {
+		if got := strings.Join(d[k], ","); got != want {
+			t.Errorf("slice: %s = %q, quer %q", k, got, want)
+		}
+	}
+	mib := map[string]int{"2G": 2048, "1G": 1024, "768M": 768, "512M": 512, "256M": 256}
+	sum := 0
+	for _, lim := range unitLimits {
+		sum += mib[lim[0]]
+	}
+	if sum != 4864 {
+		t.Errorf("soma dos MemoryMax = %d MiB, quer 4864 (< 6G)", sum)
+	}
+}
+
+// Capacidades: web sem CAP_NET_BIND_SERVICE (portas > 1024, ADR 0038 item 3); raw e dns com ela; capture com
+// CAP_NET_RAW; store e nats sem nenhuma.
+func TestUnitCapabilities(t *testing.T) {
+	want := map[string]string{
+		"web": "", "raw": "CAP_NET_BIND_SERVICE", "dns": "CAP_NET_BIND_SERVICE", "capture": "CAP_NET_RAW",
+		"store": "", "nats": "",
+	}
+	for svc, caps := range want {
+		d := unitDirectives(t, "finger-sniffer-"+svc+".service")
+		for _, k := range []string{"CapabilityBoundingSet", "AmbientCapabilities"} {
+			if got := strings.Join(d[k], ","); got != caps {
+				t.Errorf("%s: %s = %q, quer %q", svc, k, got, caps)
+			}
+		}
+	}
+}
+
 func TestWebUnitQUIC(t *testing.T) {
 	d := unitDirectives(t, "finger-sniffer-web.service")
-	env := " " + strings.Join(d["Environment"], " ") + " "
-	for _, kv := range []string{"QUIC_GO_DISABLE_GSO=true", "QUIC_GO_DISABLE_ECN=true", "GOMEMLIMIT=64MiB"} {
+	env := envOf(d)
+	for _, kv := range []string{"QUIC_GO_DISABLE_GSO=true", "QUIC_GO_DISABLE_ECN=true"} {
 		if !strings.Contains(env, " "+kv+" ") {
 			t.Errorf("Environment sem %s: %v", kv, d["Environment"])
 		}
-	}
-	if got := strings.Join(d["MemoryMax"], ","); got != "96M" {
-		t.Errorf("MemoryMax = %q, quer 96M", got)
-	}
-	// bind UDP 443: capacidade de porta baixa e famílias IP liberadas
-	if got := strings.Join(d["AmbientCapabilities"], ","); got != "CAP_NET_BIND_SERVICE" {
-		t.Errorf("AmbientCapabilities = %q", got)
 	}
 	fams := strings.Fields(strings.Join(d["RestrictAddressFamilies"], " "))
 	for _, f := range []string{"AF_INET", "AF_INET6"} {
@@ -130,6 +207,17 @@ func TestWebUnitQUIC(t *testing.T) {
 		if len(d[k]) > 0 {
 			t.Errorf("%s pode bloquear o QUIC; revisar: %v", k, d[k])
 		}
+	}
+}
+
+// nats.conf: max_memory_store de 256MB, folga sobre o stream de 128 MiB (ADR 0039 item 3).
+func TestNATSConfMemoryStore(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "eventbus", "nats", "nats.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "\n  max_memory_store: 256MB\n") {
+		t.Errorf("nats.conf sem max_memory_store: 256MB\n%s", b)
 	}
 }
 

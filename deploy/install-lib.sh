@@ -151,3 +151,32 @@ plan_restarts() {
 	done
 	return 0
 }
+
+# Ferramentas que o deploy e o smoke usam no servidor, com o pacote Debian de cada uma (task 225). O bootstrap
+# instala só o que falta, sem tocar no resto do host.
+FS_TOOL_PACKAGES="ethtool:ethtool ss:iproute2 ip:iproute2 nft:nftables curl:curl dig:bind9-dnsutils"
+
+# missing_packages: pacotes das ferramentas ausentes, um por linha e sem repetição (nada se nada falta).
+missing_packages() {
+	local tp
+	for tp in $FS_TOOL_PACKAGES; do
+		command -v "${tp%%:*}" >/dev/null 2>&1 || echo "${tp#*:}"
+	done | sort -u
+}
+
+# sysctl_mismatches <arquivo>: chaves do arquivo de sysctl do espelho cujo valor no kernel difere, uma por linha
+# ("<chave>: <no kernel> (esperado <valor>)"); espaços e tabs são normalizados (ip_local_port_range sai com tab).
+sysctl_mismatches() {
+	local k v got
+	while IFS='=' read -r k v; do
+		k=$(printf '%s' "$k" | tr -d ' \t')
+		case "$k" in "" | "#"*) continue ;; esac
+		v=$(printf '%s' "$v" | tr -s ' \t' '  ' | sed 's/^ //; s/ $//')
+		got=$(sysctl -n "$k" 2>/dev/null | tr -s ' \t' '  ' | sed 's/^ //; s/ $//')
+		[ "$got" = "$v" ] || printf '%s: %s (esperado %s)\n' "$k" "${got:-ausente}" "$v"
+	done <"$1"
+	return 0
+}
+
+# unit_slice <unit>: fatia em que a unit roda (ADR 0039: finger-sniffer.slice).
+unit_slice() { systemctl show -p Slice --value "$1" 2>/dev/null || true; }

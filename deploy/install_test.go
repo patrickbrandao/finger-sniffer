@@ -277,3 +277,112 @@ func TestInstallHtdocsOnlyServableFiles(t *testing.T) {
 		t.Fatalf("htdocs instalado: %v", got)
 	}
 }
+
+// libBash roda um trecho com install-lib.sh carregado, PATH com bin à frente, e devolve a saída.
+func libBash(t *testing.T, bin, script string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("bash", append([]string{"-c", ". ./install-lib.sh; " + script, "x"}, args...)...)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+"/usr/bin:/bin")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// Bootstrap (task 225): só os pacotes das ferramentas ausentes, sem repetir; ethtool, iproute2 e nftables na lista.
+func TestMissingPackages(t *testing.T) {
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "fs-present"), "#!/bin/sh\n", 0o755)
+	got := libBash(t, bin, `FS_TOOL_PACKAGES="fs-absent-a:pkg-a fs-absent-b:pkg-a fs-present:pkg-p fs-absent-c:pkg-c"
+missing_packages | tr '\n' ' '`)
+	if got != "pkg-a pkg-c" {
+		t.Errorf("missing_packages = %q, quer %q", got, "pkg-a pkg-c")
+	}
+	if got := libBash(t, bin, `FS_TOOL_PACKAGES="fs-present:pkg-p"; missing_packages`); got != "" {
+		t.Errorf("nada faltando: %q", got)
+	}
+	list := " " + libBash(t, bin, `echo "$FS_TOOL_PACKAGES"`) + " "
+	for _, tp := range []string{"ethtool:ethtool", "ss:iproute2", "ip:iproute2", "nft:nftables"} {
+		if !strings.Contains(list, " "+tp+" ") {
+			t.Errorf("FS_TOOL_PACKAGES sem %s: %q", tp, list)
+		}
+	}
+}
+
+// O smoke do deploy compara todas as chaves do nosso sysctl com o kernel (ADR 0038 item 7), com o tab do
+// ip_local_port_range normalizado.
+func TestSysctlMismatches(t *testing.T) {
+	bin := t.TempDir()
+	kernel := filepath.Join(bin, "kernel.txt")
+	writeFile(t, filepath.Join(bin, "sysctl"), `#!/bin/sh
+[ "$1" = -n ] || exit 2
+v=$(grep "^$2=" "`+kernel+`" | cut -d= -f2-)
+[ -n "$v" ] || exit 1
+printf '%s\n' "$v"
+`, 0o755)
+	conf := filepath.Join(bin, "90.conf")
+	writeFile(t, conf, "# comentário\nnet.core.somaxconn = 65535\n\nnet.ipv4.ip_local_port_range = 32768 60999\n"+
+		"net.core.rmem_max = 134217728\n", 0o644)
+
+	writeFile(t, kernel, "net.core.somaxconn=65535\nnet.ipv4.ip_local_port_range=32768\t60999\nnet.core.rmem_max=134217728\n", 0o644)
+	if got := libBash(t, bin, `sysctl_mismatches "$1"`, conf); got != "" {
+		t.Errorf("kernel igual: %q", got)
+	}
+
+	// valor antigo (4096), faixa do host e chave ausente no kernel
+	writeFile(t, kernel, "net.core.somaxconn=4096\nnet.ipv4.ip_local_port_range=1024\t65535\n", 0o644)
+	got := libBash(t, bin, `sysctl_mismatches "$1"`, conf)
+	for _, want := range []string{
+		"net.core.somaxconn: 4096 (esperado 65535)",
+		"net.ipv4.ip_local_port_range: 1024 65535 (esperado 32768 60999)",
+		"net.core.rmem_max: ausente (esperado 134217728)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("sem %q em:\n%s", want, got)
+		}
+	}
+
+	// o arquivo do projeto inteiro contra um kernel com os mesmos valores: nenhuma diferença
+	var b strings.Builder
+	for k, v := range sysctlValues(t) {
+		b.WriteString(k + "=" + v + "\n")
+	}
+	writeFile(t, kernel, b.String(), 0o644)
+	if got := libBash(t, bin, `sysctl_mismatches "$1"`, "sysctl/90-finger-sniffer.conf"); got != "" {
+		t.Errorf("arquivo do projeto: %q", got)
+	}
+}
+
+// remote-install.sh: o bootstrap usa missing_packages, o smoke confere fatia, sysctl e NAT, e nada toca o que é
+// do host (ADR 0038 item 9).
+func TestRemoteInstallTouchesOnlyMirror(t *testing.T) {
+	b, err := os.ReadFile("remote-install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{
+		"missing_packages", "sysctl_mismatches", `"nat_on_mirror_ports":true`, "finger-sniffer.slice",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("remote-install.sh sem %q", want)
+		}
+	}
+	// só o código (os comentários citam o que não é tocado)
+	var code strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			code.WriteString(line + "\n")
+		}
+	}
+	s = code.String()
+	for _, bad := range []string{
+		"/etc/docker", "docker ", "nft add", "nft flush", "nft delete", "iptables -", "sysctl -w",
+		"somaxconn)\" != 4096", "/sys/kernel/mm/transparent_hugepage", "systemctl stop", "systemctl disable",
+	} {
+		if strings.Contains(s, bad) {
+			t.Errorf("remote-install.sh contém %q", bad)
+		}
+	}
+}
