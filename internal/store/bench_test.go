@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"sort"
+	"syscall"
 	"testing"
 	"time"
 
@@ -176,7 +177,16 @@ func benchWorkloadRate(b testing.TB, conns, rate int) ([]fakeMsg, []int) {
 	return om, oa
 }
 
-func benchIngest(b *testing.B, lag time.Duration) {
+// cpuTime é o tempo de CPU (usuário + sistema) do processo até agora.
+func cpuTime() time.Duration {
+	var ru syscall.Rusage
+	_ = syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
+	return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
+}
+
+// benchIngest roda a carga; pub liga a publicação de fs.v1.store.connection (task 268) com um NATS que só
+// descarta, e a goroutine de envio rodando junto: cpu-ms/conn soma o ingest e a publicação.
+func benchIngest(b *testing.B, lag time.Duration, pub bool) {
 	msgs, at := benchWorkload(b, benchConns)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := IngestConfig{
@@ -184,14 +194,23 @@ func benchIngest(b *testing.B, lag time.Duration) {
 		CloseGrace: DefaultCloseGrace, MaxOpen: 1000, MaxNewPerS: 150, Snaplen: 65535, SegmentsTracked: 32,
 	}
 	ctx := context.Background()
-	var elapsed time.Duration
+	var elapsed, cpu time.Duration
 	var conns, strays int
+	var published int64
 	for range b.N {
 		b.StopTimer()
 		db, _ := testDB(b)
 		in := NewIngestor(db, cfg, log, service.NewMetrics())
+		var p *connPublisher
+		done := make(chan struct{})
+		stopped := make(chan struct{})
+		if pub {
+			p = newConnPublisher(func(string, []byte) error { return nil }, "bench", in.flows.live)
+			in.SetConnPublisher(p)
+		}
+		go func() { p.Run(done); close(stopped) }()
 		b.StartTimer()
-		start := time.Now()
+		start, cpu0 := time.Now(), cpuTime()
 		for i := 0; i < len(msgs); i += 64 {
 			j := min(i+64, len(msgs))
 			wall := time.Unix(0, base).Add(time.Duration(at[j-1])*time.Millisecond + lag)
@@ -209,8 +228,17 @@ func benchIngest(b *testing.B, lag time.Duration) {
 		end := time.Unix(0, base).Add(time.Duration(at[len(at)-1])*time.Millisecond + lag + 5*time.Second)
 		in.now = func() time.Time { return end }
 		in.afterBatch(ctx)
+		for p != nil && !p.idle() {
+			time.Sleep(time.Millisecond)
+		}
 		elapsed += time.Since(start)
+		cpu += cpuTime() - cpu0
 		b.StopTimer()
+		close(done)
+		<-stopped
+		if p != nil {
+			published += p.published.Load()
+		}
 		_ = db.QueryRow("SELECT count(*) FROM connections").Scan(&conns)
 		_ = db.QueryRow("SELECT count(*) FROM stray_packets").Scan(&strays)
 		_ = db.Close()
@@ -221,11 +249,15 @@ func benchIngest(b *testing.B, lag time.Duration) {
 	b.ReportMetric(float64(len(msgs)*b.N)/sec, "msgs/s")
 	b.ReportMetric(float64(conns), "records")
 	b.ReportMetric(float64(strays), "strays")
+	b.ReportMetric(float64(cpu.Milliseconds())/float64(benchConns*b.N), "cpu-ms/conn")
+	b.ReportMetric(float64(published)/float64(b.N), "published")
 }
 
 // BenchmarkIngestOfficialMix mede conexões/s e mensagens/s num núcleo; lag=20s simula o ingest atrasado (cada
 // lote processado 20 s depois da captura), que antes da ADR 0041 multiplicava o custo (avulsos e fragmentos).
 func BenchmarkIngestOfficialMix(b *testing.B) {
-	b.Run("lag=0", func(b *testing.B) { benchIngest(b, 0) })
-	b.Run("lag=20s", func(b *testing.B) { benchIngest(b, 20*time.Second) })
+	b.Run("lag=0", func(b *testing.B) { benchIngest(b, 0, false) })
+	b.Run("lag=20s", func(b *testing.B) { benchIngest(b, 20*time.Second, false) })
+	// Custo da publicação para o bot (spec 004 RF-12; meta da task 268: ≤ 10% de CPU a mais a 100 novas/s).
+	b.Run("lag=0+publish", func(b *testing.B) { benchIngest(b, 0, true) })
 }

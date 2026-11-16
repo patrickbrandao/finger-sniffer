@@ -62,6 +62,11 @@ type Ingestor struct {
 	appReloads  int                        // releituras completas de app_events (testes de custo)
 	live        *Hub                       // tempo real (nil = desligado)
 	liveBatch   []*liveMsg                 // eventos ao vivo do lote em curso, publicados após o commit
+	conns       *connPublisher             // fs.v1.store.connection para o bot (nil = desligado; connpub.go)
+	connBatch   []connStage                // estágios do lote em curso, entregues à fila após o commit
+	connUpd     map[string]struct{}        // conexões abertas com updated já acumulado no lote em curso
+	connLast    map[string]int64           // parede do último updated de cada conexão (janela de connPubUpdateEvery)
+	connTrail   map[string]int64           // updated adiados: conexão → parede em que sai
 	prom        *storeMetrics              // métricas do /metrics (nil = desligadas)
 	appTs       []int64                    // ts dos eventos de aplicação do lote (lag)
 	readyEnds   []readyEnd                 // fim das conexões finalizadas na transação (record_ready)
@@ -237,6 +242,7 @@ func (in *Ingestor) captureNow() int64 { return in.clock.at(in.now().UnixNano())
 // afterBatch encerra as conexões vencidas pelo relógio de captura e processa a fila de finalização; as que
 // falharam antes ficam na fila e são tentadas de novo aqui, uma a uma.
 func (in *Ingestor) afterBatch(ctx context.Context) {
+	in.flushConnTrails()
 	in.toFinalize = append(in.toFinalize, in.flows.due(in.captureNow())...)
 	if err := in.finalizeQueued(ctx); err != nil {
 		in.log.Error("finalize", "err", err)
@@ -407,6 +413,7 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	in.prom.writerOp(opIngestTx, time.Since(txStart))
 	in.commitBatch()
 	in.publishLive()
+	in.publishConns()
 	now := in.now().UnixNano()
 	in.lagMu.Lock()
 	for _, ts := range tss {
@@ -486,7 +493,8 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if res.created {
 		// As métricas contam no commit (commitBatch): no rollback a conexão é recriada pela reentrega.
 		in.batchCreated = append(in.batchCreated, c)
-		rec, _ := json.Marshal(c.record(0, ""))
+		r := c.record(0, "")
+		rec, _ := json.Marshal(r)
 		if _, err := st.insConn.ExecContext(ctx, c.id, l4Name(c.l4), c.family, c.client.Addr().String(), int(c.client.Port()),
 			c.server.Addr().String(), int(c.server.Port()), l4Name(c.l4), c.started, boolInt(c.degraded), string(rec), c.started); err != nil {
 			return fmt.Errorf("insert connection: %w", err)
@@ -496,6 +504,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 			return err
 		}
 		in.liveConn(LiveConnOpened, c.liveSummary(), c.started)
+		in.pubConn(event.StageOpened, c.started, rec, &r)
 	}
 	if c.degraded {
 		return nil // modo degradado: sem pcap nem bytes crus
@@ -702,9 +711,11 @@ func (in *Ingestor) finalizeTx(ctx context.Context, conns []*conn) error {
 	}()
 	if err != nil {
 		in.liveBatch = nil // os eventos ao vivo são refeitos na nova tentativa
+		in.discardConns()
 		return err
 	}
 	in.publishLive()
+	in.publishConns()
 	for _, s := range in.finalStats {
 		if s.stray > 0 {
 			in.metrics.Add("store_stray_total", float64(s.stray))
@@ -810,6 +821,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		liveTs = in.now().UnixNano()
 	}
 	in.liveConn(LiveConnClosed, summaryFrom(r), liveTs)
+	in.pubConn(event.StageClosed, liveTs, rec, &r)
 	in.finalStats = append(in.finalStats, finalStat{l4: r.L4, proto: r.Proto})
 	in.readyEnds = append(in.readyEnds, readyEnd{end, reason})
 	return nil

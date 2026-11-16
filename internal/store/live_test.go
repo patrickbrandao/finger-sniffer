@@ -536,6 +536,12 @@ func TestIntegrationLive(t *testing.T) {
 	}
 	eventually(t, 2*time.Second, func() bool { s := st.live.Stats(); return s.Clients["ws"] == 1 && s.Clients["sse"] == 1 }, "clients")
 
+	// Assinante do estado das conexões (o bot, spec 004 RF-12): NATS core, fora do stream.
+	connSub, err := nc.SubscribeSync(event.SubjectStoreConnection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = nc.Flush()
 	shift := time.Now().UnixNano() - base
 	if _, err := js.PublishMsg(ctx, natsMsg(event.SubjectCapturePacket, shiftBatch(batch(client, mirror, protoTCP, fullTCP[:6]), shift).data)); err != nil {
 		t.Fatal(err)
@@ -577,6 +583,17 @@ func TestIntegrationLive(t *testing.T) {
 		return out
 	}
 	wsLat, sseLat := latencies("ws", ws), latencies("sse", sse)
+	stages := map[string]int{}
+	for stages[event.StageUpdated] == 0 {
+		m, err := connSub.NextMsg(5 * time.Second)
+		if err != nil {
+			t.Fatalf("fs.v1.store.connection: %v (stages %v)", err, stages)
+		}
+		stages[decodeConnMsg(t, m.Data).pay.Stage]++
+	}
+	if stages[event.StageOpened] != 1 {
+		t.Fatalf("stages %v", stages)
+	}
 	for name, l := range map[string][]time.Duration{"ws": wsLat, "sse": sseLat} {
 		p99 := l[len(l)*99/100-1]
 		t.Logf("%s: p50 %v p99 %v", name, l[len(l)/2], p99)

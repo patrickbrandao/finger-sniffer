@@ -19,10 +19,11 @@ const (
 	ServiceRaw     = "raw"
 	ServiceDNS     = "dns"
 	ServiceStore   = "store"
+	ServiceBot     = "bot" // sexto serviço (ADR 0047, spec 018)
 )
 
-// Services lista todos os serviços esperados pelo health.
-var Services = []string{ServiceCapture, ServiceWeb, ServiceRaw, ServiceDNS, ServiceStore}
+// Services lista todos os serviços esperados pelo health (spec 004 RF-09 e RF-13).
+var Services = []string{ServiceCapture, ServiceWeb, ServiceRaw, ServiceDNS, ServiceStore, ServiceBot}
 
 // TimeFormat é RFC 3339 em UTC com nanossegundos.
 const TimeFormat = "2006-01-02T15:04:05.000000000Z07:00"

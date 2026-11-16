@@ -282,7 +282,8 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 	// updated_ns é o relógio do store (settle do long-poll, ADR 0029), não o ts do evento.
 	now := in.now().UnixNano()
 	id := in.flows.claimReserved(k, ev.ts)
-	rec, _ := json.Marshal(eventOnlyRecord(id, ev, ev.ts))
+	eo := eventOnlyRecord(id, ev, ev.ts)
+	rec, _ := json.Marshal(eo)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port,
 		proto, started_ns, ended_ns, degraded, record_json, updated_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
 		id, l4Name(ev.l4), familyOf(ev), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(),
@@ -290,7 +291,8 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
 	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()})
-	in.liveConn(LiveConnOpened, summaryFrom(eventOnlyRecord(id, ev, ev.ts)), ev.ts)
+	in.liveConn(LiveConnOpened, summaryFrom(eo), ev.ts)
+	in.pubConn(event.StageOpened, ev.ts, rec, &eo)
 	in.prom.connection(l4Name(ev.l4), l4Name(ev.l4))
 	// Pacotes que chegarem atrasados com a mesma 5-tupla ficam com o mesmo ID; a validade é comparada ao ts dos
 	// pacotes, por isso conta no relógio de captura.
@@ -338,10 +340,13 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 		if ok {
 			in.batchApp[tg.id] = struct{}{}
 		}
-		if ok && in.live != nil {
+		if ok && (in.live != nil || in.conns != nil) {
 			s, _ := in.flows.openSummary(tg.id)
-			in.liveApp(ev, tg.id, strOrEmpty(s.ProbeID))
-			in.liveConn(LiveConnUpdated, s, ev.liveTs())
+			if in.live != nil {
+				in.liveApp(ev, tg.id, strOrEmpty(s.ProbeID))
+				in.liveConn(LiveConnUpdated, s, ev.liveTs())
+			}
+			in.pubConnOpen(tg.id, ev.liveTs(), s.Degraded)
 		}
 		if ok {
 			// As colunas usadas por /connections e /probes acompanham o estado em memória.
@@ -460,6 +465,7 @@ func (in *Ingestor) discardBatchState() {
 	clear(in.dirty)
 	clear(in.late)
 	in.liveBatch = nil
+	in.discardConns()
 	for id := range in.batchApp {
 		if c := in.flows.connByID(id); c != nil {
 			in.appStale = append(in.appStale, c)
@@ -547,6 +553,7 @@ func (in *Ingestor) writeStored(ctx context.Context, tx *sql.Tx, id string, a *a
 		return err
 	}
 	in.liveConn(LiveConnUpdated, summaryFrom(r), now)
+	in.pubConn(event.StageUpdated, now, rec, &r)
 	return nil
 }
 
