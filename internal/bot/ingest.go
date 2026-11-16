@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/akamai"
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja3"
@@ -200,12 +201,13 @@ func (p *parsedRecord) apply(c *ForkConn) {
 	}
 	switch r.Type {
 	case "connection":
+		var cost int64
 		c.HasConnRecord = true
-		c.EntryPoint = shared.str(r.EntryPoint)
-		c.SNI = shared.str(deref(r.SNI))
-		c.ALPNOffered = shared.list(r.ALPNOffered)
-		c.ALPN, c.TLSVersion, c.Cipher = shared.str(deref(r.ALPN)), shared.str(deref(r.TLSVersion)), shared.str(deref(r.Cipher))
-		c.TLS, c.H2 = p.tls, p.h2
+		c.EntryPoint = shared.str(r.EntryPoint, &cost)
+		c.SNI = shared.str(deref(r.SNI), &cost)
+		c.ALPNOffered = shared.list(r.ALPNOffered, &cost)
+		c.ALPN, c.TLSVersion, c.Cipher = shared.str(deref(r.ALPN), &cost), shared.str(deref(r.TLSVersion), &cost), shared.str(deref(r.Cipher), &cost)
+		c.TLS, c.H2, c.connCost = p.tls, p.h2, cost
 	case "request":
 		path, _, _ := strings.Cut(r.Path, "?") // nada de query (ADR 0052 item 2)
 		fields := make(map[string]string, len(r.Fields))
@@ -215,18 +217,28 @@ func (p *parsedRecord) apply(c *ForkConn) {
 			}
 		}
 		// Textos repetidos entre requisições (método, UA, nomes de campo, JA4H...) vêm do interner (memória do
-		// índice cheio, spec 018 RNF-02); o caminho é copiado à parte (é quase sempre único).
+		// índice cheio, spec 018 RNF-02); o caminho é copiado à parte (é quase sempre único). cost soma o que a
+		// requisição aloca (caminho, status e os textos novos no interner, ADR 0057 item 2).
+		cost := strBytes(len(path))
+		if r.Status != nil {
+			cost += allocBytes(unsafe.Sizeof(*r.Status))
+		}
 		req := ForkRequest{
-			Ts: p.ts, Proto: shared.str(r.Proto), Method: shared.str(r.Method), Authority: shared.str(r.Authority),
-			Path: strings.Clone(path), HTTPVersion: shared.str(r.HTTPVersion), FieldNames: shared.list(r.FieldNames),
-			Fields: shared.fields(fields), CookieNames: shared.list(r.CookieNames), JA4H: shared.str(deref(r.JA4H)), Status: r.Status,
-			Router: shared.str(deref(r.Router)), Service: shared.str(deref(r.Service)),
+			Ts: p.ts, Proto: shared.str(r.Proto, &cost), Method: shared.str(r.Method, &cost), Authority: shared.str(r.Authority, &cost),
+			Path: strings.Clone(path), HTTPVersion: shared.str(r.HTTPVersion, &cost), FieldNames: shared.list(r.FieldNames, &cost),
+			Fields: shared.fields(fields, &cost), CookieNames: shared.list(r.CookieNames, &cost), JA4H: shared.str(deref(r.JA4H), &cost),
+			Status: r.Status, Router: shared.str(deref(r.Router), &cost), Service: shared.str(deref(r.Service), &cost),
 		}
-		// Clip força uma cópia: quem leu uma cópia rasa da conexão não vê a lista mudar por baixo.
-		c.Requests = append(slices.Clip(c.Requests), req)
-		if len(c.Requests) > maxForkRequests {
-			c.Requests = c.Requests[len(c.Requests)-maxForkRequests:]
+		req.cost = cost
+		// Vetor novo do tamanho exato: quem leu uma cópia rasa da conexão não vê a lista mudar por baixo, e as
+		// requisições cortadas (as mais antigas além de maxForkRequests) não ficam presas no vetor antigo.
+		keep := c.Requests
+		if len(keep) >= maxForkRequests {
+			keep = keep[len(keep)-maxForkRequests+1:]
 		}
+		next := make([]ForkRequest, len(keep), len(keep)+1)
+		copy(next, keep)
+		c.Requests = append(next, req)
 	}
 }
 
@@ -238,7 +250,7 @@ const maxForkPriorities = 64
 // tlsparse.Parse sobre os registros TLS e, só sem erro, JA3 e JA4 (transporte TCP). O ClientHello do QUIC (spec
 // 019 RF-13) ainda não tem formato no contrato: bytes fora de registros TLS são parse_error.
 func analyzeClientHello(raw []byte, truncated bool) *ForkTLS {
-	t := &ForkTLS{Truncated: truncated}
+	t := &ForkTLS{Truncated: truncated, cost: forkTLSBytes}
 	ch, err := tlsparse.Parse(raw)
 	// Cortado (acima de 16 KiB no traefix) também é parse_error: a mensagem não está inteira (spec 019 RF-03).
 	if err != nil || ch == nil || truncated {
@@ -247,9 +259,10 @@ func analyzeClientHello(raw []byte, truncated bool) *ForkTLS {
 	}
 	j3 := ja3.Compute(ch)
 	j4 := ja4.Compute(ch, ja4.TCP)
-	t.JA3, t.JA3MD5, t.JA3N, t.JA3NMD5 = shared.str(j3.JA3), shared.str(j3.JA3MD5), shared.str(j3.JA3N), shared.str(j3.JA3NMD5)
-	t.JA4, t.JA4R, t.JA4O = shared.str(j4.JA4), shared.str(j4.JA4R), shared.str(j4.JA4O)
-	t.SNI, t.ALPN = shared.str(ch.SNI), shared.list(ch.ALPN)
+	c := &t.cost
+	t.JA3, t.JA3MD5, t.JA3N, t.JA3NMD5 = shared.str(j3.JA3, c), shared.str(j3.JA3MD5, c), shared.str(j3.JA3N, c), shared.str(j3.JA3NMD5, c)
+	t.JA4, t.JA4R, t.JA4O = shared.str(j4.JA4, c), shared.str(j4.JA4R, c), shared.str(j4.JA4O, c)
+	t.SNI, t.ALPN = shared.str(ch.SNI, c), shared.list(ch.ALPN, c)
 	return t
 }
 
@@ -259,7 +272,7 @@ func analyzeClientHello(raw []byte, truncated bool) *ForkTLS {
 // incluídos) são descartados aqui (ADR 0052 item 2). Erro do parser, prefixo cortado, curto demais para um
 // frame ou que não começa por SETTINGS (RFC 9113 3.4) é parse_error.
 func analyzeH2Prefix(raw []byte, truncated bool) *ForkH2 {
-	h := &ForkH2{Truncated: truncated}
+	h := &ForkH2{Truncated: truncated, cost: forkH2Bytes}
 	const frameHeaderLen, frameSettings = 9, 0x4
 	if truncated || len(raw) < frameHeaderLen || raw[3] != frameSettings {
 		h.ParseError = true
@@ -273,20 +286,23 @@ func analyzeH2Prefix(raw []byte, truncated bool) *ForkH2 {
 	}
 	info := p.Info()
 	h.Settings = slices.Clone(info.Settings)
+	h.cost += allocBytes(uintptr(cap(h.Settings)) * unsafe.Sizeof([2]uint32{}))
 	if info.WindowUpdate != nil {
 		h.WindowUpdate = ptr(*info.WindowUpdate)
+		h.cost += strBytes(int(unsafe.Sizeof(*h.WindowUpdate))) // sem ponteiros: alocador tiny
 	}
 	n := min(info.PrioritiesBeforeHeaders, len(info.Priorities), maxForkPriorities)
 	h.Priorities = slices.Clone(info.Priorities[:n])
+	h.cost += allocBytes(uintptr(cap(h.Priorities)) * priorityBytes)
 	for i := range info.Streams {
 		if info.Streams[i].StreamID == info.FirstHeadersStream && info.FirstHeadersStream != 0 {
-			h.PseudoOrder = shared.list(info.Streams[i].PseudoOrder)
+			h.PseudoOrder = shared.list(info.Streams[i].PseudoOrder, &h.cost)
 			break
 		}
 	}
 	h.HeadersSeen = info.FirstHeadersStream != 0
 	if info.FirstHeadersStream != 0 || len(info.Settings) > 0 {
-		h.Akamai = shared.str(akamai.FromInfo(info))
+		h.Akamai = shared.str(akamai.FromInfo(info), &h.cost)
 	}
 	return h
 }

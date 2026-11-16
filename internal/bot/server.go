@@ -35,6 +35,10 @@ const (
 	// dbSpaceDegraded é a fração do teto do banco a partir da qual o health fica degraded (spec 018 RF-11).
 	dbSpaceDegraded = 0.9
 	shutdownTimeout = 5 * time.Second
+	// indexBytesDegraded é por quanto tempo um despejo por bytes deixa o health degraded (spec 018 RF-11).
+	indexBytesDegraded = 60 * time.Second
+	// metricIndexBytes é o total contabilizado do índice (spec 018 RF-12, ADR 0057 item 2).
+	metricIndexBytes = "bot_index_bytes"
 	// metricAggDropped conta as observações descartadas pelo teto de entradas dos agregados (ADR 0056).
 	metricAggDropped = "bot_agg_dropped_total"
 )
@@ -86,7 +90,12 @@ func New(cfg Config, d Deps) *Server {
 	s := &Server{cfg: cfg, deps: d}
 	s.keys = NewKeyStore(d.DB)
 	s.limiter = NewLimiter(d.DB, d.Now)
-	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, func(n int) { d.Metrics.Add(metricConnsEvicted, float64(n)) })
+	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, cfg.IndexMaxBytes, func(reason string, n int) {
+		d.Metrics.Add(evictedMetric(reason), float64(n))
+	})
+	for _, r := range []string{evictCount, evictBytes} {
+		d.Metrics.Add(evictedMetric(r), 0) // as duas séries aparecem desde o início
+	}
 	s.hub = NewHub()
 	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention})
 	s.lists = newLists(cfg, d)
@@ -109,6 +118,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if s.lists != nil {
 		reasons = append(reasons, s.lists.StaleReasons(s.deps.Now())...)
+	}
+	if t := s.index.LastBytesEviction(); !t.IsZero() && s.deps.Now().Sub(t) < indexBytesDegraded {
+		reasons = append(reasons, "index bytes")
 	}
 	if s.hooks.Backlog(s.deps.Now()) {
 		reasons = append(reasons, "webhook backlog")
@@ -392,9 +404,15 @@ func (s *Server) updateMetrics() {
 	m.Set(metricStoreFeedMessages, float64(s.feed.Messages()))
 	m.Set(metricDBBytes, float64(dbFileSize(s.cfg.DBPath)))
 	m.Set(metricAggDropped, float64(s.agg.Dropped()))
+	m.Set(metricIndexBytes, float64(s.index.Bytes(s.deps.Now())))
 	if s.lists != nil {
 		s.lists.UpdateMetrics(s.deps.Now(), m.Set)
 	}
+}
+
+// evictedMetric é bot_conns_evicted_total com o rótulo reason (formato da ADR 0056 item 4).
+func evictedMetric(reason string) string {
+	return metricConnsEvicted + `{reason="` + reason + `"}`
 }
 
 func listenAll(addrs []string) ([]net.Listener, error) {

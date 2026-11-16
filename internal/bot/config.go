@@ -41,6 +41,7 @@ type Config struct {
 	AggRetention  time.Duration // FS_BOT_AGG_RETENTION
 	ConnTTL       time.Duration // FS_BOT_CONN_TTL
 	MaxConns      int           // FS_BOT_MAX_CONNS
+	IndexMaxBytes int64         // FS_BOT_INDEX_MAX_BYTES (teto aproximado do índice, ADR 0057 item 2)
 	ViewWait      time.Duration // FS_BOT_VIEW_WAIT
 	RateHigh      int           // FS_BOT_RATE_HIGH
 	ListRefreshAt time.Duration // FS_BOT_LIST_REFRESH_AT (HH:MM UTC, como deslocamento desde 00:00)
@@ -141,6 +142,11 @@ func LoadConfig() (Config, error) {
 	if c.MaxConns, err = service.EnvInt("FS_BOT_MAX_CONNS", 100000); err != nil {
 		return c, err
 	}
+	indexMax, err := service.EnvInt("FS_BOT_INDEX_MAX_BYTES", DefaultIndexMaxBytes)
+	if err != nil {
+		return c, err
+	}
+	c.IndexMaxBytes = int64(indexMax)
 	if c.ViewWait, err = service.EnvDuration("FS_BOT_VIEW_WAIT", 100*time.Millisecond); err != nil {
 		return c, err
 	}
@@ -164,6 +170,12 @@ func LoadConfig() (Config, error) {
 	return c, c.validate()
 }
 
+// Teto de bytes do índice (FS_BOT_INDEX_MAX_BYTES, ADR 0057 item 2): 384 MiB por padrão, nunca abaixo de 16 MiB.
+const (
+	DefaultIndexMaxBytes = 384 << 20
+	MinIndexMaxBytes     = 16 << 20
+)
+
 func (c Config) validate() error {
 	switch {
 	case c.MaxBytes <= 0:
@@ -176,6 +188,8 @@ func (c Config) validate() error {
 		return errors.New("bot: FS_BOT_CONN_TTL must be positive")
 	case c.MaxConns <= 0:
 		return errors.New("bot: FS_BOT_MAX_CONNS must be positive")
+	case c.IndexMaxBytes < MinIndexMaxBytes:
+		return fmt.Errorf("bot: FS_BOT_INDEX_MAX_BYTES must be at least %d (16 MiB)", MinIndexMaxBytes)
 	case c.ViewWait < 0 || c.ViewWait > time.Second:
 		return errors.New("bot: FS_BOT_VIEW_WAIT must be between 0 and 1s")
 	case c.RateHigh <= 0:

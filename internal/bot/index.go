@@ -50,6 +50,8 @@ type StoreConn struct {
 	RequestsSeen int
 	// Record é o Connection do store sem as listas grandes nem o ClientHello cru (droppedRecordFields).
 	Record json.RawMessage
+	// reqCharge é o custo dos resumos de Requests que esta conexão criou no interner (storeBytes).
+	reqCharge int64
 }
 
 // ForkConn é a visão de uma conexão vista pelo traefik modificado (POST /bot/v1/ingest/traefik).
@@ -72,6 +74,8 @@ type ForkConn struct {
 	H2            *ForkH2
 	HasConnRecord bool
 	Requests      []ForkRequest
+	// connCost é o que os textos do registro de conexão somaram no interner (forkBytes).
+	connCost int64
 }
 
 // ParseError diz se alguma parte do registro de conexão não pôde ser analisada (View.parse_error).
@@ -93,6 +97,7 @@ type ForkTLS struct {
 	ALPN       []string // ALPN oferecido, na ordem do ClientHello
 	Truncated  bool
 	ParseError bool
+	cost       int64 // estrutura e textos criados (forkBytes)
 }
 
 // ForkH2 é a visão h2 do fork, do prefixo do cliente até o primeiro HEADERS (pkg/h2passive). Sem campos nem
@@ -106,6 +111,7 @@ type ForkH2 struct {
 	Akamai       string
 	Truncated    bool
 	ParseError   bool
+	cost         int64 // estrutura, fatias e textos criados (forkBytes)
 }
 
 // ForkRequest é o resumo de uma requisição vista pelo fork (sem query, corpo nem valores de cookie, ADR 0052).
@@ -123,6 +129,7 @@ type ForkRequest struct {
 	Status      *int
 	Router      string
 	Service     string
+	cost        int64 // caminho, status e textos criados no interner (forkBytes)
 }
 
 // Site devolve o domínio da conexão do fork: o SNI ou, sem ele, o authority da última requisição.
@@ -146,6 +153,11 @@ type ttlTable[V any] struct {
 	order *list.List
 	byID  map[string]*list.Element
 	bySrc map[srcKey]*list.Element
+	// bytes é a soma dos custos das entradas (contabilidade aproximada, ADR 0057 item 2).
+	bytes int64
+	// seq numera as atualizações, em comum entre as visões do índice: ordena o despejo por bytes entre as duas
+	// tabelas mesmo com o mesmo instante.
+	seq *uint64
 	// onRemove (opcional) é chamado quando uma entrada sai (TTL, teto ou forget), para os índices secundários.
 	onRemove func(val V)
 }
@@ -155,29 +167,38 @@ type ttlEntry[V any] struct {
 	src     srcKey
 	hasSrc  bool
 	touched time.Time
+	seq     uint64
 	val     V
+	cost    int64
 }
 
 func newTTLTable[V any](ttl time.Duration, maxEntries int) *ttlTable[V] {
-	return &ttlTable[V]{ttl: ttl, max: maxEntries, order: list.New(), byID: map[string]*list.Element{}, bySrc: map[srcKey]*list.Element{}}
+	return &ttlTable[V]{
+		ttl: ttl, max: maxEntries, order: list.New(), byID: map[string]*list.Element{}, bySrc: map[srcKey]*list.Element{},
+		seq: new(uint64),
+	}
 }
 
-// put insere ou substitui; devolve quantas entradas foram despejadas pelo teto.
-func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, now time.Time) (evicted int) {
+// put insere ou substitui a entrada com o custo dado; devolve quantas entradas foram despejadas pelo teto de
+// entradas.
+func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64, now time.Time) (evicted int) {
 	t.expire(now)
+	*t.seq++
 	if el, ok := t.byID[id]; ok {
 		e := el.Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
 		if e.hasSrc && (!hasSrc || e.src != src) && t.bySrc[e.src] == el {
 			delete(t.bySrc, e.src)
 		}
-		e.src, e.hasSrc, e.touched, e.val = src, hasSrc, now, val
+		t.bytes += cost - e.cost
+		e.src, e.hasSrc, e.touched, e.seq, e.val, e.cost = src, hasSrc, now, *t.seq, val, cost
 		if hasSrc {
 			t.bySrc[src] = el
 		}
 		t.order.MoveToBack(el)
 		return 0
 	}
-	el := t.order.PushBack(&ttlEntry[V]{id: id, src: src, hasSrc: hasSrc, touched: now, val: val})
+	el := t.order.PushBack(&ttlEntry[V]{id: id, src: src, hasSrc: hasSrc, touched: now, seq: *t.seq, val: val, cost: cost})
+	t.bytes += cost
 	t.byID[id] = el
 	if hasSrc {
 		t.bySrc[src] = el
@@ -192,6 +213,7 @@ func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, now time.Ti
 func (t *ttlTable[V]) remove(el *list.Element) {
 	e := el.Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
 	t.order.Remove(el)
+	t.bytes -= e.cost
 	delete(t.byID, e.id)
 	if e.hasSrc && t.bySrc[e.src] == el {
 		delete(t.bySrc, e.src)
@@ -199,6 +221,15 @@ func (t *ttlTable[V]) remove(el *list.Element) {
 	if t.onRemove != nil {
 		t.onRemove(e.val)
 	}
+}
+
+// oldest devolve o número de atualização da entrada mais antiga (false com a tabela vazia).
+func (t *ttlTable[V]) oldest() (uint64, bool) {
+	el := t.order.Front()
+	if el == nil {
+		return 0, false
+	}
+	return el.Value.(*ttlEntry[V]).seq, true //nolint:forcetypeassert // só ttlEntry[V] entra na lista
 }
 
 // peek devolve o valor guardado pelo id, sem conferir o TTL.
@@ -253,23 +284,36 @@ func (t *ttlTable[V]) removeSrcIn(p netip.Prefix) (n int) {
 	return n
 }
 
-// Index guarda em memória as conexões vistas pelo store e pelo fork nos últimos FS_BOT_CONN_TTL.
+// Motivos de despejo do índice (rótulo reason de bot_conns_evicted_total, spec 018 RF-02); o vencimento pelo TTL
+// não é despejo.
+const (
+	evictCount = "count"
+	evictBytes = "bytes"
+)
+
+// Index guarda em memória as conexões vistas pelo store e pelo fork nos últimos FS_BOT_CONN_TTL, com teto de
+// conexões por visão (FS_BOT_MAX_CONNS) e de bytes das duas juntas (FS_BOT_INDEX_MAX_BYTES, ADR 0057 item 2).
 type Index struct {
 	mu    sync.Mutex
 	store *ttlTable[*StoreConn]
 	fork  *ttlTable[*ForkConn]
 	// byProbe são os conn_id do store por probe_id (veredito por probe, spec 018 "Comportamento").
-	byProbe map[string]map[string]struct{}
-	changed chan struct{}
-	onEvict func(n int)
+	byProbe  map[string]map[string]struct{}
+	changed  chan struct{}
+	maxBytes int64
+	onEvict  func(reason string, n int)
+	// lastBytesEvict é o instante do último despejo por bytes (health "index bytes").
+	lastBytesEvict time.Time
 }
 
-// NewIndex cria o índice com TTL e teto por visão; onEvict (opcional) recebe os despejos pelo teto.
-func NewIndex(ttl time.Duration, maxConns int, onEvict func(n int)) *Index {
+// NewIndex cria o índice com TTL, teto de conexões por visão e teto de bytes (<= 0 desliga); onEvict (opcional)
+// recebe os despejos pelos tetos, com o motivo.
+func NewIndex(ttl time.Duration, maxConns int, maxBytes int64, onEvict func(reason string, n int)) *Index {
 	ix := &Index{
 		store: newTTLTable[*StoreConn](ttl, maxConns), fork: newTTLTable[*ForkConn](ttl, maxConns),
-		byProbe: map[string]map[string]struct{}{}, changed: make(chan struct{}), onEvict: onEvict,
+		byProbe: map[string]map[string]struct{}{}, changed: make(chan struct{}), maxBytes: maxBytes, onEvict: onEvict,
 	}
+	ix.fork.seq = ix.store.seq // a mesma numeração nas duas visões
 	ix.store.onRemove = ix.unlinkProbeLocked
 	return ix
 }
@@ -305,10 +349,57 @@ func (ix *Index) notifyLocked() {
 	ix.changed = make(chan struct{})
 }
 
-func (ix *Index) evicted(n int) {
-	if n > 0 && ix.onEvict != nil {
-		ix.onEvict(n)
+func (ix *Index) evicted(byCount, byBytes int) {
+	if ix.onEvict == nil {
+		return
 	}
+	if byCount > 0 {
+		ix.onEvict(evictCount, byCount)
+	}
+	if byBytes > 0 {
+		ix.onEvict(evictBytes, byBytes)
+	}
+}
+
+// bytesLocked é o total contabilizado: o índice vazio mais as entradas das duas visões.
+func (ix *Index) bytesLocked() int64 { return indexEmptyBytes + ix.store.bytes + ix.fork.bytes }
+
+// enforceBytesLocked despeja as conexões mais antigas das duas visões (a ordem do teto de conexões) até o total
+// voltar a caber no teto; devolve quantas saíram.
+func (ix *Index) enforceBytesLocked(now time.Time) (n int) {
+	for ix.maxBytes > 0 && ix.bytesLocked() > ix.maxBytes {
+		st, sok := ix.store.oldest()
+		ft, fok := ix.fork.oldest()
+		switch {
+		case sok && (!fok || st < ft):
+			ix.store.remove(ix.store.order.Front())
+		case fok:
+			ix.fork.remove(ix.fork.order.Front())
+		default:
+			return n
+		}
+		n++
+	}
+	if n > 0 {
+		ix.lastBytesEvict = now
+	}
+	return n
+}
+
+// Bytes devolve o total contabilizado do índice depois de vencer o TTL (gauge bot_index_bytes).
+func (ix *Index) Bytes(now time.Time) int64 {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.store.expire(now)
+	ix.fork.expire(now)
+	return ix.bytesLocked()
+}
+
+// LastBytesEviction devolve o instante do último despejo por bytes (zero se nenhum).
+func (ix *Index) LastBytesEviction() time.Time {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.lastBytesEvict
 }
 
 // PutStore guarda (ou substitui) o estado da conexão do store.
@@ -317,13 +408,14 @@ func (ix *Index) PutStore(c *StoreConn, now time.Time) {
 	if old, ok := ix.store.peek(c.ConnID); ok {
 		ix.unlinkProbeLocked(old)
 	}
-	n := ix.store.put(c.ConnID, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.SrcIP.IsValid(), c, now)
+	n := ix.store.put(c.ConnID, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.SrcIP.IsValid(), c, storeBytes(c), now)
 	if _, ok := ix.store.peek(c.ConnID); ok {
 		ix.linkProbeLocked(c)
 	}
+	nb := ix.enforceBytesLocked(now)
 	ix.notifyLocked()
 	ix.mu.Unlock()
-	ix.evicted(n)
+	ix.evicted(n, nb)
 }
 
 // UpdateFork aplica f à conexão do fork (criada vazia se não existe) e a guarda.
@@ -334,10 +426,11 @@ func (ix *Index) UpdateFork(id string, now time.Time, f func(c *ForkConn)) {
 		c = &ForkConn{FsConnID: id}
 	}
 	f(c)
-	n := ix.fork.put(id, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.HasSrc, c, now)
+	n := ix.fork.put(id, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.HasSrc, c, forkBytes(c), now)
+	nb := ix.enforceBytesLocked(now)
 	ix.notifyLocked()
 	ix.mu.Unlock()
-	ix.evicted(n)
+	ix.evicted(n, nb)
 }
 
 // Fork devolve uma cópia rasa da conexão do fork pelo fs_conn_id.

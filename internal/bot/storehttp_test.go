@@ -6,15 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
-	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja3"
-	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4"
-	"github.com/patrickbrandao/finger-sniffer/pkg/tlsparse"
 )
 
 // Valores que nunca podem aparecer no índice (ADR 0052 item 2): query, caminho, corpo, cookie e Authorization.
@@ -186,7 +180,7 @@ func TestStoreHTTPSummary(t *testing.T) {
 // forget mantêm o índice secundário certo.
 func TestIndexByProbe(t *testing.T) {
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
-	ix := NewIndex(10*time.Minute, 3, nil)
+	ix := NewIndex(10*time.Minute, 3, 0, nil)
 	put := func(id, probe string, port int, at time.Time) {
 		c, err := ParseStoreConnection(storeMessageWith(t, id, probe, port, nil))
 		if err != nil {
@@ -229,138 +223,51 @@ func TestIndexByProbe(t *testing.T) {
 	}
 }
 
-// BenchmarkIndexFullMemory: critério 4 da task 277 — memória do índice cheio (FS_BOT_MAX_CONNS = 100 000 nas
-// duas visões). `typical`: store com o TLSInfo do web (Chrome), IP/TCP com séries e 16 streams h2; fork com
-// ClientHello/h2 do Chrome e 4 requisições. `worst`: cada requisição com UA de 512 bytes e ordem de campos únicos
-// (nada se compartilha) e o fork com 16 requisições de caminho de 256 bytes; medido em 10 000 conexões e
-// extrapolado. Reporta bytes por conexão (as duas visões) e o total para 100 000 em MiB.
-func BenchmarkIndexFullMemory(b *testing.B) {
-	for _, tc := range []struct {
-		name  string
-		conns int
-		worst bool
-	}{{"typical", 100_000, false}, {"worst", 10_000, true}} {
-		b.Run(tc.name, func(b *testing.B) { benchIndexMemory(b, tc.conns, tc.worst) })
-	}
-}
-
-func benchIndexMemory(b *testing.B, conns int, worst bool) {
-	// TLSInfo como o web publica (listas analisadas com nomes, extensões, ClientHello em base64) e IP/TCP com as
-	// séries: o Record precisa ficar só com o que o veredito lê.
-	ch, err := tlsparse.Parse(goldenBytes("tls/chrome.bin"))
-	if err != nil {
-		b.Fatal(err)
-	}
-	tlsInfo := tlsparse.NewInfo(ch, goldenBytes("tls/chrome.bin"), tlsparse.DefaultInlineMax)
-	ja3.Fill(tlsInfo, ch)
-	ja4.Fill(tlsInfo, ch, ja4.TCP)
-	series := make([][2]float64, 64)
-	tcpInfo := map[string]any{
-		"syn":     map[string]any{"window": 65535, "options": [][]any{{"mss", 1432}, {"nop"}, {"wscale", 6}, {"sack_perm"}}},
-		"syn_mss": 1432, "mtu_implied": 1492, "mss_reduction": 8, "ja4t": "65535_2-1-3-1-1-8-4-0-0_1432_6",
-		"p0f": "6:53+11:0:1432:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:ecn,flow:0", "window_series": series,
-		"segments_in": series, "segments_out": series,
-	}
-	ipInfo := map[string]any{"ttl": 53, "ttl_initial": 64, "hops": 11, "packets": map[string]any{"syn": map[string]any{"ttl": 53}}}
-	streams := make([]any, 0, 16)
-	for i := 1; i <= 16; i++ {
-		st := h2Stream(2*i - 1)
-		if worst {
-			fields := st["fields"].([]map[string]any) //nolint:forcetypeassert // montado acima
-			fields[4]["value"] = "UNIQ_UA_" + strings.Repeat("u", 500) + fmt.Sprintf("%02d", i)
-			fields = append(fields, map[string]any{"name": fmt.Sprintf("x-uniq-%02d-UNIQF", i), "value": "1"})
-			st["fields"] = fields
-		}
-		streams = append(streams, st)
-	}
-	storeTpl := string(storeMessageWith(b, "CONNIDCONNIDCONNIDCONNID00", "", 12345, map[string]any{
-		"tls": tlsInfo, "tcp": tcpInfo, "ip": ipInfo,
-		"http2": map[string]any{"akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p", "streams": streams},
-	}))
-	fork := `{"type":"connection","fs_conn_id":"FSID","ts":"2026-11-16T12:00:00Z","src":{"ip":"198.51.100.7","port":12345},` +
-		`"dst":{"ip":"10.249.0.2","port":443},"entry_point":"websecure","sni":"www.example.com","alpn_offered":["h2","http/1.1"],` +
-		`"client_hello":"` + base64.StdEncoding.EncodeToString(goldenBytes("tls/chrome.bin")) + `","h2_prefix":"` +
-		base64.StdEncoding.EncodeToString(goldenBytes("h2/chrome.prefix")) + `"}`
-	req := `{"type":"request","fs_conn_id":"FSID","ts":"2026-11-16T12:00:01Z","proto":"h2","method":"GET","authority":"www.example.com",` +
-		`"path":"PATH","http_version":"2.0","field_names":["sec-ch-ua","user-agent","accept","accept-language","cookie"],` +
-		`"fields":{"user-agent":"UA","accept":"*/*"},` +
-		`"cookie_names":["sid"],"ja4h":"ge20nn05ptbr_aaaaaaaaaaaa_000000000000_000000000000","status":200}`
-	forkReqs := 4
-	if worst {
-		forkReqs = maxForkRequests
-	}
-	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
-	for range b.N {
-		ix := NewIndex(10*time.Minute, conns, nil)
-		runtime.GC()
-		var before, after runtime.MemStats
-		runtime.ReadMemStats(&before)
-		for i := range conns {
-			id := fmt.Sprintf("01JC0X3K8V2T7Q9N%010d", i)
-			port := strconv.Itoa(10000 + i%50000)
-			msg := strings.Replace(strings.Replace(storeTpl, "CONNIDCONNIDCONNIDCONNID00", id, 1), "12345", port, 1)
-			if worst {
-				msg = strings.ReplaceAll(strings.ReplaceAll(msg, "UNIQ_UA_", id[16:]), "UNIQF", id[16:])
-			}
-			sc, err := ParseStoreConnection([]byte(msg))
-			if err != nil {
-				b.Fatal(err)
-			}
-			ix.PutStore(sc, now)
-			fid := fmt.Sprintf("01JC0X3K8V2T7Q9F%010d", i)
-			recs := []string{strings.Replace(strings.Replace(fork, "FSID", fid, 1), "12345", port, 1)}
-			for j := range forkReqs {
-				path, ua := "/static/app.js", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
-				if worst {
-					path = fmt.Sprintf("/%s/%02d/%s", fid, j, strings.Repeat("p", 220))
-					ua = fmt.Sprintf("%s-%02d-%s", fid, j, strings.Repeat("u", 480))
-				}
-				recs = append(recs, strings.NewReplacer("FSID", fid, "PATH", path, `"UA"`, `"`+ua+`"`).Replace(req))
-			}
-			for j, raw := range recs {
-				p, err := parseRecord(json.RawMessage(raw))
-				if err != nil {
-					b.Fatal(j, err)
-				}
-				ix.UpdateFork(fid, now, p.apply)
-			}
-		}
-		runtime.GC()
-		runtime.ReadMemStats(&after)
-		used := float64(after.HeapAlloc) - float64(before.HeapAlloc)
-		b.ReportMetric(used/float64(conns), "B/conn")
-		b.ReportMetric(used/float64(conns)*100_000/(1<<20), "MiB/100k")
-		runtime.KeepAlive(ix)
-	}
-}
-
 // TestInterner: resumos e textos iguais são compartilhados entre conexões; cheio, o interner recomeça sem perder
 // o que já foi entregue.
 func TestInterner(t *testing.T) {
 	in := &interner{max: 2}
 	r := StoreRequest{Proto: "h2", Method: "GET", UserAgent: strings.Repeat("a", 10)}
-	p1, p2 := in.request(r), in.request(r)
+	p1, c1 := in.request(r, "A")
+	p2, c2 := in.request(r, "B")
 	if p1 != p2 || *p1 != r {
 		t.Fatalf("resumo não compartilhado: %p %p", p1, p2)
 	}
-	in.request(StoreRequest{Method: "POST"})
-	p3 := in.request(r) // a geração encheu (2) e recomeçou: novo ponteiro, mesmo conteúdo
+	// Custo (ADR 0057 item 2): quem criou paga, quem reencontra não; o criador republicado paga de novo.
+	if c1 <= reqItemBytes || c2 != 0 {
+		t.Errorf("custo do resumo: criador %d, outro %d", c1, c2)
+	}
+	if _, c := in.request(r, "A"); c != c1 {
+		t.Errorf("criador republicado: %d, quer %d", c, c1)
+	}
+	in.request(StoreRequest{Method: "POST"}, "A")
+	p3, _ := in.request(r, "A") // a geração encheu (2) e recomeçou: novo ponteiro, mesmo conteúdo
 	if *p3 != r || *p1 != r {
 		t.Errorf("depois da troca de geração: %+v %+v", p3, p1)
 	}
-	l := in.list([]string{"h2", "http/1.1"})
-	if l2 := in.list([]string{"h2", "http/1.1"}); &l[0] != &l2[0] {
+	l := in.list([]string{"h2", "http/1.1"}, nil)
+	if l2 := in.list([]string{"h2", "http/1.1"}, nil); &l[0] != &l2[0] {
 		t.Error("lista não compartilhada")
 	}
-	if in.list(nil) != nil || in.fields(map[string]string{}) != nil {
+	var lc int64
+	in.list([]string{"h3", "x-new"}, &lc)
+	if lc != listBytes(2)+strBytes(2)+strBytes(5) {
+		t.Errorf("custo da lista nova: %d", lc)
+	}
+	lc = 0
+	in.list([]string{"h3", "x-new"}, &lc)
+	if lc != 0 {
+		t.Errorf("lista reencontrada custou %d", lc)
+	}
+	if in.list(nil, nil) != nil || in.fields(map[string]string{}, nil) != nil {
 		t.Error("vazios")
 	}
-	m := in.fields(map[string]string{"user-agent": "x", "accept": "*/*"})
-	if m2 := in.fields(map[string]string{"accept": "*/*", "user-agent": "x"}); len(m2) != 2 || m2["user-agent"] != "x" ||
+	m := in.fields(map[string]string{"user-agent": "x", "accept": "*/*"}, nil)
+	if m2 := in.fields(map[string]string{"accept": "*/*", "user-agent": "x"}, nil); len(m2) != 2 || m2["user-agent"] != "x" ||
 		fmt.Sprintf("%p", m) != fmt.Sprintf("%p", m2) {
 		t.Error("mapa não compartilhado")
 	}
-	if m3 := in.fields(map[string]string{"user-agent": "y", "accept": "*/*"}); m3["user-agent"] != "y" {
+	if m3 := in.fields(map[string]string{"user-agent": "y", "accept": "*/*"}, nil); m3["user-agent"] != "y" {
 		t.Error("mapa diferente compartilhado")
 	}
 }

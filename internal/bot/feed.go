@@ -128,11 +128,12 @@ type hxRequest struct {
 }
 
 // storeRequests monta o resumo HTTP do Connection: h1, depois os streams h2 e as requisições h3, ficando com a
-// primeira e as maxStoreRequests-1 mais recentes. Devolve também o total visto.
-func storeRequests(raw json.RawMessage) ([]*StoreRequest, int) {
+// primeira e as maxStoreRequests-1 mais recentes. Devolve também o total visto e o custo dos resumos que a conexão
+// owner criou (contados uma vez cada).
+func storeRequests(raw json.RawMessage, owner string) ([]*StoreRequest, int, int64) {
 	var rh recordHTTP
 	if err := json.Unmarshal(raw, &rh); err != nil {
-		return nil, 0
+		return nil, 0, 0
 	}
 	type item struct {
 		proto string
@@ -153,13 +154,14 @@ func storeRequests(raw json.RawMessage) ([]*StoreRequest, int) {
 		}
 	}
 	if len(all) == 0 {
-		return nil, 0
+		return nil, 0, 0
 	}
 	pick := all
 	if len(all) > maxStoreRequests {
 		pick = append([]item{all[0]}, all[len(all)-(maxStoreRequests-1):]...)
 	}
 	out := make([]*StoreRequest, 0, len(pick))
+	var charge int64
 	for _, it := range pick {
 		var (
 			r  StoreRequest
@@ -171,10 +173,14 @@ func storeRequests(raw json.RawMessage) ([]*StoreRequest, int) {
 			r, ok = summarizeHX(it.proto, it.raw)
 		}
 		if ok {
-			out = append(out, internRequest(r))
+			p, c := internRequest(r, owner)
+			if !slices.Contains(out, p) { // o mesmo resumo repetido na conexão conta uma vez
+				charge += c
+			}
+			out = append(out, p)
 		}
 	}
-	return out, len(all)
+	return out, len(all), charge
 }
 
 func summarizeH1(raw json.RawMessage) (StoreRequest, bool) {
@@ -278,13 +284,26 @@ func clip(s string, n int) string {
 // campos e o mesmo JA4H em quase todas as requisições): o índice cheio guarda um ponteiro por requisição em vez
 // de uma cópia (spec 018 RNF-02). Cheio, recomeça vazio: os resumos já entregues seguem nas conexões até o TTL, e
 // nada fica retido além delas por mais que uma geração. Não tem IP nem conn_id (forget não precisa dele).
+//
+// Contabilidade (ADR 0057 item 2): o texto, a lista, o mapa ou o resumo criado numa geração soma seu custo em c
+// (o acumulador de quem pediu) só na criação; quem o reencontra não soma. Assim o texto compartilhado conta uma
+// vez, na conexão que o trouxe, e o texto único (tráfego hostil) conta inteiro na sua conexão. O resumo do store
+// guarda o conn_id de quem o criou: a mesma conexão republicada (updated/closed) soma de novo, porque a versão
+// anterior, que o contava, sai do índice na substituição.
 type interner struct {
 	mu    sync.Mutex
 	max   int
-	reqs  map[StoreRequest]*StoreRequest
+	reqs  map[StoreRequest]*reqItem
 	strs  map[string]string
 	lists map[string][]string
 	maps  map[string]map[string]string
+}
+
+// reqItem é um resumo compartilhado, com a conexão que o criou e o custo que ele soma ao índice.
+type reqItem struct {
+	req    StoreRequest
+	owner  string
+	charge int64
 }
 
 // maxInterned é o teto de cada mapa do interner (resumos e textos), por geração.
@@ -292,37 +311,42 @@ const maxInterned = 8192
 
 var shared = &interner{max: maxInterned}
 
-// internRequest devolve o resumo compartilhado igual a r, com os textos copiados (sem segurar o JSON de origem).
-func internRequest(r StoreRequest) *StoreRequest {
+// internRequest devolve o resumo compartilhado igual a r, com os textos copiados (sem segurar o JSON de origem),
+// e o custo que ele soma à conexão owner (zero quando outra conexão o criou).
+func internRequest(r StoreRequest, owner string) (*StoreRequest, int64) {
 	r.fieldCount = 0
-	return shared.request(r)
+	return shared.request(r, owner)
 }
 
-func (in *interner) request(r StoreRequest) *StoreRequest {
+func (in *interner) request(r StoreRequest, owner string) (*StoreRequest, int64) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	if p, ok := in.reqs[r]; ok {
-		return p
+	if it, ok := in.reqs[r]; ok {
+		if it.owner == owner {
+			return &it.req, it.charge
+		}
+		return &it.req, 0
 	}
 	if in.reqs == nil || len(in.reqs) >= in.max {
-		in.reqs = make(map[StoreRequest]*StoreRequest, 256)
+		in.reqs = make(map[StoreRequest]*reqItem, 256)
 	}
-	r.Method, r.Version, r.Host = in.strLocked(r.Method), in.strLocked(r.Version), in.strLocked(r.Host)
-	r.UserAgent, r.FieldOrder, r.PseudoOrder = in.strLocked(r.UserAgent), in.strLocked(r.FieldOrder), in.strLocked(r.PseudoOrder)
-	r.JA4H, r.OriginHost, r.RefererHost = in.strLocked(r.JA4H), in.strLocked(r.OriginHost), in.strLocked(r.RefererHost)
-	p := &r
-	in.reqs[r] = p // chave com os textos copiados: não segura o JSON de origem
-	return p
+	c := reqItemBytes
+	r.Method, r.Version, r.Host = in.strLocked(r.Method, &c), in.strLocked(r.Version, &c), in.strLocked(r.Host, &c)
+	r.UserAgent, r.FieldOrder, r.PseudoOrder = in.strLocked(r.UserAgent, &c), in.strLocked(r.FieldOrder, &c), in.strLocked(r.PseudoOrder, &c)
+	r.JA4H, r.OriginHost, r.RefererHost = in.strLocked(r.JA4H, &c), in.strLocked(r.OriginHost, &c), in.strLocked(r.RefererHost, &c)
+	it := &reqItem{req: r, owner: owner, charge: c}
+	in.reqs[r] = it // chave com os textos copiados: não segura o JSON de origem
+	return &it.req, c
 }
 
-// str devolve a cópia compartilhada do texto.
-func (in *interner) str(s string) string {
+// str devolve a cópia compartilhada do texto; c (opcional) recebe o custo se o texto foi criado agora.
+func (in *interner) str(s string, c *int64) string {
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	return in.strLocked(s)
+	return in.strLocked(s, c)
 }
 
-func (in *interner) strLocked(s string) string {
+func (in *interner) strLocked(s string, c *int64) string {
 	if s == "" {
 		return ""
 	}
@@ -334,11 +358,14 @@ func (in *interner) strLocked(s string) string {
 	}
 	v := strings.Clone(s)
 	in.strs[v] = v
+	if c != nil {
+		*c += strBytes(len(v))
+	}
 	return v
 }
 
 // list devolve a lista compartilhada igual a l (somente leitura; nil e vazia continuam como vieram).
-func (in *interner) list(l []string) []string {
+func (in *interner) list(l []string, c *int64) []string {
 	if len(l) == 0 {
 		return l
 	}
@@ -350,17 +377,20 @@ func (in *interner) list(l []string) []string {
 	}
 	out := make([]string, len(l))
 	for i, s := range l {
-		out[i] = in.strLocked(s)
+		out[i] = in.strLocked(s, c)
 	}
 	if in.lists == nil || len(in.lists) >= in.max {
 		in.lists = make(map[string][]string, 256)
 	}
 	in.lists[strings.Clone(key)] = out
+	if c != nil {
+		*c += listBytes(len(out))
+	}
 	return out
 }
 
 // fields devolve o mapa compartilhado igual a m (somente leitura).
-func (in *interner) fields(m map[string]string) map[string]string {
+func (in *interner) fields(m map[string]string, c *int64) map[string]string {
 	if len(m) == 0 {
 		return nil
 	}
@@ -384,12 +414,15 @@ func (in *interner) fields(m map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(m))
 	for k, v := range m {
-		out[in.strLocked(k)] = in.strLocked(v)
+		out[in.strLocked(k, c)] = in.strLocked(v, c)
 	}
 	if in.maps == nil || len(in.maps) >= in.max {
 		in.maps = make(map[string]map[string]string, 256)
 	}
 	in.maps[key] = out
+	if c != nil {
+		*c += mapBytes(len(out), fieldSlot)
+	}
 	return out
 }
 
@@ -453,7 +486,7 @@ func ParseStoreConnection(data []byte) (*StoreConn, error) {
 		return nil, fmt.Errorf("%w: port", errBadStoreConnection)
 	}
 	c.Started, _ = time.Parse(time.RFC3339Nano, s.Started)
-	c.Requests, c.RequestsSeen = storeRequests(p.Connection)
+	c.Requests, c.RequestsSeen, c.reqCharge = storeRequests(p.Connection, c.ConnID)
 	c.Record = slimRecord(p.Connection)
 	return c, nil
 }
