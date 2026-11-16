@@ -39,14 +39,18 @@ Toda sondagem web leva a porta explícita: `https://<id>.finger-west-01.badblock
 
 ### Limites
 
-- As 7 units ficam em `finger-sniffer.slice` com `MemoryMax=6G` e `CPUQuota=800%`; por unit, `MemoryMax` store 2G,
-  nats 1G, web 768M, capture 512M, raw 256M e dns 256M.
-- Modo degradado: `FS_MAX_CONNS=1000` e `FS_MAX_NEW_CONNS_PER_S=250`; garantia do RNF-01: 200 conexões simultâneas
-  e 50 novas/s ([ADR 0042](../specs/decisions/0042-rnf-01-200-50-na-v0-3-0.md); 400/100 é meta da fase F7).
-- Limite conhecido da v0.3.0 no finger-01 (ADR 0043): a 200/50, feed p99 ~1,9 s e registro p95 ~1,5 s (metas
-  < 1 s e ≤ 500 ms); causa: IO do disco da VM; correção na F7.
+- As 7 units ficam em `finger-sniffer.slice` com `MemoryMax=10G` e `CPUQuota=800%`; por unit, `MemoryMax` store 6G
+  (com o tmpfs de 4G do banco, [ADR 0045](../specs/decisions/0045-banco-do-store-em-ram.md)), nats 1G, web 768M,
+  capture 512M, raw 256M e dns 256M.
+- Modo degradado: `FS_MAX_CONNS=1000` e `FS_MAX_NEW_CONNS_PER_S=250`; garantia do RNF-01: 400 conexões simultâneas
+  e 100 novas/s com análise completa ([ADR 0046](../specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md)).
+- Limite conhecido da `v0.3.0` no finger-01 (ADR 0043), **resolvido na F7**: na `v0.3.0` a garantia era 200/50 e, a
+  200/50, feed p99 ~1,9 s e registro p95 ~1,5 s (metas < 1 s e ≤ 500 ms), por IO do disco da VM. Com o banco do store
+  em RAM (ADR 0045), a carga oficial a 400/100 deu feed p99 352 ms e registro p95 TCP 193 / QUIC 188 ms (ADR 0046).
 - Orçamento de entrada do web (`FS_WEB_INPUT_BUDGET`): 192 MiB (faixa 8–256 MiB).
 - Banco do store (`FS_STORE_MAX_BYTES`): 3 GiB num tmpfs de 4G (ADR 0045); retenção de 10 min; stream `FS_EVENTS` de 128 MiB.
+  O tmpfs some no reinício do host (probes anteriores dão 404); com o tmpfs quase cheio o store fica `degraded`
+  com `db space <n>% free` ou `db full` (veja [api.md](api.md#saúde) e [metrics.md](metrics.md)).
 
 ### Valores do host que moldam a resposta
 
