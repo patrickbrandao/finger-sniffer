@@ -5,7 +5,9 @@ info:
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
-    (HTTP, só loopback e a rede do traefik do finger-01, chave opcional), portas fora da captura.
+    (HTTP, só loopback e a rede do traefik do finger-01, chave opcional; `Authorization` que não seja
+    `Bearer fsk_...` é ignorado ali, porque o forwardAuth repassa os cabeçalhos do visitante), portas fora da captura.
+    O traefik modificado é o traefix, projeto externo (spec 019, ADR 0054).
 
     Chave: `Authorization: Bearer fsk_<52 caracteres base32>`, emitida pelo operador com a CLI
     `finger-sniffer-bot key create` (sem cadastro). Cada chave tem domínios autorizados: recurso de um site fora
@@ -39,7 +41,7 @@ tags:
   - name: realtime
     description: Feed de vereditos.
   - name: ingest
-    description: Envio do traefik modificado.
+    description: Envio do traefix (traefik modificado, spec 019).
 paths:
   /bot/v1/health:
     get:
@@ -72,8 +74,10 @@ paths:
       summary: forwardAuth do traefik
       description: |
         Avalia a requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri` e pelos
-        `X-Fs-*` que o fork acrescenta (spec 019 RF-06). Espera a visão até `FS_BOT_VIEW_WAIT` (100 ms). No modo
-        `observe` responde sempre 200; no modo `block`, 403 para `class=bot`.
+        `X-Fs-*` que o traefix acrescenta (spec 019 RF-06). Espera a visão até `FS_BOT_VIEW_WAIT` (100 ms). No modo
+        `observe` responde sempre 200; no modo `block`, 403 para `class=bot`. 400 `missing_fork_headers` sem os
+        `X-Fs-*`; 400 `bad_request` com chave cujos domínios não casam com `X-Forwarded-Host` (erro de configuração
+        do operador, ADR 0055).
       parameters:
         - { name: X-Fs-Src-Ip, in: header, required: true, schema: { type: string } }
         - { name: X-Fs-Src-Port, in: header, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
@@ -129,7 +133,7 @@ paths:
     get:
       tags: [verdicts]
       operationId: getVerdictByForkConn
-      summary: Consulta pelo id de conexão do fork
+      summary: Consulta pelo id de conexão do traefix
       parameters:
         - { name: fs_conn_id, in: path, required: true, schema: { $ref: "#/components/schemas/ULID" } }
         - $ref: "#/components/parameters/Wait"
@@ -223,7 +227,7 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestTraefik
-      summary: Envio em lote do traefik modificado (spec 019 RF-05)
+      summary: Envio em lote do traefix (spec 019 RF-05)
       requestBody:
         required: true
         content:
@@ -286,7 +290,7 @@ components:
       description: Chave `fsk_...` emitida pelo operador (ADR 0051).
   headers:
     XFsVerdict:
-      description: Classe do veredito, ou `unavailable` (posto pelo fork em fail-open).
+      description: Classe do veredito, ou `unavailable` (posto pelo traefix em fail-open).
       schema: { type: string, enum: [human, good_bot, bot, suspect, unknown, unavailable] }
     XFsScore:
       description: Score 0–100.
@@ -414,7 +418,7 @@ components:
         site: { type: [string, "null"] }
         src: { $ref: "#/components/schemas/Endpoint" }
         dst_port: { type: [integer, "null"] }
-        fs_conn_id: { type: [string, "null"], description: Id da conexão no fork. }
+        fs_conn_id: { type: [string, "null"], description: Id da conexão no traefix. }
         conn_id: { type: [string, "null"], description: "`conn_id` do store, quando casado." }
         probe_id: { type: [string, "null"] }
         method: { type: [string, "null"] }
@@ -485,7 +489,7 @@ components:
       type: object
       required: [records]
       properties:
-        sender: { type: string, description: "Versão do fork (`<tag-upstream>-fs.<n>`)." }
+        sender: { type: string, description: "Versão do traefix (`<tag-upstream>-traefix.<n>`, spec 019 RF-09)." }
         records:
           type: array
           maxItems: 1024

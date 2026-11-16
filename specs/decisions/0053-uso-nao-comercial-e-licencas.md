@@ -1,6 +1,6 @@
 # 0053 — Uso não comercial e licenças (JA4+, ja4db, traefik)
 
-Status: aceita
+Status: aceita (item 4, licença do fork: com o projeto traefix, ver 0054)
 Data: 2026-11-16
 
 ## Contexto

@@ -1,6 +1,6 @@
 # 0052 — Dados pessoais (LGPD) e retenção de 7 dias dos agregados
 
-Status: provisória (revisar quando o humano responder às pendências P5–P7 da spec 018)
+Status: provisória (revisar quando o humano responder às pendências P5 e P6 da spec 018; item 6 descartado pela 0054, P7)
 Data: 2026-11-16
 
 ## Contexto
@@ -32,7 +32,7 @@ para esta fase.
 5. **Direitos do titular**: `finger-sniffer-bot forget <ip|prefixo>` apaga agregados e vereditos em memória daquele
    IP ou prefixo; a página `htdocs/privacy.html` (inglês e português) descreve finalidade, dados, retenção e o canal
    de contato (texto e contato do humano, P6).
-6. **API aberta do store e tráfego dos sites (provisória, pendência P7)**: proposta do architect — o store deixa de
+6. **API aberta do store e tráfego dos sites (descartado: o humano manteve o tráfego visível, P7, ADR 0054 item 8)**: proposta do architect — o store deixa de
    expor na API aberta (listagens, `connections/{id}`, pcap, raw, pacotes e feed global) as conexões cujo destino é
    porta do traefik (`FS_PRIVATE_PORTS`, padrão `80,443,8081` TCP e `443` UDP), que continuam indo ao bot por
    `fs.v1.store.connection`. Muda o comportamento da ADR 0007 e da ADR 0038 item 6; **só é implementada depois da

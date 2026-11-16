@@ -91,8 +91,11 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   com 9002 e 9003; `FS_BOT_INTERNAL_LISTEN` = IP do host na bridge `br-net-public` do traefik, descoberto e fixado
   pelo infra; `make build`/`make deploy` com 6 binários e `SVC=bot`; o smoke exige o bot `ok` e `GET
   https://finger-01.badblock.net.br:9002/bot/v1/health` 200. O deploy nunca apaga `var/bot`.
-- RF-15: fork do traefik (ADR 0048): o deploy do espelho não instala nem reinicia o traefik; a troca da imagem do
-  `traefik-app` é tarefa própria com aval do humano.
+- RF-15: traefix (ADR 0054): o deploy do espelho não instala nem reinicia o traefik; a troca da imagem do
+  `traefik-app` pela do traefix é tarefa própria (task 273), depois do aviso do humano: teste num container à parte,
+  tag imutável ou digest fixado (nunca `latest`), configuração estática `experimental.fingerSniffer` com `ingestURL`
+  na 9003, nenhum forwardAuth nos routers dos sites (só num router de teste, `observe` e `failOpen`) e volta à imagem
+  anterior se algum site mudar de resposta.
 
 ## Interfaces e contratos
 - [eventbus/nats/nats.conf](../eventbus/nats/nats.conf), `.env.example`.
@@ -104,7 +107,7 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - [ ] `make deploy` duas vezes seguidas não muda nada no segundo (idempotente).
 
 ## Fora de escopo
-- Docker para o espelho (o Docker do host é do humano; só o fork do traefik vira imagem, ADR 0048), Kubernetes,
+- Docker para o espelho (o Docker do host é do humano; o traefix tem imagem própria no projeto dele, ADR 0054), Kubernetes,
   outros sistemas operacionais.
 
 ## Decisões relacionadas
@@ -116,3 +119,4 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - specs/decisions/0029-campos-da-auditoria-de-requisitos.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
+- specs/decisions/0054-traefix-projeto-externo.md

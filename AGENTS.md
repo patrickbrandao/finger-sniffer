@@ -6,8 +6,8 @@ temporização) e devolve tudo, cru e analisado, por uma API em portas não capt
 Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com quais características ele alcança o
 servidor, repetindo a mesma sondagem por caminhos diferentes (direto, proxies, túneis) e comparando o que o
 espelho viu (ADR 0028). Na fase F8, o serviço `bot` usa essa análise para dar vereditos de bot por API (forwardAuth
-do traefik, consulta, probe, feed e webhook) e um traefik modificado em `./traefik/` entrega a visão dos sites
-(ADRs 0047–0053).
+do traefik, consulta, probe, feed e webhook) e o traefix (traefik modificado, projeto externo do humano,
+imagem `tmsoftbrasil/traefix`) entrega a visão dos sites pelos requisitos da spec 019 (ADRs 0047–0055).
 
 Roda em `finger-01.tmsoft.com.br` (também `finger-01.badblock.net.br`; Debian 13, VM VMware, 16 vCPU, 32 GB, NIC
 `ens192`), em `/finger-sniffer`, como 7 units systemd (rede + NATS + 5 serviços; 8 com o `bot` da F8) agrupadas num target, dentro da
@@ -46,8 +46,8 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - Endpoints, funções, variáveis, chaves JSON, subjects NATS e nomes de arquivos de código em **inglês**.
 - Comentários de código **somente em português do Brasil**.
 - Go 1.27, `CGO_ENABLED=0`, binários estáticos linux/amd64.
-- Dependências permitidas: lista da ADR 0009. Qualquer outra exige pedir ao humano. O fork em `./traefik/` usa o
-  `go.mod` do upstream (ADR 0048); dependência nova além dele também vai ao humano.
+- Dependências permitidas: lista da ADR 0009. Qualquer outra exige pedir ao humano. O traefix não vive neste
+  repositório (ADR 0054): aqui só o contrato com ele (spec 019 e openapi do bot).
 
 ## Comandos
 - Instalar ferramentas: `make tools` (golangci-lint, gofumpt, goose, lefthook, govulncheck)
@@ -82,7 +82,6 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - ./tmp/: arquivos temporários (fora do Git)
 - ./docs/: documentação derivada
 - ./cmd/finger-sniffer-<svc>/: binário de cada serviço (capture, web, raw, dns, store; bot na F8)
-- ./traefik/: fork do traefik (módulo Go separado, papel `implementer-traefik`, ADR 0048)
 - ./internal/<svc>/: código de cada serviço
 - ./pkg/: código comum (detecção de protocolo, probe, fingerprints, parsers, envelope de eventos)
 - ./htdocs/: site estático (inglês) servido nas portas capturadas

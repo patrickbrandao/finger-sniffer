@@ -263,8 +263,8 @@ components:
       type: object
       description: |
         Estado da conexão depois do commit do store (spec 004 RF-12, ADR 0047). `opened` = conexão criada com o SYN
-        (ou primeiro datagrama/evento) analisado; `updated` = evento de aplicação incorporado; `closed` = registro
-        final. `connection` é o mesmo `Connection` de `GET /api/v1/connections/{conn_id}`, sem BLOBs; listas e
+        (ou primeiro datagrama/evento) analisado; `updated` = evento de aplicação incorporado, no máximo um a cada
+        100 ms por conexão (os da janela saem como um só no fim dela, ADR 0055); `closed` = registro final. `connection` é o mesmo `Connection` de `GET /api/v1/connections/{conn_id}`, sem BLOBs; listas e
         strings cortadas para caber em 900 KiB levam as marcas `*_truncated` de sempre e `connection_truncated`.
       required: [stage, connection]
       properties:
@@ -639,8 +639,17 @@ components:
       payload: { $ref: "#/components/schemas/ConnIDReplyPayload" }
     StoreConnection:
       name: StoreConnection
+      examples:
+        - name: opened
+          summary: conexão TCP criada com o SYN analisado (golden do store).
+          payload:
+            $ref: "../../internal/store/testdata/events/store.connection.opened.json"
+        - name: closed
+          summary: registro final de uma conexão TCP com TLS e HTTP/1 (golden do store).
+          payload:
+            $ref: "../../internal/store/testdata/events/store.connection.closed.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
-      summary: Estado da conexão para o bot (à mão; sem golden até a task 268).
+      summary: Estado da conexão para o bot.
       payload:
         allOf:
           - $ref: "#/components/schemas/Envelope"
