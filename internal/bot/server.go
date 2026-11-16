@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/net/netutil"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/agg"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
@@ -31,6 +32,8 @@ const (
 	// dbSpaceDegraded é a fração do teto do banco a partir da qual o health fica degraded (spec 018 RF-11).
 	dbSpaceDegraded = 0.9
 	shutdownTimeout = 5 * time.Second
+	// metricAggDropped conta as observações descartadas pelo teto de entradas dos agregados (ADR 0056).
+	metricAggDropped = "bot_agg_dropped_total"
 )
 
 // SubscribeFunc assina um subject do NATS e devolve como cancelar (nats.Conn.Subscribe nos binários, falso nos
@@ -61,6 +64,7 @@ type Server struct {
 	hub     *Hub
 	feed    *StoreFeed
 	api     *API
+	agg     *agg.Aggregator
 }
 
 // New monta o serviço sem abrir portas.
@@ -79,6 +83,7 @@ func New(cfg Config, d Deps) *Server {
 	s.limiter = NewLimiter(d.DB, d.Now)
 	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, func(n int) { d.Metrics.Add(metricConnsEvicted, float64(n)) })
 	s.hub = NewHub()
+	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention})
 	s.feed = NewStoreFeed(s.index, d.Now)
 	s.api = &API{
 		Keys: s.keys, Limiter: s.limiter, Index: s.index, Hub: s.hub, DB: d.DB, OpenAPI: d.OpenAPI,
@@ -120,6 +125,9 @@ func (s *Server) Handler(internal bool) http.Handler {
 // Index expõe o índice (para os testes e a segunda onda).
 func (s *Server) Index() *Index { return s.index }
 
+// Agg expõe os agregados e o cache de comportamento (Observe e Query na task 282, Forget na 283).
+func (s *Server) Agg() *agg.Aggregator { return s.agg }
+
 // Keys expõe o cache de chaves.
 func (s *Server) Keys() *KeyStore { return s.keys }
 
@@ -150,6 +158,11 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 		closeAll(public)
 		closeAll(internal)
 		return err
+	}
+	if s.deps.DB != nil {
+		if err := s.agg.Load(ctx, s.deps.DB, s.deps.Now()); err != nil {
+			s.deps.Log.Warn("bot: behavior cache load", "err", err)
+		}
 	}
 	unsubscribe := func() {}
 	if s.deps.Subscribe != nil {
@@ -221,6 +234,9 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	if err := s.limiter.Flush(shCtx); err != nil {
 		s.deps.Log.Warn("bot: final usage flush", "err", err)
 	}
+	if err := s.flushAgg(shCtx); err != nil {
+		s.deps.Log.Warn("bot: final aggregate flush", "err", err)
+	}
 	return runErr
 }
 
@@ -246,6 +262,12 @@ func (s *Server) loops(ctx context.Context) {
 			if err := s.limiter.Flush(ctx); err != nil && ctx.Err() == nil {
 				s.deps.Log.Warn("bot: usage flush", "err", err)
 			}
+			if err := s.flushAgg(ctx); err != nil && ctx.Err() == nil {
+				s.deps.Log.Warn("bot: aggregate flush", "err", err)
+			}
+			if s.cfg.MaxBytes > 0 && dbFileSize(s.cfg.DBPath) > s.cfg.MaxBytes {
+				s.purgeSize(ctx)
+			}
 			s.updateMetrics()
 		case <-purge.C:
 			s.purge(ctx)
@@ -253,15 +275,32 @@ func (s *Server) loops(ctx context.Context) {
 	}
 }
 
+// flushAgg grava os agregados (spec 018 RF-08).
+func (s *Server) flushAgg(ctx context.Context) error {
+	if s.deps.DB == nil {
+		return nil
+	}
+	return s.agg.Flush(ctx, s.deps.DB, s.deps.Now())
+}
+
+// purge expurga por idade e, se o banco passou do teto, pelas horas mais antigas (ADR 0056 item 4: rótulo reason).
 func (s *Server) purge(ctx context.Context) {
 	n, err := Purge(ctx, s.deps.DB, s.deps.Now(), s.cfg.AggRetention)
-	if err != nil {
-		if ctx.Err() == nil {
-			s.deps.Log.Warn("bot: purge", "err", err)
-		}
-		return
+	s.deps.Metrics.Add(metricPurged+`{reason="age"}`, float64(n))
+	if err != nil && ctx.Err() == nil {
+		s.deps.Log.Warn("bot: purge", "err", err)
 	}
-	s.deps.Metrics.Add(metricPurged, float64(n))
+	s.purgeSize(ctx)
+}
+
+func (s *Server) purgeSize(ctx context.Context) {
+	n, err := PurgeSize(ctx, s.deps.DB, s.cfg.DBPath, s.cfg.MaxBytes)
+	if n > 0 {
+		s.deps.Metrics.Add(metricPurged+`{reason="size"}`, float64(n))
+	}
+	if err != nil && ctx.Err() == nil {
+		s.deps.Log.Warn("bot: purge size", "err", err)
+	}
 }
 
 func (s *Server) updateMetrics() {
@@ -269,6 +308,7 @@ func (s *Server) updateMetrics() {
 	m.Set(metricKeysActive, float64(s.keys.Active()))
 	m.Set(metricStoreFeedMessages, float64(s.feed.Messages()))
 	m.Set(metricDBBytes, float64(dbFileSize(s.cfg.DBPath)))
+	m.Set(metricAggDropped, float64(s.agg.Dropped()))
 }
 
 func listenAll(addrs []string) ([]net.Listener, error) {
