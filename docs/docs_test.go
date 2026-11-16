@@ -608,10 +608,10 @@ func TestFinger01Docs(t *testing.T) {
 			"`2804:231c:e500:cafe::86`", "`ens192`", "TCP **8080** e **8443**", "UDP **8443**", "`h3=\":8443\"; ma=60`",
 			"`_8443._https.<nome>`", "NODATA", "**A**", "**B**", "TLS-ALPN-01", "`finger-sniffer.slice`",
 			"`MemoryMax=6G`", "`CPUQuota=800%`", "`FS_MAX_CONNS=1000`", "`FS_MAX_NEW_CONNS_PER_S=250`", "192 MiB",
-			"8 GiB", "128 MiB", "`net.ipv4.ip_default_ttl=128`", "`net.ipv4.tcp_mtu_probing=1`", "traefik",
+			"3 GiB", "128 MiB", "`net.ipv4.ip_default_ttl=128`", "`net.ipv4.tcp_mtu_probing=1`", "traefik",
 		},
 		"api.md": {
-			"`https://finger-01.badblock.net.br:9000`", "`[2804:231c:e500:cafe::86]`", "8 GiB", "`nat on mirror ports`",
+			"`https://finger-01.badblock.net.br:9000`", "`[2804:231c:e500:cafe::86]`", "3 GiB", "`nat on mirror ports`",
 			"`conntrack_loaded`", "`nft_ruleset_lines`", "**tolerados**", "`net.ipv4.ip_default_ttl=128`",
 			"`net.ipv4.tcp_mtu_probing=1`", "`ens192`", "padrão 1000 conexões simultâneas", "200 e 50 novas/s",
 		},

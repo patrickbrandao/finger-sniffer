@@ -59,6 +59,7 @@ func TestMetrics(t *testing.T) {
 	in.now = func() time.Time { return time.Unix(0, base+6e9) }
 	m := newStoreMetrics(metricsHealth, in.flows.open, in.live)
 	m.registerStream(&in.stream)
+	m.registerSpace(newDBSpace(newFakeSpace(4<<30, 3<<30)))
 	in.SetMetrics(m)
 	r := NewRetention(in.db, time.Minute, 1<<30)
 	r.OnPurge = m.purge
@@ -113,6 +114,8 @@ func TestMetrics(t *testing.T) {
 		"fs_store_live_dropped_total": counter, "fs_store_live_delay_seconds": hist, "fs_store_api_requests_total": counter,
 		"fs_store_api_request_duration_seconds": hist,
 		"fs_store_stream_lost_total":            counter, "fs_store_ingest_backlog_seconds": gauge, "fs_store_ingest_pending_messages": gauge,
+		// banco no tmpfs (ADR 0045 item 5)
+		"fs_store_db_fs_bytes": gauge, "fs_store_db_full_total": counter, "fs_store_db_full_dropped_total": counter,
 		// nomes antigos preservados
 		"fs_store_connections": gauge, "fs_host_syncookies_sent": gauge, "fs_store_app_events_total": counter,
 	}
@@ -128,6 +131,16 @@ func TestMetrics(t *testing.T) {
 		if _, ok := types[gone]; ok {
 			t.Errorf("%s must be replaced by the native metric", gone)
 		}
+	}
+	fsBytes := map[string]float64{}
+	for _, mt := range byName["fs_store_db_fs_bytes"].GetMetric() {
+		fsBytes[mt.GetLabel()[0].GetValue()] = mt.GetGauge().GetValue()
+	}
+	if fsBytes["size"] != 4<<30 || fsBytes["free"] != 3<<30 {
+		t.Errorf("fs_store_db_fs_bytes %v", fsBytes)
+	}
+	if _, err := m.purged.GetMetricWithLabelValues("space"); err != nil || len(byName["fs_store_purged_total"].GetMetric()) != 3 {
+		t.Errorf("fs_store_purged_total must be pre-created with age, size and space")
 	}
 	// Buckets: API 1 ms–1 s; lag/atraso 10 ms–10 s.
 	bounds := func(name string) (float64, float64) {

@@ -17,26 +17,31 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/database/sqlite/migrations"
 )
 
-// WALJournalLimit é o journal_size_limit do escritor: o tamanho a que o WAL é cortado quando recomeça. Fica acima
-// do maior WAL normal (o wal_autocheckpoint, 256 MiB) para o arquivo não ser cortado no uso normal (task 246):
-// cortado a 64 MiB, ele voltava a crescer a cada recomeço, e cada bloco novo do WAL entra no próximo commit do
-// journal do ext4 (data=ordered), que todo fsync do banco espera. No disco do finger-01, a 100 conexões/s
-// (TestWriterNoStallDuringPurge, 300 s), o pior atraso de mensagem caiu de 1,35 s para 0,73 s e as mensagens com
-// mais de 1 s, de 230 para 0. Só um WAL anormal (leitor longo) passa disso e volta a este tamanho. É uma variável
-// para os testes.
-var WALJournalLimit int64 = 512 << 20
+// WALJournalLimit é o journal_size_limit do escritor: o tamanho a que o WAL é cortado quando recomeça (64 MiB, o
+// mesmo do wal_autocheckpoint). O banco fica num tmpfs (ADR 0045): o WAL custa RAM, e o motivo dos 512 MiB da
+// task 246 (não realocar blocos do ext4 a cada recomeço, que entravam no journal esperado pelo fsync) deixou de
+// existir. É uma variável para os testes.
+var WALJournalLimit int64 = 64 << 20
+
+// walAutocheckpoint é o wal_autocheckpoint do escritor, em quadros de 4 KiB (64 MiB, ADR 0045 item 4).
+const walAutocheckpoint = 16384
 
 // OpenDB abre (ou cria) o SQLite do store com as opções da spec 004 e aplica as migrations goose.
 // auto_vacuum=INCREMENTAL só vale se definido antes da primeira tabela, por isso vem antes das migrations.
 func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:gosec // FS_STORE_DB, da configuração
 		return nil, err
 	}
+	// O banco fica num tmpfs dedicado (ADR 0045): synchronous=OFF, porque fsync no tmpfs não faz nada e, no WAL,
+	// a queda do processo não corrompe o banco (os dados já estão no kernel); a queda do host apaga o tmpfs de todo
+	// jeito. A durabilidade por fsync (synchronous=NORMAL da spec 004 antes da ADR 0045) deixou de valer.
 	// O checkpoint automático do WAL roda no commit de quem escreve, ou seja, no caminho do ingest. O store faz o
 	// checkpoint por uma conexão própria a cada segundo (Checkpoint, task 105); o automático fica só como rede de
-	// segurança, com limiar alto (256 MiB de WAL, acima de WALRestartFrames, task 248); journal_size_limit em WALJournalLimit.
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)" +
-		"&_pragma=wal_autocheckpoint(65536)&_pragma=journal_size_limit(" + strconv.FormatInt(WALJournalLimit, 10) + ")"
+	// segurança, a walAutocheckpoint quadros (acima de WALRestartFrames, task 248); journal_size_limit em
+	// WALJournalLimit.
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(OFF)" +
+		"&_pragma=wal_autocheckpoint(" + strconv.Itoa(walAutocheckpoint) + ")&_pragma=journal_size_limit(" +
+		strconv.FormatInt(WALJournalLimit, 10) + ")"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -89,9 +94,10 @@ func OpenReadDB(path string, maxConns int) (*sql.DB, error) {
 	return db, nil
 }
 
-// OpenCheckpointDB abre a conexão que só faz checkpoint do WAL, fora da conexão do escritor (task 105).
+// OpenCheckpointDB abre a conexão que só faz checkpoint do WAL, fora da conexão do escritor (task 105). É ela
+// que faz a finalização das páginas no banco, com synchronous=OFF como o escritor (tmpfs, ADR 0045).
 func OpenCheckpointDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=synchronous(OFF)")
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +105,11 @@ func OpenCheckpointDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// WALRestartFrames é o tamanho do WAL (em quadros de 4 KiB, 128 MiB) a partir do qual o laço do store faz o WAL
-// recomeçar do início (CheckpointRestart, task 248). Cada recomeço para o escritor por um instante, então ele é
-// raro (a cada dezenas de segundos na carga 200/50); fica abaixo do wal_autocheckpoint (65536) para que o
-// checkpoint automático, que roda dentro do COMMIT do escritor, não chegue a disparar.
-const WALRestartFrames = 32768
+// WALRestartFrames é o tamanho do WAL (em quadros de 4 KiB, 32 MiB) a partir do qual o laço do store faz o WAL
+// recomeçar do início (CheckpointRestart, task 248). Fica abaixo do wal_autocheckpoint (walAutocheckpoint, 64 MiB)
+// para que o checkpoint automático, que roda dentro do COMMIT do escritor, não chegue a disparar. No tmpfs
+// (ADR 0045) o recomeço não espera fsync e custa só a cópia das páginas em memória.
+const WALRestartFrames = 8192
 
 const (
 	// walSettlePasses é o máximo de passadas sem trava antes da passada com o escritor parado.
@@ -122,16 +128,15 @@ const (
 // wal_autocheckpoint quadros (6 a 7 s na carga 200/50), copiando até 1 s de quadros e esperando os fsync com o
 // ingest parado: as paradas de 0,6 a 2,2 s da carga no finger-01 (ADR 0043).
 //
-// Aqui o grosso é copiado sem trava, em passadas até uma ficar curta; depois um fsync do WAL e do banco, ainda
-// sem trava, adianta o que a passada final teria de esperar. Só ela, com o pouco que o ingest gravou nesse meio
-// tempo, segura a conexão do escritor (o ingest e o expurgo esperam por ela no pool). Com tudo copiado, a próxima
-// transação do escritor recomeça o WAL. A durabilidade não muda: a passada final faz os mesmos fsync do
-// checkpoint automático (synchronous=NORMAL).
+// Aqui o grosso é copiado sem trava, em passadas até uma ficar curta. Só a passada final, com o pouco que o
+// ingest gravou nesse meio tempo, segura a conexão do escritor (o ingest e o expurgo esperam por ela no pool).
+// Com tudo copiado, a próxima transação do escritor recomeça o WAL. Com o banco no tmpfs (ADR 0045) não há fsync
+// a adiantar (o fsync do WAL e do banco antes da passada final, da task 248, saiu).
 //
-// path é o arquivo do banco (o WAL é path-wal). obs (opcional) recebe a duração de cada passada sem trava
+// obs (opcional) recebe a duração de cada passada sem trava
 // (opCheckpoint) e da passada com o escritor parado (opWALRestart), sem a espera pela conexão. Devolve os
 // quadros no WAL na última passada.
-func CheckpointRestart(ctx context.Context, writer, cdb *sql.DB, path string, restartAt int64, obs func(op string, d time.Duration)) (int64, error) {
+func CheckpointRestart(ctx context.Context, writer, cdb *sql.DB, restartAt int64, obs func(op string, d time.Duration)) (int64, error) {
 	pass := func() (int64, time.Duration, error) {
 		t0 := time.Now()
 		wal, _, err := Checkpoint(ctx, cdb)
@@ -154,8 +159,6 @@ func CheckpointRestart(ctx context.Context, writer, cdb *sql.DB, path string, re
 			break
 		}
 	}
-	syncFile(path + "-wal")
-	syncFile(path)
 	conn, err := writer.Conn(ctx) // a única conexão do escritor: o ingest espera no pool
 	if err != nil {
 		return wal, err
@@ -169,21 +172,18 @@ func CheckpointRestart(ctx context.Context, writer, cdb *sql.DB, path string, re
 	return wal, err
 }
 
-// syncFile faz o fsync de um arquivo do banco por um descritor próprio; só adianta o trabalho do checkpoint, que
-// faz os seus (erro aqui não importa).
-func syncFile(path string) {
-	f, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // arquivo do próprio banco
-	if err != nil {
-		return
-	}
-	_ = f.Sync()
-	_ = f.Close()
-}
-
 // Checkpoint copia o WAL para o banco sem esperar travas (PASSIVE): não bloqueia o escritor nem os leitores; o
 // que não deu para copiar fica para a próxima vez. Devolve as páginas no WAL e as já copiadas.
 func Checkpoint(ctx context.Context, db *sql.DB) (walPages, done int64, err error) {
 	var busy int64
 	err = db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &walPages, &done)
 	return walPages, done, err
+}
+
+// CheckpointTruncate copia o WAL inteiro para o banco e corta o WAL a zero (TRUNCATE), esperando o escritor e os
+// leitores pelo busy_timeout da conexão ou até ctx vencer. Usado depois do expurgo de emergência (ADR 0045 item
+// 5): só o checkpoint corta o arquivo do banco no tmpfs depois do incremental_vacuum.
+func CheckpointTruncate(ctx context.Context, db *sql.DB) error {
+	var busy, wal, done int64
+	return db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &wal, &done)
 }

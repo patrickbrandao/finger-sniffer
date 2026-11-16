@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -25,8 +26,9 @@ import (
 const (
 	DefaultMaxConns        = 1000
 	DefaultMaxNewConnsPerS = 250
-	// DefaultMaxBytes é o padrão de FS_STORE_MAX_BYTES: 8 GiB (ADR 0039 item 5, RNF-05).
-	DefaultMaxBytes = 8 << 30
+	// DefaultMaxBytes é o padrão de FS_STORE_MAX_BYTES: 3 GiB, 75% do tmpfs de 4G do banco (ADR 0045 item 3,
+	// RNF-05). Medido como páginas usadas (ADR 0034 item 9).
+	DefaultMaxBytes = 3 << 30
 )
 
 // Config do store nesta fase.
@@ -149,6 +151,7 @@ type Store struct {
 	certs   *certs.Store // nil quando a 9000 está desligada
 	live    *Hub
 	prom    *storeMetrics
+	space   *dbSpace // statfs do tmpfs do banco e modo banco cheio (ADR 0045)
 }
 
 // New abre o banco e prepara o store.
@@ -193,6 +196,12 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.prom = newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, time.Now()) }, s.ingest.flows.open, s.live)
 	s.ingest.SetMetrics(s.prom)
 	s.prom.registerStream(&s.ingest.stream)
+	s.space = newDBSpace(NewStatfsSpace(cfg.DBPath)).withReserve(cfg.DBPath)
+	if err := s.space.ensureReserve(); err != nil {
+		svc.Log.Warn("db space reserve", "err", err)
+	}
+	s.ingest.SetSpace(s.space, s.emergencyPurge())
+	s.prom.registerSpace(s.space)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen).WithOpenSummary(s.ingest.flows.openSummary).
 		WithLivePcap(s.ingest.flows.livePcap)
 	s.queries.SetHideOpen(s.ingest.flows.hide, s.ingest.flows.unhide)
@@ -205,6 +214,8 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		}
 		// Atraso e perda do consumidor do FS_EVENTS (ADR 0041 item 3).
 		reasons = append(reasons, s.ingest.stream.reasons(time.Now())...)
+		// Banco cheio e pouco espaço no tmpfs do banco (ADR 0045 item 5).
+		reasons = append(reasons, s.space.reasons(time.Now())...)
 		if len(reasons) > 0 {
 			return event.StatusDegraded, reasons
 		}
@@ -381,11 +392,8 @@ func (s *Store) ensureStream(ctx context.Context) jetstream.Consumer {
 
 // retentionLoop expurga a cada segundo, em lotes curtos e com orçamento por rodada (spec 004 RF-06, task 105).
 func (s *Store) retentionLoop(ctx context.Context) {
-	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
-	r.OnPurge = s.prom.purge
-	r.Observe = s.prom.writerOp
-	r.Budget, r.StepTarget = DefaultRetentionBudget, DefaultRetentionStep
-	r.Tracked, r.OrphanIdle = s.ingest.flows.tracked, s.cfg.Ingest.TCPIdle
+	r := s.newRetention()
+	r.Budget = DefaultRetentionBudget
 	t := time.NewTicker(RetentionInterval)
 	defer t.Stop()
 	for {
@@ -393,14 +401,22 @@ func (s *Store) retentionLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n, frames, rerr, cerr := maintain(ctx, r, s.db, s.cdb, s.cfg.DBPath, time.Now(), s.prom.writerOp)
+			n, frames, rerr, cerr := maintain(ctx, r, s.db, s.cdb, time.Now(), s.prom.writerOp)
 			if rerr != nil && ctx.Err() == nil {
 				s.svc.Log.Warn("retention", "err", rerr)
+				if isDBFull(rerr) {
+					s.space.noteFull(time.Now())
+					s.prom.dbFull()
+				}
 			}
 			if cerr != nil && ctx.Err() == nil {
 				s.svc.Log.Warn("wal checkpoint", "err", cerr)
 			}
 			s.prom.wal(frames)
+			// A reserva de espaço volta depois de um expurgo de emergência, com o livre de novo em 15% (ADR 0045).
+			if err := s.space.ensureReserve(); err != nil && ctx.Err() == nil {
+				s.svc.Log.Warn("db space reserve", "err", err)
+			}
 			s.svc.Metrics.Add("store_expunged_total", float64(n))
 			s.svc.Metrics.Set("store_db_bytes", float64(dbFileSize(s.cfg.DBPath)))
 		}
@@ -410,8 +426,49 @@ func (s *Store) retentionLoop(ctx context.Context) {
 // maintain é uma rodada do laço do store: expurgo com orçamento e checkpoint do WAL fora do escritor, com o
 // recomeço do WAL quando ele passa de WALRestartFrames (task 248). Devolve as conexões expurgadas e os quadros
 // no WAL.
-func maintain(ctx context.Context, r *Retention, db, cdb *sql.DB, path string, now time.Time, obs func(string, time.Duration)) (purged, frames int64, rerr, cerr error) {
+func maintain(ctx context.Context, r *Retention, db, cdb *sql.DB, now time.Time, obs func(string, time.Duration)) (purged, frames int64, rerr, cerr error) {
 	purged, rerr = r.RunOnce(ctx, now)
-	frames, cerr = CheckpointRestart(ctx, db, cdb, path, WALRestartFrames, obs)
+	frames, cerr = CheckpointRestart(ctx, db, cdb, WALRestartFrames, obs)
 	return purged, frames, rerr, cerr
+}
+
+// newRetention monta o expurgador do store (sem orçamento): métricas, órfãs e o livre do tmpfs do banco.
+func (s *Store) newRetention() *Retention {
+	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
+	r.OnPurge = s.prom.purge
+	r.Observe = s.prom.writerOp
+	r.StepTarget = DefaultRetentionStep
+	r.Tracked, r.OrphanIdle = s.ingest.flows.tracked, s.cfg.Ingest.TCPIdle
+	r.Space, r.Path = s.space.reader, s.cfg.DBPath
+	return r
+}
+
+// emergencyPurge devolve o expurgo de emergência do SQLITE_FULL no ingest (ADR 0045 item 5): apaga a reserva de
+// espaço (ReserveBytes), checkpoint TRUNCATE (o WAL cortado devolve espaço para o próprio expurgo escrever),
+// expurgo fora do orçamento até spaceOKPct de livre ou emergencyPurgeMax, e outro checkpoint TRUNCATE, que corta
+// o arquivo do banco no tmpfs. Usa um expurgador próprio: roda no laço de ingest, em paralelo ao laço do store.
+func (s *Store) emergencyPurge() func(ctx context.Context) {
+	r := s.newRetention()
+	r.Checkpoint = func(ctx context.Context) error { return CheckpointTruncate(ctx, s.cdb) }
+	return func(ctx context.Context) {
+		emergencyPurge(ctx, r, s.space, s.cdb, s.svc.Log)
+	}
+}
+
+// emergencyPurge é o corpo de Store.emergencyPurge (separado para os testes).
+func emergencyPurge(ctx context.Context, r *Retention, sp *dbSpace, cdb *sql.DB, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(ctx, 2*emergencyPurgeMax)
+	defer cancel()
+	if sp.releaseReserve() {
+		log.Warn("db space reserve released")
+	}
+	_ = CheckpointTruncate(ctx, cdb) // pode não conseguir (leitor longo): o expurgo tenta assim mesmo
+	n, err := r.Emergency(ctx)
+	if err != nil {
+		log.Warn("emergency purge", "err", err, "purged", n)
+	}
+	if err := CheckpointTruncate(ctx, cdb); err != nil {
+		log.Warn("emergency wal checkpoint", "err", err)
+	}
+	log.Warn("emergency purge done", "purged", n)
 }

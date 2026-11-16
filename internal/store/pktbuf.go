@@ -91,9 +91,19 @@ func (in *Ingestor) touchPkts(c *conn) {
 }
 
 // storePkt guarda um pacote da conexão: no buffer ou, se ela já passou para a tabela (ou passa agora), em packets.
+//
+// No modo banco cheio (ADR 0045 item 5) o lote não grava BLOBs: o pacote que iria para packets é descartado e o
+// pcap da conexão fica marcado como incompleto.
 func (in *Ingestor) storePkt(ctx context.Context, ins *sql.Stmt, c *conn, ts int64, dir uint8, wl int, frame []byte) error {
 	add := int64(len(frame)) + pktOverhead
-	if c.buf.spill == spillNone && (c.buf.size()+add > in.pktConnMax || in.pktMem+add > in.pktMemMax) {
+	spill := c.buf.spill == spillNone && (c.buf.size()+add > in.pktConnMax || in.pktMem+add > in.pktMemMax)
+	if (spill || c.buf.spill != spillNone) && in.space.isFull() {
+		if !c.truncated {
+			in.flows.mark(c, true, false)
+		}
+		return nil
+	}
+	if spill {
 		if err := in.spillConn(ctx, ins, c); err != nil {
 			return err
 		}
