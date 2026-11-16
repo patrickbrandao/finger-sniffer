@@ -1,0 +1,10 @@
+{
+  "changeNumber": 1,
+  "cloud": "Public",
+  "values": [
+    {"name": "AzureCloud", "id": "AzureCloud", "properties": {"changeNumber": 1, "region": "", "platform": "Azure",
+      "systemService": "", "addressPrefixes": ["198.18.0.0/15", "2001:db8:a2::/48"]}},
+    {"name": "Storage", "id": "Storage", "properties": {"changeNumber": 1, "region": "", "platform": "Azure",
+      "systemService": "AzureStorage", "addressPrefixes": ["100.64.0.0/10"]}}
+  ]
+}
