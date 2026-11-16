@@ -1,5 +1,5 @@
 {
-  "rules_version": "v1.0",
+  "rules_version": "v1.1",
   "ja4db": true,
   "input": {
     "IP": "192.0.2.10",
@@ -36,14 +36,20 @@
     }
   },
   "result": {
-    "class": "suspect",
-    "score": 60,
+    "class": "bot",
+    "score": 100,
     "signals": [
       {
         "id": "ja4h_library",
         "kind": "incoherence",
         "weight": 20,
         "detail": "ja4h ge11nn050000_b223a0ebb0b5 of python, no accept-language"
+      },
+      {
+        "id": "library_client",
+        "kind": "list",
+        "weight": 50,
+        "detail": "ua declares python"
       },
       {
         "id": "ja4db_match",

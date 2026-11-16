@@ -25,8 +25,12 @@ var goldenUA = map[string]string{
 }
 
 const (
-	uaGooglebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-	uaBingbot   = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
+	uaGooglebot   = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+	uaBingbot     = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
+	uaGPTBot      = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot"
+	uaDuckDuckBot = "DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)"
+	// Selenium conduzindo um Chrome de verdade, com o marcador no UA
+	uaSelenium  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Selenium/4.27.0"
 	uaChromeWin = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 )
 
@@ -107,28 +111,36 @@ func goldenCases(t testing.TB) []goldenCase {
 	googleUAChrome := inputFrom(e("chrome", "h2"), ua["chrome"], ipGooglebot)
 
 	return []goldenCase{
-		// as 7 classes de cliente da task 276 (ja4db desligada, ADR 0056 item 1)
-		{"curl", inputFrom(e("curl", "h2"), ua["curl"], ipResidential), false, ClassHuman, []string{SignalJA4HLibrary}},
-		{"go", inputFrom(e("go", "h2"), ua["go"], ipResidential), false, ClassHuman, []string{SignalJA4HLibrary}},
-		{"python_requests", inputFrom(e("python", "h1"), ua["python"], ipResidential), false, ClassHuman, []string{SignalJA4HLibrary}},
+		// as classes da ADR 0057 item 1 (rules v1.1; ja4db desligada, ADR 0056 item 1)
+		{"curl", inputFrom(e("curl", "h2"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"curl_h1", inputFrom(e("curl", "h1"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"curl_h3", inputFrom(e("curl", "h3"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"go", inputFrom(e("go", "h2"), ua["go"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"python_requests", inputFrom(e("python", "h1"), ua["python"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
 		{"chrome", inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential), false, ClassHuman, []string{SignalKnownClient}},
 		{"firefox", inputFrom(e("firefox", "h2"), ua["firefox"], ipResidential), false, ClassHuman, []string{SignalKnownClient}},
-		{"chrome_headless", inputFrom(e("headless", "h2"), ua["headless"], ipResidential), false, ClassHuman, nil},
+		{"chrome_headless", inputFrom(e("headless", "h2"), ua["headless"], ipResidential), false, ClassBot, []string{SignalUAAutomation}},
 		{"googlebot_fake", inputFrom(e("curl", "h2"), uaGooglebot, ipFakeGoogle), false, ClassBot, []string{SignalJA4HLibrary, SignalUAClaimsCrawler}},
-		// mais casos para cobrir os 17 sinais e as bordas
+		{"gptbot_list", inputFrom(e("go", "h2"), uaGPTBot, ipGPTBot), false, ClassGoodBot, []string{SignalJA4HLibrary, SignalIPVerifiedCrawler}},
+		{"gptbot_off_list", inputFrom(e("go", "h2"), uaGPTBot, ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalUAClaimsCrawler}},
+		{"ua_missing", noUA, false, ClassBot, []string{SignalUAMissing, SignalJA4HLibrary, SignalLibraryClient}},
+		// casos novos da v1.1
+		{"ua_other_go_ja4", inputFrom(e("go", "h2"), "custom-agent/1.0", ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"selenium_chrome_ua", inputFrom(e("chrome", "h2"), uaSelenium, ipResidential), false, ClassBot, []string{SignalUAAutomation}},
+		{"duckduckbot_list", inputFrom(e("go", "h2"), uaDuckDuckBot, ipDuckDuckBot), false, ClassGoodBot, []string{SignalJA4HLibrary, SignalIPVerifiedCrawler}},
+		// mais casos para cobrir os 19 sinais e as bordas
 		{"chrome_h3", inputFrom(e("chrome", "h3"), ua["chrome"], ipResidential), false, ClassHuman, []string{SignalKnownClient}},
 		{"chrome_h1_alpn", inputFrom(e("chrome", "h1"), ua["chrome"], ipResidential), false, ClassHuman, []string{SignalUAH2Mismatch, SignalUAALPNMismatch, SignalKnownClient}},
 		{"chrome_ua_curl_tls", chromeUACurlTLS, false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
 		{"chrome_windows_ttl64", winTTL, false, ClassHuman, []string{SignalUAOSTCPMismatch, SignalKnownClient}},
 		{"firefox_tunnel", tunnel, false, ClassHuman, []string{SignalTunnelMSS, SignalKnownClient}},
-		{"python_ja4db", inputFrom(e("python", "h1"), ua["python"], ipResidential), true, ClassSuspect, []string{SignalJA4HLibrary, SignalJA4DBMatch}},
+		{"python_ja4db", inputFrom(e("python", "h1"), ua["python"], ipResidential), true, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalJA4DBMatch}},
 		{"chrome_ja4db", inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential), true, ClassHuman, []string{SignalKnownClient}},
 		{"googlebot_verified", inputFrom(e("go", "h2"), uaGooglebot, ipGooglebot), false, ClassGoodBot, []string{SignalJA4HLibrary, SignalIPVerifiedCrawler}},
 		{"googlebot_ipv4_mapped", inputFrom(e("go", "h2"), uaGooglebot, netip.AddrFrom16(ipGooglebot.As16())), false, ClassGoodBot, []string{SignalJA4HLibrary, SignalIPVerifiedCrawler}},
 		{"bingbot_dns_failed", inputFrom(e("go", "h2"), uaBingbot, ipBingbot), false, ClassBot, []string{SignalJA4HLibrary, SignalUAClaimsCrawler, SignalIPCrawlerListUnverified}},
 		{"google_ip_chrome_ua", googleUAChrome, false, ClassHuman, []string{SignalKnownClient, SignalIPCrawlerListUnverified}},
-		{"curl_cloud_loop", curlLoop, false, ClassBot, []string{SignalJA4HLibrary, SignalIPCloud, SignalRateHigh, SignalNoReuse, SignalIntervalRegular, SignalRouteBreadth}},
-		{"ua_missing", noUA, false, ClassSuspect, []string{SignalUAMissing, SignalJA4HLibrary}},
+		{"curl_cloud_loop", curlLoop, false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalIPCloud, SignalRateHigh, SignalNoReuse, SignalIntervalRegular, SignalRouteBreadth}},
 		{"tcp_only", tcpOnly, false, ClassUnknown, nil},
 		{"fork_only_no_tcp", forkOnly, false, ClassHuman, []string{SignalKnownClient}},
 	}

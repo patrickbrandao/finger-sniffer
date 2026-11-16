@@ -1,5 +1,5 @@
 {
-  "rules_version": "v1.0",
+  "rules_version": "v1.1",
   "ja4db": false,
   "input": {
     "IP": "203.0.113.40",
@@ -56,6 +56,12 @@
         "kind": "incoherence",
         "weight": 20,
         "detail": "ja4h ge20nn020000_5594a17e7e7e of curl, no accept-language"
+      },
+      {
+        "id": "library_client",
+        "kind": "list",
+        "weight": 50,
+        "detail": "ua declares curl"
       },
       {
         "id": "ip_cloud",

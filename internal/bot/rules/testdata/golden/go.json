@@ -1,5 +1,5 @@
 {
-  "rules_version": "v1.0",
+  "rules_version": "v1.1",
   "ja4db": false,
   "input": {
     "IP": "192.0.2.10",
@@ -38,14 +38,20 @@
     }
   },
   "result": {
-    "class": "human",
-    "score": 20,
+    "class": "bot",
+    "score": 70,
     "signals": [
       {
         "id": "ja4h_library",
         "kind": "incoherence",
         "weight": 20,
         "detail": "ja4h ge20nn020000_b89ce445e0b3 of go, no accept-language"
+      },
+      {
+        "id": "library_client",
+        "kind": "list",
+        "weight": 50,
+        "detail": "ua declares go"
       }
     ],
     "ua_family": "go",

@@ -23,7 +23,7 @@ const (
 	KindBehavior    = "behavior"
 )
 
-// Ids estáveis dos sinais (spec 018, tabela "Pesos iniciais"), na ordem em que aparecem no veredito.
+// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.1)"), na ordem em que aparecem no veredito.
 const (
 	SignalUAMissing               = "ua_missing"
 	SignalUATLSMismatch           = "ua_tls_mismatch"
@@ -33,6 +33,8 @@ const (
 	SignalJA4HLibrary             = "ja4h_library"
 	SignalTunnelMSS               = "tunnel_mss"
 	SignalUAClaimsCrawler         = "ua_claims_crawler"
+	SignalUAAutomation            = "ua_automation"
+	SignalLibraryClient           = "library_client"
 	SignalJA4DBMatch              = "ja4db_match"
 	SignalKnownClient             = "known_client"
 	SignalIPVerifiedCrawler       = "ip_verified_crawler"
@@ -44,7 +46,7 @@ const (
 	SignalRouteBreadth            = "route_breadth"
 )
 
-// signalDef é uma linha da tabela de pesos (rules v1.0, provisórios).
+// signalDef é uma linha da tabela de pesos (rules v1.1, provisórios; ADRs 0049 e 0057).
 type signalDef struct {
 	id     string
 	kind   string
@@ -61,6 +63,8 @@ var signalTable = []signalDef{
 	{SignalJA4HLibrary, KindIncoherence, 20},
 	{SignalTunnelMSS, KindIncoherence, 5},
 	{SignalUAClaimsCrawler, KindIncoherence, 60},
+	{SignalUAAutomation, KindList, 70},
+	{SignalLibraryClient, KindList, 50},
 	{SignalJA4DBMatch, KindList, 40},
 	{SignalKnownClient, KindList, -20},
 	{SignalIPVerifiedCrawler, KindList, 0},
@@ -111,7 +115,7 @@ type Result struct {
 	UAOS     string `json:"ua_os,omitempty"`
 }
 
-// Engine avalia as regras v1 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
+// Engine avalia as regras v1.1 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
 type Engine struct {
 	Sources Sources
 	// RateHigh é FS_BOT_RATE_HIGH; 0 usa DefaultRateHigh.
@@ -130,7 +134,8 @@ func (e *eval) add(id, detail string) {
 	e.present[id] = detail
 }
 
-// Evaluate aplica as regras v1 (ADR 0049). Função pura: a mesma entrada com as mesmas fontes dá o mesmo resultado.
+// Evaluate aplica as regras v1.1 (ADRs 0049 e 0057). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
+// resultado.
 func (en Engine) Evaluate(in Input) Result {
 	ev := &eval{present: map[string]string{}}
 	var ua UA
@@ -334,7 +339,11 @@ func (en Engine) lists(ev *eval, in Input, ua UA) (good bool, crawler string) {
 			ev.add(SignalJA4DBMatch, "ja4db "+l.Kind+" "+truncate(l.Name, ja4dbNameMaxLen))
 		}
 	}
-	if in.HTTP != nil && IsBrowserFamily(ua.Family) && in.TLS != nil && in.TLS.JA4 != "" && src.Known != nil {
+	en.automationAndLibrary(ev, in, ua)
+	// o UA que declara automação não é coerente com o navegador medido (conduzido por gente): quem se declara
+	// automatizado é `bot` sozinho (ADR 0057 item 1), sem o desconto de `known_client`
+	if in.HTTP != nil && IsBrowserFamily(ua.Family) && ua.Automation == "" && in.TLS != nil && in.TLS.JA4 != "" &&
+		src.Known != nil {
 		akamai, ja4t := "", ""
 		if in.H2 != nil {
 			akamai = in.H2.Akamai
@@ -361,12 +370,17 @@ func (en Engine) lists(ev *eval, in Input, ua UA) (good bool, crawler string) {
 		}
 		listOp, inList = src.IPs.Crawler(ip)
 	}
+	sameOp := ua.Operator != "" && inList && listOp == ua.Operator
+	byList := VerifiedByList(ua.Operator)
 	verify := VerifyUnknown
-	if ua.Operator != "" && inList && listOp == ua.Operator && src.Verifier != nil {
+	// operador provado só pela lista (sem sufixo de DNS publicado): o CrawlerVerifier não é consultado
+	if sameOp && !byList && src.Verifier != nil {
 		verify = src.Verifier.Verified(ip, ua.Operator)
 	}
-	good = ua.Operator != "" && inList && listOp == ua.Operator && verify == VerifyPassed
+	good = sameOp && (byList || verify == VerifyPassed)
 	switch {
+	case good && byList:
+		ev.add(SignalIPVerifiedCrawler, ua.Crawler+" verified by ip list")
 	case good:
 		ev.add(SignalIPVerifiedCrawler, ua.Crawler+" verified ("+ua.Operator+")")
 	case inList:
@@ -384,6 +398,40 @@ func (en Engine) lists(ev *eval, in Input, ua UA) (good bool, crawler string) {
 		return true, ua.Crawler
 	}
 	return false, ""
+}
+
+// automationAndLibrary avalia `ua_automation` e `library_client` (ADR 0057 item 1).
+func (en Engine) automationAndLibrary(ev *eval, in Input, ua UA) {
+	if in.HTTP == nil {
+		return
+	}
+	if ua.Automation != "" {
+		ev.add(SignalUAAutomation, ua.Automation)
+	}
+	if IsLibraryFamily(ua.Family) {
+		ev.add(SignalLibraryClient, "ua declares "+ua.Family)
+		return
+	}
+	// UA vazio ou desconhecido: o JA4 decide quando a base própria só o viu em bibliotecas. Navegador, headless e
+	// robô nunca chegam aqui (família diferente de `other`).
+	if ua.Family != FamilyOther || in.TLS == nil || in.TLS.JA4 == "" || en.Sources.Known == nil {
+		return
+	}
+	fams := en.Sources.Known.Families(KindJA4, in.TLS.JA4)
+	if len(fams) == 0 || !allLibrary(fams) {
+		return
+	}
+	ev.add(SignalLibraryClient, "ja4 of measured "+firstLibrary(fams))
+}
+
+// allLibrary diz se todas as famílias são de biblioteca.
+func allLibrary(families []string) bool {
+	for _, f := range families {
+		if !IsLibraryFamily(f) {
+			return false
+		}
+	}
+	return true
 }
 
 // unverifiedReason explica por que um IP de lista de robô não virou `good_bot`.
@@ -430,7 +478,7 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// SignalWeight devolve o peso v1 do sinal (false para id desconhecido).
+// SignalWeight devolve o peso v1.1 do sinal (false para id desconhecido).
 func SignalWeight(id string) (int, bool) {
 	for _, d := range signalTable {
 		if d.id == id {

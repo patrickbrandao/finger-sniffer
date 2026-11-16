@@ -171,21 +171,26 @@ func loadJA4DBSample(t testing.TB) fakeJA4DB {
 	return db
 }
 
-// Endereços de documentação (RFC 5737) e uma faixa publicada do Googlebot para as listas falsas.
+// Endereços de documentação (RFC 5737) e faixas publicadas de robôs para as listas falsas.
 var (
 	ipResidential = netip.MustParseAddr("192.0.2.10")
 	ipCloud       = netip.MustParseAddr("203.0.113.40")
 	ipFakeGoogle  = netip.MustParseAddr("198.51.100.23")
 	ipGooglebot   = netip.MustParseAddr("66.249.66.1")
 	ipBingbot     = netip.MustParseAddr("157.55.39.10")
+	// faixas no formato das listas publicadas da OpenAI e do DuckDuckGo (operadores provados só pela lista)
+	ipGPTBot      = netip.MustParseAddr("20.171.206.5")
+	ipDuckDuckBot = netip.MustParseAddr("20.191.45.212")
 )
 
 func testIPs() fakeIPs {
 	return fakeIPs{
 		cloud: map[netip.Prefix]string{netip.MustParsePrefix("203.0.113.0/24"): "aws"},
 		crawler: map[netip.Prefix]string{
-			netip.MustParsePrefix("66.249.64.0/19"): OperatorGoogle,
-			netip.MustParsePrefix("157.55.39.0/24"): OperatorBing,
+			netip.MustParsePrefix("66.249.64.0/19"):   OperatorGoogle,
+			netip.MustParsePrefix("157.55.39.0/24"):   OperatorBing,
+			netip.MustParsePrefix("20.171.206.0/24"):  OperatorOpenAI,
+			netip.MustParsePrefix("20.191.45.212/32"): OperatorDuckDuckGo,
 		},
 	}
 }

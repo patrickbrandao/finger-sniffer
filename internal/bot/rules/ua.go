@@ -55,6 +55,42 @@ type UA struct {
 	Operator string
 	// Stack é a família cuja pilha de rede (TLS, h2) o cliente usa: no iOS todo navegador usa a do Safari.
 	Stack string
+	// Automation é o marcador de automação achado no UA (automationMarkers), "" quando o UA não declara automação.
+	// Vale para qualquer família (ADR 0057 item 1).
+	Automation string
+}
+
+// automationMarkers são os marcadores (minúsculos) de UA que declaram automação (`ua_automation`, ADR 0057 item 1),
+// na ordem de teste: o primeiro achado vai para o `detail`.
+var automationMarkers = []string{
+	"headlesschrome", "phantomjs", "slimerjs", "selenium", "webdriver", "puppeteer", "playwright", "cypress", "htmlunit",
+}
+
+// verifyMethod é como um operador de robô prova o IP (ADR 0057 item 1).
+type verifyMethod string
+
+// Métodos de prova do robô.
+const (
+	// verifyByDNS exige o IP na lista do operador e o DNS reverso/direto no sufixo dele (ADR 0050 item 4).
+	verifyByDNS verifyMethod = "dns"
+	// verifyByList basta o IP na lista publicada do operador (operadores sem sufixo de DNS reverso publicado).
+	verifyByList verifyMethod = "list"
+)
+
+// operatorMethods é a tabela operador → método; ao lado dos sufixos de internal/bot/lists (task 278), que só
+// existem para os operadores `dns`.
+var operatorMethods = map[string]verifyMethod{
+	OperatorGoogle:     verifyByDNS,
+	OperatorBing:       verifyByDNS,
+	OperatorApple:      verifyByDNS,
+	OperatorOpenAI:     verifyByList,
+	OperatorDuckDuckGo: verifyByList,
+}
+
+// VerifiedByList diz se o robô do operador é provado só pela lista de IP, sem DNS reverso/direto (o bot não precisa
+// pedir a verificação por DNS para ele).
+func VerifiedByList(operator string) bool {
+	return operatorMethods[operator] == verifyByList
 }
 
 // crawlerRule associa um marcador (minúsculo) do UA ao nome do robô e ao operador.
@@ -154,7 +190,7 @@ func ParseUA(raw string) UA {
 		raw = raw[:maxUALen]
 	}
 	s := strings.ToLower(raw)
-	ua := UA{Family: FamilyOther, OS: parseOS(s)}
+	ua := UA{Family: FamilyOther, OS: parseOS(s), Automation: matchAutomation(s)}
 	if s == "" {
 		ua.Stack = ua.Family
 		return ua
@@ -175,6 +211,16 @@ func ParseUA(raw string) UA {
 		ua.Stack = FamilySafari
 	}
 	return ua
+}
+
+// matchAutomation devolve o primeiro marcador de automação contido em s (já minúsculo), "" sem nenhum.
+func matchAutomation(s string) string {
+	for _, m := range automationMarkers {
+		if strings.Contains(s, m) {
+			return m
+		}
+	}
+	return ""
 }
 
 // matchCrawler procura um robô conhecido e, sem ele, um marcador genérico.

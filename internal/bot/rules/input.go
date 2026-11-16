@@ -8,7 +8,7 @@ package rules
 import "net/netip"
 
 // RulesVersion é a versão das regras (ADR 0049 item 6: mudança de regra muda a versão e regrava os goldens).
-const RulesVersion = "v1.0"
+const RulesVersion = "v1.1"
 
 // Input é o que as regras leem. Cada parte é opcional (nil quando a visão não tinha aquela camada).
 type Input struct {
