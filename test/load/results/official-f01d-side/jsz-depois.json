@@ -1,0 +1,67 @@
+{
+  "memory": 110421,
+  "storage": 0,
+  "reserved_memory": 134217728,
+  "reserved_storage": 0,
+  "accounts": 1,
+  "ha_assets": 0,
+  "api": {
+    "level": 5,
+    "total": 36,
+    "errors": 2
+  },
+  "server_id": "NDENEX3NLPHDELRTHKH3MEM5EF3LQWAZYVB4CRNGS6GYKQUCE32PT2LX",
+  "now": "2026-11-16T03:23:03.981160521Z",
+  "config": {
+    "max_memory": 268435456,
+    "max_storage": 268435456,
+    "store_dir": "/finger-sniffer/var/nats/jetstream",
+    "sync_interval": 120000000000,
+    "compress_ok": true,
+    "strict": true
+  },
+  "limits": {
+    "default_max_consumers": 1000
+  },
+  "streams": 1,
+  "consumers": 1,
+  "messages": 162,
+  "bytes": 110421,
+  "account_details": [
+    {
+      "name": "$G",
+      "id": "$G",
+      "memory": 110421,
+      "storage": 0,
+      "reserved_memory": 18446744073709551615,
+      "reserved_storage": 18446744073709551615,
+      "accounts": 0,
+      "ha_assets": 0,
+      "api": {
+        "level": 0,
+        "total": 36,
+        "errors": 2
+      },
+      "stream_detail": [
+        {
+          "name": "FS_EVENTS",
+          "created": "2026-11-15T15:49:44.903134658Z",
+          "cluster": {
+            "leader": "finger-sniffer"
+          },
+          "state": {
+            "messages": 162,
+            "bytes": 110421,
+            "first_seq": 3981253,
+            "first_ts": "2026-11-16T03:22:04.069365326Z",
+            "last_seq": 3981414,
+            "last_ts": "2026-11-16T03:23:03.645359816Z",
+            "num_subjects": 5,
+            "consumer_count": 1
+          }
+        }
+      ]
+    }
+  ],
+  "total": 1
+}
