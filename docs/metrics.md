@@ -155,7 +155,7 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_ingest_backlog_seconds` | gauge | parede menos o instante em que a última mensagem processada entrou no stream; volta a 0 quando um Fetch não traz mensagens (consumidor em dia) (ADR 0041) |
 | `fs_store_ingest_pending_messages` | gauge | `NumPending` do metadado da última mensagem processada (ADR 0041) |
 | `fs_store_dns_queries_total` | contador | consultas DNS gravadas |
-| `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção) ou `size` (teto do banco) |
+| `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção), `size` (teto do banco) ou `space` (livre do tmpfs do banco abaixo de 10%, ou expurgo de emergência depois de um `SQLITE_FULL`; ADR 0045) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |
 | `fs_store_connections` | gauge | conexões guardadas no banco (abertas e fechadas, dentro da retenção) |
 | `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (TCP com FIN/RST, meta p95 ≤ 500 ms), `quic_close` (QUIC encerrado, visto pelo web, mesma meta) ou `idle` (fechada por ociosidade, fora da meta); ver [abaixo](#tempo-até-o-registro) |
@@ -168,6 +168,9 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_api_request_duration_seconds{route}` | histograma | duração das requisições da API (meta p95 < 100 ms) |
 | `fs_store_writer_seconds{op}` | histograma | duração das operações do escritor único do SQLite (task 248): `ingest_tx` (lote do ingest, do BEGIN ao fim do COMMIT), `ingest_commit` (só o COMMIT), `finalize_tx` (finalização com o pcap), `purge_delete` (um DELETE em lote do expurgo), `purge_vacuum` (`incremental_vacuum`), `wal_checkpoint` (checkpoint PASSIVE pela conexão própria, sem segurar o escritor) e `wal_restart` (última passada do checkpoint, com o escritor parado para o WAL recomeçar do início) |
 | `fs_store_wal_frames` | gauge | quadros (páginas de 4 KiB) no WAL do SQLite no último checkpoint; volta perto de 0 quando o WAL recomeça |
+| `fs_store_db_fs_bytes{kind}` | gauge | tamanho (`size`) e livre (`free`) do sistema de arquivos do banco (`statfs` do tmpfs de 4G, ADR 0045) |
+| `fs_store_db_full_total` | contador | erros `SQLITE_FULL` (tmpfs do banco cheio) nas escritas do store; meta da carga: Δ 0 |
+| `fs_store_db_full_dropped_total` | contador | mensagens do `FS_EVENTS` confirmadas e descartadas no modo banco cheio, quando nem o lote sem BLOBs coube |
 
 `route` é o padrão da rota, nunca o caminho com IDs: por exemplo `GET /api/v1/connections/{conn_id}`.
 

@@ -308,7 +308,7 @@ func TestWriterNoStallDuringPurge(t *testing.T) {
 				wal, _, cerr = Checkpoint(ctx, cdb)
 				stats.add(opCheckpoint, time.Since(t1))
 			} else {
-				n, wal, rerr, cerr = maintain(ctx, r, db, cdb, path, clock(), stats.add)
+				n, wal, rerr, cerr = maintain(ctx, r, db, cdb, clock(), stats.add)
 			}
 			if rerr != nil || cerr != nil {
 				errc <- fmt.Errorf("retention %w, checkpoint %w", rerr, cerr)
@@ -422,12 +422,12 @@ func TestCheckpointRestartResetsWAL(t *testing.T) {
 	fill()
 	var ops []string
 	obs := func(op string, _ time.Duration) { ops = append(ops, op) }
-	wal, err := CheckpointRestart(ctx, db, cdb, path, 1<<20, obs)
+	wal, err := CheckpointRestart(ctx, db, cdb, 1<<20, obs)
 	if err != nil || wal < 100 || len(ops) != 1 || ops[0] != opCheckpoint {
 		t.Fatalf("below the threshold: wal %d, ops %v, err %v", wal, ops, err)
 	}
 	ops = nil
-	if _, err := CheckpointRestart(ctx, db, cdb, path, 100, obs); err != nil || ops[len(ops)-1] != opWALRestart {
+	if _, err := CheckpointRestart(ctx, db, cdb, 100, obs); err != nil || ops[len(ops)-1] != opWALRestart {
 		t.Fatalf("restart: ops %v, err %v", ops, err)
 	}
 	// a próxima escrita recomeça o WAL: o checkpoint seguinte vê só os quadros dela

@@ -59,6 +59,8 @@ type storeMetrics struct {
 	apiDuration *prometheus.HistogramVec
 	writer      *prometheus.HistogramVec
 	walFrames   prometheus.Gauge
+	dbFullErrs  prometheus.Counter
+	dbFullDrop  prometheus.Counter
 }
 
 // newStoreMetrics registra as métricas. health monta o estado agregado (heartbeats, host, banco); open conta as
@@ -89,7 +91,7 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 			Name: "fs_store_dns_queries_total", Help: "DNS queries recorded.",
 		}),
 		purged: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "fs_store_purged_total", Help: "Connections purged by retention, by reason (age or size).",
+			Name: "fs_store_purged_total", Help: "Connections purged by retention, by reason (age, size, or space: free space of the database filesystem).",
 		}, []string{"reason"}),
 		recordReady: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "fs_store_record_ready_seconds", Help: "Delay from the end of a connection to its final record being written, by reason (close, quic_close or idle).", Buckets: delayBuckets,
@@ -112,19 +114,25 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 	m.walFrames = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "fs_store_wal_frames", Help: "Frames (4 KiB pages) in the SQLite WAL at the last checkpoint.",
 	})
+	m.dbFullErrs = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "fs_store_db_full_total", Help: "SQLITE_FULL errors (database filesystem full) in store writes.",
+	})
+	m.dbFullDrop = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "fs_store_db_full_dropped_total", Help: "FS_EVENTS messages acknowledged and dropped because even the batch without blobs did not fit the database.",
+	})
 	m.flowsDrop = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "fs_store_flows_dropped_total",
 		Help: "Flow table cap (8192 entries): unestablished entries evicted, and packets of new 5-tuples refused with no entry to evict.",
 	}, []string{"reason"})
 	reg.MustRegister(m.ingested, m.ingestLag, m.connsTotal, m.degraded, m.stray, m.midflow, m.dnsQueries, m.purged, m.recordReady,
-		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop, m.writer, m.walFrames)
+		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop, m.writer, m.walFrames, m.dbFullErrs, m.dbFullDrop)
 	for _, op := range writerOps {
 		m.writer.WithLabelValues(op)
 	}
 	for _, r := range []string{dropEvicted, dropTableFull} {
 		m.flowsDrop.WithLabelValues(r)
 	}
-	for _, r := range []string{"age", "size"} {
+	for _, r := range []string{"age", "size", "space"} {
 		m.purged.WithLabelValues(r)
 	}
 	for _, r := range []string{"close", "quic_close", "idle"} {
@@ -157,6 +165,23 @@ func (m *storeMetrics) registerStream(st *streamStats) {
 		}, func() float64 { _, _, p := st.snapshot(); return float64(p) }),
 	)
 }
+
+// dbFSBytesDesc é fs_store_db_fs_bytes{kind}: tamanho e livre do sistema de arquivos do banco (ADR 0045).
+var dbFSBytesDesc = prometheus.NewDesc("fs_store_db_fs_bytes", "Size and free space of the filesystem holding the database (statfs), by kind (size or free).", []string{"kind"}, nil)
+
+// spaceCollector lê o statfs do banco a cada coleta.
+type spaceCollector struct{ sp *dbSpace }
+
+func (c spaceCollector) Describe(ch chan<- *prometheus.Desc) { ch <- dbFSBytesDesc }
+
+func (c spaceCollector) Collect(ch chan<- prometheus.Metric) {
+	size, free, _ := c.sp.read() // sem statfs: 0
+	ch <- prometheus.MustNewConstMetric(dbFSBytesDesc, prometheus.GaugeValue, float64(size), "size")
+	ch <- prometheus.MustNewConstMetric(dbFSBytesDesc, prometheus.GaugeValue, float64(free), "free")
+}
+
+// registerSpace expõe o espaço do sistema de arquivos do banco (ADR 0045 item 5).
+func (m *storeMetrics) registerSpace(sp *dbSpace) { m.reg.MustRegister(spaceCollector{sp: sp}) }
 
 // Os métodos abaixo aceitam receptor nil (ingest sem métricas, nos testes).
 
@@ -212,6 +237,18 @@ func (m *storeMetrics) flowDropped(reason string) {
 func (m *storeMetrics) writerOp(op string, d time.Duration) {
 	if m != nil {
 		m.writer.WithLabelValues(op).Observe(d.Seconds())
+	}
+}
+
+func (m *storeMetrics) dbFull() {
+	if m != nil {
+		m.dbFullErrs.Inc()
+	}
+}
+
+func (m *storeMetrics) dbFullDropped(n int) {
+	if m != nil {
+		m.dbFullDrop.Add(float64(n))
 	}
 }
 

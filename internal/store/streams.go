@@ -35,8 +35,8 @@ func (in *Ingestor) storeStream(ctx context.Context, tx *sql.Tx, ev appEvent, tg
 		}
 		sb.Truncated = true
 	}
-	// Modo degradado (spec 004 RF-11): sem bytes crus.
-	if len(data) > 0 && !tg.degraded {
+	// Modo degradado (spec 004 RF-11) e modo banco cheio (ADR 0045 item 5): sem bytes crus.
+	if len(data) > 0 && !tg.degraded && !in.space.isFull() {
 		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO raw_streams (conn_id, dir, offset, data) VALUES (?, ?, ?, ?)",
 			tg.id, dirIndex(sb.Dir), sb.Offset, data); err != nil {
 			return ev, false, fmt.Errorf("insert raw stream: %w", err)

@@ -46,7 +46,7 @@ Toda sondagem web leva a porta explícita: `https://<id>.finger-west-01.badblock
 - Limite conhecido da v0.3.0 no finger-01 (ADR 0043): a 200/50, feed p99 ~1,9 s e registro p95 ~1,5 s (metas
   < 1 s e ≤ 500 ms); causa: IO do disco da VM; correção na F7.
 - Orçamento de entrada do web (`FS_WEB_INPUT_BUDGET`): 192 MiB (faixa 8–256 MiB).
-- Banco do store (`FS_STORE_MAX_BYTES`): 8 GiB; retenção de 10 min; stream `FS_EVENTS` de 128 MiB.
+- Banco do store (`FS_STORE_MAX_BYTES`): 3 GiB num tmpfs de 4G (ADR 0045); retenção de 10 min; stream `FS_EVENTS` de 128 MiB.
 
 ### Valores do host que moldam a resposta
 

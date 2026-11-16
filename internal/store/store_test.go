@@ -324,10 +324,10 @@ func TestLoadConfig(t *testing.T) {
 	if c.Ingest.MaxOpen != 1000 || c.Ingest.MaxNewPerS != 250 {
 		t.Fatalf("limites padrão %d/%d, quer 1000/250", c.Ingest.MaxOpen, c.Ingest.MaxNewPerS)
 	}
-	// teto do banco padrão de 8 GiB (ADR 0039 item 5)
+	// teto do banco padrão de 3 GiB, 75% do tmpfs de 4G (ADR 0045 item 3)
 	t.Setenv("FS_STORE_MAX_BYTES", "")
-	if c, err = LoadConfig(); err != nil || c.MaxBytes != 8589934592 {
-		t.Fatalf("FS_STORE_MAX_BYTES padrão %d %v, quer 8589934592", c.MaxBytes, err)
+	if c, err = LoadConfig(); err != nil || c.MaxBytes != 3221225472 {
+		t.Fatalf("FS_STORE_MAX_BYTES padrão %d %v, quer 3221225472", c.MaxBytes, err)
 	}
 	t.Setenv("FS_STORE_MAX_BYTES", "x")
 	if _, err := LoadConfig(); err == nil {

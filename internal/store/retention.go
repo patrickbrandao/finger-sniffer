@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"math"
+	"os"
 	"strconv"
 	"time"
 )
@@ -49,7 +50,7 @@ type Retention struct {
 	Budget time.Duration
 	// StepTarget é o prazo de cada DELETE em lote de conexões (0 = lote fixo): ver adapt.
 	StepTarget time.Duration
-	// OnPurge, se definido, recebe as conexões expurgadas por motivo (age ou size).
+	// OnPurge, se definido, recebe as conexões expurgadas por motivo (age, size ou space).
 	OnPurge func(reason string, n int64)
 	// Observe, se definido, recebe a duração de cada comando de escrita do expurgo: opPurgeDelete (um DELETE em
 	// lote) e opPurgeVacuum (incremental_vacuum) (task 248).
@@ -60,6 +61,21 @@ type Retention struct {
 	Tracked func(id string) bool
 	// OrphanIdle é a ociosidade máxima do TCP (a conexão aberta mais longa sem pacote que o ingest mantém).
 	OrphanIdle time.Duration
+	// Space, se definido, lê o livre do sistema de arquivos do banco (o tmpfs, ADR 0045 item 5): com menos de
+	// spaceLowPct livre, o expurgo por tamanho roda mesmo abaixo de maxBytes, até o livre voltar a spaceOKPct.
+	Space SpaceReader
+	// Path é o arquivo do banco: o que ele ocupa além de page_count já vai voltar ao tmpfs no próximo checkpoint
+	// (incremental_vacuum feito, arquivo ainda não cortado) e não precisa de mais expurgo.
+	Path string
+	// spaceMode é a histerese do expurgo por espaço: liga abaixo de spaceLowPct, desliga em spaceOKPct.
+	spaceMode bool
+	// Checkpoint, se definido, é o checkpoint TRUNCATE do WAL que o expurgo de emergência faz depois de cada
+	// passo (Emergency).
+	Checkpoint func(ctx context.Context) error
+	// afterStep roda depois de cada comando de escrita do expurgo (só durante Emergency).
+	afterStep func()
+	// chunk é o tamanho de cada incremental_vacuum de releaseFree (0 = releaseChunk).
+	chunk int64
 	// now mede o orçamento (testes trocam).
 	now func() time.Time
 }
@@ -119,7 +135,7 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 			}
 		}
 	}
-	n, err = r.purgeSize(ctx, over)
+	n, err = r.purgeSize(ctx, over, false)
 	total += n
 	if err != nil {
 		return total, err
@@ -127,7 +143,119 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 	if over() {
 		return total, nil
 	}
+	if r.spaceMode {
+		return total, r.releaseFree(ctx, over) // devolve tudo ao tmpfs, não só o que sobrou de uma carga
+	}
 	return total, r.vacuum(ctx)
+}
+
+// Emergency é o expurgo de emergência depois de um SQLITE_FULL no ingest (ADR 0045 item 5): fora do orçamento da
+// rodada, do mais antigo para o mais novo, até o livre do tmpfs voltar a spaceOKPct ou por no máximo
+// emergencyPurgeMax, devolvendo as páginas com incremental_vacuum. As conexões contam como reason=space. Quem
+// chama faz o checkpoint TRUNCATE do WAL em seguida (só ele corta o arquivo do banco no tmpfs).
+//
+// Com o tmpfs cheio de verdade o WAL não pode crescer: cada passo (um DELETE em lote ou um incremental_vacuum de
+// emergencyChunk páginas) é seguido do checkpoint TRUNCATE (Checkpoint), que copia o pouco que o passo gravou no
+// WAL, corta o arquivo do banco e devolve o WAL ao tmpfs antes do passo seguinte.
+func (r *Retention) Emergency(ctx context.Context) (int64, error) {
+	start := r.now()
+	over := func() bool { return r.now().Sub(start) >= emergencyPurgeMax }
+	if r.Checkpoint != nil {
+		r.afterStep = func() { _ = r.Checkpoint(ctx) }
+	}
+	r.chunk = emergencyChunk
+	defer func() { r.afterStep, r.chunk = nil, 0 }()
+	n, err := r.purgeSize(ctx, over, true)
+	if err != nil {
+		return n, err
+	}
+	return n, r.releaseFree(ctx, over)
+}
+
+// spaceGoal devolve o tamanho lógico (páginas usadas) a que o expurgo por espaço precisa chegar, ou -1 quando o
+// livre do tmpfs não pede expurgo. force (emergência) ignora a histerese e mira spaceOKPct de livre.
+func (r *Retention) spaceGoal(ctx context.Context, force bool) (int64, error) {
+	if r.Space == nil {
+		return -1, nil
+	}
+	size, free, err := r.Space.Space()
+	if err != nil || size <= 0 {
+		return -1, nil //nolint:nilerr // sem statfs, fica só o teto de maxBytes
+	}
+	switch pct := freePct(size, free); {
+	case pct < spaceLowPct:
+		r.spaceMode = true
+	case pct >= spaceOKPct:
+		r.spaceMode = false
+	}
+	if !r.spaceMode && !force {
+		return -1, nil
+	}
+	need := spaceDeficit(size, free)
+	if need == 0 {
+		return -1, nil
+	}
+	logical, pending, err := r.pageUse(ctx)
+	if err != nil {
+		return -1, err
+	}
+	// O que já está livre no banco (freelist) ou à espera do corte do arquivo volta ao tmpfs sem expurgo.
+	need -= pending
+	if need <= 0 {
+		return -1, nil
+	}
+	return max(logical-need, 0), nil
+}
+
+// pageUse devolve o tamanho lógico (páginas usadas) e quanto do arquivo do banco já pode voltar ao tmpfs: as
+// páginas livres mais o que o arquivo tem além de page_count (corte pendente do próximo checkpoint).
+func (r *Retention) pageUse(ctx context.Context) (logical, pending int64, err error) {
+	pages, free, psize, err := r.pageCounts(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	pending = free * psize
+	if r.Path != "" {
+		if st, err := os.Stat(r.Path); err == nil && st.Size() > pages*psize { //nolint:gosec // FS_STORE_DB, da configuração
+			pending += st.Size() - pages*psize
+		}
+	}
+	return (pages - free) * psize, pending, nil
+}
+
+const (
+	// releaseChunk é o máximo de páginas de cada incremental_vacuum de releaseFree (16 MiB).
+	releaseChunk = 4096
+	// emergencyChunk é o mesmo no expurgo de emergência (1 MiB): cada página movida passa pelo WAL.
+	emergencyChunk = 256
+)
+
+// releaseFree devolve ao tmpfs todas as páginas livres do banco, em comandos de até releaseChunk páginas, até
+// acabar ou vencer o prazo.
+func (r *Retention) releaseFree(ctx context.Context, over func() bool) error {
+	for !over() {
+		var free int64
+		if err := r.db.QueryRowContext(ctx, "PRAGMA freelist_count").Scan(&free); err != nil {
+			return err
+		}
+		if free == 0 {
+			return nil
+		}
+		chunk := int64(releaseChunk)
+		if r.chunk > 0 {
+			chunk = r.chunk
+		}
+		t0 := time.Now()
+		_, err := r.db.ExecContext(ctx, "PRAGMA incremental_vacuum("+strconv.FormatInt(min(free, chunk), 10)+")") //nolint:gosec // número inteiro
+		r.observe(opPurgeVacuum, t0)
+		if err != nil {
+			return err
+		}
+		if r.afterStep != nil {
+			r.afterStep()
+		}
+	}
+	return nil
 }
 
 // sizeTable é uma tabela do expurgo por tamanho: head lê o instante da linha mais antiga e del apaga, das mais
@@ -158,12 +286,27 @@ var sizeTables = []sizeTable{
 // para o mais novo entre as conexões encerradas (com as filhas), as consultas DNS e os pacotes avulsos. A cada
 // passo, a tabela cuja linha mais antiga é a mais velha perde um lote, só até o instante da mais antiga das
 // outras; desiste quando nada mais pode ser apagado (restam só conexões abertas). Devolve as conexões apagadas.
-func (r *Retention) purgeSize(ctx context.Context, over func() bool) (int64, error) {
+//
+// Com o tmpfs do banco quase cheio (spaceGoal, ADR 0045 item 5), o alvo desce abaixo de maxBytes, até o tamanho
+// que devolve spaceOKPct de livre; as conexões apagadas só por isso contam como reason=space. force é a
+// emergência (Emergency).
+func (r *Retention) purgeSize(ctx context.Context, over func() bool, force bool) (int64, error) {
+	goal, err := r.spaceGoal(ctx, force)
+	if err != nil {
+		return 0, err
+	}
 	var total int64
 	for !over() {
 		size, err := r.logicalSize(ctx)
-		if err != nil || size <= r.maxBytes {
+		if err != nil {
 			return total, err
+		}
+		reason := "size"
+		if size <= r.maxBytes {
+			if goal < 0 || size <= goal {
+				return total, nil
+			}
+			reason = "space"
 		}
 		heads := make([]sql.NullInt64, len(sizeTables))
 		pick := -1
@@ -198,7 +341,7 @@ func (r *Retention) purgeSize(ctx context.Context, over func() bool) (int64, err
 		}
 		if st.conns {
 			total += n
-			r.purged("size", n)
+			r.purged(reason, n)
 		}
 	}
 	return total, nil
@@ -305,22 +448,30 @@ func (r *Retention) exec(ctx context.Context, q string, args ...any) (int64, err
 	if err != nil {
 		return 0, err
 	}
+	if r.afterStep != nil {
+		r.afterStep()
+	}
 	return res.RowsAffected()
 }
 
 // logicalSize é o tamanho ocupado pelos dados (páginas usadas), independente do vacuum.
 func (r *Retention) logicalSize(ctx context.Context) (int64, error) {
-	var pages, free, size int64
-	if err := r.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
-		return 0, err
+	pages, free, size, err := r.pageCounts(ctx)
+	return (pages - free) * size, err
+}
+
+// pageCounts lê page_count, freelist_count e page_size.
+func (r *Retention) pageCounts(ctx context.Context) (pages, free, size int64, err error) {
+	if err = r.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
+		return 0, 0, 0, err
 	}
-	if err := r.db.QueryRowContext(ctx, "PRAGMA freelist_count").Scan(&free); err != nil {
-		return 0, err
+	if err = r.db.QueryRowContext(ctx, "PRAGMA freelist_count").Scan(&free); err != nil {
+		return 0, 0, 0, err
 	}
-	if err := r.db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&size); err != nil {
-		return 0, err
+	if err = r.db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&size); err != nil {
+		return 0, 0, 0, err
 	}
-	return (pages - free) * size, nil
+	return pages, free, size, nil
 }
 
 // Operações do escritor medidas em fs_store_writer_seconds{op} (task 248).

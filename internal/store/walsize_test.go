@@ -1,24 +1,44 @@
 package store
 
 import (
+	"database/sql"
 	"os"
 	"testing"
 )
 
-// O WAL não é cortado quando recomeça no uso normal (task 246): o journal_size_limit fica acima do maior WAL
-// normal, o do wal_autocheckpoint.
-func TestWALJournalLimitAboveAutocheckpoint(t *testing.T) {
-	const autocheckpointBytes = 65536 * 4096 // wal_autocheckpoint(65536) do OpenDB, páginas de 4 KiB
-	if WALJournalLimit < autocheckpointBytes || WALJournalLimit < WALRestartFrames*4096 {
-		t.Fatalf("WALJournalLimit %d below the normal WAL size (%d)", WALJournalLimit, autocheckpointBytes)
+// Pragmas do banco no tmpfs (ADR 0045 item 4): escritor e conexão de checkpoint com synchronous=OFF,
+// wal_autocheckpoint de 16384 quadros, journal_size_limit de 64 MiB e o recomeço do WAL (task 248) abaixo do
+// checkpoint automático.
+func TestTmpfsPragmas(t *testing.T) {
+	if WALJournalLimit != 64<<20 || walAutocheckpoint != 16384 {
+		t.Fatalf("WALJournalLimit %d, walAutocheckpoint %d", WALJournalLimit, walAutocheckpoint)
 	}
-	db, _ := testDB(t)
-	var got int64
-	if err := db.QueryRowContext(t.Context(), "PRAGMA journal_size_limit").Scan(&got); err != nil {
+	if WALRestartFrames >= walAutocheckpoint {
+		t.Fatalf("WALRestartFrames %d must stay below wal_autocheckpoint %d", WALRestartFrames, walAutocheckpoint)
+	}
+	db, path := testDB(t)
+	cdb, err := OpenCheckpointDB(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got != WALJournalLimit {
-		t.Fatalf("journal_size_limit %d, want %d", got, WALJournalLimit)
+	defer func() { _ = cdb.Close() }()
+	for _, c := range []struct {
+		db     *sql.DB
+		pragma string
+		want   int64
+	}{
+		{db, "synchronous", 0},
+		{db, "wal_autocheckpoint", walAutocheckpoint},
+		{db, "journal_size_limit", WALJournalLimit},
+		{cdb, "synchronous", 0},
+	} {
+		var got int64
+		if err := c.db.QueryRowContext(t.Context(), "PRAGMA "+c.pragma).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != c.want {
+			t.Errorf("PRAGMA %s = %d, want %d", c.pragma, got, c.want)
+		}
 	}
 }
 
@@ -41,7 +61,7 @@ func walSizeAfterRestart(t *testing.T) int64 {
 			t.Fatal(err)
 		}
 	}
-	if _, err := CheckpointRestart(ctx, db, cdb, path, 100, nil); err != nil {
+	if _, err := CheckpointRestart(ctx, db, cdb, 100, nil); err != nil {
 		t.Fatal(err)
 	}
 	// a escrita depois do checkpoint completo recomeça o WAL (e o corta ao journal_size_limit)

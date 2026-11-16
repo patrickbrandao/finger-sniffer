@@ -125,7 +125,7 @@
       ],
       "store": {
         "db_bytes": 1048576,
-        "max_bytes": 8589934592,
+        "max_bytes": 3221225472,
         "retention": "10m",
         "connections": 0,
         "oldest": null

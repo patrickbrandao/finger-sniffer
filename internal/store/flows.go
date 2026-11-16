@@ -297,9 +297,11 @@ type flowTable struct {
 	tokensAt   int64   // instante (captura) da última recarga; 0 = balde cheio
 	fullSince  int64   // instante (captura) em que as vivas chegaram a maxOpen; 0 = abaixo do limite
 	segTracked int
-	p0f        *p0f.DB
-	clocks     clockRegistry
-	cookies    cookieHistory
+	// space é o estado do espaço do banco: no modo banco cheio toda conexão nova sai degradada (ADR 0045 item 5).
+	space   *dbSpace
+	p0f     *p0f.DB
+	clocks  clockRegistry
+	cookies cookieHistory
 }
 
 func newFlowTable(cfg IngestConfig) *flowTable {
@@ -561,7 +563,11 @@ func (t *flowTable) refund(c *conn) {
 //     depois de uma pausa da rede, os SYNs novos e os FINs das conexões que terminaram durante a pausa chegam
 //     juntos, os SYNs na frente, e a conta passa de 200 por alguns milissegundos sem haver 200 conexões de fato.
 //     O excesso dentro dessa janela continua limitado pelo balde das novas/s (no máximo ~maxNewPerS a mais).
+//   - No modo banco cheio (ADR 0045 item 5) toda conexão nova sai degradada, sem gastar ficha.
 func (t *flowTable) overloaded(ts int64, limited bool) bool {
+	if t.space.isFull() {
+		return true
+	}
 	t.refill(ts)
 	full := t.full(ts)
 	if !limited {

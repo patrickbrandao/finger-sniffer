@@ -36,8 +36,10 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
 
 ## Retenção
 
-- Os registros duram `FS_RETENTION` (10 minutos) ou até o banco chegar a `FS_STORE_MAX_BYTES` (8 GiB, ADR 0039); o primeiro
+- Os registros duram `FS_RETENTION` (10 minutos) ou até o banco chegar a `FS_STORE_MAX_BYTES` (3 GiB, ADR 0045); o primeiro
   limite atingido apaga os registros mais antigos (ADR 0012). Depois disso a API responde 404.
+- O banco fica em RAM, num tmpfs de 4G (ADR 0045): sobrevive ao reinício do store (deploy), mas **some no reinício do
+  host**; probes e IDs anteriores passam a dar 404, como depois da retenção.
 - `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões fechadas e suas consultas DNS (204).
   As conexões do probe ainda abertas somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo
   real) e são apagadas quando fecham (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
@@ -505,7 +507,7 @@ $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq '{ok, version
   "services": { "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
   "store": {
     "db_bytes": 76218368,
-    "max_bytes": 8589934592,
+    "max_bytes": 3221225472,
     "retention": "10m",
     "connections": 216,
     "oldest": "2026-11-15T15:37:46.115259456Z"

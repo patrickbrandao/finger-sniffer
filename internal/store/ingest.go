@@ -92,6 +92,12 @@ type Ingestor struct {
 	batchWall int64
 	// stream é a posição do consumidor no FS_EVENTS: perdidas, backlog e pendentes (ADR 0041 item 3).
 	stream streamStats
+
+	// space é o espaço do banco e o modo banco cheio (ADR 0045 item 5); nunca nil.
+	space *dbSpace
+	// onFull, se definido, é o expurgo de emergência depois de um SQLITE_FULL (expurgo fora do orçamento e
+	// checkpoint TRUNCATE do WAL), chamado no laço de ingest entre o rollback e a nova tentativa do lote.
+	onFull func(ctx context.Context)
 }
 
 // maxFinalizeTries é o máximo de tentativas de finalizar uma conexão; esgotadas, a linha é fechada com ended_ns
@@ -101,18 +107,25 @@ const maxFinalizeTries = 5
 // SetMetrics liga as métricas Prometheus do ingest.
 func (in *Ingestor) SetMetrics(m *storeMetrics) { in.prom = m }
 
+// SetSpace liga a leitura do espaço do banco (statfs do tmpfs) e o expurgo de emergência do SQLITE_FULL.
+func (in *Ingestor) SetSpace(sp *dbSpace, onFull func(ctx context.Context)) {
+	in.space, in.flows.space, in.onFull = sp, sp, onFull
+}
+
 // SetLive liga o tempo real: os lotes confirmados passam a alimentar o hub.
 func (in *Ingestor) SetLive(h *Hub) { in.live = h }
 
 // NewIngestor cria o ingestor.
 func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metrics) *Ingestor {
-	return &Ingestor{
+	in := &Ingestor{
 		db: db, cfg: cfg, log: log, metrics: m, now: time.Now,
 		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
 		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{}, late: map[string]*conn{},
 		batchApp: map[string]struct{}{}, eoChecked: map[string]struct{}{},
 		pktConnMax: defaultPktConnMax, pktMemMax: defaultPktMemMax,
 	}
+	in.SetSpace(newDBSpace(nil), nil)
+	return in
 }
 
 // Run busca lotes do consumidor durável, grava e confirma (ack depois do commit) até ctx terminar. O fim de ctx
@@ -149,8 +162,9 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 			in.stream.caughtUp() // nada a buscar: o consumidor alcançou o stream
 		}
 		if len(msgs) > 0 || len(in.pending) > 0 || len(in.eventOnly) > 0 {
-			// Só erro antes do commit chega aqui (rollback): o lote volta por Nak (ADR 0034).
-			if err := in.Process(work, msgs); err != nil {
+			// Só erro antes do commit chega aqui (rollback): o lote volta por Nak (ADR 0034). O SQLITE_FULL é
+			// tratado em processBatch e termina sempre em Ack (ADR 0045 item 5).
+			if _, err := in.processBatch(work, toSources(msgs)); err != nil {
 				in.log.Error("ingest", "err", err)
 				in.metrics.Add("store_ingest_errors_total", 1)
 				for _, m := range msgs {
@@ -167,6 +181,54 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 	in.drainPending()
 	in.spillAll()
 	return nil
+}
+
+// processBatch grava o lote. err != nil devolve o lote por Nak (ADR 0034); sem erro, as mensagens são
+// confirmadas, e dropped diz se foram descartadas com o banco cheio.
+//
+// SQLITE_FULL (tmpfs do banco cheio, ADR 0045 item 5): o rollback já desfez o lote (process); vem o expurgo de
+// emergência (onFull) e **uma** nova tentativa. Se falhar de novo, o store entra no modo banco cheio (conexões
+// novas degradadas e lote sem BLOBs, ver dbSpace) e tenta o lote assim; se nem o lote sem BLOBs couber, ele é
+// confirmado e descartado (fs_store_db_full_dropped_total). Nunca Nak em laço nem espera sem prazo. O modo banco
+// cheio termina quando o livre do tmpfs volta a spaceOKPct (checkExit, no início de cada lote).
+func (in *Ingestor) processBatch(ctx context.Context, msgs []msgSource) (dropped bool, err error) {
+	if in.space.checkExit(in.now()) {
+		in.log.Info("database full mode off")
+	}
+	if err = in.process(ctx, msgs); !isDBFull(err) {
+		return false, err
+	}
+	in.noteDBErr(err)
+	if !in.space.isFull() {
+		in.log.Warn("database full: emergency purge", "err", err, "messages", len(msgs))
+		if in.onFull != nil {
+			in.onFull(ctx)
+		}
+		if err = in.process(ctx, msgs); !isDBFull(err) {
+			return false, err
+		}
+		in.noteDBErr(err)
+		if in.space.enterFull(in.now()) {
+			in.log.Warn("database full mode on: new connections degraded, batches without blobs")
+		}
+		if err = in.process(ctx, msgs); !isDBFull(err) {
+			return false, err
+		}
+		in.noteDBErr(err)
+	}
+	// Nem o lote sem BLOBs coube: confirma e descarta.
+	in.log.Warn("database full: batch dropped", "messages", len(msgs))
+	in.prom.dbFullDropped(len(msgs))
+	in.metrics.Add("store_db_full_dropped_total", float64(len(msgs)))
+	return true, nil
+}
+
+// noteDBErr conta um erro de escrita que é SQLITE_FULL (fs_store_db_full_total e o "db full" do health).
+func (in *Ingestor) noteDBErr(err error) {
+	if isDBFull(err) {
+		in.space.noteFull(in.now())
+		in.prom.dbFull()
+	}
 }
 
 // captureNow é o "agora" do ingest para os prazos comparados a instantes de captura (ADR 0041 item 2).
@@ -399,8 +461,8 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if res.late {
 		in.metrics.Add("store_late_packets_total", 1)
 		c := res.conn
-		if c.degraded {
-			return nil
+		if c.degraded || in.space.isFull() {
+			return nil // sem pcap (modo degradado) ou sem BLOBs (modo banco cheio, ADR 0045 item 5)
 		}
 		frame, keep := in.pcapFrame(c, fi, p.Frame)
 		if !keep {
@@ -560,6 +622,7 @@ func (in *Ingestor) finalizeQueued(ctx context.Context) error {
 	var first error
 	fail := func(err error) {
 		in.metrics.Add("store_ingest_errors_total", 1)
+		in.noteDBErr(err) // SQLITE_FULL na finalização segue as tentativas da ADR 0034, mas conta
 		if first == nil {
 			first = err
 		}
