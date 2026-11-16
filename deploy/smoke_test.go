@@ -27,6 +27,7 @@ type fakeMirror struct {
 	metrics  map[string]map[string]int
 	altSvc   string            // Alt-Svc das respostas ("" = nenhum)
 	versions map[string]string // versão por serviço ("" = "test")
+	botCode  int               // código de GET /bot/v1/health (0 = 200)
 
 	plain, tls *httptest.Server
 	dnsSrv     *dns.Server
@@ -105,11 +106,20 @@ func (f *fakeMirror) health(w http.ResponseWriter, _ *http.Request) {
 func newFakeMirror(t *testing.T) *fakeMirror {
 	t.Helper()
 	f := &fakeMirror{statuses: map[string]string{}, reasons: map[string][]string{}, metrics: map[string]map[string]int{}, versions: map[string]string{}}
-	for _, s := range []string{"capture", "web", "raw", "dns", "store"} {
+	for _, s := range []string{"capture", "web", "raw", "dns", "store", "bot"} {
 		f.statuses[s] = "ok"
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", f.health)
+	mux.HandleFunc("/bot/v1/health", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		code := f.botCode
+		f.mu.Unlock()
+		if code == 0 {
+			code = http.StatusOK
+		}
+		w.WriteHeader(code)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		f.mu.Lock()
 		alt := f.altSvc
@@ -222,6 +232,11 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 		"SMOKE_DNS_PORT="+strconv.Itoa(f.dnsPort),
 		"SMOKE_ECHO_PORT="+port(t, f.echo.Addr().String()),
 		"SMOKE_BANNER_PORT="+port(t, f.banner.Addr().String()),
+		// bot: 9002 no TLS falso e 9003 no HTTP falso, sem a bridge (a recusa por origem é coberta no finger-01)
+		"SMOKE_BOT_PUBLIC_PORT="+port(t, f.tls.Listener.Addr().String()),
+		"SMOKE_BOT_INTERNAL_PORT="+port(t, f.plain.Listener.Addr().String()),
+		"SMOKE_BOT_LOOPBACK=127.0.0.1",
+		"SMOKE_BOT_BRIDGE=",
 		"SMOKE_HEALTH_WAIT=2",
 		"SMOKE_TIMEOUT=2",
 		// o espelho falso não fala h3; o GET por h3 é coberto só contra o servidor (finger-01)
@@ -240,7 +255,8 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 
 func TestSmokeListSelectsStepsBySVC(t *testing.T) {
 	cases := map[string]string{
-		"":        "health web h3 traefik dns raw store",
+		"":        "health web h3 traefik dns raw store bot",
+		"bot":     "health bot",
 		"web":     "health web h3 traefik",
 		"dns":     "health dns",
 		"raw":     "health raw",
@@ -559,5 +575,50 @@ func TestSmokeTraefikRequiredByDefault(t *testing.T) {
 	out, rc = runSmoke(t, f, "web", "SMOKE_TRAEFIK_PORT="+p, "SMOKE_TRAEFIK_REQUIRED=0")
 	if rc != 0 || !strings.Contains(out, "AVISO") || !strings.Contains(out, "SMOKE_TRAEFIK_REQUIRED=0") {
 		t.Fatalf("esperava AVISO sem falha com SMOKE_TRAEFIK_REQUIRED=0, rc=%d\n%s", rc, out)
+	}
+}
+
+// Bot (spec 016 RF-14): 9002 e 9003 respondendo passam; o health sem o bot reprova; sem a bridge, aviso.
+func TestSmokeBotPasses(t *testing.T) {
+	f := newFakeMirror(t)
+	f.setStatus("store", "degraded", "cert_self_signed")
+	out, rc := runSmoke(t, f, "bot")
+	if rc != 0 {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	for _, want := range []string{"bot GET https :", "bot :", "loopback", "sem FS_BOT_INTERNAL_LISTEN: pulado", "bot=ok"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("saída sem %q\n%s", want, out)
+		}
+	}
+}
+
+func TestSmokeBotFailsWhenHealthNot200(t *testing.T) {
+	f := newFakeMirror(t)
+	f.setStatus("store", "degraded", "cert_self_signed")
+	f.mu.Lock()
+	f.botCode = http.StatusServiceUnavailable
+	f.mu.Unlock()
+	if out, rc := runSmoke(t, f, "bot"); rc == 0 || !strings.Contains(out, "FALHOU") {
+		t.Fatalf("esperava falha, rc=%d\n%s", rc, out)
+	}
+}
+
+func TestSmokeFailsWhenBotDown(t *testing.T) {
+	f := newFakeMirror(t)
+	f.setStatus("store", "degraded", "cert_self_signed")
+	f.setStatus("bot", "down")
+	if out, rc := runSmoke(t, f, "bot"); rc == 0 || !strings.Contains(out, "bot=down") {
+		t.Fatalf("esperava falha com bot=down, rc=%d\n%s", rc, out)
+	}
+}
+
+// Com a bridge, a origem fora dela tem de levar 403: um bot que aceita qualquer origem reprova.
+func TestSmokeBotBridgeMustRejectOtherOrigin(t *testing.T) {
+	f := newFakeMirror(t)
+	f.setStatus("store", "degraded", "cert_self_signed")
+	out, rc := runSmoke(t, f, "bot", "SMOKE_BOT_BRIDGE=127.0.0.1")
+	if rc == 0 || !strings.Contains(out, "esperado 403") {
+		t.Fatalf("esperava falha da recusa por origem, rc=%d\n%s", rc, out)
 	}
 }

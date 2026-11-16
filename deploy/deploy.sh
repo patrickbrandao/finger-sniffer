@@ -21,9 +21,9 @@ STAGING="/var/tmp/finger-sniffer-deploy/$(whoami)-$(hostname -s)-$$"
 SSH=(ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 
 case "$SVC" in
-"" | capture | web | raw | dns | store | nats) ;;
+"" | capture | web | raw | dns | store | bot | nats) ;;
 *)
-	echo "SVC inválido: $SVC (capture|web|raw|dns|store|nats)" >&2
+	echo "SVC inválido: $SVC (capture|web|raw|dns|store|bot|nats)" >&2
 	exit 2
 	;;
 esac

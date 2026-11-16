@@ -364,6 +364,22 @@ term_rc=$?
 check "TERM sai com 143" '[ "$term_rc" = 143 ]'
 check "TERM imprime o passo interrompido" 'grep -q "interrompido por TERM durante: passo lento" "$T/out.term" && grep -q "== resultado: FALHOU" "$T/out.term"'
 
+# ---- task 269: banco-modelo do bot com hash próprio (spec 017 RF-16) ---------------------------------------
+# modelo dentro de tmp/ do repositório (o verify exporta "$ROOT/<caminho relativo>"); store sem migrations
+DBREL="tmp/verify-test-botdb-$$"
+botdb() {
+	(cd "$ROOT" && env -u FS_TEST_DB -u FS_TEST_DB_TEMPLATE -u FS_TEST_BOT_DB -u FS_TEST_BOT_DB_TEMPLATE \
+		bash -c '. scripts/verify.sh lib; MIGRATIONS_DIR="$1/none" BOT_TEMPLATE_DB="$1/bot.sqlite"
+		prepare_test_db >/dev/null && echo "$DB_RESULT|${FS_TEST_BOT_DB:-}|${FS_TEST_BOT_DB_TEMPLATE:-}|${FS_TEST_DB:-}"' _ "$DBREL")
+}
+botdb >"$T/out.botdb1" 2>&1
+botdb >"$T/out.botdb2" 2>&1
+check "banco-modelo do bot: criado e exportado (store sem migrations fica de fora)" \
+	'[ "$(cat "$T/out.botdb1")" = "store=skipped bot=rebuilt|local|$ROOT/$DBREL/bot.sqlite|" ]'
+check "banco-modelo do bot: segunda vez em dia" '[ "$(cut -d"|" -f1 "$T/out.botdb2")" = "store=skipped bot=fresh" ]'
+check "banco-modelo do bot: migrado (goose_db_version)" 'grep -q goose_db_version "$ROOT/$DBREL/bot.sqlite"'
+rm -rf "${ROOT:?}/$DBREL"
+
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do
 		echo "--- $f"

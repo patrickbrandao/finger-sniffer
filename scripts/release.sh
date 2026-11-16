@@ -5,7 +5,7 @@
 #
 # 1. confere árvore limpa e HEAD igual à origin/main (ou à tag vX.Y.Z, se ela já existir);
 # 2. roda `make verify-full`;
-# 3. compila os 5 binários (build reproduzível, versão = vX.Y.Z);
+# 3. compila os 6 binários (build reproduzível, versão = vX.Y.Z);
 # 4. gera dist/finger-sniffer-<versão>-linux-amd64.tar.gz com bin/, units, sysctl, journald, rede, nats.conf,
 #    htdocs, LICENSE/NOTICE/CHANGELOG e SHA256SUMS (de todos os arquivos do pacote), mais o .sha256 do tar.
 #

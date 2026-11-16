@@ -4,14 +4,15 @@
 #
 # Regras:
 #   - com SVC=<svc>, só o binário daquele serviço é instalado (SVC=nats: nenhum; o nats-server vem do download);
-#     sem SVC, os 5;
+#     sem SVC, os 6;
 #   - um serviço é reiniciado sempre que o binário EM EXECUÇÃO (/proc/<pid>/exe) difere do binário em disco,
 #     com ou sem SVC: um deploy completo do mesmo commit corrige versões desencontradas deixadas antes.
 #
 # Variáveis para os testes: FS_PROC_ROOT (padrão /proc); main_pid pode ser redefinida.
 
-FS_UNITS="finger-sniffer-nats finger-sniffer-store finger-sniffer-capture finger-sniffer-web finger-sniffer-raw finger-sniffer-dns"
-FS_SERVICES="store capture web raw dns"
+# o bot vem depois do store (assina fs.v1.store.connection; ADR 0047 item 1)
+FS_UNITS="finger-sniffer-nats finger-sniffer-store finger-sniffer-bot finger-sniffer-capture finger-sniffer-web finger-sniffer-raw finger-sniffer-dns"
+FS_SERVICES="store bot capture web raw dns"
 
 # hash_file <arquivo>: SHA-256 do conteúdo ("" se ilegível). sha256sum no Linux, shasum no macOS (testes).
 hash_file() {
@@ -150,6 +151,23 @@ plan_restarts() {
 		[ -z "$why" ] || printf '%s\t%s\n' "$u" "$why"
 	done
 	return 0
+}
+
+# env_upgrade <arquivo env> <chave> <valor antigo> <valor novo>: troca o valor instalado da chave só quando ele é
+# exatamente o padrão antigo (o env-merge.sh só acrescenta chaves; um valor mudado à mão no servidor fica). Devolve
+# 0 se trocou. Ex.: FS_CAPTURE_EXCLUDE_PORTS ganhou 9002 e 9003 com o bot (ADR 0047 item 4, task 269).
+env_upgrade() {
+	local cur n tmp
+	cur=$(grep -E "^$2=" "$1" | tail -n1 | cut -d= -f2-)
+	[ "$cur" = "$3" ] || return 1
+	n=$(grep -cE "^$2=" "$1")
+	tmp=$(mktemp)
+	# só a linha ativa (a última ocorrência vale no EnvironmentFile); conteúdo copiado de volta: dono e modo ficam
+	awk -v k="$2" -v v="$4" -v n="$n" 'index($0, k "=") == 1 { i++; if (i == n) { print k "=" v; next } } { print }' \
+		"$1" >"$tmp"
+	cat "$tmp" >"$1"
+	rm -f "$tmp"
+	echo "[env] $2=$3 trocado pelo padrão novo $4"
 }
 
 # Ferramentas que o deploy e o smoke usam no servidor, com o pacote Debian de cada uma (task 225). O bootstrap

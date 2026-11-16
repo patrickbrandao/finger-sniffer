@@ -79,7 +79,7 @@ func TestDeploySVCThenFullConvergesVersions(t *testing.T) {
 	T := t.TempDir()
 
 	// vps limpa: tudo parado, todos sobem
-	if got := harness(t, T, "deploy", "A", ""); got != "restart: nats store capture web raw dns" {
+	if got := harness(t, T, "deploy", "A", ""); got != "restart: nats store bot capture web raw dns" {
 		t.Fatalf("primeiro deploy: %q", got)
 	}
 
@@ -95,7 +95,7 @@ func TestDeploySVCThenFullConvergesVersions(t *testing.T) {
 	}
 
 	// deploy completo do mesmo commit: reinicia só quem roda outro binário (o web já está no B)
-	if got := harness(t, T, "deploy", "B", ""); got != "restart: store capture raw dns" {
+	if got := harness(t, T, "deploy", "B", ""); got != "restart: store bot capture raw dns" {
 		t.Fatalf("deploy completo: %q", got)
 	}
 	v = harness(t, T, "versions")
@@ -113,12 +113,12 @@ func TestDeployRestartsWhenRunningBinaryDiffersFromDisk(t *testing.T) {
 	// o estado da auditoria: disco no B (rsync antigo de todo o bin/), processos ainda no A
 	T := t.TempDir()
 	harness(t, T, "deploy", "A", "")
-	for _, s := range []string{"store", "capture", "web", "raw", "dns"} {
+	for _, s := range []string{"store", "bot", "capture", "web", "raw", "dns"} {
 		if err := os.WriteFile(filepath.Join(T, "dest/bin/finger-sniffer-"+s), []byte("bin "+s+" B"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := harness(t, T, "deploy", "B", ""); got != "restart: store capture web raw dns" {
+	if got := harness(t, T, "deploy", "B", ""); got != "restart: store bot capture web raw dns" {
 		t.Fatalf("o disco já igual ao staging não pode esconder o binário antigo em execução: %q", got)
 	}
 	// com SVC também: o serviço desencontrado é reiniciado
@@ -139,8 +139,8 @@ func TestPlanRestartsReasonsWithoutDrift(t *testing.T) {
 		want string
 	}{
 		{nil, "", ""},
-		{[]string{"FORCE=1"}, "", "nats store capture web raw dns"},
-		{[]string{"ENV_CHANGED=1"}, "", "store capture web raw dns"},
+		{[]string{"FORCE=1"}, "", "nats store bot capture web raw dns"},
+		{[]string{"ENV_CHANGED=1"}, "", "store bot capture web raw dns"},
 		{[]string{"NATS_CONF_CHANGED=1"}, "", "nats"},
 		{[]string{"FORCE=1"}, "nats", "nats"},
 		{nil, "store", "store"},
@@ -165,10 +165,10 @@ func TestDeploySVCThenFullAppliesPendingConfig(t *testing.T) {
 	T := t.TempDir()
 	putFile(t, filepath.Join(T, "dest/eventbus/nats/nats.conf"), "# v1\n")
 	putFile(t, filepath.Join(T, "dest/etc/finger-sniffer.env"), "FS_A=1\n")
-	for _, u := range []string{"nats", "store", "capture", "web", "raw", "dns"} {
+	for _, u := range []string{"nats", "store", "bot", "capture", "web", "raw", "dns"} {
 		putFile(t, filepath.Join(T, "systemd/finger-sniffer-"+u+".service"), "[Service] "+u+" v1\n")
 	}
-	if got := harness(t, T, "deploy", "A", ""); got != "restart: nats store capture web raw dns" {
+	if got := harness(t, T, "deploy", "A", ""); got != "restart: nats store bot capture web raw dns" {
 		t.Fatalf("primeiro deploy: %q", got)
 	}
 	if got := harness(t, T, "deploy", "A", ""); got != "restart:" {
@@ -190,7 +190,7 @@ func TestDeploySVCThenFullAppliesPendingConfig(t *testing.T) {
 		// o web reinicia no próprio SVC=web; o deploy completo pega os outros quatro
 		{"chave nova de env", func() {
 			putFile(t, filepath.Join(T, "dest/etc/finger-sniffer.env"), "FS_A=1\nFS_B=2\n")
-		}, "store capture raw dns"},
+		}, "store bot capture raw dns"},
 	}
 	for _, st := range steps {
 		st.change()
@@ -221,8 +221,9 @@ func slurp(t *testing.T, p string) string {
 
 func TestBinariesFor(t *testing.T) {
 	cases := map[string]string{
-		"":     "finger-sniffer-store finger-sniffer-capture finger-sniffer-web finger-sniffer-raw finger-sniffer-dns",
+		"":     "finger-sniffer-store finger-sniffer-bot finger-sniffer-capture finger-sniffer-web finger-sniffer-raw finger-sniffer-dns",
 		"web":  "finger-sniffer-web",
+		"bot":  "finger-sniffer-bot",
 		"nats": "",
 	}
 	for svc, want := range cases {
@@ -384,5 +385,61 @@ func TestRemoteInstallTouchesOnlyMirror(t *testing.T) {
 		if strings.Contains(s, bad) {
 			t.Errorf("remote-install.sh contém %q", bad)
 		}
+	}
+}
+
+// env_upgrade troca só o padrão antigo (a última ocorrência ativa) e mantém o valor mudado à mão (task 269).
+func TestEnvUpgrade(t *testing.T) {
+	const oldV, newV = "48022,48161,9000,9001", "48022,48161,9000,9001,9002,9003"
+	cases := []struct {
+		name, in, want string
+		changed        bool
+	}{
+		{
+			"padrão antigo", "A=1\nFS_CAPTURE_EXCLUDE_PORTS=" + oldV + "\nB=2\n",
+			"A=1\nFS_CAPTURE_EXCLUDE_PORTS=" + newV + "\nB=2\n", true,
+		},
+		{"mudado à mão", "FS_CAPTURE_EXCLUDE_PORTS=48022,9000\n", "FS_CAPTURE_EXCLUDE_PORTS=48022,9000\n", false},
+		{"já novo", "FS_CAPTURE_EXCLUDE_PORTS=" + newV + "\n", "FS_CAPTURE_EXCLUDE_PORTS=" + newV + "\n", false},
+		{
+			"só a última", "FS_CAPTURE_EXCLUDE_PORTS=1\n# x\nFS_CAPTURE_EXCLUDE_PORTS=" + oldV + "\n",
+			"FS_CAPTURE_EXCLUDE_PORTS=1\n# x\nFS_CAPTURE_EXCLUDE_PORTS=" + newV + "\n", true,
+		},
+		{"ausente", "A=1\n", "A=1\n", false},
+	}
+	for _, c := range cases {
+		f := filepath.Join(t.TempDir(), "env")
+		if err := os.WriteFile(f, []byte(c.in), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("bash", "-c", `. ./install-lib.sh; env_upgrade "$1" FS_CAPTURE_EXCLUDE_PORTS "$2" "$3"`,
+			"x", f, oldV, newV).CombinedOutput()
+		if changed := err == nil; changed != c.changed {
+			t.Errorf("%s: trocou=%v, quer %v (%v)\n%s", c.name, changed, c.changed, err, out)
+		}
+		b, _ := os.ReadFile(f)
+		if string(b) != c.want {
+			t.Errorf("%s: %q, quer %q", c.name, b, c.want)
+		}
+		if st, _ := os.Stat(f); st.Mode().Perm() != 0o640 {
+			t.Errorf("%s: modo %v", c.name, st.Mode().Perm())
+		}
+	}
+}
+
+// O deploy cria var/bot e nunca o apaga (ADR 0047 item 2): o rsync do repositório exclui /var/.
+func TestRemoteInstallKeepsBotDB(t *testing.T) {
+	b, err := os.ReadFile("remote-install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{`"$DEST/var/bot"`, "--exclude='/var/'", "env_upgrade \"$DEST/etc/finger-sniffer.env\" FS_CAPTURE_EXCLUDE_PORTS"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("remote-install.sh sem %q", want)
+		}
+	}
+	if strings.Contains(s, "var/bot/") || strings.Contains(s, "bot.db") {
+		t.Error("remote-install.sh não mexe no conteúdo de var/bot")
 	}
 }

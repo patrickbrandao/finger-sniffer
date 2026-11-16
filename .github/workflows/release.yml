@@ -42,7 +42,7 @@ jobs:
           mkdir -p tmp/x && tar -xzf "dist/$name.tar.gz" -C tmp/x
           (cd "tmp/x/$name" && sha256sum -c SHA256SUMS)
           VERSION="$GITHUB_REF_NAME" scripts/repro-check.sh "tmp/x/$name/SHA256SUMS"
-          for s in capture web raw dns store; do
+          for s in capture web raw dns store bot; do
             got=$("tmp/x/$name/bin/finger-sniffer-$s" -version)
             echo "$got"
             case "$got" in "finger-sniffer-$s $GITHUB_REF_NAME ("*) ;; *) echo "::error::-version de $s: $got"; exit 1 ;; esac
