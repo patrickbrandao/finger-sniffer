@@ -25,6 +25,15 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   cabeçalhos dos pacotes e marca `pcap_truncated`. Os registros "só cabeçalhos" têm orçamento próprio de mais
   `FS_PCAP_MAX_BYTES_PER_CONN` bytes; esgotado, o pacote não entra no pcap (a análise IP/TCP já o contou). A
   recuperação de órfãs do reinício aplica o mesmo teto e grava `pcap_truncated` correto (ADR 0034).
+- RF-04a: os pacotes de uma conexão aberta ficam **em memória** no ingest até a finalização, que grava o pcap
+  direto em `pcaps` (task 248, ADR 0043). A tabela `packets` só recebe: (a) transbordo — a conexão que passa de
+  1 MiB em memória, ou qualquer conexão quando o total passa de 64 MiB, é copiada para `packets` no lote em curso
+  e daí em diante grava direto lá; (b) pacotes tardios de conexões já finalizadas; (c) o desligamento normal, que
+  copia todos os buffers para `packets` antes de sair (a recuperação de órfãs monta o pcap no reinício). O
+  `/pcap` de uma conexão aberta é o pcap parcial montado da memória (ou de `packets`, se transbordou).
+  Consequência aceita: numa queda brusca do store (kill -9, OOM, panic) as conexões abertas perdem o pcap parcial
+  (o registro sobrevive; a órfã fica com um pcap sem pacotes, só o cabeçalho do arquivo) — o mesmo risco já aceito para os eventos pendentes;
+  desligamento normal e deploy não perdem pacotes.
 - RF-05: persistência em SQLite (modernc, WAL) — registros, índices e **BLOBs** (pcap, bytes crus de cada sentido).
   Schema em [database/sqlite/migrations/](../database/sqlite/migrations/) aplicado por goose embutido no start.
 - RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (8 GiB, ADR 0039): o primeiro atingido expurga o mais
@@ -268,7 +277,7 @@ para clientes da API.
 
 ## Dados
 Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql)): `probes`, `connections`
-(registro completo em `record_json`), `packets` (BLOB por pacote até a conexão fechar), `pcaps` (BLOB),
+(registro completo em `record_json`), `packets` (BLOB por pacote; só transbordo, tardios e desligamento, RF-04a), `pcaps` (BLOB),
 `app_events`, `raw_streams` (BLOB), `dns_queries`, `stray_packets`. Tabelas filhas com `ON DELETE CASCADE`
 sobre `connections`, para o expurgo apagar tudo de uma vez. O `record_json` de uma conexão aberta é o da criação
 (ou da última mudança de `proto`/`probe`); a API sobrepõe o estado ao vivo da tabela de fluxos em toda leitura
@@ -295,6 +304,8 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - [ ] Com os padrões (1000/250), o perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS, varreduras
       e algumas dezenas de conexões alheias por cima) não marca `degraded`; excesso sustentado acima de
       `FS_MAX_CONNS` vivas ou de `FS_MAX_NEW_CONNS_PER_S` novas/s marca (ADR 0030).
+- [ ] Conexão aberta não grava linhas em `packets` abaixo de 1 MiB; o `/pcap` dela durante a conexão e depois de
+      um desligamento normal no meio dela traz os pacotes já vistos (RF-04a).
 - [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).
 
 ## Fora de escopo
@@ -318,3 +329,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0034-tetos-e-falhas-do-store.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
 - specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md
+- specs/decisions/0043-limite-conhecido-da-v0-3-0-no-finger-01.md
