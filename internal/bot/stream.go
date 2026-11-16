@@ -29,6 +29,7 @@ type Hub struct {
 	clients map[*streamClient]struct{}
 	max     int
 	ping    time.Duration
+	sink    func(v *Verdict, site string) // saída extra (webhook); não pode bloquear
 }
 
 type streamClient struct {
@@ -45,6 +46,14 @@ func NewHub() *Hub {
 	return &Hub{clients: map[*streamClient]struct{}{}, max: MaxStreamClients, ping: streamPing}
 }
 
+// SetSink liga uma saída que recebe cada veredito publicado com o site normalizado (o despachante do webhook).
+// A saída não pode bloquear: o SSE espera por ela.
+func (h *Hub) SetSink(f func(v *Verdict, site string)) {
+	h.mu.Lock()
+	h.sink = f
+	h.mu.Unlock()
+}
+
 // Publish entrega o veredito a cada cliente cujo filtro aceita; fila cheia descarta e conta.
 func (h *Hub) Publish(v *Verdict) {
 	site := ""
@@ -53,6 +62,9 @@ func (h *Hub) Publish(v *Verdict) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.sink != nil {
+		h.sink(v, site)
+	}
 	for c := range h.clients {
 		if !c.accepts(v.Class, site) {
 			continue

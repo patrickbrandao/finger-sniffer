@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/internal/bot/agg"
 	"github.com/patrickbrandao/finger-sniffer/internal/bot/lists"
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/webhook"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
@@ -67,6 +69,7 @@ type Server struct {
 	api     *API
 	agg     *agg.Aggregator
 	lists   *lists.Manager
+	hooks   *webhook.Dispatcher
 }
 
 // New monta o serviço sem abrir portas.
@@ -87,6 +90,8 @@ func New(cfg Config, d Deps) *Server {
 	s.hub = NewHub()
 	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention})
 	s.lists = newLists(cfg, d)
+	s.hooks = webhook.New(webhook.Options{Now: d.Now, Count: d.Metrics.Add})
+	s.hub.SetSink(s.publishWebhook)
 	s.feed = NewStoreFeed(s.index, d.Now)
 	s.api = &API{
 		Keys: s.keys, Limiter: s.limiter, Index: s.index, Hub: s.hub, DB: d.DB, OpenAPI: d.OpenAPI,
@@ -104,6 +109,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if s.lists != nil {
 		reasons = append(reasons, s.lists.StaleReasons(s.deps.Now())...)
+	}
+	if s.hooks.Backlog(s.deps.Now()) {
+		reasons = append(reasons, "webhook backlog")
 	}
 	if s.deps.Reasons != nil {
 		reasons = append(reasons, s.deps.Reasons(s.deps.Now())...)
@@ -270,6 +278,7 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	}
 	stopLoops()
 	wg.Wait()
+	s.hooks.Wait()
 	shCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	for _, srv := range servers {
@@ -294,6 +303,7 @@ func (s *Server) loops(ctx context.Context) {
 	defer purge.Stop()
 	s.purge(ctx)
 	s.updateMetrics()
+	s.syncWebhooks(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -302,6 +312,7 @@ func (s *Server) loops(ctx context.Context) {
 			if err := s.keys.Reload(ctx); err != nil && ctx.Err() == nil {
 				s.deps.Log.Warn("bot: key reload", "err", err)
 			}
+			s.syncWebhooks(ctx)
 		case <-flush.C:
 			if err := s.limiter.Flush(ctx); err != nil && ctx.Err() == nil {
 				s.deps.Log.Warn("bot: usage flush", "err", err)
@@ -325,6 +336,34 @@ func (s *Server) flushAgg(ctx context.Context) error {
 		return nil
 	}
 	return s.agg.Flush(ctx, s.deps.DB, s.deps.Now())
+}
+
+// syncWebhooks passa as chaves com webhook ao despachante (depois de cada recarga).
+func (s *Server) syncWebhooks(ctx context.Context) {
+	keys := s.keys.WebhookKeys()
+	ts := make([]webhook.Target, 0, len(keys))
+	for _, k := range keys {
+		doms := k.Domains
+		ts = append(ts, webhook.Target{
+			KeyID: k.ID, Prefix: keyPrefix + k.Prefix, URL: k.WebhookURL, Secret: k.WebhookSecret(), Classes: k.WebhookClasses,
+			Match: func(site string) bool { return MatchDomain(doms, site) },
+		})
+	}
+	s.hooks.SetTargets(ctx, ts)
+}
+
+// publishWebhook é a saída do Hub para o webhook: corpo VerdictEvent, serializado só se alguma chave aceitar.
+func (s *Server) publishWebhook(v *Verdict, site string) {
+	if !s.hooks.Active() {
+		return
+	}
+	s.hooks.Publish(v.Class, site, func() []byte {
+		b, err := json.Marshal(VerdictEvent{Kind: "verdict", Ts: v.Ts, Verdict: v})
+		if err != nil {
+			return nil
+		}
+		return b
+	})
 }
 
 // purge expurga por idade e, se o banco passou do teto, pelas horas mais antigas (ADR 0056 item 4: rótulo reason).

@@ -60,7 +60,11 @@ type Key struct {
 	CreatedAt      time.Time
 	RevokedAt      *time.Time
 	hash           [32]byte
+	webhookSecret  []byte
 }
+
+// WebhookSecret devolve o segredo do HMAC do webhook (nil sem webhook).
+func (k *Key) WebhookSecret() []byte { return k.webhookSecret }
 
 // Rate devolve as requisições por segundo efetivas (com o padrão).
 func (k *Key) Rate() int { return orDefault(k.RatePerS, DefaultRatePerS) }
@@ -213,7 +217,7 @@ func CreateKey(ctx context.Context, db *sql.DB, o KeyOptions, now time.Time) (Ke
 }
 
 const keyColumns = `id, name, key_sha256, prefix, domains, rate_per_s, burst, daily_quota, mode, webhook_url,
-	webhook_classes, created_at, revoked_at`
+	webhook_classes, created_at, revoked_at, webhook_secret`
 
 func scanKey(sc interface{ Scan(...any) error }) (Key, error) {
 	var (
@@ -226,7 +230,7 @@ func scanKey(sc interface{ Scan(...any) error }) (Key, error) {
 		revokedAt          sql.NullInt64
 	)
 	if err := sc.Scan(&k.ID, &k.Name, &hash, &k.Prefix, &doms, &rate, &burst, &daily, &k.Mode, &whURL, &whClasses,
-		&createdAt, &revokedAt); err != nil {
+		&createdAt, &revokedAt, &k.webhookSecret); err != nil {
 		return Key{}, err
 	}
 	copy(k.hash[:], hash)
@@ -371,6 +375,19 @@ func (s *KeyStore) Lookup(secret string) (*Key, bool) {
 	k, ok := s.byHash[h]
 	s.mu.RUnlock()
 	return k, ok
+}
+
+// WebhookKeys devolve as chaves ativas com webhook_url.
+func (s *KeyStore) WebhookKeys() []*Key {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Key
+	for _, k := range s.byHash {
+		if k.WebhookURL != "" {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // Active conta as chaves ativas (bot_keys_active).
