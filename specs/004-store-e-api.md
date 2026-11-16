@@ -56,6 +56,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
   e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês. Escuta em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`
   e em `127.0.0.1` (diagnóstico local), nunca em `*` (ADR 0001, ADR 0023).
+  Na 9001, `/debug/pprof/` (inclusive `/debug/pprof/rates?block=N&mutex=N`, que liga ou desliga os perfis de bloqueio e mutex)
+  responde só a clientes de loopback; de outra origem, 404 (diagnóstico da task 246, fora do openapi).
 - RF-08: tempo real: SSE `GET /api/v1/stream` e WebSocket `GET /api/v1/ws`, filtros `probe`, `src_ip`,
   `dst_port`, `kind`; sem filtro = feed global. Hub em memória após o commit, sem replay, fila por cliente
   `FS_LIVE_BUFFER` (1024) com descarte e `stream.dropped`, até `FS_LIVE_MAX_CLIENTS` (64) clientes (ADR 0020);
@@ -255,6 +257,9 @@ Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no h
 `fs_store_stream_lost_total`, `fs_store_ingest_backlog_seconds` (gauge: parede − publicação da última mensagem
 processada), `fs_store_ingest_pending_messages` (gauge: `NumPending` do consumidor), `fs_store_stray_midflow_total`
 (avulsos TCP de fluxo sem início visto, exceto RST) (ADR 0041),
+`fs_store_writer_seconds{op}` (histograma: duração de cada comando do escritor SQLite), `fs_store_wal_frames` (gauge:
+quadros do WAL no último checkpoint) e `fs_store_packet_spills_total` (pacotes de conexão aberta que transbordaram para `packets`,
+RF-04a) (task 248),
 `fs_store_api_requests_total{route,code}` e `fs_store_api_request_duration_seconds{route}` (histograma; `route` =
 padrão do mux, nunca o caminho com IDs).
 

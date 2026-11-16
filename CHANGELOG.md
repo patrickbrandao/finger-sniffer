@@ -5,7 +5,9 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
-Fase F7: banco do store em RAM (ADR 0045) e RNF-01 de volta a 400 simultâneas / 100 novas/s (ADR 0046); o limite conhecido da v0.3.0 (ADR 0043) está resolvido. Contratos sem mudança.
+## [0.4.0] - 2026-11-16
+
+Fase F7: banco do store em RAM (ADR 0045) e RNF-01 de volta a 400 simultâneas / 100 novas/s (ADR 0046), provado na carga `official-f7` no finger-01; o limite conhecido da v0.3.0 (ADR 0043) está resolvido. Contratos sem mudança (openapi 0.6.1, asyncapi 0.5.1).
 
 ### Adicionado
 - store: métricas `fs_store_writer_seconds{op}`, `fs_store_wal_frames` e `fs_store_packet_spills_total` (task 248); `/debug/pprof/` na 9001 só de loopback (task 246).
@@ -20,8 +22,13 @@ Fase F7: banco do store em RAM (ADR 0045) e RNF-01 de volta a 400 simultâneas /
 - infra: store `MemoryMax=6G`/`GOMEMLIMIT=1536MiB`, fatia `MemoryMax=10G`, `FS_STORE_MAX_BYTES=3221225472` (task 254, ADR 0045).
 - **infra (task 253)**: `verify-full` do CI roda o fuzz curto em lotes paralelos (10 s por alvo, `FS_FUZZ_JOBS`, padrão CPUs/2), de ~8 min para ~2 min; limite do passo 25 min com `timeout` que imprime o resumo e anota "tempo esgotado" (distinto de falha), job com 30 min.
 - Spec 004: pacotes de conexão aberta ficam em memória até a finalização; `packets` só recebe transbordo (1 MiB por conexão, 64 MiB no total), tardios e o desligamento; queda brusca perde o pcap parcial das conexões abertas (RF-04a, task 252).
+- docs: RNF-01 de volta a 400 simultâneas e 100 novas/s (ADR 0046); limite conhecido da `v0.3.0` marcado como
+  resolvido na F7 (banco em RAM, ADR 0045: feed p99 352 ms, registro p95 193/188 ms); limites 10G/6G e o tmpfs do
+  banco no health (`db space`, `db full`) (task 257).
+- Spec 004: métricas `fs_store_writer_seconds{op}`, `fs_store_wal_frames` e `fs_store_packet_spills_total` e o `/debug/pprof/` de loopback na 9001 registrados (auditoria da v0.4.0, task 258).
 
 ### Corrigido
+- store: `/metrics` deixa de responder 500 depois do primeiro lote descartado no modo banco cheio; o heartbeat `store_db_full_dropped_total` não é mais reexportado com o nome do contador nativo `fs_store_db_full_dropped_total` (task 259).
 - test(e2e): `TestF4PageChrome` deixa de falhar quando o Chrome ganha a corrida pelo TCP com o QUIC já aberto: repete a fetch do probe até 3 vezes e exige requisição em quic/h3 (task 251).
 
 ### Decidido
