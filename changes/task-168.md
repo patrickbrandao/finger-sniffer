@@ -1,1 +1,0 @@
-- Spec 010: o parser passivo tem leitor de frames e HPACK próprios (não o `Framer`/`hpack` do `x/net`), com os tetos em `pkg/h2passive/limits.go`.

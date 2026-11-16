@@ -1,2 +1,0 @@
-- Ingest: prazos dos fluxos (meio-aberto, estabelecido, UDP, QUIC, folga de fechamento, espera de tardios), das conexões só de eventos e das reservas de `conn_id` contam pelo relógio de captura `C = min(parede, T + (parede − P))`, não pela parede: com o ingest 20 s ou 70 s atrasado, cada conexão dá um registro, sem avulsos nem fragmentos (ADR 0041, task 242).
-- `BenchmarkIngestOfficialMix` (mix do loadgen, 100 novas/s, sem NATS, SQLite em disco com WAL): ~2 500 conexões/s e ~13 800 mensagens/s num núcleo de um Apple M2, em dia ou com 20 s de atraso (task 242).

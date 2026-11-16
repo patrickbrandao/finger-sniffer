@@ -1,1 +1,0 @@
-- capture: `FS_CAPTURE_IFACE` passa a ter padrão `ens192` (finger-01, ADR 0038); comentários e testes sem `eth0`/vps602 (task 230).

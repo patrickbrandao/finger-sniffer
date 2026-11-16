@@ -1,1 +1,0 @@
-- test(store): `TestCheckpointOffWriter` deixa de depender de 1 s de parede: fixa `busy_timeout` de 20 s na conexão de checkpoint e falha a partir de 10 s, o que separa "esperou o escritor" (>= 20 s) de lentidão sob `-race`; passa 200x com `-race` e carga (task 237).

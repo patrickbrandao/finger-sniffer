@@ -1,1 +1,0 @@
-- web/store: WebSocket aceito que termina sem nenhum frame publica um `websocket.frame` com `upgrade_only`; o store preenche `websocket` (over, path, extensões, subprotocolo) com `frames: []` e `close: null`, sem frame fantasma (ADR 0032).

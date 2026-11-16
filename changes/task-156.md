@@ -1,1 +1,0 @@
-- raw: no máximo `FS_MAX_CONNS` sessões simultâneas somando todas as portas (≤ 0 → 250 com aviso); sem vaga o accept espera e o excedente fica no backlog; o accept parado sai no desligamento (task 156, ADR 0035).

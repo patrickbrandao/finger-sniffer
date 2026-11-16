@@ -1,1 +1,0 @@
-- store: no máximo 64 `?wait` simultâneos em `GET /api/v1/probes/{id}` (acima, `503` com `Retry-After: 1`); o laço do long-poll lê só um resumo agregado das conexões e o registro completo uma vez, na saída (ADR 0032).

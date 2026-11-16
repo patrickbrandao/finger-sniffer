@@ -1,1 +1,0 @@
-- store: `GET /api/v1/connections` sobrepõe às conexões abertas o resumo ao vivo (`requests`, `proto`, `probe_id`), igual a `GET /connections/{id}` e ao feed.

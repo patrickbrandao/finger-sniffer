@@ -1,1 +1,0 @@
-- pkg: extensões de chunk registradas até 256 KiB somadas por requisição; acima, `chunks_truncated` com a lista no prefixo, sem reter ~256 MiB por requisição (ADR 0033).

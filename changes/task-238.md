@@ -1,1 +1,0 @@
-- `pkg/certs`: o padrão de `FS_CERT_NAMES_HTTP01` (certificado B) passa a ser só `finger-01.badblock.net.br`, sem `finger-01.tmsoft.com.br` (task 238).

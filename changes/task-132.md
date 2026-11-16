@@ -1,1 +1,0 @@
-- pkg: continuações obs-fold do `pkg/h1` acumuladas num `strings.Builder` (cabeçalho e trailers): 1 MiB de continuações custa ~16 ms em vez de dezenas de segundos; valor literal igual.

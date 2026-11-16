@@ -1,1 +1,0 @@
-- web/store: a ligação handler × stream do h2 desempata pelos campos regulares do primeiro HEADERS, ignora streams já respondidos pela biblioteca e casa o `CONNECT` simples; `stream_id` 0 (não identificado) sempre acrescenta em `http2.streams[]` (ADR 0032).

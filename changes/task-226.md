@@ -1,3 +1,0 @@
-- web no finger-01 (ADRs 0038 e 0039): portas padrão TCP 8080/8443 e UDP 8443; Alt-Svc `h3=":<U>"` com a primeira porta UDP de pé (sem listener: `h3_listener_down`; `FS_WEB_UDP_PORTS` vazio: sem anúncio); `FS_MAX_CONNS` 1000 e `FS_WEB_INPUT_BUDGET` 192 MiB (8–256 MiB).
-- Certificado B por TLS-ALPN-01: o web responde `acme-tls/1` com o certificado de desafio em qualquer porta TLS e fecha depois do handshake; HTTP-01 só com a 80 nas portas; o B só é emitido com os listeners do web de pé (o certmagic nunca abre listener próprio).
-- Padrões novos de `pkg/probe` (zonas `finger-west-01`/`finger-01.badblock.net.br`) e `pkg/certs` (A `finger-west-01.badblock.net.br`, B `finger-01.badblock.net.br`/`finger-01.tmsoft.com.br`); golden de eventos regravados.

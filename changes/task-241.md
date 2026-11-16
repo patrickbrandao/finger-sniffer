@@ -1,1 +1,0 @@
-- `TestWSSessionLimit` espera com prazo o orçamento de caminho exato: a leitura de total menos tap não é atômica e um pendente do tap aparecia por um instante como 1024 bytes a mais; não havia vazamento (task 241).

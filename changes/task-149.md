@@ -1,1 +1,0 @@
-- raw: evento acima de 900 KiB é descartado com log e `raw_events_oversize_total`; o produtor comum trata `nats.ErrMaxPayload` como definitivo no `Publish` e no `Flush` (descarta e conta em `dropped_events_total`), sem travar a fila (task 149, ADR 0035).
