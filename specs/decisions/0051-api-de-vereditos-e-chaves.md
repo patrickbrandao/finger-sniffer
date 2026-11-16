@@ -1,6 +1,6 @@
 # 0051 — API de vereditos: forwardAuth, consulta, probe, feed, webhook e chaves
 
-Status: aceita (provisória quanto aos clientes externos — revisar com a pendência P3 da spec 020)
+Status: aceita (clientes externos: os dois casos, ver 0054 item 7; 400 do forwardAuth e `Authorization` na 9003: ver 0055)
 Data: 2026-11-16
 
 ## Contexto

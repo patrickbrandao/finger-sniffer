@@ -1,6 +1,6 @@
 # 020 — API de vereditos, chaves, feed e webhook
 
-Status: aprovada (pendência P3 aberta para o humano; ver o fim)
+Status: aprovada
 Depende de: 018, 019
 
 ## Contexto
@@ -15,7 +15,8 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   origem → 403. Nunca em `*`.
 - RF-02: autenticação `Authorization: Bearer fsk_<52 caracteres base32>`; chave desconhecida ou revogada → 401
   (`error: invalid_key`); na 9002 toda rota exige chave exceto `health` e `openapi.yaml`; na 9003 a chave é opcional
-  (sem chave, o `site` vale para qualquer domínio e os limites são os globais).
+  (sem chave, o `site` vale para qualquer domínio e os limites são os globais) e um `Authorization` que não seja
+  `Bearer fsk_...` é ignorado, porque o forwardAuth repassa os cabeçalhos do visitante (ADR 0055 item 5).
 - RF-03: domínios da chave (ADR 0051 item 3): o `site` do recurso pedido tem de casar com um domínio da chave; senão
   404 `not_found`, igual a recurso inexistente.
 - RF-04: limites (ADR 0051 item 4): balde por chave e cota diária → 429 `rate_limited` com `Retry-After` em
@@ -24,7 +25,9 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   - `GET /bot/v1/auth` (forwardAuth): sujeito = requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`,
     `X-Forwarded-Uri` e `X-Fs-*` (spec 019 RF-06); espera a visão até `FS_BOT_VIEW_WAIT`; 200 com `X-Fs-Verdict`,
     `X-Fs-Score`, `X-Fs-Signals` (ids separados por vírgula, até 1 KiB) e corpo `Verdict`; 403 com o mesmo corpo
-    quando a chave/site está em modo `block` e `class=bot`. Sem os `X-Fs-*` do fork → 400 `missing_fork_headers`.
+    quando a chave/site está em modo `block` e `class=bot`. Sem os `X-Fs-*` do traefix → 400 `missing_fork_headers`;
+    com chave cujos domínios não casam com `X-Forwarded-Host` → 400 `bad_request` (erro de configuração do
+    operador, ADR 0055 item 6).
   - `GET /bot/v1/verdict?src_ip=&src_port=&site=` e `GET /bot/v1/verdict/conn/{fs_conn_id}`: o último veredito da
     conexão (com o da última requisição dela); `wait=<ms>` opcional até 1000 para esperar a visão; 404 se
     desconhecida ou expirada (10 min).
@@ -48,20 +51,21 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
 ## Critérios de aceite
 - [ ] Teste de contrato: respostas de cada rota validadas contra o openapi do bot (`redocly lint` limpo).
 - [ ] 401/404/429 conforme RF-02–RF-04, inclusive domínio fora da chave indistinguível de recurso inexistente.
-- [ ] forwardAuth com o fork (spec 019) dá 200 com os `X-Fs-*` e, em `block`, 403 para um cliente `bot`.
+- [ ] forwardAuth com o traefix (spec 019) dá 200 com os `X-Fs-*` e, em `block`, 403 para um cliente `bot`.
 - [ ] Webhook assinado verificável pelo exemplo do `docs/`; nova tentativa em 5xx; fila cheia conta descarte.
 
 ## Fora de escopo
 - Cadastro, painel de chaves na web, cobrança.
 
-## Pendências para o humano
-- **P3 — clientes externos**: confirmar a leitura de "clientes externos também": (a) veredito por probe, com o site
-  externo fazendo o navegador do visitante abrir uma conexão a `<id>.finger-west-01.badblock.net.br:8443`; e (b) o
-  site externo rodando a imagem pública do fork com `ingestURL` na 9002 e a própria chave (visão de aplicação sem a
-  visão IP/TCP, que só existe para o tráfego que chega ao finger-01). As duas estão no contrato; se só uma valer, a
-  outra sai da F8.
+## Clientes externos
+Os dois casos valem (resposta do humano à antiga pendência P3, ADR 0054 item 7): (a) veredito por probe, com o site
+externo fazendo o navegador do visitante abrir uma conexão a `<id>.finger-west-01.badblock.net.br:8443`; e (b) o
+site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `ingestURL` na 9002 e a própria chave
+(visão de aplicação sem a visão IP/TCP, que só existe para o tráfego que chega ao finger-01).
 
 ## Decisões relacionadas
 - specs/decisions/0051-api-de-vereditos-e-chaves.md
 - specs/decisions/0047-fase-de-bots-servico-bot.md
 - specs/decisions/0052-dados-pessoais-e-retencao-de-7-dias.md
+- specs/decisions/0054-traefix-projeto-externo.md
+- specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md

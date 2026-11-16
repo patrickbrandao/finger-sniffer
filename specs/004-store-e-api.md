@@ -92,8 +92,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   linha em `connections`, `packets` ou `stray_packets`). Os dois casos contam em
   `fs_store_flows_dropped_total{reason=evicted|table_full}`. Sem limite por IP.
 - RF-12: publicação para o serviço bot (ADR 0047, spec 018): depois do commit de cada estágio da conexão
-  (`opened` com o SYN ou primeiro datagrama/evento analisado, `updated` a cada evento de aplicação incorporado,
-  `closed` com o registro final), o store publica em `fs.v1.store.connection` (NATS core, fora do `FS_EVENTS`)
+  (`opened` com o SYN ou primeiro datagrama/evento analisado, `updated` quando um evento de aplicação é incorporado,
+  no máximo um a cada 100 ms por conexão — o primeiro sai na hora e os da janela viram um só no fim dela, com o estado
+  daquele instante, ADR 0055 item 1 —, `closed` com o registro final), o store publica em `fs.v1.store.connection` (NATS core, fora do `FS_EVENTS`)
   o `Connection` da API sem BLOBs, nos mesmos pontos em que o tempo real emite `connection.*`. Acima de 900 KiB,
   corta as listas como na ADR 0032 e marca `connection_truncated`. A publicação não bloqueia o escritor:
   serialização e envio fora da transação, fila de 4096 mensagens com descarte contado
@@ -367,3 +368,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0043-limite-conhecido-da-v0-3-0-no-finger-01.md
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md
+- specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md

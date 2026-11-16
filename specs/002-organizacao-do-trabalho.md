@@ -18,7 +18,6 @@ Git, fluxo de tarefas, Definition of Done e quando parar para perguntar.
 | implementer-dns | serviço dns | `cmd/finger-sniffer-dns/**`, `internal/dns/**` | .claude/agents/implementer-dns.md |
 | implementer-store | serviço store, API, análise IP/TCP; dono de `pkg/` de base de serviço e envelope; escreve migrations | `cmd/finger-sniffer-store/**` (exceto openapi.yaml), `internal/store/**`, `pkg/service/**`, `pkg/event/**`, `database/sqlite/migrations/**` (com aprovação do architect) | .claude/agents/implementer-store.md |
 | implementer-bot | serviço bot (F8): veredito, sinais, listas, agregados, chaves, API de vereditos, feed e webhook; escreve as migrations do banco do bot | `cmd/finger-sniffer-bot/**` (exceto openapi.yaml), `internal/bot/**` (exceto `internal/bot/lists/known_clients.json`), `database/sqlite/bot/**` (com aprovação do architect) | .claude/agents/implementer-bot.md |
-| implementer-traefik | fork do traefik (F8): captura de TLS/h2/requisições, cabeçalhos `X-Fs-*`, ingest ao bot, forwardAuth com fail-open, Dockerfile da imagem, atualização do upstream | `traefik/**` | .claude/agents/implementer-traefik.md |
 | tester | e2e, matriz da spec 017, golden pcaps, fuzzing longo, carga; base própria de fingerprints medidos | `test/**`, `**/testdata/**`, `**/*_test.go` de qualquer pacote (somente testes), `internal/bot/lists/known_clients.json` | .claude/agents/tester.md |
 | reviewer | revisa PRs contra spec, ADRs e DoD; não altera código | nada (só comenta) | .claude/agents/reviewer.md |
 | infra | systemd, NIC/sysctl, NATS, deploy, Makefile, verify, CI, lint, versão do build | `deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `redocly.yaml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE`, `internal/version/**` | .claude/agents/infra.md |
@@ -29,8 +28,8 @@ Regras de propriedade:
   uma tarefa "mudança de contrato" e espera o architect aplicar.
 - **Migrations**: implementer-store (`database/sqlite/migrations/`) e implementer-bot (`database/sqlite/bot/`)
   escrevem; o architect aprova no PR antes do merge.
-- **`traefik/`**: módulo Go separado do upstream (ADR 0048); dependência nova além das do upstream escala ao humano
-  como na ADR 0009; o enquadramento enviado ao bot é contrato do openapi do bot (architect).
+- **traefix** (traefik modificado): projeto externo do humano (ADR 0054), fora deste repositório e sem papel aqui;
+  a interface é a spec 019 e o openapi do bot (architect), mudada só de forma aditiva e avisada ao humano.
 - `go.mod`/`go.sum`: infra; outro papel que precise de dependência da lista da ADR 0009 pede na tarefa; fora da
   lista, escala ao humano.
 - `changes/task-NNN.md`: cada papel escreve o fragmento da sua tarefa (ver "Git e PR"); o architect os junta no
@@ -102,4 +101,5 @@ não recebe nenhuma ação.
 ## Decisões relacionadas
 - specs/decisions/0014-organizacao-agentes.md
 - specs/decisions/0013-verificacao-dois-niveis.md
+- specs/decisions/0054-traefix-projeto-externo.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md

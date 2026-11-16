@@ -133,38 +133,38 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
 ## F8 — Detecção de bots oferecida por API e traefik modificado
 - **Objetivo**: a análise do espelho identifica bots e é oferecida por API (forwardAuth do traefik, consulta pelo
   site, probe, feed e webhook) a sites próprios atrás do traefik do finger-01 e a clientes externos não comerciais com
-  chave emitida pelo operador; um traefik modificado (`./traefik/`), mantido pelo papel `implementer-traefik`,
-  entrega a visão de aplicação dos sites; agregados de 7 dias com LGPD (ADRs 0047–0053).
-- **Specs**: 018 (bot), 019 (fork do traefik), 020 (API de vereditos); mudanças em 000, 001, 002, 003, 004, 016,
-  017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.0, asyncapi 0.6.0 (`fs.v1.store.connection`);
-  migration 0001 do bot prevista na spec 018.
-- **Dependências**: F7 (tag `v0.4.0`). Nenhuma dependência nova no módulo do espelho; o `go.mod` do fork é o do
-  upstream (pendência P1).
+  chave emitida pelo operador; o **traefix** (traefik modificado, projeto externo do humano, imagem
+  `tmsoftbrasil/traefix`) entrega a visão de aplicação dos sites pelos requisitos da spec 019; agregados de 7 dias com
+  LGPD (ADRs 0047–0055).
+- **Specs**: 018 (bot), 019 (requisitos do traefix), 020 (API de vereditos); mudanças em 000, 001, 002, 003, 004,
+  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.0, asyncapi 0.6.0 (`fs.v1.store.connection`);
+  migration 0001 do bot.
+- **Dependências**: F7 (tag `v0.4.0`). Nenhuma dependência nova no módulo do espelho. O traefix é do humano (ADR
+  0054): o calendário dele não é deste plano, e a integração é por contrato.
 - **Frentes**:
-  - **Primeira onda (tasks 262–270)**:
-    - infra: `traefik/` fora da verificação raiz + passo e job de CI próprios + contrato do bot no passo de
-      contratos (262) → unit, env e deploy do bot, portas excluídas da captura, IP da bridge (269, depois de 267);
-    - implementer-traefik: importar o upstream (263, depois de 262) → patch v1: captura TLS/h2/requisições,
-      `X-Fs-*`, ingest, forwardAuth fail-open (264) ‖ Dockerfile e imagem local (265, depois de 263);
-    - humano: segredos do Docker Hub no GitHub e workflow de publicação (266, bloqueada, depois de 265);
+  - **Primeira onda (tasks 262, 267–270, 272, 274)**:
+    - infra: contrato do bot no passo de contratos (262, entregue) → desfazer o que a 262 pôs para `traefik/` (272)
+      ‖ unit, env e deploy do bot, portas excluídas da captura, IP da bridge (269, depois de 267);
     - implementer-bot: esqueleto do serviço — config, heartbeat, banco em disco com a migration 0001, CLI de
-      chaves, 9002/9003 com chave, limites, ingest do traefik e índice da visão do store (267, desde o início);
-    - implementer-store: `fs.v1.store.connection` e o sexto serviço no health (268, desde o início);
-    - tester: base própria `known_clients.json` medida no finger-01 (270, desde o início) ‖ instável
-      `TestF5Fingerprints` (260).
-  - **Segunda onda** (tarefas criadas pelo architect quando 264, 267 e 268 entrarem): implementer-bot: sinais e
-    veredito v1, listas externas, agregados e expurgo, forwardAuth/consulta/probe, feed e webhook; implementer-traefik:
-    h3 (Initial do QUIC); infra: traefik de teste no finger-01 com o fork e forwardAuth num router de teste (sem
-    tocar o `traefik-app`); docs: guia de integração e exemplo de verificação do webhook; tester: e2e da F8 e carga
-    (spec 017 RF-17).
-  - **Terceira onda** (depende do humano): troca da imagem do `traefik-app` e forwardAuth nos sites (P8); página de
-    privacidade (P5, P6); ocultar o tráfego dos sites na API aberta (P7); publicação da imagem (P2).
+      chaves, 9002/9003 com chave, limites, ingest do traefix e índice da visão do store (267);
+    - implementer-store: `fs.v1.store.connection` e o sexto serviço no health (268, entregue);
+    - tester: base própria `known_clients.json` (270, entregue) ‖ `TestF5Fingerprints` (260, entregue) →
+      remontagem fora de ordem também no `analyzePcap` do e2e (274).
+  - **Segunda onda** (tarefas criadas pelo architect quando 267 e 269 entrarem): implementer-bot: sinais e veredito
+    v1, listas externas, agregados e expurgo, forwardAuth/consulta/probe com veredito, feed e webhook; docs: guia de
+    integração (sites atrás do traefix e clientes externos por probe ou traefix com chave) e exemplo de verificação do
+    webhook; tester: e2e da F8 e carga (spec 017 RF-17), com os casos do traefix pulando até a 273.
+  - **Traefix** (depende do humano): o humano implementa a spec 019 no projeto traefix e avisa → infra: teste da
+    imagem num container à parte, troca do `traefik-app` em modo só observação e aceite (273, bloqueada até o aviso).
+    Ligar forwardAuth ou `block` nos sites é ação do humano. h3 no traefix: segunda entrega do traefix (spec 019
+    RF-13).
+  - **Terceira onda** (depende do humano): página de privacidade (P5, P6).
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
-  Googlebot falso pelo traefik de teste e por probe; casamento fork ↔ store ≥ 99%; fail-open); carga da F8 com
-  forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga oficial 400/100 sem perder as metas da ADR
-  0046; expurgo de 7 dias comprovado com relógio falso; imagem do fork construída (publicada se P2 resolvida);
-  pendências P1–P8 respondidas ou registradas no PR de release; tag `v0.5.0`.
-- **Pendências para o humano** (detalhe nas specs 018–020): P1 dependências do fork fora da ADR 0009; P2 nome da
-  imagem e segredos do Docker Hub no GitHub; P3 leitura de "clientes externos" (probe e/ou fork externo); P4 termos da
-  ja4db; P5 base legal (LGPD); P6 controlador, encarregado e canal do titular; P7 ocultar o tráfego dos sites na API
-  aberta do store; P8 quando e onde trocar o `traefik-app` pela imagem do fork.
+  Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
+  store ≥ 99%; fail-open); carga da F8 com forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga
+  oficial 400/100 sem perder as metas da ADR 0046; expurgo de 7 dias comprovado com relógio falso; pendências P4–P6
+  respondidas ou registradas no PR de release; tag `v0.5.0`. Se o traefix não estiver no finger-01 na hora da
+  release, o architect escala ao humano (esperar ou lançar sem a visão do traefix).
+- **Pendências para o humano** (detalhe na spec 018): P4 termos da ja4db; P5 base legal (LGPD); P6 controlador,
+  encarregado e canal do titular. Respondidas em 2026-11-16 (ADR 0054): P1 e P2 (traefix externo), P3 (os dois
+  casos de clientes externos), P7 (tráfego dos sites segue visível), P8 (troca só observando, task 273).

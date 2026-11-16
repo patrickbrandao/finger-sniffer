@@ -103,17 +103,17 @@ repetidas do mesmo cliente.
 - Toda mudança vem com o teste que a cobre; o nível só decide quanto da suíte roda.
 - Ao terminar, dizer qual nível rodou e o resultado. Subagentes: rápido por padrão, completo só sob pedido.
 
-### Fase F8 (ADRs 0047 e 0048)
-- RF-14: `traefik/**` fica fora dos passos do módulo raiz (lint, gofumpt, vet, testes, cobertura, govulncheck,
-  `go_source_files`); passo próprio "traefik": `go build ./cmd/traefik` e `go test` de `./pkg/fingersniffer/...` e
-  dos pacotes com gancho `// finger-sniffer:` dentro de `traefik/`, no quick só quando `traefik/**` muda, sempre no
-  full e no CI.
+### Fase F8 (ADRs 0047 e 0054)
+- RF-14: o traefix é externo (ADR 0054): não há código dele neste repositório nem passo próprio no verify ou no CI.
+  Do lado de cá, o lado do bot é testado com lotes `TraefikIngestBatch` de exemplo e requisições de forwardAuth com
+  os `X-Fs-*` simulados; os testes do traefix são os de aceite da spec 019 RF-12, no projeto dele.
 - RF-15: contratos: o passo valida também `cmd/finger-sniffer-bot/openapi.yaml` (Redocly) e o teste de contrato
   do bot confere as respostas das rotas contra ele.
 - RF-16: banco-modelo do bot (`database/sqlite/bot/`) como o do store (RF-06), com hash próprio.
-- RF-17: e2e da F8 (`--e2e`, depois do deploy do bot e do fork num traefik de teste no finger-01): veredito de
-  curl, Go, python-requests, Chrome, Firefox e um Googlebot falso, pelo traefik de teste (forwardAuth e consulta) e
-  por probe; casamento fork ↔ store ≥ 99%; fail-open com o bot parado. Carga da F8: forwardAuth a 200
+- RF-17: e2e da F8 (`--e2e`, depois do deploy do bot e do traefix no finger-01, task 273): veredito de curl, Go,
+  python-requests, Chrome, Firefox e um Googlebot falso, pelo router de teste do traefix (forwardAuth em `observe` e
+  consulta) e por probe; casamento traefix ↔ store ≥ 99%; fail-open com o bot parado; `X-Fs-*` forjado não chega ao
+  backend. Sem o traefix no finger-01, os casos dele pulam com aviso e os de probe e consulta rodam. Carga da F8: forwardAuth a 200
   requisições/s por 10 min com a carga oficial 400/100 do espelho ao mesmo tempo (RNF da spec 018).
 
 ## Critérios de aceite
@@ -130,3 +130,4 @@ repetidas do mesmo cliente.
 - specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md
+- specs/decisions/0054-traefix-projeto-externo.md

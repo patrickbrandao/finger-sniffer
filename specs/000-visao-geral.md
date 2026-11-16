@@ -50,8 +50,8 @@ O MVP está pronto quando:
 - Endpoints de status, saúde e métricas Prometheus.
 - Detecção de bots (F8): serviço `bot` com veredito explicável por incoerências, listas (base própria, ja4db, IPs de
   robôs e nuvens) e comportamento; agregados por IP/fingerprint por 7 dias; API própria em 9002 (HTTPS, chave) e
-  9003 (interna); traefik modificado em `./traefik/` que entrega ao bot a visão de aplicação dos sites (specs
-  018–020).
+  9003 (interna); o traefik modificado (traefix, projeto externo do humano, ADR 0054) entrega ao bot a visão de
+  aplicação dos sites conforme os requisitos da spec 019 (specs 018–020).
 - Execução por systemd; deploy automático por rsync a partir da máquina local.
 
 ## Fora de escopo
@@ -80,8 +80,8 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - Identificadores, endpoints, chaves JSON em inglês; comentários de código em pt-BR; página web em inglês.
 - Licença Apache-2.0; JA4+ sob FoxIO License isolado (ADR 0010).
 - Privacidade: API do store totalmente aberta; tráfego de terceiros visível por até 10 min (ADR 0007). Os dados
-  do bot seguem a ADR 0052 (LGPD, minimização, 7 dias); a exposição do tráfego dos sites na API aberta espera a
-  decisão do humano (pendência P7 da spec 018).
+  do bot seguem a ADR 0052 (LGPD, minimização, 7 dias); o tráfego dos sites atrás do traefik continua visível na
+  API aberta (decisão do humano, ADR 0054 item 8).
 
 ## Requisitos
 - RNF-01: 400 conexões simultâneas e 100 conexões novas/s com análise completa (ADR 0046, provado na carga

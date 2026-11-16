@@ -1,6 +1,6 @@
 # 0048 — Fork do traefik em `./traefik/`, papel `implementer-traefik` e imagem no Docker Hub
 
-Status: aceita (provisória nos itens 2 e 7 — revisar se o humano decidir diferente nas pendências da spec 019)
+Status: substituída por 0054 (itens 1, 2, 5–9: o fork é o projeto externo traefix; itens 3 e 4 seguem como requisitos na spec 019)
 Data: 2026-11-16
 
 ## Contexto

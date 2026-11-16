@@ -1,6 +1,6 @@
 # 0007 — API aberta e feed global
 
-Status: aceita (API do bot com chave: ver 0051; ocultar o tráfego dos sites, proposta provisória: ver 0052)
+Status: aceita (API do bot com chave: ver 0051; tráfego dos sites mantido visível: ver 0054, P7)
 Data: 2026-11-07
 
 ## Contexto
