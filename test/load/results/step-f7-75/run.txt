@@ -1,0 +1,12 @@
+04:32:29 relógio: servidor − local = 2.86262ms (ida e volta 16.50875ms)
+04:32:29 servidor na versão v0.3.0-10-g8a6ba1b (versions_match=true)
+04:32:31 carga: 75 novas/s, até 300 simultâneas, vida 3.8s, 3m30s (aquecimento 30s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+04:33:01 t= 30s abertas=2251 simultâneas=292 (máx 296) eventos ws=16720
+04:33:31 t= 60s abertas=4498 simultâneas=297 (máx 300) eventos ws=34901
+04:34:01 t= 90s abertas=6746 simultâneas=291 (máx 300) eventos ws=53192
+04:34:31 t=120s abertas=8993 simultâneas=296 (máx 300) eventos ws=71423
+04:35:01 t=150s abertas=11242 simultâneas=292 (máx 300) eventos ws=89579
+04:35:31 t=180s abertas=13313 simultâneas=298 (máx 300) eventos ws=107708
+04:36:01 fim da geração: 15427 abertas, 324 puladas (teto), esperando as conexões terminarem
+04:36:24 relógio no fim: 2.918837ms (deriva 56.217µs)
+04:36:24 dados em tmp/load/raw/step-f7-75

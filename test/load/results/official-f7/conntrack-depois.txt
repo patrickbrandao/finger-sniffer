@@ -1,0 +1,16 @@
+cpu=0   	found=0 invalid=4279 insert=0 insert_failed=0 drop=0 early_drop=0 error=1 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=1   	found=0 invalid=4016 insert=0 insert_failed=0 drop=0 early_drop=0 error=2 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=2   	found=0 invalid=4013 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=3   	found=0 invalid=4031 insert=0 insert_failed=0 drop=0 early_drop=0 error=1 search_restart=0 clash_resolve=265 chaintoolong=0 
+cpu=4   	found=0 invalid=3922 insert=0 insert_failed=0 drop=0 early_drop=0 error=1 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=5   	found=0 invalid=34 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=6   	found=0 invalid=18 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=7   	found=0 invalid=26 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=8   	found=0 invalid=35 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=9   	found=0 invalid=57 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=10  	found=0 invalid=33 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=11  	found=0 invalid=18 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=12  	found=0 invalid=24 insert=0 insert_failed=0 drop=0 early_drop=0 error=0 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=13  	found=0 invalid=4430 insert=0 insert_failed=0 drop=0 early_drop=0 error=1 search_restart=0 clash_resolve=0 chaintoolong=0 
+cpu=14  	found=0 invalid=4420 insert=0 insert_failed=0 drop=0 early_drop=0 error=5 search_restart=0 clash_resolve=6 chaintoolong=0 
+cpu=15  	found=0 invalid=4291 insert=0 insert_failed=0 drop=0 early_drop=0 error=1 search_restart=0 clash_resolve=4563 chaintoolong=0 

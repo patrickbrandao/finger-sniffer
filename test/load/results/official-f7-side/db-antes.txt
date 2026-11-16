@@ -1,0 +1,7 @@
+total 87988
+drwx------ 2 finger-sniffer finger-sniffer      120 Nov 16 01:44 .
+drwxr-x--- 6 finger-sniffer finger-sniffer     4096 Nov 15 10:03 ..
+-rw-r--r-- 1 finger-sniffer finger-sniffer  8253440 Nov 16 02:27 finger-sniffer.sqlite
+-rw------- 1 finger-sniffer finger-sniffer 33554432 Nov 16 01:44 finger-sniffer.sqlite-reserve
+-rw-r--r-- 1 finger-sniffer finger-sniffer    98304 Nov 16 01:47 finger-sniffer.sqlite-shm
+-rw-r--r-- 1 finger-sniffer finger-sniffer 48187552 Nov 16 02:27 finger-sniffer.sqlite-wal
