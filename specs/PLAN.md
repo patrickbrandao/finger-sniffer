@@ -135,9 +135,9 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   site, probe, feed e webhook) a sites próprios atrás do traefik do finger-01 e a clientes externos não comerciais com
   chave emitida pelo operador; o **traefix** (traefik modificado, projeto externo do humano, imagem
   `tmsoftbrasil/traefix`) entrega a visão de aplicação dos sites pelos requisitos da spec 019; agregados de 7 dias com
-  LGPD (ADRs 0047–0056).
+  LGPD (ADRs 0047–0057).
 - **Specs**: 018 (bot), 019 (requisitos do traefix), 020 (API de vereditos); mudanças em 000, 001, 002, 003, 004,
-  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.1, asyncapi 0.6.1 (`fs.v1.store.connection`,
+  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.1, asyncapi 0.6.2 (`fs.v1.store.connection`,
   métricas com rótulos no heartbeat); migrations 0001 e 0002 do bot.
 - **Dependências**: F7 (tag `v0.4.0`). Nenhuma dependência nova no módulo do espelho. O traefix é do humano (ADR
   0054): o calendário dele não é deste plano, e a integração é por contrato.
@@ -153,13 +153,17 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
       atualização diária, `list stale` (278) ‖ agregados de 7 dias, flush, teto de bytes e cache de comportamento em
       `internal/bot/agg` (279) ‖ webhook com HMAC e `webhook backlog` em `internal/bot/webhook` (280);
     - implementer-store: métricas com rótulos do heartbeat no `/metrics` (281, desde já);
+    - implementer-bot, ajustes da ADR 0057 antes da 282: regras v1.1 — `ua_automation`, `library_client` e prova por
+      lista para OpenAI/DuckDuckGo, goldens com as classes da ADR (289) ‖ teto de bytes do índice
+      `FS_BOT_INDEX_MAX_BYTES`, `bot_index_bytes`, `conns_evicted_total{reason}` e `index bytes` no health (290);
     - implementer-bot: veredito nas rotas — forwardAuth, consulta, probe, `ip`, `fingerprints`, feed e webhook uma vez
-      por requisição, métricas `verdicts_total{class,source}` e `auth_seconds` (282, depois de 276–280) → `forget`
+      por requisição, métricas `verdicts_total{class,source}` e `auth_seconds`, `lists_version` real (282, depois de
+      276–280, 289 e 290) → `forget`
       alcançando a memória e `lists refresh` por `control_requests` (migration 0002), `store feed silent` e
-      conferência das métricas da RF-12 (283, depois de 278, 279 e 282);
+      conferência das métricas da RF-12 (283, depois de 278, 279, 282 e 290);
     - tester: e2e da F8 do lado do bot — probe, traefix simulado com `TraefikIngestBatch` na 9002 e a origem vista
       pelo store, erros, feed, `forget`; casos do traefix real pulando até a 273 (284, depois de 282 e 283) → carga
-      da F8, sozinha no finger-01 (285, depois de 281 e 284);
+      da F8, sozinha no finger-01, com o trecho hostil do índice (285, depois de 281, 284 e 290);
     - docs: `docs/bot.md`, guia de integração e verificação do webhook testada (286, depois de 280–282) → página de
       privacidade (287, bloqueada até P5 e P6).
   - **Traefix** (depende do humano): o humano implementa a spec 019 no projeto traefix e avisa → infra: teste da

@@ -1,6 +1,6 @@
 # 0049 — Veredito e sinais v1
 
-Status: aceita (pesos e limiares provisórios — revisar com a carga e o e2e da F8)
+Status: aceita (pesos e limiares provisórios — revisar com a carga e o e2e da F8; item 3 e sinais da v1.1: ver 0057)
 Data: 2026-11-16
 
 ## Contexto
@@ -21,6 +21,7 @@ explicável (o site vê por que) e reprodutível (mesma entrada, mesmo resultado
    cliente legítimo, piso 0). Classe:
    - `good_bot` quando o IP está numa lista de robô verificado **e** a verificação de DNS reverso/direto passou e o
      UA declara o mesmo robô (prevalece sobre o score);
+     (ADR 0057 item 1: para operadores sem sufixo de DNS reverso publicado — OpenAI, DuckDuckGo — a lista basta);
    - senão, `bot` com score ≥ 70, `suspect` com 40–69, `human` com < 40 **e** pelo menos `tls` e `http` na visão;
    - `unknown` com < 40 e visão incompleta.
 4. **Sinais v1** (ids estáveis; pesos iniciais na spec 018):

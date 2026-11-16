@@ -1,6 +1,6 @@
 # 0050 — Listas de referência: base própria, ja4db da FoxIO e listas de IP de bots
 
-Status: aceita (provisória quanto à ja4db — revisar se a pendência P4 da spec 018 mudar o uso; ja4db desligada por padrão até a P4, ver 0056)
+Status: aceita (provisória quanto à ja4db — revisar se a pendência P4 da spec 018 mudar o uso; ja4db desligada por padrão até a P4, ver 0056; robôs sem DNS reverso no item 4: ver 0057)
 Data: 2026-11-16
 
 ## Contexto
@@ -32,7 +32,8 @@ dependência nova: são arquivos JSON/CSV/texto lidos com a stdlib.
    (`bot_list_age_seconds{list}`, `bot_list_entries{list}`) e `lists_version` = hash dos hashes.
 4. **Verificação de robô**: DNS reverso do IP e direto do nome (stdlib `net.Resolver`, resolvedor do host), com
    cache de 24 h; sufixos aceitos por robô fixados no código (ex.: `googlebot.com`, `google.com`,
-   `search.msn.com`, `applebot.apple.com`).
+   `search.msn.com`, `applebot.apple.com`). GPTBot, OAI-SearchBot e DuckDuckBot não publicam sufixo: a
+   verificação por DNS dá `unknown` e a prova é a lista de IP do operador (ADR 0057 item 1).
 5. **Tráfego de saída**: o bot é o único serviço que baixa listas; só HTTPS, prazo de 30 s, até 64 MiB por lista,
    `User-Agent: finger-sniffer-bot/<versão>`; é tráfego iniciado pelo servidor e aparece na captura como os outros
    (spec 003 RF-02).
