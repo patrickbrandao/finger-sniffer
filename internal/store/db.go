@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -15,6 +16,15 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/database/sqlite/migrations"
 )
+
+// WALJournalLimit é o journal_size_limit do escritor: o tamanho a que o WAL é cortado quando recomeça. Fica acima
+// do maior WAL normal (o wal_autocheckpoint, 256 MiB) para o arquivo não ser cortado no uso normal (task 246):
+// cortado a 64 MiB, ele voltava a crescer a cada recomeço, e cada bloco novo do WAL entra no próximo commit do
+// journal do ext4 (data=ordered), que todo fsync do banco espera. No disco do finger-01, a 100 conexões/s
+// (TestWriterNoStallDuringPurge, 300 s), o pior atraso de mensagem caiu de 1,35 s para 0,73 s e as mensagens com
+// mais de 1 s, de 230 para 0. Só um WAL anormal (leitor longo) passa disso e volta a este tamanho. É uma variável
+// para os testes.
+var WALJournalLimit int64 = 512 << 20
 
 // OpenDB abre (ou cria) o SQLite do store com as opções da spec 004 e aplica as migrations goose.
 // auto_vacuum=INCREMENTAL só vale se definido antes da primeira tabela, por isso vem antes das migrations.
@@ -24,9 +34,9 @@ func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 	}
 	// O checkpoint automático do WAL roda no commit de quem escreve, ou seja, no caminho do ingest. O store faz o
 	// checkpoint por uma conexão própria a cada segundo (Checkpoint, task 105); o automático fica só como rede de
-	// segurança, com limiar alto (256 MiB de WAL, acima de WALRestartFrames, task 248), e journal_size_limit devolve o espaço do WAL depois do reinício.
+	// segurança, com limiar alto (256 MiB de WAL, acima de WALRestartFrames, task 248); journal_size_limit em WALJournalLimit.
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)" +
-		"&_pragma=wal_autocheckpoint(65536)&_pragma=journal_size_limit(67108864)"
+		"&_pragma=wal_autocheckpoint(65536)&_pragma=journal_size_limit(" + strconv.FormatInt(WALJournalLimit, 10) + ")"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
