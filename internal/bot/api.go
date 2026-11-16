@@ -36,6 +36,7 @@ const (
 const (
 	metricIngestRecords     = "bot_ingest_records_total"
 	metricIngestDropped     = "bot_ingest_dropped_total"
+	metricIngestParseErrors = "bot_ingest_parse_errors_total"
 	metricConnsEvicted      = "bot_conns_evicted_total"
 	metricStoreFeedMessages = "bot_store_feed_messages_total"
 	metricKeysActive        = "bot_keys_active"
@@ -358,7 +359,8 @@ func (a *API) forwardAuth(w http.ResponseWriter, r *http.Request) {
 		subject.ConnID = ptr(store.ConnID)
 	}
 	view := View{
-		TCP: hasTCP, TLS: hasFork && len(fork.ClientHello) > 0, HTTP: true, H2: f.proto == "h2", H3: f.proto == "h3",
+		TCP: hasTCP, TLS: hasFork && fork.TLS != nil && !fork.TLS.ParseError, HTTP: true, H2: f.proto == "h2",
+		H3: f.proto == "h3", ParseError: hasFork && fork.ParseError(),
 	}
 	v := unknownVerdict(subject, view, a.now())
 	w.Header().Set("X-Fs-Verdict", v.Class)
@@ -608,6 +610,9 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			rejected++
 			continue
+		}
+		for _, part := range rec.ParseErrors() {
+			a.count(metricIngestParseErrors+`{part="`+part+`"}`, 1)
 		}
 		a.Index.UpdateFork(rec.r.FsConnID, a.now(), rec.apply)
 		accepted++
