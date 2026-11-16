@@ -1,0 +1,198 @@
+package bot
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+const openapiFile = "../../cmd/finger-sniffer-bot/openapi.yaml"
+
+// redoclyPath: binário instalado por npm ci em scripts/contracts-tools (relativo a internal/bot).
+const redoclyPath = "../../scripts/contracts-tools/node_modules/.bin/redocly"
+
+// Refs dos schemas usados nos testes de contrato.
+const (
+	refError       = "#/components/schemas/Error"
+	refHealth      = "#/components/schemas/BotHealth"
+	refVerdict     = "#/components/schemas/Verdict"
+	refIPRep       = "#/components/schemas/IPReputation"
+	refFPStats     = "#/components/schemas/FingerprintStats"
+	refEvent       = "#/components/schemas/VerdictEvent"
+	refBatch       = "#/components/schemas/TraefikIngestBatch"
+	refIngestReply = "#/paths/~1bot~1v1~1ingest~1traefik/post/responses/202/content/application~1json/schema"
+)
+
+// contractValues junta os valores a validar por schema; o teste de contrato valida tudo num só lint por ref.
+type contractValues map[string][][]byte
+
+func (c contractValues) add(ref string, v []byte) { c[ref] = append(c[ref], append([]byte(nil), v...)) }
+
+// validateContract valida cada valor contra o schema ref do openapi do bot com o mesmo Redocly do verify (como o
+// teste de contrato do store): acrescenta uma rota sintética cuja resposta é o schema e cujos exemplos são os
+// valores, e roda o lint (no-invalid-media-type-examples = erro). Com -short, ou sem o Redocly instalado fora do
+// CI, o teste é pulado.
+func validateContract(t *testing.T, ref string, values ...[]byte) {
+	t.Helper()
+	if out, err := lintContract(t, ref, values...); err != nil {
+		t.Fatalf("%d valores não validam contra %s: %v\n%s", len(values), ref, err, out)
+	}
+}
+
+func redoclyBin(t *testing.T) string {
+	t.Helper()
+	bin, err := filepath.Abs(redoclyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(bin); err != nil {
+		msg := "Redocly ausente (" + redoclyPath + "): rode npm ci --ignore-scripts --prefix scripts/contracts-tools"
+		if os.Getenv("CI") == "true" {
+			t.Fatal(msg)
+		}
+		t.Skip(msg)
+	}
+	return bin
+}
+
+func lintContract(t *testing.T, ref string, values ...[]byte) ([]byte, error) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("contrato via Redocly pulado com -short")
+	}
+	bin := redoclyBin(t)
+	spec := string(openapiBytes(t))
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "testdata"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	name := strings.ToLower(strings.NewReplacer("#", "", "/", "", "~1", "", "~0", "").Replace(ref))
+	if len(name) > 40 {
+		name = name[len(name)-40:]
+	}
+	var route strings.Builder
+	fmt.Fprintf(&route, "  /contract-check/%s:\n    get:\n      tags: [health]\n      operationId: contractCheck\n      summary: x\n      security: []\n      responses:\n", name)
+	fmt.Fprintf(&route, "        \"200\":\n          description: x\n          content:\n            application/json:\n              schema: { $ref: \"%s\" }\n              examples:\n", ref)
+	for i, v := range values {
+		file := fmt.Sprintf("contract-%03d.json", i)
+		ex, _ := json.Marshal(map[string]any{"summary": "x", "value": json.RawMessage(v)})
+		if err := os.WriteFile(filepath.Join(dir, "testdata", file), ex, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&route, "                e%03d: { $ref: \"./testdata/%s\" }\n", i, file)
+	}
+	route.WriteString("        \"400\": { $ref: \"#/components/responses/BadRequest\" }\n")
+	text := strings.Replace(spec, "\npaths:\n", "\npaths:\n"+route.String(), 1)
+	if err := os.WriteFile(filepath.Join(dir, "openapi.yaml"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	redocly, err := os.ReadFile("../../redocly.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "redocly.yaml"), redocly, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "lint", "--format=summary", "openapi.yaml") //nolint:gosec // binário do repositório
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
+	return cmd.CombinedOutput()
+}
+
+// TestContractRejectsInvalidExample: o lint reprova um valor fora do schema (o teste não passa vazio).
+func TestContractRejectsInvalidExample(t *testing.T) {
+	if out, err := lintContract(t, refError, []byte(`{"error":"nope"}`)); err == nil {
+		t.Fatalf("valor inválido aceito:\n%s", out)
+	}
+}
+
+// TestContractResponses exercita cada rota implementada e valida as respostas contra o openapi do bot (critério
+// da task 267: "cada resposta implementada valida contra o openapi do bot").
+func TestContractResponses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("contrato via Redocly pulado com -short")
+	}
+	f := newFixture(t)
+	_, key := f.createKey(KeyOptions{Name: "c", Domains: []string{"example.com"}, Burst: 1, RatePerS: 1})
+	_, key2 := f.createKey(KeyOptions{Name: "c2", Domains: []string{"*.example.org"}})
+	vals := contractValues{}
+	expect := func(want, got int, ref string, body []byte) {
+		t.Helper()
+		if got != want {
+			t.Fatalf("status %d, esperado %d: %s", got, want, body)
+		}
+		vals.add(ref, body)
+	}
+	// Health e openapi sem chave.
+	c, _, b := f.do(f.public, "GET", "/bot/v1/health", "", nil, "")
+	expect(200, c, refHealth, b)
+	// 401, 404, 400 e 429.
+	c, _, b = f.do(f.public, "GET", "/bot/v1/verdict?src_ip=192.0.2.1&src_port=1&site=example.com", "", nil, "")
+	expect(401, c, refError, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/verdict?src_ip=192.0.2.1&src_port=1&site=other.com", key2, nil, "")
+	expect(404, c, refError, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/verdict/conn/bad", key2, nil, "")
+	expect(400, c, refError, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/probes/abcdefgh12/verdict", key2, nil, "")
+	expect(404, c, refError, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/auth", key2, nil, "")
+	expect(400, c, refError, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", key, nil, "")
+	expect(200, c, refIPRep, b)
+	c, h, b := f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", key, nil, "")
+	expect(429, c, refError, b)
+	if h.Get("Retry-After") == "" {
+		t.Error("429 sem Retry-After")
+	}
+	// Agregados com linhas (gravadas à mão: o flush dos agregados é da segunda onda).
+	hour := f.clock.Now().Unix() / 3600
+	if _, err := f.db.Exec(`INSERT INTO ip_hourly (ip, site, hour, requests, conns, class_bot) VALUES (?, 'a.example.org', ?, 5, 2, 1)`,
+		ipKey(mustAddr("192.0.2.1")), hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(`INSERT INTO fp_daily (kind, value, day, ua_family, requests, ips) VALUES ('ja4', 't13d1516h2_8daaf6152771_02713d6af862', ?, 'curl', 3, 1)`,
+		f.clock.Now().Unix()/86400); err != nil {
+		t.Fatal(err)
+	}
+	c, _, b = f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", key2, nil, "")
+	expect(200, c, refIPRep, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/fingerprints/ja4/t13d1516h2_8daaf6152771_02713d6af862", key2, nil, "")
+	expect(200, c, refFPStats, b)
+	c, _, b = f.do(f.public, "GET", "/bot/v1/fingerprints/ja3/x", key2, nil, "")
+	expect(400, c, refError, b)
+	// Ingest: lote válido, com registro inválido, 413 e 403 de origem.
+	batch := validBatch()
+	vals.add(refBatch, []byte(batch))
+	c, _, b = f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, batch)
+	expect(202, c, refIngestReply, b)
+	c, _, b = f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, `{"records":[{"type":"x","fs_conn_id":"bad","ts":"x"}]}`)
+	expect(202, c, refIngestReply, b)
+	c, _, b = f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, strings.Repeat(" ", MaxIngestBytes+1))
+	expect(413, c, refError, b)
+	// forwardAuth com as duas visões.
+	f.putStore()
+	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", "", forkHeadersFor(), "")
+	expect(200, c, refVerdict, b)
+	if h.Get("X-Fs-Verdict") != ClassUnknown || h.Get("X-Fs-Score") != "0" {
+		t.Errorf("cabeçalhos do forwardAuth: %v", h)
+	}
+	// Evento do feed (o serializador é o mesmo do SSE).
+	var v Verdict
+	_ = json.Unmarshal(b, &v)
+	ev, _ := json.Marshal(VerdictEvent{Kind: "verdict", Ts: v.Ts, Verdict: &v})
+	vals.add(refEvent, ev)
+	ev, _ = json.Marshal(VerdictEvent{Kind: "stream.dropped", Ts: v.Ts, Dropped: 3})
+	vals.add(refEvent, ev)
+
+	for ref, vs := range vals {
+		validateContract(t, ref, vs...)
+	}
+}
