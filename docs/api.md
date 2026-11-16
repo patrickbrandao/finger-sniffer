@@ -227,9 +227,10 @@ $ curl -s 'https://finger-01.badblock.net.br:9000/api/v1/connections?dst_port=84
 `dns` vale só para fluxos **TCP** da porta 53; um fluxo UDP da 53 fica `udp` e sem `probe_id`, e a consulta em si
 está em `/api/v1/dns` (com `probe_id`), como na seção [DNS e pacotes avulsos](#dns-e-pacotes-avulsos) (ADR 0023).
 `degraded: true` indica que o espelho estava acima do limite do modo degradado (padrão 1000 conexões simultâneas
-ou 250 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 200 e 50 novas/s, ADR 0042) e não guardou
-pcap nem bytes crus dessa conexão. O tráfego dos sites atrás do traefik do host também é capturado e conta nesses
-limites.
+ou 250 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 400 simultâneas e 100 novas/s com análise
+completa, ADR 0046) e não guardou pcap nem bytes crus dessa conexão. O tráfego dos sites atrás do traefik do host
+também é capturado e conta nesses limites. A mesma marca aparece no modo banco cheio do store (motivo `db full`
+no [health](#saúde)).
 
 ### Registro completo
 
@@ -534,6 +535,13 @@ efetivos, certificados (emissor e validade), NTP e o uso do banco (`db_bytes`, `
 fica `degraded` quando um sysctl efetivo difere do arquivo do projeto (`sysctl <chave> is <valor>, want <valor>`)
 ou quando há regra de NAT ou redirecionamento nas portas do espelho (`nat on mirror ports`; o deploy também
 reprova).
+
+O banco do store fica num tmpfs de 4G (ADR 0045). Com menos de 10% livre o store expurga os registros mais antigos
+e fica `degraded` com `db space <n>% free`; se uma escrita der `SQLITE_FULL`, ele faz um expurgo de emergência e,
+se ainda não couber, grava as conexões novas sem pcap nem bytes crus (`degraded: true`), com o motivo `db full`
+enquanto durar e por 5 min depois do último erro. As métricas `fs_store_db_fs_bytes`, `fs_store_db_full_total`,
+`fs_store_db_full_dropped_total` e `fs_store_purged_total{reason="space"}` mostram o espaço e os erros
+([metrics.md](metrics.md)).
 
 O finger-01 é compartilhado com o Docker do traefik, então o `nf_conntrack` e o ruleset do nftables do host
 existem e são **tolerados** (ADR 0038 item 7): `conntrack_loaded` e `nft_ruleset_lines` aparecem no health só como

@@ -607,13 +607,15 @@ func TestFinger01Docs(t *testing.T) {
 			"`finger-01.badblock.net.br`", "`finger-west-01.badblock.net.br`", "`170.247.40.86`",
 			"`2804:231c:e500:cafe::86`", "`ens192`", "TCP **8080** e **8443**", "UDP **8443**", "`h3=\":8443\"; ma=60`",
 			"`_8443._https.<nome>`", "NODATA", "**A**", "**B**", "TLS-ALPN-01", "`finger-sniffer.slice`",
-			"`MemoryMax=6G`", "`CPUQuota=800%`", "`FS_MAX_CONNS=1000`", "`FS_MAX_NEW_CONNS_PER_S=250`", "192 MiB",
+			"`MemoryMax=10G`", "`CPUQuota=800%`", "store 6G", "`FS_MAX_CONNS=1000`", "`FS_MAX_NEW_CONNS_PER_S=250`", "192 MiB",
 			"3 GiB", "128 MiB", "`net.ipv4.ip_default_ttl=128`", "`net.ipv4.tcp_mtu_probing=1`", "traefik",
 		},
 		"api.md": {
 			"`https://finger-01.badblock.net.br:9000`", "`[2804:231c:e500:cafe::86]`", "3 GiB", "`nat on mirror ports`",
 			"`conntrack_loaded`", "`nft_ruleset_lines`", "**tolerados**", "`net.ipv4.ip_default_ttl=128`",
-			"`net.ipv4.tcp_mtu_probing=1`", "`ens192`", "padrão 1000 conexões simultâneas", "200 e 50 novas/s",
+			"`net.ipv4.tcp_mtu_probing=1`", "`ens192`", "padrão 1000 conexões simultâneas", "400 simultâneas e 100 novas/s",
+			"`db space <n>% free`", "`db full`", "`fs_store_db_fs_bytes`", "`fs_store_db_full_total`",
+			"`fs_store_db_full_dropped_total`", "`fs_store_purged_total{reason=\"space\"}`", "some no reinício do\n  host",
 		},
 		"http3.md":  {"**UDP 8443**", "`Alt-Svc: h3=\":8443\"; ma=60`", "_8443._https.", "RFC 9460 §2.3", "NODATA", "`alpn=\"h2\"`"},
 		"probes.md": {"| TCP 8080, 8443 |", "| UDP 8443 |", "_8443._https.$H", "traefik", "padrão 192 MiB", "(1000) sessões"},
@@ -669,9 +671,9 @@ func TestFinger01Recaptured(t *testing.T) {
 	}
 }
 
-// TestCertBAndRNF01V030 confere as ADRs 0042–0044 nos docs (task 249): o certificado B e a rota do traefik só com
-// finger-01.badblock.net.br, a garantia do RNF-01 em 200/50 e o limite conhecido da v0.3.0 no finger-01.
-func TestCertBAndRNF01V030(t *testing.T) {
+// TestCertBAndRNF01 confere as ADRs 0043–0046 nos docs (tasks 249 e 257): o certificado B e a rota do traefik só
+// com finger-01.badblock.net.br, a garantia do RNF-01 em 400/100 e o limite conhecido da v0.3.0 resolvido na F7.
+func TestCertBAndRNF01(t *testing.T) {
 	read := func(f string) string {
 		data, err := os.ReadFile(f)
 		if err != nil {
@@ -692,16 +694,20 @@ func TestCertBAndRNF01V030(t *testing.T) {
 				t.Errorf("%s cita %s fora do papel de nome de ssh: %q", f, tmsoft, line)
 			}
 		}
-		for _, bad := range []string{"400 conexões simultâneas", "400 e 100/s", "garantia é 400"} {
+		for _, bad := range []string{
+			"garantia do RNF-01: 200", "garantia é 200", "200 e 50 novas/s", "200 conexões simultâneas", "meta da fase F7",
+			"correção na F7", "ADR 0042",
+		} {
 			if strings.Contains(s, bad) {
-				t.Errorf("%s ainda diz %q (RNF-01 é 200/50, ADR 0042)", f, bad)
+				t.Errorf("%s ainda diz %q (RNF-01 é 400/100, ADR 0046)", f, bad)
 			}
 		}
 	}
 	for _, w := range []string{
-		"- **B**: só `finger-01.badblock.net.br`", "garantia do RNF-01: 200 conexões simultâneas\n  e 50 novas/s",
-		"400/100 é meta da fase F7", "Limite conhecido da v0.3.0", "feed p99 ~1,9 s", "registro p95 ~1,5 s",
-		"IO do disco da VM", "finger-01 (ADR 0043)",
+		"- **B**: só `finger-01.badblock.net.br`", "garantia do RNF-01: 400 conexões simultâneas\n  e 100 novas/s",
+		"0046-rnf-01-400-100-com-o-banco-em-ram.md", "Limite conhecido da `v0.3.0` no finger-01 (ADR 0043), **resolvido na F7**",
+		"feed p99 ~1,9 s", "registro p95 ~1,5 s", "IO do disco da VM", "feed p99 352 ms", "registro p95 TCP 193 / QUIC 188 ms",
+		"`MemoryMax=10G`", "some no reinício do host", "`db space <n>% free`", "`db full`",
 	} {
 		if !strings.Contains(readme, w) {
 			t.Errorf("README.md sem %q", w)
