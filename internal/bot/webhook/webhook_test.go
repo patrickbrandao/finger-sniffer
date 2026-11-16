@@ -251,12 +251,12 @@ func TestRejectNonHTTPS(t *testing.T) {
 	if d.Active() {
 		t.Fatal("http aceito")
 	}
-	if v := c.Get(MetricURLRejected); v != 1 {
+	if v := c.Get(metricURLRejected); v != 1 {
 		t.Fatalf("recusas %v, esperada 1", v)
 	}
 	tg.URL = "ftp://example.com/"
 	d.SetTargets(ctx, []Target{tg})
-	if v := c.Get(MetricURLRejected); v != 2 {
+	if v := c.Get(metricURLRejected); v != 2 {
 		t.Fatalf("recusas %v, esperadas 2", v)
 	}
 	if ValidURL("https://") || !ValidURL("https://h.example/x") {
@@ -291,7 +291,7 @@ func TestQueueFullBacklog(t *testing.T) {
 	for range QueueSize + 5 {
 		d.Publish("bot", "example.com", body("{}"))
 	}
-	if v := c.Get(MetricDropped); v != 5 {
+	if v := c.Get(metricDropped); v != 5 {
 		t.Fatalf("descartes %v, esperados 5", v)
 	}
 	if d.Backlog(clock()) {

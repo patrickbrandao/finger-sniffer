@@ -41,11 +41,11 @@ const (
 	signaturePrefix = "sha256="
 )
 
-// Métricas (spec 018 RF-12). MetricURLRejected conta as chaves cuja URL não é https na carga.
+// Métricas (spec 018 RF-12). metricURLRejected conta as chaves cuja URL não é https na carga.
 const (
-	MetricSent        = "bot_webhook_sent_total"
-	MetricDropped     = "bot_webhook_dropped_total"
-	MetricURLRejected = "bot_webhook_url_rejected_total"
+	metricSent        = "bot_webhook_sent_total"
+	metricDropped     = "bot_webhook_dropped_total"
+	metricURLRejected = "bot_webhook_url_rejected_total"
 )
 
 // Sign devolve o valor de X-Fs-Signature: "sha256=" + hex de HMAC-SHA256(segredo, ts + "." + corpo).
@@ -160,7 +160,7 @@ func (d *Dispatcher) SetTargets(ctx context.Context, targets []Target) {
 		if !ValidURL(t.URL) {
 			if d.rejected[t.KeyID] != t.URL {
 				d.rejected[t.KeyID] = t.URL
-				d.opts.Count(MetricURLRejected, 1)
+				d.opts.Count(metricURLRejected, 1)
 			}
 			continue
 		}
@@ -231,7 +231,7 @@ func (d *Dispatcher) Publish(class, site string, body func() []byte) {
 		select {
 		case w.queue <- data:
 		default:
-			d.opts.Count(MetricDropped, 1)
+			d.opts.Count(metricDropped, 1)
 			w.mu.Lock()
 			if w.fullSince.IsZero() {
 				w.fullSince = d.opts.Now()
@@ -265,7 +265,7 @@ func (d *Dispatcher) run(ctx context.Context, w *worker) {
 		select {
 		case <-ctx.Done():
 			if n := len(w.queue); n > 0 {
-				d.opts.Count(MetricDropped, float64(n))
+				d.opts.Count(metricDropped, float64(n))
 			}
 			return
 		case body := <-w.queue:
@@ -325,5 +325,5 @@ func (d *Dispatcher) send(ctx context.Context, t Target, body []byte) bool {
 
 // sentMetric monta bot_webhook_sent_total{code="..."} (rótulos no formato da ADR 0056 item 4).
 func sentMetric(code string) string {
-	return fmt.Sprintf("%s{code=%q}", MetricSent, strings.ToLower(code))
+	return fmt.Sprintf("%s{code=%q}", metricSent, strings.ToLower(code))
 }

@@ -65,8 +65,8 @@ func TestWebhookFromHub(t *testing.T) {
 	for range webhook.QueueSize + 1 {
 		f.srv.hub.Publish(verdict(ClassSuspect, "a.example.com"))
 	}
-	if f.metrics.Get(webhook.MetricDropped) != 1 {
-		t.Fatalf("descartes %v", f.metrics.Get(webhook.MetricDropped))
+	if f.metrics.Get("bot_webhook_dropped_total") != 1 {
+		t.Fatalf("descartes %v", f.metrics.Get("bot_webhook_dropped_total"))
 	}
 	if _, reasons := f.srv.Status(); slices.Contains(reasons, "webhook backlog") {
 		t.Fatal("backlog cedo demais")
