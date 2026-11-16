@@ -5,15 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"net/netip"
+	"sort"
 	"sync"
 	"time"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/h2passive"
 )
 
 // matchWindow é a diferença máxima entre o início da conexão no fork e no store para casar as duas (RF-04).
 const matchWindow = 5 * time.Second
 
-// maxForkRequests é quantos resumos de requisição o índice guarda por conexão do fork (os mais novos).
-const maxForkRequests = 64
+// maxForkRequests é quantos resumos de requisição o índice guarda por conexão do fork (os mais novos), o mesmo
+// teto do resumo do store (ADR 0056 item 3): com 64, uma conexão h2 longa de navegador passava de 30 KiB e o
+// índice cheio não cabia no GOMEMLIMIT (spec 018 RNF-02, benchmark da task 277).
+const maxForkRequests = 16
 
 // srcKey é a chave de casamento das duas visões: origem e porta de destino (spec 018 RF-04), com o IPv4 mapeado
 // em IPv6 normalizado.
@@ -39,30 +44,68 @@ type StoreConn struct {
 	DstIP   netip.Addr
 	DstPort int
 	Started time.Time
-	// Record é o Connection do store sem as listas grandes (http, websocket, raw), para a segunda onda.
+	// Requests é o resumo HTTP do web (até 16: a primeira e as mais recentes, ADR 0056 item 3); RequestsSeen é
+	// quantas requisições o Connection trazia.
+	Requests     []*StoreRequest // compartilhados entre conexões (interner): somente leitura
+	RequestsSeen int
+	// Record é o Connection do store sem as listas grandes nem o ClientHello cru (droppedRecordFields).
 	Record json.RawMessage
 }
 
 // ForkConn é a visão de uma conexão vista pelo traefik modificado (POST /bot/v1/ingest/traefik).
 type ForkConn struct {
-	FsConnID             string
-	First                time.Time
-	SrcIP                netip.Addr
-	SrcPort              int
-	DstPort              int
-	HasSrc               bool
-	EntryPoint           string
-	SNI                  string
-	ALPNOffered          []string
-	ALPN                 string
-	TLSVersion           string
-	Cipher               string
-	ClientHello          []byte
-	ClientHelloTruncated bool
-	H2Prefix             []byte
-	H2PrefixTruncated    bool
-	HasConnRecord        bool
-	Requests             []ForkRequest
+	FsConnID    string
+	First       time.Time
+	SrcIP       netip.Addr
+	SrcPort     int
+	DstPort     int
+	HasSrc      bool
+	EntryPoint  string
+	SNI         string
+	ALPNOffered []string
+	ALPN        string
+	TLSVersion  string
+	Cipher      string
+	// TLS e H2 são as visões calculadas do client_hello e do h2_prefix do registro de conexão (spec 018 RF-03);
+	// nil quando o traefix não mandou a parte. Os bytes crus não ficam no índice.
+	TLS           *ForkTLS
+	H2            *ForkH2
+	HasConnRecord bool
+	Requests      []ForkRequest
+}
+
+// ParseError diz se alguma parte do registro de conexão não pôde ser analisada (View.parse_error).
+func (f *ForkConn) ParseError() bool {
+	return (f.TLS != nil && f.TLS.ParseError) || (f.H2 != nil && f.H2.ParseError)
+}
+
+// ForkTLS é a visão TLS do fork: as fingerprints do ClientHello cru, iguais às do web do espelho para os mesmos
+// bytes (pkg/tlsparse, pkg/fingerprint). Com ParseError, nenhuma fingerprint é preenchida.
+type ForkTLS struct {
+	JA3        string
+	JA3MD5     string
+	JA3N       string
+	JA3NMD5    string
+	JA4        string
+	JA4R       string
+	JA4O       string
+	SNI        string
+	ALPN       []string // ALPN oferecido, na ordem do ClientHello
+	Truncated  bool
+	ParseError bool
+}
+
+// ForkH2 é a visão h2 do fork, do prefixo do cliente até o primeiro HEADERS (pkg/h2passive). Sem campos nem
+// valores: só a ordem das pseudo-headers.
+type ForkH2 struct {
+	Settings     [][2]uint32
+	WindowUpdate *uint32
+	Priorities   []h2passive.Priority // anteriores ao primeiro HEADERS, até maxForkPriorities
+	PseudoOrder  []string
+	HeadersSeen  bool
+	Akamai       string
+	Truncated    bool
+	ParseError   bool
 }
 
 // ForkRequest é o resumo de uma requisição vista pelo fork (sem query, corpo nem valores de cookie, ADR 0052).
@@ -103,6 +146,8 @@ type ttlTable[V any] struct {
 	order *list.List
 	byID  map[string]*list.Element
 	bySrc map[srcKey]*list.Element
+	// onRemove (opcional) é chamado quando uma entrada sai (TTL, teto ou forget), para os índices secundários.
+	onRemove func(val V)
 }
 
 type ttlEntry[V any] struct {
@@ -151,6 +196,19 @@ func (t *ttlTable[V]) remove(el *list.Element) {
 	if e.hasSrc && t.bySrc[e.src] == el {
 		delete(t.bySrc, e.src)
 	}
+	if t.onRemove != nil {
+		t.onRemove(e.val)
+	}
+}
+
+// peek devolve o valor guardado pelo id, sem conferir o TTL.
+func (t *ttlTable[V]) peek(id string) (V, bool) {
+	var zero V
+	el, ok := t.byID[id]
+	if !ok {
+		return zero, false
+	}
+	return el.Value.(*ttlEntry[V]).val, true //nolint:forcetypeassert // idem
 }
 
 // expire tira as entradas sem atualização há mais que o TTL.
@@ -197,18 +255,47 @@ func (t *ttlTable[V]) removeSrcIn(p netip.Prefix) (n int) {
 
 // Index guarda em memória as conexões vistas pelo store e pelo fork nos últimos FS_BOT_CONN_TTL.
 type Index struct {
-	mu      sync.Mutex
-	store   *ttlTable[*StoreConn]
-	fork    *ttlTable[*ForkConn]
+	mu    sync.Mutex
+	store *ttlTable[*StoreConn]
+	fork  *ttlTable[*ForkConn]
+	// byProbe são os conn_id do store por probe_id (veredito por probe, spec 018 "Comportamento").
+	byProbe map[string]map[string]struct{}
 	changed chan struct{}
 	onEvict func(n int)
 }
 
 // NewIndex cria o índice com TTL e teto por visão; onEvict (opcional) recebe os despejos pelo teto.
 func NewIndex(ttl time.Duration, maxConns int, onEvict func(n int)) *Index {
-	return &Index{
+	ix := &Index{
 		store: newTTLTable[*StoreConn](ttl, maxConns), fork: newTTLTable[*ForkConn](ttl, maxConns),
-		changed: make(chan struct{}), onEvict: onEvict,
+		byProbe: map[string]map[string]struct{}{}, changed: make(chan struct{}), onEvict: onEvict,
+	}
+	ix.store.onRemove = ix.unlinkProbeLocked
+	return ix
+}
+
+// linkProbeLocked e unlinkProbeLocked mantêm byProbe; chamados com mu travado.
+func (ix *Index) linkProbeLocked(c *StoreConn) {
+	if c.ProbeID == "" {
+		return
+	}
+	set := ix.byProbe[c.ProbeID]
+	if set == nil {
+		set = map[string]struct{}{}
+		ix.byProbe[c.ProbeID] = set
+	}
+	set[c.ConnID] = struct{}{}
+}
+
+func (ix *Index) unlinkProbeLocked(c *StoreConn) {
+	if c.ProbeID == "" {
+		return
+	}
+	if set := ix.byProbe[c.ProbeID]; set != nil {
+		delete(set, c.ConnID)
+		if len(set) == 0 {
+			delete(ix.byProbe, c.ProbeID)
+		}
 	}
 }
 
@@ -227,7 +314,13 @@ func (ix *Index) evicted(n int) {
 // PutStore guarda (ou substitui) o estado da conexão do store.
 func (ix *Index) PutStore(c *StoreConn, now time.Time) {
 	ix.mu.Lock()
+	if old, ok := ix.store.peek(c.ConnID); ok {
+		ix.unlinkProbeLocked(old)
+	}
 	n := ix.store.put(c.ConnID, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.SrcIP.IsValid(), c, now)
+	if _, ok := ix.store.peek(c.ConnID); ok {
+		ix.linkProbeLocked(c)
+	}
 	ix.notifyLocked()
 	ix.mu.Unlock()
 	ix.evicted(n)
@@ -278,6 +371,27 @@ func (ix *Index) StoreByID(id string, now time.Time) (StoreConn, bool) {
 		return StoreConn{}, false
 	}
 	return *c, true
+}
+
+// StoreByProbe devolve as conexões do store do probe, em ordem de início (veredito por probe, task 282).
+func (ix *Index) StoreByProbe(probeID string, now time.Time) []StoreConn {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.store.expire(now)
+	set := ix.byProbe[probeID]
+	out := make([]StoreConn, 0, len(set))
+	for id := range set {
+		if c, ok := ix.store.getByID(id, now); ok {
+			out = append(out, *c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Started.Equal(out[j].Started) {
+			return out[i].Started.Before(out[j].Started)
+		}
+		return out[i].ConnID < out[j].ConnID
+	})
+	return out
 }
 
 // MatchStore casa uma origem vista pelo fork com a conexão do store (spec 018 RF-04): mesma origem, mesma porta

@@ -18,14 +18,19 @@ const (
 
 func mustAddr(s string) netip.Addr { return netip.MustParseAddr(s) }
 
-// validBatch é um lote do fork com a conexão (TLS + h2) e uma requisição.
+// validBatch é um lote do fork com a conexão (TLS + h2 do cliente Go dos goldens) e uma requisição.
 func validBatch() string {
-	ch := base64.StdEncoding.EncodeToString([]byte{0x16, 0x03, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x00})
+	return batchWith(base64.StdEncoding.EncodeToString(goldenBytes("tls/go.bin")),
+		base64.StdEncoding.EncodeToString(goldenBytes("h2/go.prefix")))
+}
+
+// batchWith é o lote de validBatch com o client_hello e o h2_prefix dados (base64).
+func batchWith(ch, h2 string) string {
 	return `{"sender":"v3.6.2-fs.1","records":[` +
 		`{"type":"connection","fs_conn_id":"` + testForkConnID + `","ts":"2026-11-16T12:00:00.000000000Z",` +
 		`"src":{"ip":"::ffff:198.51.100.7","port":51234},"dst":{"ip":"10.249.0.2","port":443},"entry_point":"websecure",` +
 		`"sni":"www.example.com","alpn_offered":["h2","http/1.1"],"alpn":"h2","tls_version":"1.3","cipher":"TLS_AES_128_GCM_SHA256",` +
-		`"client_hello":"` + ch + `","client_hello_truncated":false,"h2_prefix":"UFJJICogSFRUUC8yLjANCg0KU00NCg0K","h2_prefix_truncated":false},` +
+		`"client_hello":"` + ch + `","client_hello_truncated":false,"h2_prefix":"` + h2 + `","h2_prefix_truncated":false},` +
 		`{"type":"request","fs_conn_id":"` + testForkConnID + `","ts":"2026-11-16T12:00:00.050000000Z","proto":"h2","method":"GET",` +
 		`"authority":"www.example.com","path":"/index.html?secret=1","http_version":"2.0","field_names":["user-agent","accept","cookie"],` +
 		`"fields":{"user-agent":"curl/8.10.1","accept":"*/*","cookie":"sid=abc"},"cookie_names":["sid"],"ja4h":"ge20nn030000_x_y_z",` +
@@ -131,8 +136,8 @@ func TestIngest(t *testing.T) {
 	if fc.SrcIP != mustAddr("198.51.100.7") || fc.SrcPort != 51234 || fc.DstPort != 443 || fc.Site() != "www.example.com" {
 		t.Errorf("origem/site: %+v", fc)
 	}
-	if len(fc.ClientHello) != 10 || len(fc.H2Prefix) != 24 || len(fc.Requests) != 1 {
-		t.Fatalf("conexão: hello %d h2 %d reqs %d", len(fc.ClientHello), len(fc.H2Prefix), len(fc.Requests))
+	if fc.TLS == nil || fc.TLS.JA4 == "" || fc.H2 == nil || fc.H2.Akamai == "" || fc.ParseError() || len(fc.Requests) != 1 {
+		t.Fatalf("conexão: tls %+v h2 %+v reqs %d", fc.TLS, fc.H2, len(fc.Requests))
 	}
 	r := fc.Requests[0]
 	if r.Path != "/index.html" || r.Fields["cookie"] != "" || r.Fields["user-agent"] != "curl/8.10.1" {
