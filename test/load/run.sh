@@ -7,7 +7,7 @@
 #   OUT          pasta dos resultados (padrão: test/load/results/<data UTC>)
 #   FS_VPS_SSH   destino ssh (padrão root@finger-01.tmsoft.com.br)
 #   FS_VPS_PORT  porta ssh (padrão 48022)
-#   QUIC_TARGET  meta p95 do registro QUIC no relatório (padrão 3s, ADR 0024; 500ms depois da task 090)
+#   QUIC_TARGET  meta p95 do registro QUIC no relatório (padrão 500ms, ADR 0026, que substituiu a 0024)
 #
 # Passos: compila o loadgen (local) e o loadmon (linux/amd64), grava o conntrack -S (antes), sobe o loadmon no
 # servidor (CPU/RAM/nr_throttled por unit a cada 1 s, em finger.slice/finger-sniffer.slice), roda a carga, para o
@@ -20,7 +20,7 @@ cd "$ROOT"
 VPS_SSH="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
 OUT="${OUT:-test/load/results/$(date -u +%Y%m%dT%H%M%SZ)}"
-QUIC_TARGET="${QUIC_TARGET:-3s}"
+QUIC_TARGET="${QUIC_TARGET:-500ms}"
 BIN="tmp/load"
 REMOTE=/tmp/fs-load
 

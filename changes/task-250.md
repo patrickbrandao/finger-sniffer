@@ -1,0 +1,1 @@
+- test: carga com padrão oficial 200/50 (ADR 0042) e meta QUIC 500 ms (ADR 0026) no `run.sh`/`loadgen report`; notas de captura da vps602 nos goldens h2/QUIC; teste de lacuna do stream num lote que volta por Nak (task 250).

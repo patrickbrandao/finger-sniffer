@@ -1,6 +1,6 @@
 // Package pcaptest lê os pcaps de teste (testdata/syn) e os gabaritos gerados pelas ferramentas oficiais
 // (ja4 da FoxIO e p0f -r). Usado só pelos testes dos pacotes de fingerprint; os arquivos vão embutidos para
-// que o binário de teste rode fora do repositório (testes linux_priv na vps602).
+// que o binário de teste rode fora do repositório (testes linux_priv no finger-01).
 package pcaptest
 
 import (

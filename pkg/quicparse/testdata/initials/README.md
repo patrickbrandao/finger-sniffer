@@ -23,5 +23,9 @@ achados e como regenerar: `test/golden/quic/README.md` (`collect.sh` grava estes
 | `firefox` | Firefox 159.0 | q13d0315h3_55b375c5d22e_dc5437974b47 |
 
 Todos com ClientHello em 2 datagramas e CRYPTO fora de ordem. O IP do cliente é `198.51.100.10` (documentação);
-o servidor é a vps602 (`172.233.24.85`). O Firefox não tem HEADERS h3 (fecha no Handshake, ver o README de
-origem).
+o servidor é a vps602 (`172.233.24.85`).
+O Firefox não tem HEADERS h3 (fecha no Handshake, ver o README de origem).
+
+Capturas do servidor anterior: o SNI `vps602.tmsoft.com.br`, o `:authority` e o `referer` com a porta 7703 dos
+esperados são os bytes gravados então (listener de coleta na 7703) e ficam como estão; os parsers não dependem do
+host. Uma recaptura no finger-01 (ADR 0038) troca os arquivos inteiros pelo `collect.sh`.

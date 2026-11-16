@@ -4,9 +4,9 @@
 > cgroups em `system.slice`) e ficam como registro. Desde a ADR 0038/0039 os scripts (`run.sh`, `budget.sh`,
 > `loadgen`, `budgetload`, `loadmon`) apontam para o finger-01: alvo `finger-01.badblock.net.br`, zona
 > `finger-west-01.badblock.net.br`, web em 8080/8443 (TCP) e 8443 (UDP), cgroups em
-> `/sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>`, perfil padrão de 400 simultâneas e 100 novas/s, h3 por
-> IPv6 (`-h3-family`), `nr_throttled` por unit e `conntrack -S` antes e depois. As rodadas no finger-01 entram numa
-> seção própria.
+> `/sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>`, perfil padrão de 200 simultâneas e 50 novas/s (o
+> oficial da ADR 0042; o de 400/100, meta da fase F7, é `-rate 100 -max-active 400`), h3 por IPv6 (`-h3-family`),
+> `nr_throttled` por unit e `conntrack -S` antes e depois. As rodadas no finger-01 entram numa seção própria.
 
 Resultado da rodada atual (`c1aefd8`, `v0.1.0-13-gc1aefd8`, candidata à v0.2.0; task 120), com os limites do modo
 degradado da [ADR 0030](../../specs/decisions/0030-margem-do-modo-degradado.md) (`FS_MAX_CONNS=250`,
@@ -45,7 +45,7 @@ echo 10, banner 12, sink 8), vigia de tráfego alheio. Desde os degraus, vigia l
 | [`results/official-f01c-side`](results/official-f01c-side/) | 21:44:01–22:05:22 | — | — | vigia lateral da `prefill-f01c` e da `official-f01c` |
 
 ```sh
-test/load/run.sh -commit v0.2.1-75-g1f83ec0                            # official-f01a (padrão 400/100)
+test/load/run.sh -commit v0.2.1-75-g1f83ec0                            # official-f01a (padrão de então, 400/100)
 test/load/run.sh -commit v0.2.1-83-gaf14a7c -rate 50 -max-active 200   # prefill-f01c (9 min) e official-f01c
 ```
 
