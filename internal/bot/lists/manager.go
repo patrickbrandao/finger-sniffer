@@ -38,8 +38,8 @@ const (
 
 // Métricas por lista (spec 018 RF-12, rótulos da ADR 0056 item 4).
 const (
-	MetricListAge     = "bot_list_age_seconds"
-	MetricListEntries = "bot_list_entries"
+	metricListAge     = "bot_list_age_seconds"
+	metricListEntries = "bot_list_entries"
 )
 
 // ErrUnknownList é devolvido por Refresh para um nome fora das listas ativas.
@@ -570,7 +570,7 @@ func (m *Manager) StaleReasons(now time.Time) []string {
 
 // UpdateMetrics publica bot_list_age_seconds{list} e bot_list_entries{list} das listas ativas.
 func (m *Manager) UpdateMetrics(now time.Time, set func(name string, v float64)) {
-	set(labeled(MetricListEntries, KnownClientsName), float64(m.known.Entries()))
+	set(labeled(metricListEntries, KnownClientsName), float64(m.known.Entries()))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.sources {
@@ -579,12 +579,12 @@ func (m *Manager) UpdateMetrics(now time.Time, set func(name string, v float64))
 		if st.data != nil {
 			entries = st.data.entries
 		}
-		set(labeled(MetricListEntries, s.Name), float64(entries))
+		set(labeled(metricListEntries, s.Name), float64(entries))
 		ref := st.okAt
 		if ref.IsZero() {
 			ref = m.started
 		}
-		set(labeled(MetricListAge, s.Name), now.Sub(ref).Seconds())
+		set(labeled(metricListAge, s.Name), now.Sub(ref).Seconds())
 	}
 }
 
