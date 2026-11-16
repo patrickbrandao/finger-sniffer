@@ -1,0 +1,530 @@
+openapi: 3.1.0
+info:
+  title: finger-sniffer bot API
+  version: 0.1.0
+  summary: Vereditos de bot do espelho de análise de conexões.
+  description: |
+    API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
+    (HTTP, só loopback e a rede do traefik do finger-01, chave opcional), portas fora da captura.
+
+    Chave: `Authorization: Bearer fsk_<52 caracteres base32>`, emitida pelo operador com a CLI
+    `finger-sniffer-bot key create` (sem cadastro). Cada chave tem domínios autorizados: recurso de um site fora
+    deles responde 404, igual a recurso inexistente. Limites por chave (balde e cota diária) respondem 429 com
+    `Retry-After`.
+
+    Uso não comercial (ADR 0053): JA4 é BSD-3-Clause; JA4H e JA4T seguem a FoxIO License 1.1; uso comercial exige
+    licença da FoxIO.
+
+    Tempos em RFC 3339 UTC com nanossegundos. Compatibilidade (ADR 0001): `/bot/v1` só recebe mudanças aditivas.
+    Erros (corpo `Error`): `invalid_key`, `rate_limited`, `not_found`, `bad_request`, `missing_fork_headers`,
+    `payload_too_large`, `forbidden_origin`, `internal`.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  x-terms: Serviço não comercial; chaves emitidas só para uso não comercial (ADR 0053).
+security:
+  - apiKey: []
+servers:
+  - url: https://finger-01.badblock.net.br:9002
+    description: HTTPS pública (chave obrigatória)
+  - url: http://10.249.0.1:9003
+    description: Interna, só para o traefik do finger-01 e loopback (chave opcional)
+tags:
+  - name: health
+    description: Saúde e contrato.
+  - name: verdicts
+    description: Vereditos por requisição, conexão e probe.
+  - name: reputation
+    description: Agregados de 7 dias por IP e fingerprint.
+  - name: realtime
+    description: Feed de vereditos.
+  - name: ingest
+    description: Envio do traefik modificado.
+paths:
+  /bot/v1/health:
+    get:
+      tags: [health]
+      operationId: getBotHealth
+      summary: Saúde do bot
+      security: []
+      responses:
+        "200":
+          description: Estado do serviço.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotHealth" }
+  /bot/v1/openapi.yaml:
+    get:
+      tags: [health]
+      operationId: getBotOpenAPI
+      summary: Este contrato
+      security: []
+      responses:
+        "200":
+          description: OpenAPI em YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+  /bot/v1/auth:
+    get:
+      tags: [verdicts]
+      operationId: forwardAuth
+      summary: forwardAuth do traefik
+      description: |
+        Avalia a requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri` e pelos
+        `X-Fs-*` que o fork acrescenta (spec 019 RF-06). Espera a visão até `FS_BOT_VIEW_WAIT` (100 ms). No modo
+        `observe` responde sempre 200; no modo `block`, 403 para `class=bot`.
+      parameters:
+        - { name: X-Fs-Src-Ip, in: header, required: true, schema: { type: string } }
+        - { name: X-Fs-Src-Port, in: header, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: X-Fs-Dst-Port, in: header, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: X-Fs-Conn-Id, in: header, required: true, schema: { $ref: "#/components/schemas/ULID" } }
+        - { name: X-Fs-Proto, in: header, required: true, schema: { type: string, enum: [h1, h2, h3] } }
+        - { name: X-Forwarded-Host, in: header, schema: { type: string } }
+        - { name: X-Forwarded-Uri, in: header, schema: { type: string } }
+        - { name: X-Forwarded-Method, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Requisição liberada (com o veredito nos cabeçalhos para `authResponseHeaders`).
+          headers:
+            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdict" }
+            X-Fs-Score: { $ref: "#/components/headers/XFsScore" }
+            X-Fs-Signals: { $ref: "#/components/headers/XFsSignals" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verdict" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "403":
+          description: Modo `block` e `class=bot`.
+          headers:
+            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdict" }
+            X-Fs-Score: { $ref: "#/components/headers/XFsScore" }
+            X-Fs-Signals: { $ref: "#/components/headers/XFsSignals" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verdict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /bot/v1/verdict:
+    get:
+      tags: [verdicts]
+      operationId: getVerdictBySource
+      summary: Consulta pelo site (origem da conexão)
+      parameters:
+        - { name: src_ip, in: query, required: true, schema: { type: string } }
+        - { name: src_port, in: query, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: site, in: query, required: true, schema: { type: string }, description: "Host/SNI da requisição." }
+        - $ref: "#/components/parameters/Wait"
+      responses:
+        "200":
+          description: Último veredito da conexão.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verdict" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /bot/v1/verdict/conn/{fs_conn_id}:
+    get:
+      tags: [verdicts]
+      operationId: getVerdictByForkConn
+      summary: Consulta pelo id de conexão do fork
+      parameters:
+        - { name: fs_conn_id, in: path, required: true, schema: { $ref: "#/components/schemas/ULID" } }
+        - $ref: "#/components/parameters/Wait"
+      responses:
+        "200":
+          description: Último veredito da conexão.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verdict" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /bot/v1/probes/{id}/verdict:
+    get:
+      tags: [verdicts]
+      operationId: getProbeVerdict
+      summary: Veredito de um probe
+      description: Avaliado sobre as conexões do probe vistas pelo espelho; domínio pelo `Origin`/`Referer` delas.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, pattern: "^[a-z0-9]{8,32}$" } }
+        - $ref: "#/components/parameters/Wait"
+      responses:
+        "200":
+          description: Veredito do probe.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Verdict" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /bot/v1/ip/{ip}:
+    get:
+      tags: [reputation]
+      operationId: getIPReputation
+      summary: Agregados de 7 dias de um IP nos domínios da chave
+      parameters:
+        - { name: ip, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Agregados e listas.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IPReputation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /bot/v1/fingerprints/{kind}/{value}:
+    get:
+      tags: [reputation]
+      operationId: getFingerprintStats
+      summary: Contagens de 7 dias de uma fingerprint
+      parameters:
+        - { name: kind, in: path, required: true, schema: { type: string, enum: [ja4, akamai, ja4h, ja4t] } }
+        - { name: value, in: path, required: true, schema: { type: string, maxLength: 512 } }
+      responses:
+        "200":
+          description: Contagens por dia, família de UA e classe.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FingerprintStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /bot/v1/stream:
+    get:
+      tags: [realtime]
+      operationId: streamVerdicts
+      summary: Feed SSE de vereditos
+      description: |
+        Cada evento SSE tem `event: verdict` (ou `stream.dropped`) e `data: <VerdictEvent>`. Sem replay; fila de
+        1024 por cliente com descarte; ping a cada 15 s; até 64 clientes.
+      parameters:
+        - { name: class, in: query, schema: { type: string }, description: "Classes separadas por vírgula." }
+        - { name: site, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Fluxo SSE.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503":
+          description: Acima de 64 clientes do feed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /bot/v1/ingest/traefik:
+    post:
+      tags: [ingest]
+      operationId: ingestTraefik
+      summary: Envio em lote do traefik modificado (spec 019 RF-05)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TraefikIngestBatch" }
+      responses:
+        "202":
+          description: Lote recebido; registros inválidos contados e ignorados.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, rejected]
+                properties:
+                  accepted: { type: integer, minimum: 0 }
+                  rejected: { type: integer, minimum: 0 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/InvalidKey" }
+        "403":
+          description: Origem fora das redes permitidas na 9003 (`forbidden_origin`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: Lote acima de 4 MiB (`payload_too_large`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+webhooks:
+  verdict:
+    post:
+      tags: [realtime]
+      operationId: verdictWebhook
+      summary: Webhook de vereditos (ADR 0051 item 5)
+      description: |
+        Enviado à URL da chave para as classes escolhidas (padrão `bot` e `suspect`). Assinatura
+        `X-Fs-Signature: sha256=<hex de HMAC-SHA256(segredo, X-Fs-Timestamp + "." + corpo)>`; prazo de 5 s; novas
+        tentativas em 1 s, 5 s e 30 s em erro de rede ou 5xx; 4xx não repete.
+      security: []
+      parameters:
+        - { name: X-Fs-Signature, in: header, required: true, schema: { type: string, pattern: "^sha256=[0-9a-f]{64}$" } }
+        - { name: X-Fs-Timestamp, in: header, required: true, schema: { type: integer }, description: Segundos Unix. }
+        - { name: X-Fs-Key-Prefix, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerdictEvent" }
+      responses:
+        "200": { description: Recebido (qualquer 2xx). }
+        "400": { description: Recusado pelo receptor (4xx não repete). }
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: Chave `fsk_...` emitida pelo operador (ADR 0051).
+  headers:
+    XFsVerdict:
+      description: Classe do veredito, ou `unavailable` (posto pelo fork em fail-open).
+      schema: { type: string, enum: [human, good_bot, bot, suspect, unknown, unavailable] }
+    XFsScore:
+      description: Score 0–100.
+      schema: { type: integer, minimum: 0, maximum: 100 }
+    XFsSignals:
+      description: Ids dos sinais presentes, separados por vírgula (até 1 KiB).
+      schema: { type: string }
+  parameters:
+    Wait:
+      name: wait
+      in: query
+      description: Milissegundos para esperar a visão que falta (0–1000).
+      schema: { type: integer, minimum: 0, maximum: 1000 }
+  responses:
+    BadRequest:
+      description: Parâmetro inválido (`bad_request`, `missing_fork_headers`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InvalidKey:
+      description: Chave ausente, desconhecida ou revogada (`invalid_key`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Desconhecido, expirado (10 min) ou fora dos domínios da chave (`not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Limite da chave (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Segundos até tentar de novo.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_key, rate_limited, not_found, bad_request, missing_fork_headers, payload_too_large, forbidden_origin, internal]
+        detail: { type: string }
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 UTC com nanossegundos.
+    ULID:
+      type: string
+      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+    Base64:
+      type: string
+      contentEncoding: base64
+    Endpoint:
+      type: object
+      required: [ip, port]
+      properties:
+        ip: { type: string }
+        port: { type: integer, minimum: 0, maximum: 65535 }
+    BotHealth:
+      type: object
+      required: [status, version]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        version: { type: string }
+        reasons: { type: array, items: { type: string } }
+        rules_version: { type: string }
+        lists_version: { type: string }
+        lists:
+          type: array
+          items:
+            type: object
+            required: [name, entries]
+            properties:
+              name: { type: string }
+              entries: { type: integer, minimum: 0 }
+              fetched_at: { type: [string, "null"], format: date-time }
+              stale: { type: boolean }
+    Signal:
+      type: object
+      required: [id, kind, weight]
+      properties:
+        id:
+          type: string
+          description: Id estável (spec 018, tabela de pesos), ex. `ua_tls_mismatch`.
+        kind: { type: string, enum: [incoherence, list, behavior] }
+        weight: { type: integer, description: Peso aplicado (negativo para sinal de cliente legítimo). }
+        detail: { type: string, description: Explicação legível (ex. família do UA e JA4 vistos). }
+    View:
+      type: object
+      description: O que havia para decidir.
+      required: [tcp, tls, http, h2, h3, behavior]
+      properties:
+        tcp: { type: boolean }
+        tls: { type: boolean }
+        http: { type: boolean }
+        h2: { type: boolean }
+        h3: { type: boolean }
+        behavior: { type: boolean }
+        parse_error: { type: boolean }
+    Fingerprints:
+      type: object
+      properties:
+        ja3: { type: [string, "null"] }
+        ja3n: { type: [string, "null"] }
+        ja4: { type: [string, "null"] }
+        ja4_r: { type: [string, "null"] }
+        ja4_o: { type: [string, "null"] }
+        akamai: { type: [string, "null"] }
+        ja4h: { type: [string, "null"] }
+        ja4t: { type: [string, "null"] }
+        p0f_os: { type: [string, "null"] }
+        ttl_initial: { type: [integer, "null"] }
+        ua_family: { type: [string, "null"] }
+        ua_os: { type: [string, "null"] }
+    Subject:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [request, connection, probe] }
+        site: { type: [string, "null"] }
+        src: { $ref: "#/components/schemas/Endpoint" }
+        dst_port: { type: [integer, "null"] }
+        fs_conn_id: { type: [string, "null"], description: Id da conexão no fork. }
+        conn_id: { type: [string, "null"], description: "`conn_id` do store, quando casado." }
+        probe_id: { type: [string, "null"] }
+        method: { type: [string, "null"] }
+        path: { type: [string, "null"], description: "Caminho sem query, até 256 bytes." }
+    Verdict:
+      type: object
+      required: [class, score, signals, view, rules_version, lists_version, subject, ts]
+      properties:
+        class: { type: string, enum: [human, good_bot, bot, suspect, unknown] }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        signals: { type: array, items: { $ref: "#/components/schemas/Signal" } }
+        view: { $ref: "#/components/schemas/View" }
+        fingerprints: { $ref: "#/components/schemas/Fingerprints" }
+        crawler: { type: [string, "null"], description: "Nome do robô verificado (`good_bot`)." }
+        rules_version: { type: string }
+        lists_version: { type: string }
+        subject: { $ref: "#/components/schemas/Subject" }
+        ts: { $ref: "#/components/schemas/Timestamp" }
+    VerdictEvent:
+      type: object
+      required: [kind, ts]
+      properties:
+        kind: { type: string, enum: [verdict, stream.dropped] }
+        ts: { $ref: "#/components/schemas/Timestamp" }
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        dropped: { type: integer, minimum: 1 }
+    IPReputation:
+      type: object
+      required: [ip, days, lists]
+      properties:
+        ip: { type: string }
+        days:
+          type: array
+          items:
+            type: object
+            required: [day, site, requests]
+            properties:
+              day: { type: string, format: date }
+              site: { type: string }
+              requests: { type: integer, minimum: 0 }
+              conns: { type: integer, minimum: 0 }
+              classes:
+                type: object
+                additionalProperties: { type: integer, minimum: 0 }
+        lists: { type: array, items: { type: string }, description: Listas em que o IP está. }
+        crawler_verified: { type: [string, "null"] }
+    FingerprintStats:
+      type: object
+      required: [kind, value, days]
+      properties:
+        kind: { type: string, enum: [ja4, akamai, ja4h, ja4t] }
+        value: { type: string }
+        known_client: { type: [string, "null"], description: Cliente da base própria. }
+        ja4db_label: { type: [string, "null"] }
+        days:
+          type: array
+          items:
+            type: object
+            required: [day, ua_family, requests]
+            properties:
+              day: { type: string, format: date }
+              ua_family: { type: string }
+              requests: { type: integer, minimum: 0 }
+              ips: { type: integer, minimum: 0 }
+              class_bot: { type: integer, minimum: 0 }
+              class_human: { type: integer, minimum: 0 }
+    TraefikIngestBatch:
+      type: object
+      required: [records]
+      properties:
+        sender: { type: string, description: "Versão do fork (`<tag-upstream>-fs.<n>`)." }
+        records:
+          type: array
+          maxItems: 1024
+          items: { $ref: "#/components/schemas/TraefikRecord" }
+    TraefikRecord:
+      type: object
+      required: [type, fs_conn_id, ts]
+      description: |
+        `type=connection`: dados da conexão (TLS e h2), uma vez por conexão; `type=request`: resumo de uma
+        requisição (spec 019 RF-03 e RF-04).
+      properties:
+        type: { type: string, enum: [connection, request] }
+        fs_conn_id: { $ref: "#/components/schemas/ULID" }
+        ts: { $ref: "#/components/schemas/Timestamp" }
+        src: { $ref: "#/components/schemas/Endpoint" }
+        dst: { $ref: "#/components/schemas/Endpoint" }
+        entry_point: { type: string }
+        sni: { type: [string, "null"] }
+        alpn_offered: { type: array, items: { type: string } }
+        alpn: { type: [string, "null"] }
+        tls_version: { type: [string, "null"] }
+        cipher: { type: [string, "null"] }
+        client_hello: { $ref: "#/components/schemas/Base64" }
+        client_hello_truncated: { type: boolean }
+        h2_prefix: { $ref: "#/components/schemas/Base64" }
+        h2_prefix_truncated: { type: boolean }
+        proto: { type: string, enum: [h1, h2, h3] }
+        method: { type: string }
+        authority: { type: string }
+        path: { type: string, maxLength: 256 }
+        http_version: { type: string }
+        field_names: { type: array, items: { type: string } }
+        fields:
+          type: object
+          description: Valores só dos campos permitidos (spec 019 RF-04).
+          additionalProperties: { type: string, maxLength: 512 }
+        cookie_names: { type: array, items: { type: string } }
+        ja4h: { type: [string, "null"] }
+        status: { type: [integer, "null"] }
+        ended: { type: [string, "null"], format: date-time }
+        router: { type: [string, "null"] }
+        service: { type: [string, "null"] }

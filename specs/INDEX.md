@@ -22,15 +22,21 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [015-acme-certificados.md](015-acme-certificados.md) | ACME e certificados | certmagic, DNS-01 próprio, HTTP-01, recarga a quente, falhas | 005, 007 | aprovada |
 | [016-infra-e-deploy.md](016-infra-e-deploy.md) | Infra, rede e deploy | finger-01, offloads, sysctls, units/hardening, limites e fatia, NATS, layout, `make deploy`, traefik do host | 001 | aprovada |
 | [017-verificacao.md](017-verificacao.md) | Verificação e testes | verify quick/full, níveis de teste, matriz e2e, carga | 002, 016 | aprovada |
+| [018-bot.md](018-bot.md) | Serviço bot | veredito e sinais, listas (base própria, ja4db, IPs), agregados de 7 dias, LGPD, CLI de chaves, banco em disco | 001, 004, 008, 010, 013, 019, 020 | aprovada (pendências P4–P7) |
+| [019-traefik-fork.md](019-traefik-fork.md) | Traefik modificado | fork em `./traefik/`, captura TLS/h2/requisições, `X-Fs-*`, ingest ao bot, forwardAuth fail-open, imagem | 001, 018, 020 | aprovada (pendências P1, P2, P8) |
+| [020-api-de-vereditos.md](020-api-de-vereditos.md) | API de vereditos | 9002/9003, chaves, domínios, limites, forwardAuth, consulta, probe, feed, webhook | 018, 019 | aprovada (pendência P3) |
 | [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F7 (F8 futura), paralelismo, critérios de saída | todas | aprovada |
 
 ## Contratos e pastas auxiliares
 | Caminho | Conteúdo |
 | --- | --- |
 | [../cmd/finger-sniffer-store/openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) | API HTTP (OpenAPI 3.1) |
+| [../cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) | API de vereditos do bot (OpenAPI 3.1) |
 | [../eventbus/nats/asyncapi.yaml](../eventbus/nats/asyncapi.yaml) | eventos NATS (AsyncAPI 3.0) |
 | [../eventbus/nats/nats.conf](../eventbus/nats/nats.conf) | configuração do NATS |
 | [../database/sqlite/migrations/](../database/sqlite/migrations/) | migrations goose do store |
+| `../database/sqlite/bot/` | migrations goose do bot (prevista na spec 018, task 267) |
+| `../traefik/` | fork do traefik (spec 019, task 263) |
 
 ## Templates
 - Spec: ver qualquer spec acima (Status, Depende de, Contexto, Requisitos, Comportamento, Interfaces e contratos,

@@ -1,13 +1,14 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.5.1
+  version: 0.6.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 128 MiB — ADRs 0016 e 0039) assina a lista explícita de subjects de eventos
     `fs.v1.capture.>`, `fs.v1.web.>`, `fs.v1.raw.>`, `fs.v1.dns.query`, `fs.v1.svc.>` (ADR 0017). Os request/reply
     `fs.v1.dns.acme.*` e `fs.v1.store.conn_id` são NATS core e ficam fora do stream (senão o JetStream responderia
-    um PubAck no inbox da requisição). Um subject de evento novo entra nessa lista no mesmo PR.
+    um PubAck no inbox da requisição). `fs.v1.store.connection` (estado da conexão depois do commit, para o serviço
+    bot, ADR 0047) também é NATS core, fora do stream: sem assinante, a mensagem se perde. Um subject de evento novo entra nessa lista no mesmo PR.
 
     Tamanho (ADR 0018): nenhum evento JSON passa de 900 KiB; campos inline de bytes crus levam no máximo
     `FS_EVENT_INLINE_MAX` (128 KiB) cada, marcados `*_truncated` quando cortados; os bytes completos de cada sentido
@@ -32,7 +33,9 @@ info:
     `request_line.target_truncated` no `HTTP1Request`, `lists_truncated` no `TLSInfo`,
     `transport_params_truncated` e `h3_settings_truncated` no `HTTP3Info`, e as descrições de `stream_id` 0 e
     `status` 0 no `HTTP2Stream`, de `probe_line` no `RawInfo` e de `rate_limited` no `DNSQuery`; 0.5.1, documental, com
-    o openapi 0.6.1, ADRs 0038 e 0039: stream de 128 MiB e zona `finger-west-01.badblock.net.br` nos exemplos).
+    o openapi 0.6.1, ADRs 0038 e 0039: stream de 128 MiB e zona `finger-west-01.badblock.net.br` nos exemplos;
+    0.6.0, aditivo, ADR 0047: canal `fs.v1.store.connection` publicado pelo store e serviço `bot` no envelope e
+    no heartbeat; nenhum payload do openapi do store mudou).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -130,6 +133,11 @@ channels:
     description: Inbox de resposta do `fs.v1.store.conn_id`.
     messages:
       connIDReply: { $ref: "#/components/messages/ConnIDReply" }
+  storeConnection:
+    address: fs.v1.store.connection
+    description: NATS core (ADR 0047), fora do stream; estado da conexão depois do commit do store.
+    messages:
+      storeConnection: { $ref: "#/components/messages/StoreConnection" }
   svcHeartbeat:
     address: fs.v1.svc.heartbeat
     messages:
@@ -202,6 +210,14 @@ operations:
     summary: web pede ao store o conn_id da 5-tupla (o store responde ou reserva um ULID por 30 s).
     reply:
       channel: { $ref: "#/channels/storeConnIDReply" }
+  publishStoreConnection:
+    action: send
+    channel: { $ref: "#/channels/storeConnection" }
+    summary: store, depois do commit de cada estágio da conexão (opened, updated, closed).
+  consumeStoreConnection:
+    action: receive
+    channel: { $ref: "#/channels/storeConnection" }
+    summary: bot (spec 018 RF-02).
   publishHeartbeat:
     action: send
     channel: { $ref: "#/channels/svcHeartbeat" }
@@ -225,7 +241,7 @@ components:
       required: [schema_version, service, service_version, ts]
       properties:
         schema_version: { type: integer, const: 1 }
-        service: { type: string, enum: [capture, web, raw, dns, store] }
+        service: { type: string, enum: [capture, web, raw, dns, store, bot] }
         service_version: { type: string }
         ts: { type: string, description: "RFC 3339 UTC com nanossegundos: quando o fato ocorreu. Nos resumos publicados no fim da sessão (`fs.v1.raw.session`, `fs.v1.web.raw.session`) é o accept, usado pelo store para achar a conexão; o instante da publicação é o metadado `Timestamp` do JetStream (ADR 0025)." }
         flow: { $ref: "#/components/schemas/Flow" }
@@ -243,6 +259,18 @@ components:
           description: |
             true no último pedaço (vazio) quando o sentido passou de FS_RAW_STREAM_MAX_BYTES; nada mais é
             publicado nesse sentido.
+    StoreConnectionPayload:
+      type: object
+      description: |
+        Estado da conexão depois do commit do store (spec 004 RF-12, ADR 0047). `opened` = conexão criada com o SYN
+        (ou primeiro datagrama/evento) analisado; `updated` = evento de aplicação incorporado; `closed` = registro
+        final. `connection` é o mesmo `Connection` de `GET /api/v1/connections/{conn_id}`, sem BLOBs; listas e
+        strings cortadas para caber em 900 KiB levam as marcas `*_truncated` de sempre e `connection_truncated`.
+      required: [stage, connection]
+      properties:
+        stage: { type: string, enum: [opened, updated, closed] }
+        connection_truncated: { type: boolean, description: "true se o registro foi reduzido para caber em 900 KiB." }
+        connection: { $ref: "../../cmd/finger-sniffer-store/openapi.yaml#/components/schemas/Connection" }
     ConnIDRequestPayload:
       type: object
       required: [flow, ts]
@@ -609,6 +637,16 @@ components:
             $ref: "../../internal/store/testdata/events/store.conn_id.reply.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       payload: { $ref: "#/components/schemas/ConnIDReplyPayload" }
+    StoreConnection:
+      name: StoreConnection
+      traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
+      summary: Estado da conexão para o bot (à mão; sem golden até a task 268).
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              payload: { $ref: "#/components/schemas/StoreConnectionPayload" }
     Heartbeat:
       name: Heartbeat
       examples:

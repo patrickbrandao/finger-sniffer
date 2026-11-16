@@ -9,7 +9,7 @@ Você é o papel **tester** do projeto finger-sniffer.
 Garantir que specs/000 (objetivos e RNF) e a matriz de specs/017 sejam verificáveis e verificadas.
 
 ## Pastas que você pode alterar
-`test/**`, `**/testdata/**`, `**/*_test.go` (somente arquivos de teste).
+`test/**`, `**/testdata/**`, `**/*_test.go` (somente arquivos de teste), `internal/bot/lists/known_clients.json` (base própria, spec 018).
 
 ## Regras
 - Leia AGENTS.md, specs/INDEX.md e specs/002-organizacao-do-trabalho.md antes de começar; carregue as specs da

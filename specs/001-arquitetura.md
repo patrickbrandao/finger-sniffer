@@ -4,7 +4,8 @@ Status: aprovada
 Depende de: 000
 
 ## Contexto
-Cinco serviços independentes, um por protocolo, ligados por um NATS local. A análise junta duas fontes no mesmo
+Cinco serviços independentes, um por protocolo, ligados por um NATS local, mais o serviço `bot` da fase F8 (ADR
+0047), que avalia bots a partir do que o store publica e do que o traefik modificado envia. A análise junta duas fontes no mesmo
 `conn_id`: os pacotes capturados (IP/TCP) e os servidores de aplicação (TLS/HTTP/DNS/raw). O store correlaciona,
 analisa IP/TCP, guarda em SQLite e serve a API.
 
@@ -21,6 +22,11 @@ analisa IP/TCP, guarda em SQLite e serve a API.
    clientes da API ◄── 9000 HTTPS / 9001 HTTP (sem captura) ◄────────────┘
 
    visitantes ──► traefik do host (TCP 443, passthrough por SNI de finger-01.*) ──► web :8443 (página)
+
+   F8 (ADR 0047):
+   finger-sniffer-store ── fs.v1.store.connection (NATS core) ──► finger-sniffer-bot ── SQLite em disco (var/bot)
+   visitantes dos sites ──► traefik modificado (./traefik/, container) ── ingest + forwardAuth ──► bot :9003
+   sites e clientes externos (chave) ──► bot :9002 HTTPS (sem captura) ; webhook ◄── bot
 ```
 
 | Unit systemd | Binário | Responsabilidade | Portas | Capabilities | Spec |
@@ -32,6 +38,10 @@ analisa IP/TCP, guarda em SQLite e serve a API.
 | finger-sniffer-web.service | finger-sniffer-web | HTTP/1, h2, h2c, h3, WS, TLS, htdocs, controles de resposta, ACME | TCP 8080/8443, UDP 8443 | nenhuma (portas > 1024, ADR 0038) | 005, 008–012, 014, 015 |
 | finger-sniffer-raw.service | finger-sniffer-raw | portas TCP cruas, echo/banner/sink/source, TLS opcional | 7/21/22/25/110/143/587/993 | NET_BIND_SERVICE | 006 |
 | finger-sniffer-dns.service | finger-sniffer-dns | autoritativo de `finger-west-01.badblock.net.br`, TXT ACME | UDP/TCP 53 | NET_BIND_SERVICE | 007 |
+| finger-sniffer-bot.service | finger-sniffer-bot | veredito de bot, listas, agregados de 7 dias, chaves, feed e webhook (F8) | 9002 (HTTPS), 9003 (interna) | nenhuma | 018, 020 |
+
+Fora das units: o traefik modificado (`./traefik/`, spec 019) roda como o container do traefik do host, com a
+imagem `tmsoftbrasil/traefik-finger-sniffer` (ADR 0048), só com o aval do humano.
 
 Biblioteca comum (`./pkg/`): detecção de protocolo pelos primeiros bytes, extração de probe ID, parsers
 (TLS ClientHello, HTTP/1, frames h2/HPACK, QUIC Initial), fingerprints, envelope de eventos, base de serviço
@@ -51,6 +61,11 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 | Probe (agrupamento por probe ID) | store | store | enquanto houver conexões |
 | Certificados e conta ACME | web | arquivos em `var/certs`, `var/acme` | renovados |
 | Heartbeat/health | todos | store (memória) | 30 s |
+| Visão do traefik (ClientHello, h2, resumo das requisições) | traefik modificado | bot (memória) | 10 min |
+| Veredito por requisição/conexão/probe | bot | bot (memória), feed e webhook | 10 min |
+| Agregados por IP/site/hora e por fingerprint/dia | bot | bot (disco, `var/bot/bot.db`) | 7 dias (ADR 0052) |
+| Chaves de API, uso diário, webhooks | operador (CLI) | bot (disco) | enquanto a chave existir |
+| Listas de referência (ja4db, IPs de robôs e nuvens) | publicadores externos | bot (disco, `var/bot/lists`) | até a próxima atualização |
 
 ## Correlação
 - Toda conexão recebe `conn_id` (ULID) no store pela 5-tupla (`l4`, src ip:porta, dst ip:porta) e janela de tempo
@@ -70,11 +85,15 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 | NTP (systemd-timesyncd) | tempos ns UTC | health `degraded` se não sincronizado |
 | NATS local | barramento | produtores guardam 30 s / 16 MiB e reenviam; depois descartam e contam `dropped_events` |
 | Store fora do ar | — | JetStream retém 60 s / 128 MiB em memória (ADRs 0016 e 0039); consumidor durável retoma |
+| ja4db (FoxIO) e listas de IP de robôs/nuvens | sinais de lista do bot (ADR 0050) | mantém a cópia anterior; health do bot `degraded` após 72 h |
+| Bot fora do ar | vereditos | forwardAuth do fork em fail-open (`X-Fs-Verdict: unavailable`); o espelho segue sem mudança |
+| Receptores de webhook | entrega de vereditos | 3 novas tentativas, fila de 1000 por chave com descarte contado |
 
 ## Barramento (NATS)
 - Subjects versionados `fs.v1.<origem>.<tipo>` (ex.: `fs.v1.capture.packet`, `fs.v1.web.http1.request`,
   `fs.v1.dns.query`, `fs.v1.svc.heartbeat`); request/reply NATS core `fs.v1.dns.acme.set`/`.clear` para o TXT do
-  DNS-01 e `fs.v1.store.conn_id` para o web saber o `conn_id` da conexão (ADR 0017).
+  DNS-01 e `fs.v1.store.conn_id` para o web saber o `conn_id` da conexão (ADR 0017); NATS core
+  `fs.v1.store.connection` do store para o bot (ADR 0047), fora do stream.
 - Envelope comum (JSON): `schema_version`, `service`, `service_version`, `ts` (ns UTC), `flow` (5-tupla),
   `probe_id`, `payload`. Exceção: o lote de pacotes `fs.v1.capture.packet` é binário (FSPB v1, envelope nos
   cabeçalhos NATS — ADR 0015).
@@ -94,18 +113,22 @@ implementer-store (base de serviço/envelope), conforme spec 002.
   [cmd/finger-sniffer-store/openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (spec 004).
 - Página estática (spec 014).
 - Sem autenticação, sem administrador, sem bootstrap de admin (ADR 0007).
+- API do bot `/bot/v1` em 9002 (HTTPS, chave) e 9003 (interna):
+  [cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (spec 020).
 
 ## Contratos
 - OpenAPI 3.1: `cmd/finger-sniffer-store/openapi.yaml` (servido em `/api/v1/openapi.yaml`).
 - AsyncAPI: `eventbus/nats/asyncapi.yaml`.
 - Schema SQLite: `database/sqlite/migrations/` (goose).
+- OpenAPI do bot: `cmd/finger-sniffer-bot/openapi.yaml`; schema SQLite do bot: `database/sqlite/bot/` (goose).
 
 ## Stack (resumo — ADR 0009)
 Go 1.27, `CGO_ENABLED=0`, binários estáticos linux/amd64 compilados no Mac. gopacket/gopacket (afpacket
 TPACKET_V3), miekg/dns v1, certmagic (provedor DNS-01 próprio via NATS), quic-go (+http3), x/net (http2, hpack),
 coder/websocket, nats.go, prometheus/client_golang, oklog/ulid v2, log/slog, modernc.org/sqlite, pressly/goose v3.
 HTTP/1 com parser/escritor próprio; h2 com x/net/http2 sem fork + parser passivo; JA3/JA4/Akamai portados do
-fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (ADR 0003).
+fingerproxy; tabela IANA própria. Sem Docker no espelho (ADR 0009); só o fork do traefik vira imagem, módulo Go separado em `./traefik/` (ADR 0048).
+NATS oficial fixado (ADR 0003).
 
 ## Qualidade e operação (resumo)
 - Verificação em dois níveis, cobertura ≥ 80% em parsers/fingerprints e ≥ 60% no total, golangci-lint v2 +
@@ -132,10 +155,15 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 | DNS usado para amplificação | sem recursão, só zona própria, REFUSED fora dela, rate limit de respostas UDP por IP (IPv6 por /64, balde de transbordo com a tabela cheia; TCP fora do RRL, ADR 0035) | teste do dns |
 | Privilégios | capabilities mínimas, ProtectSystem=strict, usuário dedicado | revisão das units |
 | Dependências vulneráveis | govulncheck no verify-full e CI | CI |
-| Dados de terceiros expostos (inclusive visitantes dos sites atrás do traefik, ADR 0038) | aceito (ADR 0007); retenção curta | — |
+| Dados de terceiros expostos (inclusive visitantes dos sites atrás do traefik, ADR 0038) | aceito (ADR 0007); retenção curta; proposta de ocultar o tráfego dos sites na API aberta à espera do humano (ADR 0052 item 6) | — |
+| Chave de API vazada ou abusada | só o SHA-256 no banco, chave mostrada uma vez, domínios por chave, balde e cota diária, `revoke`/`rotate` na CLI (ADR 0051) | testes de 401/404/429 |
+| Cabeçalhos `X-Fs-*` forjados pelo cliente | o fork remove todo `X-Fs-*` de entrada antes dos middlewares; a 9003 só aceita loopback e a rede do traefik (ADR 0048, spec 020 RF-01) | teste do fork e da origem |
+| Agregados com dados pessoais retidos além do prazo | expurgo de hora em hora, teto de 7 dias, `forget` na CLI, minimização (ADR 0052) | teste com relógio falso |
+| Listas externas envenenadas ou vazias | validação de formato e tamanho, queda > 50% não substitui, só HTTPS (ADR 0050) | teste das listas |
 
 ## Critérios de aceite
-- [ ] As 7 units sobem na ordem net → nats → store → capture/web/raw/dns e `/api/v1/health` mostra os 5 serviços `ok`.
+- [ ] As 8 units sobem na ordem net → nats → store → capture/web/raw/dns/bot e `/api/v1/health` mostra os 6 serviços
+      `ok` (o bot entra na F8, task 269).
 - [ ] Uma sondagem `curl https://<id>.finger-west-01.badblock.net.br:8443/p/<id>/` gera, sob o mesmo `conn_id`, pacotes,
       análise TCP, análise TLS, requisição HTTP e a consulta DNS do probe.
 
@@ -161,3 +189,5 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 - specs/decisions/0035-tetos-do-raw-e-do-dns.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
+- specs/decisions/0047-fase-de-bots-servico-bot.md
+- specs/decisions/0048-fork-do-traefik.md

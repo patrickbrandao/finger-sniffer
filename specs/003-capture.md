@@ -11,7 +11,7 @@ Não analisa nada além do necessário para o envelope.
 ## Requisitos
 - RF-01: captura AF_PACKET TPACKET_V3 (gopacket/gopacket `afpacket`, Go puro), snaplen completo
   (`FS_CAPTURE_SNAPLEN`, padrão 65535), nos dois sentidos, na interface `FS_CAPTURE_IFACE` (padrão `ens192`).
-- RF-02: filtro BPF exclui as portas `FS_CAPTURE_EXCLUDE_PORTS` (padrão 48022, 48161, 9000, 9001) em TCP e UDP,
+- RF-02: filtro BPF exclui as portas `FS_CAPTURE_EXCLUDE_PORTS` (padrão 48022, 48161, 9000, 9001, 9002, 9003; as duas últimas são do serviço bot, ADR 0047) em TCP e UDP,
   origem ou destino, e descarta sempre os quadros ARP (ethertype `0x0806`, com ou sem tag VLAN `0x8100`, mesmo com
   a lista de portas vazia; ADR 0040). Todo o resto entra: TCP, UDP, ICMP/ICMPv6, fragmentos, outros quadros não IP,
   inclusive fluxos iniciados pelo próprio servidor (ACME, NTP, apt), e inclusive frames truncados pelo snaplen (o

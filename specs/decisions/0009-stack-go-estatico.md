@@ -1,6 +1,6 @@
 # 0009 — Stack: Go estático, HTTP próprio, bibliotecas e sem Docker
 
-Status: aceita (dependências que vêm na API pública de uma permitida: ver 0023)
+Status: aceita (dependências que vêm na API pública de uma permitida: ver 0023; fork do traefik como módulo e imagem à parte: ver 0048)
 Data: 2026-11-07
 
 ## Contexto

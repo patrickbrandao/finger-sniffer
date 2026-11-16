@@ -5,10 +5,12 @@ TLS, TCP cru, DNS autoritativo), registra **como** os pacotes e as conexões che
 temporização) e devolve tudo, cru e analisado, por uma API em portas não capturadas (9000 HTTPS, 9001 HTTP).
 Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com quais características ele alcança o
 servidor, repetindo a mesma sondagem por caminhos diferentes (direto, proxies, túneis) e comparando o que o
-espelho viu (ADR 0028).
+espelho viu (ADR 0028). Na fase F8, o serviço `bot` usa essa análise para dar vereditos de bot por API (forwardAuth
+do traefik, consulta, probe, feed e webhook) e um traefik modificado em `./traefik/` entrega a visão dos sites
+(ADRs 0047–0053).
 
 Roda em `finger-01.tmsoft.com.br` (também `finger-01.badblock.net.br`; Debian 13, VM VMware, 16 vCPU, 32 GB, NIC
-`ens192`), em `/finger-sniffer`, como 7 units systemd (rede + NATS + 5 serviços) agrupadas num target, dentro da
+`ens192`), em `/finger-sniffer`, como 7 units systemd (rede + NATS + 5 serviços; 8 com o `bot` da F8) agrupadas num target, dentro da
 fatia `finger-sniffer.slice` (6 GiB, 8 vCPU; ADR 0039). O host é compartilhado com o traefik e os sites do humano
 (Docker): o espelho não mexe no resto do host (ADR 0038). Web em TCP 8080/8443 e UDP 8443 (80/443 são do traefik),
 API em `finger-01.badblock.net.br:9000/9001`, zona dos probes: `<id>.finger-west-01.badblock.net.br`.
@@ -44,11 +46,12 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - Endpoints, funções, variáveis, chaves JSON, subjects NATS e nomes de arquivos de código em **inglês**.
 - Comentários de código **somente em português do Brasil**.
 - Go 1.27, `CGO_ENABLED=0`, binários estáticos linux/amd64.
-- Dependências permitidas: lista da ADR 0009. Qualquer outra exige pedir ao humano.
+- Dependências permitidas: lista da ADR 0009. Qualquer outra exige pedir ao humano. O fork em `./traefik/` usa o
+  `go.mod` do upstream (ADR 0048); dependência nova além dele também vai ao humano.
 
 ## Comandos
 - Instalar ferramentas: `make tools` (golangci-lint, gofumpt, goose, lefthook, govulncheck)
-- Compilar: `make build` (5 binários em ./bin/, linux/amd64)
+- Compilar: `make build` (5 binários em ./bin/, linux/amd64; 6 com o `bot` da F8)
 - Implantar: `make deploy` (todos) ou `make deploy SVC=web` (um serviço) — sem aprovação, servidor de testes
 - Testar (padrão, durante o trabalho e ao concluir cada tarefa): `make verify-quick`
   - testes explícitos: `make verify-quick ARGS="-- ./pkg/detect -run TestTLS"`
@@ -78,10 +81,11 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - ./changes/: fragmentos do CHANGELOG, um por tarefa (`task-NNN.md`), juntados pelo architect no fim da fase
 - ./tmp/: arquivos temporários (fora do Git)
 - ./docs/: documentação derivada
-- ./cmd/finger-sniffer-<svc>/: binário de cada serviço (capture, web, raw, dns, store)
+- ./cmd/finger-sniffer-<svc>/: binário de cada serviço (capture, web, raw, dns, store; bot na F8)
+- ./traefik/: fork do traefik (módulo Go separado, papel `implementer-traefik`, ADR 0048)
 - ./internal/<svc>/: código de cada serviço
 - ./pkg/: código comum (detecção de protocolo, probe, fingerprints, parsers, envelope de eventos)
 - ./htdocs/: site estático (inglês) servido nas portas capturadas
 - ./deploy/: units systemd, sysctl, NIC, journald, script de deploy
-- ./database/sqlite/: migrations do store
+- ./database/sqlite/: migrations do store (`migrations/`) e do bot (`bot/`, F8)
 - ./eventbus/nats/: configuração do NATS e asyncapi.yaml
