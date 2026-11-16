@@ -118,3 +118,34 @@ basta com o banco no cache. Isso vale para qualquer RNF acima de ~50/s neste dis
 Não reproduzido: 0 probes sem registro em ~250 000 das rodadas A, B e D (~48 000 h3). O caso
 (`ldajgdbd0x6o3y9z`, h3 na 8443, 03:05:51 UTC) já tinha saído do banco e o journal não tem aviso do store nem do
 web na janela; sem dado para diagnosticar.
+
+## Depois do banco em RAM (task 255, ADR 0045)
+
+Medida de 2026-11-16 no finger-01, com a task 254 implantada (tmpfs de 4G em `/finger-sniffer/var/store`, store
+com `MemoryMax=6G`, fatia 10G) e a task 255 (`synchronous=OFF`, WAL de 64 MiB, teto de 3 GiB, expurgo pelo livre
+do tmpfs, reserva de 32 MiB), versão `v0.3.0-10-g8a6ba1b`, carga do Mac (`test/load/run.sh -rate 100 -max-active
+400 -warmup 30s -retention-check=false`). Vigia lateral a cada 1 s (`/metrics` do store, `memory.stat` e
+`memory.events` do cgroup do store e da fatia, tamanho do banco e do WAL). Brutos fora do Git, em
+`tmp/load/raw/s255-100` e `s255-100b` do worktree da tarefa.
+
+| Rodada | Banco no início | Duração | feed p95 / p99 / máx (ms) | registro p95 TCP / QUIC (ms) | backlog máx | expurgo | CPU do store média / máx |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E (`s255-100`) | vazio (tmpfs novo) | 9 min + 30 s | 232 / 350 / 867 | 192 / 186 | **0,10 s** | — (nada venceu: banco mais novo que 10 min) | 50% / 63% de um núcleo |
+| F (`s255-100b`) | 2,0 GB (9,5 min, em regime) | 4 min + 30 s | 233 / 349 / 834 | 193 / 187 | **0,10 s** | 96–99/s por idade, banco estável em 2 070 MiB | 46–53% |
+
+Nas duas: `stream_lost` Δ 0, probes sem registro 0, health `ok`, `fs_store_db_full_total` Δ 0,
+`fs_store_purged_total{reason="space"|"size"}` 0, `memory.events` do store com `max` 0 e `oom_kill` 0,
+`nr_throttled` 0. Banco em regime a 100/s com 10 min: **2 070 MiB** de páginas usadas (abaixo do teto de 3 GiB);
+`fs_store_db_fs_bytes` livre mínimo 1 994 MiB de 4 096 (49%); `shmem` do store até 2 101 MiB (fatia 2 102 MiB),
+`anon` ≤ 126 MiB, `memory.current` ≤ 2 234 MiB (de 6 GiB); WAL ≤ 46 MiB (9 362 quadros); `wal_restart` 25 em
+4 min, soma 1,5 ms (antes 1–4,6 s cada); `purge_delete` médio 2,1 ms por lote; `purge_vacuum` 0 (regime sem
+encolher).
+
+Contra as rodadas A–D da task 246: backlog máximo 2,2–4,5 s → 0,10 s; feed p99 2,0–2,7 s → 0,35 s; registro p95
+0,9–1,3 s → 0,19 s; expurgo 20–30/s → igual à criação. O disco saiu do caminho do ingest, como previsto na ADR 0045.
+
+Metas do relatório que falharam nas duas rodadas, do lado do gerador no Mac (não do espelho): conexões com erro no
+cliente (61 de 52 498 em E; 20 de 23 379 em F) e conexões puladas pelo teto de 400 do gerador (1 502; 621). A linha
+"expurgo depois da retenção" sai como falha porque a checagem foi desligada (`-retention-check=false`), como na 246;
+a coluna `MemoryMax` do store no relatório ainda mostra 2 048 MiB (tabela fixa em
+`test/load/cmd/loadgen/report.go`; o real agora é 6 GiB).
