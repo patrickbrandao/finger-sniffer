@@ -32,6 +32,7 @@ var heartbeatNames = map[string][]string{
 		"store_event_only_connections_total", "store_expunged_total", "store_ingest_lag_ms", "store_packets_total",
 		"store_pending_events_total", "store_raw_stream_bytes_total", "store_stray_total", "store_degraded_connections_total",
 		"store_ingest_errors_total", "store_finalize_retries_total", "store_batch_count_mismatch_total",
+		"store_db_full_dropped_total", "store_late_packets_total", "store_late_dropped_total", "store_packet_spills_total",
 	},
 	event.ServiceCapture: {"published_events_total"},
 }
@@ -240,4 +241,46 @@ func TestMetricsKeepsStreaming(t *testing.T) {
 		return testutil.ToFloat64(m.apiRequests.WithLabelValues("GET /api/v1/ws", "101")) == 1 &&
 			testutil.ToFloat64(m.apiRequests.WithLabelValues("GET /api/v1/stream", "200")) == 1
 	}, "streaming requests not counted")
+}
+
+// TestMetricsHeartbeatNativeCollision: depois de um lote descartado no modo banco cheio, o heartbeat do store traz
+// store_db_full_dropped_total e o contador nativo fs_store_db_full_dropped_total também existe; o /metrics continua
+// 200 e o lint limpo (task 259). Nenhum nome do heartbeat do store pode virar fs_<nome> de uma métrica nativa sem
+// estar em replacedHeartbeat.
+func TestMetricsHeartbeatNativeCollision(t *testing.T) {
+	h := Health{Services: map[string]ServiceHealth{event.ServiceStore: {
+		Status: event.StatusOK, Metrics: map[string]float64{"store_db_full_dropped_total": 3},
+	}}}
+	m := newStoreMetrics(func(context.Context) Health { return h }, func() int { return 0 }, nil)
+	m.dbFullDropped(3)
+	if _, err := m.reg.Gather(); err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	m.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/metrics = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "fs_store_db_full_dropped_total 3") {
+		t.Errorf("contador nativo ausente:\n%s", rec.Body.String())
+	}
+	if probs, err := testutil.GatherAndLint(m.reg); err != nil || len(probs) > 0 {
+		t.Errorf("lint: %v %v", err, probs)
+	}
+
+	// Nomes nativos (sem heartbeat) contra todos os nomes do heartbeat do store.
+	bare := newStoreMetrics(func(context.Context) Health { return Health{} }, func() int { return 0 }, nil)
+	fams, err := bare.reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	native := map[string]bool{}
+	for _, f := range fams {
+		native[f.GetName()] = true
+	}
+	for _, k := range heartbeatNames[event.ServiceStore] {
+		if native["fs_"+sanitize(k)] && !replacedHeartbeat[k] {
+			t.Errorf("heartbeat %q colide com a métrica nativa fs_%s e não está em replacedHeartbeat", k, sanitize(k))
+		}
+	}
 }

@@ -38,6 +38,7 @@ var replacedHeartbeat = map[string]bool{
 	"store_stray_total":                true, // fs_store_stray_packets_total
 	"store_degraded_connections_total": true, // fs_store_connections_degraded_total
 	"store_expunged_total":             true, // fs_store_purged_total{reason}
+	"store_db_full_dropped_total":      true, // fs_store_db_full_dropped_total (mesmo nome, sem o rótulo service)
 }
 
 // storeMetrics são as métricas do /metrics (spec 004 RF-10), num registro próprio (sem o global).
