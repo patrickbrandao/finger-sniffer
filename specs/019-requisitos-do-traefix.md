@@ -67,7 +67,7 @@ o servidor de `ingestURL` e do forwardAuth.
   ```yaml
   experimental:
     fingerSniffer:
-      ingestURL: http://10.249.0.1:9003/bot/v1/ingest/traefik   # obrigatório para ligar
+      ingestURL: http://10.249.255.254:9003/bot/v1/ingest/traefik   # obrigatório para ligar
       apiKey: ""               # obrigatório fora do finger-01 (9002)
       entryPoints: [websecure] # entradas cobertas
       queueSize: 4096
@@ -76,9 +76,11 @@ o servidor de `ingestURL` e do forwardAuth.
       flushInterval: 100ms
       sendTimeout: 2s
   ```
-  Dinâmica (middleware): `forwardAuth: { address: http://10.249.0.1:9003/bot/v1/auth, failOpen: true, timeout:
+  Dinâmica (middleware): `forwardAuth: { address: http://10.249.255.254:9003/bot/v1/auth, failOpen: true, timeout:
   200ms, authResponseHeaders: [X-Fs-Verdict, X-Fs-Score, X-Fs-Signals] }`. Configuração inválida (URL sem esquema,
-  entrada inexistente) falha na carga com mensagem clara, como as opções do upstream.
+  entrada inexistente) falha na carga com mensagem clara, como as opções do upstream. No finger-01,
+  `10.249.255.254` é o IP do host na bridge `br-net-public` do traefik (`FS_BOT_INTERNAL_LISTEN=10.249.255.254/16`,
+  origens aceitas `10.249.0.0/16`, task 269).
 - RF-09: **imagem e versão**: `tmsoftbrasil/traefix` no Docker Hub, `linux/amd64` (outras arquiteturas opcionais),
   binário estático, rótulos OCI `source`, `version`, `revision` e `licenses=MIT`; tags imutáveis por versão
   `<tag-upstream>-traefix.<n>` (ex.: `v3.6.2-traefix.1`, nunca reescritas) além de `latest`; `traefik version` e o

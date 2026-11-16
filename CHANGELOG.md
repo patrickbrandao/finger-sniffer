@@ -5,6 +5,25 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+Fase F8 (detecção de bots oferecida por API), primeira onda: serviço `finger-sniffer-bot` implantado no finger-01 com chaves, portas 9002/9003, ingest do traefix e índice da visão do store; vereditos ainda `unknown` até a segunda onda (tasks 276–287). Contratos: openapi do bot 0.1.1 e asyncapi 0.6.1.
+
+### Adicionado
+- Serviço `finger-sniffer-bot`, primeira onda (spec 018/020): banco em disco com a migration 0001 (`database/sqlite/bot/`), CLI `key create|list|revoke|rotate` e `forget`, API 9002 HTTPS (chave obrigatória) e 9003 HTTP (loopback e rede do traefik) com 401/404/429/403/413 do contrato, ingest do traefik no índice em memória e assinatura de `fs.v1.store.connection`; veredito ainda `unknown` e rotas de veredito em 404 até a segunda onda (task 267).
+- Store publica `fs.v1.store.connection` para o bot (spec 004 RF-12): `opened`, `updated` e `closed` depois do commit, com o `Connection` da API, fila de 4096 com `fs_store_conn_publish_dropped_total`, tempo em `fs_store_conn_publish_seconds`, corte acima de 900 KiB com `connection_truncated`, degradado só `opened`/`closed`; `updated` no máximo a cada 100 ms por conexão (o adiado sai no fim da janela) e cache do JSON das camadas TLS/h3; health espera o sexto serviço `bot` (RF-13) (task 268).
+- infra: unit `finger-sniffer-bot` no target e na fatia (depois do store; 1G/768MiB/200%, sem swap nem capabilities, `var/bot` em disco preservado pelo deploy); `make build`/`deploy`/release com 6 binários e `SVC=bot`; 9002/9003 fora da captura (o deploy troca o padrão antigo instalado) e 9003 na bridge do traefik (10.249.255.254/16); smoke do bot (9002 com TLS, 9003 loopback/bridge/403) e banco-modelo do bot no verify (task 269).
+- infra: o passo de contratos do verify valida também o openapi do bot; `traefik/**` fora dos passos do módulo raiz e passo/job "traefik" no verify e no CI (task 262; o passo e o job do fork saem na task 272, com o traefix externo).
+- Base própria de fingerprints (`internal/bot/lists/known_clients.json`, spec 018, ADR 0050): 15 medidas de curl (OpenSSL e LibreSSL), Go, Chrome, Firefox (h1/h2/h3), python-requests e Chrome headless, geradas por `TestF8KnownClients` com `FS_E2E_UPDATE=1`; formato e regra de regravação conferidos no verify-quick (task 270).
+
+### Corrigido
+- test: `TestF5Fingerprints` liga a remontagem TCP fora de ordem do tshark/ja4; o ClientHello do Chrome cujo primeiro segmento se perde no caminho e é retransmitido deixava as ferramentas sem saída e virava divergência falsa; golden `f5-clienthello-retransmit.pcap` em `TestF5ToolsOutOfOrderClientHello` (task 260).
+- test(e2e): `analyzePcap` (caso 7) liga `tcp.reassemble_out_of_order` no tshark/ja4 e remonta o fluxo do cliente por seq; ClientHello com o primeiro segmento retransmitido depois do segundo não falha mais (task 274).
+- Specs: exemplos da spec 019 e `servers` do openapi do bot (0.1.1, documental) com o IP real do host na bridge `br-net-public` do finger-01, `10.249.255.254` (task 275).
+
+### Decidido
+- Fase F8 especificada (ADRs 0047–0053, specs 018–020): serviço `bot` com banco em disco e portas 9002/9003, veredito e sinais v1, listas (base própria, ja4db, IPs de robôs e nuvens), API de vereditos com chaves, feed e webhook, LGPD e 7 dias, uso não comercial; contratos novos: openapi do bot 0.1.0 e asyncapi 0.6.0 (`fs.v1.store.connection`); pendências P1–P8 para o humano (task 261).
+- O traefik modificado vira o projeto externo traefix (ADR 0054, imagem `tmsoftbrasil/traefix`, substitui a 0048); spec 019 reescrita como "Requisitos do traefix para o finger-sniffer"; papel `implementer-traefik` removido; respostas P1–P3, P7 e P8; ADR 0055 com os ajustes da primeira onda da F8 (`updated` a cada 100 ms, migration 0001 do bot, 400 do forwardAuth, 9003); exemplos do `StoreConnection` no asyncapi (task 271).
+- Segunda onda da F8 (ADR 0056, task 275): ja4db atrás de `FS_BOT_JA4DB_ENABLE=false` até a pendência P4; `forget` e `lists refresh` da CLI chegam ao serviço em execução pela tabela `control_requests` (migration 0002); o índice do bot guarda até 16 requisições HTTP resumidas por conexão do store; métricas com rótulos e histogramas no heartbeat (asyncapi 0.6.1) republicadas pelo store; sinal informativo `ip_crawler_list_unverified` na tabela de pesos; tarefas 276–287 no PLAN.
+
 ## [0.4.0] - 2026-11-16
 
 Fase F7: banco do store em RAM (ADR 0045) e RNF-01 de volta a 400 simultâneas / 100 novas/s (ADR 0046), provado na carga `official-f7` no finger-01; o limite conhecido da v0.3.0 (ADR 0043) está resolvido. Contratos sem mudança (openapi 0.6.1, asyncapi 0.5.1).
