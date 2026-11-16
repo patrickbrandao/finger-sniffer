@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -282,5 +283,142 @@ func TestMetricsHeartbeatNativeCollision(t *testing.T) {
 		if native["fs_"+sanitize(k)] && !replacedHeartbeat[k] {
 			t.Errorf("heartbeat %q colide com a métrica nativa fs_%s e não está em replacedHeartbeat", k, sanitize(k))
 		}
+	}
+}
+
+const invalidHeader = `# HELP fs_store_heartbeat_metrics_invalid_total Heartbeat metric keys ignored: malformed, conflicting label sets for the same name, or beyond 512 keys per heartbeat.
+# TYPE fs_store_heartbeat_metrics_invalid_total counter
+`
+
+// TestMetricsHeartbeatLabels: chaves com rótulos do heartbeat do bot (ADR 0056 item 4) viram fs_<nome>{service,
+// <rótulos>}; _bucket/_sum/_count viram um histograma; chave malformada ou com conjunto de rótulos conflitante é
+// ignorada e contada uma vez por heartbeat em fs_store_heartbeat_metrics_invalid_total; o lint fica limpo.
+func TestMetricsHeartbeatLabels(t *testing.T) {
+	at1, at2 := "2026-11-16T10:00:00Z", "2026-11-16T10:00:05Z"
+	bot := map[string]float64{
+		`bot_verdicts_total{class="bot",source="auth"}`:      5,
+		`bot_verdicts_total{source="traefix",class="human"}`: 2,
+		`bot_auth_seconds_bucket{le="0.01"}`:                 3,
+		`bot_auth_seconds_bucket{le="0.1"}`:                  4,
+		"bot_auth_seconds_sum":                               0.25,
+		"bot_auth_seconds_count":                             5,
+		`bot_list_entries{list="tor"}`:                       100,
+		"bot_keys_active":                                    7,
+		// inválidas
+		`bot_auth_seconds_bucket{le="+Inf"}`:                 5, // "+" fora de [A-Za-z0-9_.:/-]; o +Inf vem de _count
+		`bot_verdicts_total{class="bot"}`:                    1, // outro conjunto de rótulos para o mesmo nome
+		`bot_bad_total{class=bot}`:                           1, // valor sem aspas
+		`bot_bad_total{Class="x"}`:                           1, // nome de rótulo fora de [a-z_]
+		`bot_bad_total{class="a b"}`:                         1, // valor fora do conjunto
+		`bot_bad_total{service="x"}`:                         1, // rótulo reservado
+		`bot_bad_total{a="1",a="2"}`:                         1, // rótulo repetido
+		`bot_bad_total{}`:                                    1,
+		`bot_bad_total{a="1"`:                                1,
+		`bot-bad_total{a="1"}`:                               1, // nome inválido
+		`bot_bad_total{a="` + strings.Repeat("x", 65) + `"}`: 1, // valor longo demais
+	}
+	dns := map[string]float64{
+		"dns_queries_udp_total":  9,
+		"bot_list_entries":       1, // nome já publicado com {service,list} pelo bot
+		"bot_auth_seconds_count": 1, // reservado pelo histograma do bot
+	}
+	h := Health{Services: map[string]ServiceHealth{
+		event.ServiceBot: {Status: event.StatusOK, LastHeartbeat: &at1, Metrics: bot},
+		event.ServiceDNS: {Status: event.StatusOK, LastHeartbeat: &at1, Metrics: dns},
+	}}
+	m := newStoreMetrics(func(context.Context) Health { return h }, func() int { return 0 }, nil)
+	want := `# HELP fs_bot_auth_seconds Histogram from the service heartbeat (bot_auth_seconds).
+# TYPE fs_bot_auth_seconds histogram
+fs_bot_auth_seconds_bucket{service="bot",le="0.01"} 3
+fs_bot_auth_seconds_bucket{service="bot",le="0.1"} 4
+fs_bot_auth_seconds_bucket{service="bot",le="+Inf"} 5
+fs_bot_auth_seconds_sum{service="bot"} 0.25
+fs_bot_auth_seconds_count{service="bot"} 5
+# HELP fs_bot_keys_active Value from the service heartbeat (bot_keys_active).
+# TYPE fs_bot_keys_active gauge
+fs_bot_keys_active{service="bot"} 7
+# HELP fs_bot_list_entries Value from the service heartbeat (bot_list_entries).
+# TYPE fs_bot_list_entries gauge
+fs_bot_list_entries{list="tor",service="bot"} 100
+# HELP fs_bot_verdicts_total Value from the service heartbeat (bot_verdicts_total).
+# TYPE fs_bot_verdicts_total counter
+fs_bot_verdicts_total{class="bot",service="bot",source="auth"} 5
+fs_bot_verdicts_total{class="human",service="bot",source="traefix"} 2
+# HELP fs_dns_queries_udp_total Value from the service heartbeat (dns_queries_udp_total).
+# TYPE fs_dns_queries_udp_total counter
+fs_dns_queries_udp_total{service="dns"} 9
+` + invalidHeader + `fs_store_heartbeat_metrics_invalid_total{service="bot"} 11
+fs_store_heartbeat_metrics_invalid_total{service="dns"} 2
+`
+	names := []string{
+		"fs_bot_auth_seconds", "fs_bot_keys_active", "fs_bot_list_entries", "fs_bot_verdicts_total",
+		"fs_dns_queries_udp_total", "fs_store_heartbeat_metrics_invalid_total",
+	}
+	// Duas coletas do mesmo heartbeat: os inválidos são contados uma vez só.
+	for range 2 {
+		if err := testutil.GatherAndCompare(m.reg, strings.NewReader(want), names...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if probs, err := testutil.GatherAndLint(m.reg); err != nil || len(probs) > 0 {
+		t.Errorf("lint: %v %v", err, probs)
+	}
+	mfs, err := m.reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		if n := mf.GetName(); strings.HasPrefix(n, "fs_bot_bad") || strings.HasPrefix(n, "fs_bot_auth_seconds_") {
+			t.Errorf("família inesperada %s", n)
+		}
+	}
+
+	// Heartbeat novo do bot: os inválidos dele somam de novo; o do dns, que não mudou, fica.
+	s := h.Services[event.ServiceBot]
+	s.LastHeartbeat = &at2
+	h.Services[event.ServiceBot] = s
+	if err := testutil.GatherAndCompare(m.reg, strings.NewReader(invalidHeader+`fs_store_heartbeat_metrics_invalid_total{service="bot"} 22
+fs_store_heartbeat_metrics_invalid_total{service="dns"} 2
+`), "fs_store_heartbeat_metrics_invalid_total"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMetricsHeartbeatIncompleteHistogram: _bucket sem _sum/_count não vira histograma; fica como contador solto.
+func TestMetricsHeartbeatIncompleteHistogram(t *testing.T) {
+	h := Health{Services: map[string]ServiceHealth{event.ServiceBot: {Status: event.StatusOK, Metrics: map[string]float64{
+		`bot_wait_seconds_bucket{le="1"}`: 2,
+	}}}}
+	m := newStoreMetrics(func(context.Context) Health { return h }, func() int { return 0 }, nil)
+	if err := testutil.GatherAndCompare(m.reg, strings.NewReader(`# HELP fs_bot_wait_seconds_bucket Value from the service heartbeat (bot_wait_seconds_bucket).
+# TYPE fs_bot_wait_seconds_bucket counter
+fs_bot_wait_seconds_bucket{le="1",service="bot"} 2
+`), "fs_bot_wait_seconds_bucket"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMetricsHeartbeatKeyLimit: acima de 512 chaves num heartbeat, o resto (em ordem alfabética) é ignorado e contado.
+func TestMetricsHeartbeatKeyLimit(t *testing.T) {
+	keys := map[string]float64{}
+	for i := range 600 {
+		keys[fmt.Sprintf("bot_k%03d", i)] = float64(i)
+	}
+	h := Health{Services: map[string]ServiceHealth{event.ServiceBot: {Status: event.StatusOK, Metrics: keys}}}
+	m := newStoreMetrics(func(context.Context) Health { return h }, func() int { return 0 }, nil)
+	mfs, err := m.reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, mf := range mfs {
+		got[mf.GetName()] = true
+	}
+	if !got["fs_bot_k511"] || got["fs_bot_k512"] || got["fs_bot_k599"] {
+		t.Errorf("corte em 512 errado: k511=%v k512=%v", got["fs_bot_k511"], got["fs_bot_k512"])
+	}
+	if err := testutil.GatherAndCompare(m.reg, strings.NewReader(invalidHeader+`fs_store_heartbeat_metrics_invalid_total{service="bot"} 88
+`), "fs_store_heartbeat_metrics_invalid_total"); err != nil {
+		t.Fatal(err)
 	}
 }
