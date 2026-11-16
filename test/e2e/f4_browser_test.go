@@ -8,7 +8,7 @@ package e2e
 // https://finger-01.badblock.net.br:8443/ direto; ADR 0038 item 6), espera o feed ficar "live", clica em
 // "Run probe" e confere:
 //   - o registro do probe mostra uma requisição em quic/h3 (a segunda, pelo Alt-Svc, ou já a primeira pelo HTTPS
-//     RR);
+//     RR; se o TCP ganhar a corrida com o QUIC já aberto, numa repetição da fetch do probe, task 251);
 //   - cada linha do probe aparece no DOM do feed em < 1 s do ts do evento (MutationObserver injetado antes da
 //     página, hora do DOM convertida para o relógio do servidor por clockOffset);
 //   - nenhuma requisição da página sai para host fora do servidor e da zona dos probes (lista do CDP/BiDi).
@@ -517,27 +517,55 @@ func runPageProbe(t *testing.T, name, page string, b browser) {
 
 	// h3 no registro do probe
 	// (o Firefox mantém as conexões abertas até a ociosidade; não dá para esperar all_closed)
-	var h3Conn *record
-	var order []string
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) && h3Conn == nil; {
-		p := probeNow(t, id)
-		order = order[:0]
-		for _, c := range p.conns(portTLS) {
-			order = append(order, c.Proto)
-			if c.Proto == "quic/h3" && c.HTTP3 != nil && len(c.HTTP3.Requests) > 0 && h3Conn == nil {
-				h3Conn = &c
+	// O caso 12 pede que o h3 seja oferecido (Alt-Svc e HTTPS RR) e usado, não que o navegador o escolha em toda
+	// requisição: o Chrome corre TCP e QUIC e, quando o TCP ganha, as duas fetches do probe saem pelo h2 já
+	// aberto antes de o QUIC terminar o handshake (task 251). Nesse caso, e só se o probe já tiver uma conexão
+	// quic/h3 (prova de que o h3 foi oferecido e aceito), a página repete a fetch do probe até 3 vezes; cada
+	// repetição tem de sair em quic/h3 com a requisição registrada, senão o teste falha como antes.
+	findH3 := func(wait time.Duration) (*record, []string, bool) {
+		var order []string
+		quicSeen := false
+		for deadline := time.Now().Add(wait); ; {
+			p := probeNow(t, id)
+			order = order[:0]
+			for _, c := range p.conns(portTLS) {
+				order = append(order, c.Proto)
+				if c.Proto == "quic/h3" {
+					quicSeen = true
+					if c.HTTP3 != nil && len(c.HTTP3.Requests) > 0 {
+						return &c, order, true
+					}
+				}
 			}
-		}
-		if h3Conn == nil {
+			if !time.Now().Before(deadline) {
+				return nil, order, quicSeen
+			}
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
-	if h3Conn == nil {
-		t.Errorf("%s: nenhuma requisição do probe em quic/h3 (conexões na %d: %v)", name, portTLS, order)
-	} else {
+	h3Conn, order, quicSeen := findH3(10 * time.Second)
+	firstOrder := append([]string(nil), order...)
+	retries := 0
+	probeURL := fmt.Sprintf("https://%s.%s:%d/p/%s/", id, zone, portTLS, id)
+	for h3Conn == nil && quicSeen && retries < 3 {
+		retries++
+		// mesma fetch do app.mjs (probeTargets/runProbe), disparada sem esperar a resposta
+		if _, err := b.eval(ctx, fmt.Sprintf(`(fetch(%q, { mode: "no-cors", cache: "no-store" }).catch(() => {}), "ok")`, probeURL)); err != nil {
+			t.Fatalf("%s: repetir a fetch do probe: %v", name, err)
+		}
+		h3Conn, order, quicSeen = findH3(10 * time.Second)
+	}
+	switch {
+	case h3Conn == nil:
+		t.Errorf("%s: nenhuma requisição do probe em quic/h3 (conexões na %d: %v; quic/h3 aberta: %v; repetições: %d)",
+			name, portTLS, order, quicSeen, retries)
+	default:
 		via := "Alt-Svc (segunda requisição)"
-		if order[0] == "quic/h3" {
+		if firstOrder[0] == "quic/h3" {
 			via = "HTTPS RR (já a primeira)"
+		}
+		if retries > 0 {
+			via = fmt.Sprintf("repetição %d da fetch (o TCP ganhou a corrida; conexões antes: %v)", retries, firstOrder)
 		}
 		ja4 := ""
 		if h3Conn.HTTP3.ClientHello != nil {
