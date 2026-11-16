@@ -26,6 +26,10 @@ junto com a rodada de `899ade1` (v0.1.0).
 QUIC 1 490 ms. Todas as outras metas passaram, sem perda no stream. **Aceito pelo humano (2026-11-15) como limite
 conhecido da v0.3.0 (ADR 0043)**; causa provável no IO/fsync do disco da VM, correção na fase F7 (task 248).
 
+**F7, 400/100 com o banco em tmpfs (`official-f7`, 2026-11-16, `v0.3.0-10-g8a6ba1b`, task 247): todas as metas
+do espelho passaram** (feed p99 352 ms, registro p95 TCP 193 / QUIC 188 ms, backlog máx 0,11 s, sem perda); falharam
+só as duas metas do gerador no Mac (135 erros no cliente, 2 720 puladas pelo teto); seção própria abaixo.
+
 **Depois da task 248 (`official-f01d`, 2026-11-16, `v0.3.0-3-g38e4415`): todas as metas passaram** (feed p99
 441 ms, registro p95 TCP 234 / QUIC 236 ms); seção própria abaixo.
 
@@ -271,6 +275,138 @@ explica o máx de 1,4 s do feed sem levar o p99 acima de 0,5 s.
 somas de `record_ready`/`ingest_lag`/`live_delay`), `store_mem.txt.gz` (memória, `memory.events`, `memory.stat`,
 pressões e `cpu.stat` do store a cada 5 s), `jsz-{antes,depois}.json` e `db-{antes,depois}.txt`. Os
 `conntrack-dmesg.txt` saíram vazios e não foram copiados.
+
+### finger-01, F7: degraus e carga oficial 400/100 (task 247, ADR 0042 item 5, ADR 0045)
+
+**Resultado: todas as metas do espelho passaram** na janela oficial `official-f7` a 400 simultâneas / 100 novas/s,
+com o banco do store num tmpfs (ADR 0045; `v0.3.0-10-g8a6ba1b`, `versions_match`): feed p99 352 ms, registro p95
+TCP 193 / QUIC 188 ms, backlog máx 0,11 s, `stream_lost` Δ 0, `db_full` Δ 0, `memory.events` do store max/oom_kill
+Δ 0, expurgo acompanhando a criação (96/s contra 95/s criadas). **Duas metas do relatório falharam do lado do
+gerador no Mac**, não do espelho: 135 conexões com erro no cliente (0,24%) e 2 720 puladas pelo teto de 400 do
+gerador (ver "Falhas do lado do cliente" abaixo). A decisão de devolver o RNF-01 a 400/100 é do architect (passo 5
+da tarefa).
+
+Preparo: o mesmo da `official-f01d` (preparo comum acima): finger-01 só para a carga (`/tmp/fs-load-running` do
+início dos degraus ao fim da janela, segurado entre as rodadas pelo vigia), clientes no Mac (h1/WebSocket por IPv4,
+h3 por IPv6), `QUIC_TARGET=500ms`, vida e mix do `official-50k`. Vigia lateral no próprio finger-01 a cada 5 s,
+de 07:27:46 a 08:02:30 UTC ([`official-f7-side/side247.sh`](results/official-f7-side/side247.sh)): health,
+`/metrics` do store, memória/`memory.events`/pressões/`cpu.stat` do store e da fatia, tamanho do banco e do
+tmpfs, e as conexões por origem a cada 5 s (vigia de tráfego alheio); `/jsz` antes e depois. Banco no início dos
+degraus: 8 MB de páginas (o expurgo já tinha esvaziado o da task 255). O `loadmon` passou a gravar também a linha da
+fatia, o `shmem`, o `memory.max` real e os contadores max/oom_kill do `memory.events` de cada cgroup; o relatório
+usa o `memory.max` lido (store 6 144 MiB, fatia 10 240 MiB) em vez da tabela fixa, que ainda mostrava 2 048 MiB.
+
+```sh
+OUT=tmp/load/raw/step-f7-50  test/load/run.sh -commit v0.3.0-10-g8a6ba1b -rate 50  -max-active 200 -duration 3m30s -warmup 30s -retention-check=false
+OUT=tmp/load/raw/step-f7-75  test/load/run.sh -commit v0.3.0-10-g8a6ba1b -rate 75  -max-active 300 -duration 3m30s -warmup 30s -retention-check=false
+OUT=tmp/load/raw/step-f7-100 test/load/run.sh -commit v0.3.0-10-g8a6ba1b -rate 100 -max-active 400 -duration 3m30s -warmup 30s -retention-check=false
+OUT=tmp/load/raw/prefill-f7  test/load/run.sh -commit v0.3.0-10-g8a6ba1b -rate 100 -max-active 400 -duration 9m -warmup 30s -retention-check=false
+OUT=tmp/load/raw/official-f7 test/load/run.sh -commit v0.3.0-10-g8a6ba1b -rate 100 -max-active 400   # emendada no pré-aquecimento
+```
+
+| Pasta | Início (UTC) | Perfil | Papel |
+| --- | --- | --- | --- |
+| [`results/step-f7-50`](results/step-f7-50/) | 2026-11-16 07:28:07 | 200/50, 3m30s | degrau |
+| [`results/step-f7-75`](results/step-f7-75/) | 2026-11-16 07:32:31 | 300/75, 3m30s | degrau |
+| [`results/step-f7-100`](results/step-f7-100/) | 2026-11-16 07:36:45 | 400/100, 3m30s | degrau |
+| [`results/prefill-f7`](results/prefill-f7/) | 2026-11-16 07:41:05 | 400/100, 9 min | pré-aquecimento emendado na janela |
+| [`results/official-f7`](results/official-f7/) | 2026-11-16 07:50:33 | 400/100, 10 min + 1 min | **janela oficial da F7** |
+| [`results/official-f7-side`](results/official-f7-side/) | 07:27:46–08:02:30 | — | vigia lateral de todas as rodadas acima |
+
+#### Degraus (3 min medidos, sem meta)
+
+Colunas da tabela dos degraus da ADR 0042 (`step-f01-*`, `v0.2.1-83-gaf14a7c`, banco em disco) e das rodadas da
+task 246 (`docs/dev/ingest-vazao.md`). Backlog máximo e pendentes do vigia lateral (5 s); CPU em % de um núcleo
+(cgroup, 1 s); stray/midflow/expurgo por diferença do `/metrics` aquecimento → fim.
+
+| Degrau (UTC, medido) | CPU store méd/p95/máx | CPU fatia méd/p95/máx | backlog máx | Δ stream_lost | ingest_lag p95 | record_ready close / quic_close p95 | feed p95 / p99 | registro p95 TCP / QUIC | stray/s | midflow/s | expurgo/s | banco máx | shmem store |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 50/s, 200 (07:28:37–07:31:37) | 24,9 / 30,4 / 35,7 | 61 / 74 / 82 | 0,08 s | 0 | 152 ms | 219 / 302 ms | 237 / 379 ms | 229 / 234 ms | 1,3 | 0,36 | 0,0 | 434 MiB | 467 MiB |
+| 75/s, 300 (07:33:01–07:36:01) | 38,1 / 44,2 / 49,6 | 91 / 103 / 111 | 0,11 s | 0 | 150 ms | 179 / 302 ms | 245 / 369 ms | 221 / 226 ms | 1,9 | 0,76 | 0,2 | 1 023 MiB | 1 068 MiB |
+| 100/s, 400 (07:37:15–07:40:15) | 50,2 / 58,9 / 64,3 | 110 / 122 / 127 | 0,06 s | 0 | 145 ms | 158 / 249 ms | 233 / 349 ms | 193 / 186 ms | 2,0 | 0,95 | 40,0 | 1 588 MiB | 1 622 MiB |
+
+Comparação a 100/400: degrau da ADR 0042 (`step-f01-100`, disco) backlog 2,94 s, `ingest_lag` p95 2 365 ms,
+`record_ready` 2 340 / 2 359 ms, feed p99 2 705 ms; rodadas A–D da task 246 (disco, 14 min) backlog 2,2–4,5 s, feed
+p99 2,0–2,7 s, registro p95 0,9–1,3 s, expurgo 20–30/s. Com o banco em tmpfs o atraso fica igual nos três degraus
+(feed p99 ~350–380 ms, `ingest_lag` p95 ~150 ms): a taxa deixou de pesar no caminho do ingest. Nos três: probes sem
+registro 0, health sempre `ok`, `db_full` Δ 0, `memory.events` max/oom_kill do store Δ 0, `nr_throttled` 0. O
+expurgo de 40/s no degrau de 100 é o dos registros dos degraus anteriores vencendo; não há registro de antes da
+task 247 no banco.
+
+#### Janela oficial `official-f7` (400/100)
+
+Pré-aquecimento `prefill-f7` de 9 min (07:41:05–07:50:05 UTC, 30 s de aquecimento) emendado na janela, para o
+expurgo dele rodar dentro dela. Gate do pré-aquecimento ok: `stream_lost` Δ 0, health sem `ingest backlog`/`stream
+lost`, backlog máx 0,07 s, `db_full` Δ 0, `memory.events` do store Δ 0. Janela: geração 07:50:33–08:00:33 UTC
+(medida 07:51:33–08:00:33), expurgo conferido até 08:01:51.
+
+| Meta | Medido (`official-f7`) | `official-f01d` (200/50, disco) | Resultado |
+| --- | --- | --- | --- |
+| feed p99 ws / sse < 1 s | p50 67 / p95 232 / p99 352 (sse 351) / máx 2 112 ms | p99 441 ms | ok |
+| `stream.dropped` 0 | 0 / 0 | 0 / 0 | ok |
+| API p95 < 100 ms | `/connections/{id}` 19,3 ms, `/probes/{id}` 19,5 ms; 0 erro | 24,0 / 23,2 ms | ok |
+| registro p95 ≤ 500 ms | TCP 193 ms (p99 208, máx 3 280); QUIC 188 ms (p99 212, máx 28 989) | 234 / 236 ms | ok |
+| probes sem registro 0 | 0 de 57 145 (feed ws e sse 57 145) | 0 de 30 000 | ok |
+| `degraded` 0 | 0 | 0 | ok |
+| conexões com erro no cliente 0 | **135 de 57 280** (só TCP por IPv4; 120 delas têm registro no espelho) | 0 | **falhou (cliente)** |
+| conexões puladas pelo teto do gerador 0 | **2 720** | 0 | **falhou (cliente)** |
+| `dropped_events_total` 0, `kernel_drops` 0 | 0, 0 | 0, 0 | ok |
+| `flows_dropped` sem crescer | Δ 0 (`evicted` e `table_full`) | Δ 0 | ok |
+| `nr_throttled` sem crescer | 0 em todas as units | 0 | ok |
+| `anon` < `MemoryMax` (MiB, `memory.max` lido) | capture 10/512, web 41/768, raw 18/256, dns 4/256, store 132/6 144, nats 312/1 024, fatia 516/10 240 | store 78/2 048 | ok |
+| `memory.events` do store max / oom_kill Δ 0 (ADR 0045) | 0 / 0 (pré-aquecimento → fim) | — | ok |
+| `fs_store_db_full_total` Δ 0 (ADR 0045) | 0 (pré-aquecimento → fim; `db_full_dropped` 0) | — | ok |
+| maior frame ≤ 1514 | 1514, `offload_suspect` 0 | 1514, 0 | ok |
+| expurgo depois de 10 min | 20 primeiros 404; ~9 min 20 presentes | igual | ok |
+| `stream_lost` Δ 0 (pré-aquecimento → fim) | 0 → 0 | Δ 0 | ok |
+| health do store sem `ingest backlog`/`stream lost` | 0 serviços fora de `ok` em 249 amostras (07:41:05–08:02:30) | 0 em 250 | ok |
+
+**Falhas do lado do cliente** (Mac, não o espelho):
+- Puladas pelo teto: o gerador abre uma conexão por slot e pula quando tem 400 abertas. As conexões que demoram no
+  Mac (TLS/HTTP no cliente com load average 4–5, outros processos pesados no Mac) seguram slots; o espelho não
+  recusou nada (`degraded` 0, modo degradado nunca ligou, na janela o web teve em média ~170 conexões ativas e o store ~385
+  abertas, incluindo as em folga de fechamento, contra 400 abertas no gerador). As puladas também aparecem nos degraus menores (246 a 50/200, 324 a 75/300,
+  546 a 100/400) e na task 255 (1 502; 621), e não na `official-f01d` de madrugada; nenhum contador do servidor
+  acompanha.
+- Erros no cliente: 135 (0,24%), todos em conexões TCP por IPv4 (h1 34, h1 TLS 37, h2 38, raw 26), **nenhum em h3
+  (IPv6)**; quase todos `context deadline exceeded`/`i/o timeout` no cliente, em rajadas (41 no último minuto).
+  120 das 135 têm registro no espelho (o espelho recebeu e gravou a conexão). No servidor, no mesmo tempo:
+  backlog ≤ 0,11 s, `kernel_drops` 0, `conntrack -S` Δ só 1 `error`, sem "table full", CPU do web 35% de um núcleo,
+  `nr_throttled` 0. Provável: caminho IPv4 do Mac (NAT doméstico) ou o próprio Mac, como as perdas de UDP IPv4 já
+  conhecidas nesse caminho.
+- Para medir essas duas metas sem o Mac, o gerador pode rodar noutro cliente (ou no próprio finger-01, contando a
+  CPU dele); não foi feito nesta tarefa (sem cenário novo).
+
+**Sem meta.**
+- CPU (% de um núcleo, média/p95/máx): store 50,6/58,2/64,2 (pré-aquecimento 49,0/57,5/61,7); fatia
+  109,3/120,7/130,2 (107,8/119,7/127,4); web 35,1, nats 13,2, raw 6,9, capture 3,4, dns 0,1 de média; host
+  123/145/178% de um núcleo (7,7% dos 16 vCPU, steal 0,0).
+- Ingest: backlog máx 0,11 s na janela (0,07 s no pré-aquecimento), pendentes máx 25; avulsos 2,5/s, meio de fluxo
+  1,4/s. Decomposição na janela (p50/p95/p99 ms): `ingest_lag` 62/145/158, `live_delay` 59/249/498,
+  `record_ready{close}` 107/172/288, `record_ready{quic_close}` 125/253/304. Feed por segundo: 0 dos 679 segundos
+  com p50 > 500 ms. O máx QUIC de ~29 s é o caso de sempre do `CONNECTION_CLOSE` que não chega e o fluxo fecha por
+  ociosidade.
+- Memória do store (cgroup): `memory.current` até 2 399 MiB de 6 144 (`shmem` 2 268, `anon` ≤ 132); fatia até
+  2 802 MiB de 10 240 (`shmem` 2 269, `anon` 516); `pgscan`, `pgsteal` e `workingset_refault_file` do store 0 do
+  início ao fim; `memory.pressure` some avg10 0,00 o tempo todo; `io.pressure` full avg10 do store ≤ 0,24% (era
+  11,9–28,5% na `official-f01d` com o banco em disco). O `memory.events max` da fatia está em 40 194 desde antes da
+  carga (histórico, sem crescer).
+- Banco e tmpfs: `fs_store_db_bytes` 1 672 → 2 356 MB do início do pré-aquecimento ao fim (máx 2 230 MiB na janela);
+  `fs_store_db_fs_bytes` livre mínimo 1 834 MiB de 4 096 na janela (45%); arquivo do banco 2 306 MB e WAL 49,6 MB no
+  fim (`fs_store_wal_frames` máx 11 474); expurgo `purged_total{age}` 96,4/s na janela contra ~95,5/s criadas
+  (`size` e `space` 0). O banco em regime a 100/s fica abaixo do teto de 3 GiB.
+- Rede e alheio: `conntrack -S` Δ drop 0, insert_failed 0, early_drop 0, error 1; alheio 0,50/s na janela (máx 12 em
+  5 s), 0,44/s do pré-aquecimento ao fim (máx 33 em 5 s), longe dos limites de descarte.
+- `/jsz`: `FS_EVENTS` com 96 mensagens e o consumidor `store` com 0 pendentes e 0 reentregas no fim (93 e 0 antes).
+
+**Brutos** (como nas rodadas anteriores): por rodada, `summary.md` e `summary.json`, `timeline.csv`,
+`feed_delay_by_second.csv`, `cpu_mem_by_second.csv` (agora com a coluna da fatia), `metrics_{start,warm,end}.prom`,
+`conntrack-{antes,depois}.txt`, `run.txt` (log do gerador, horários locais UTC−3) e, em gzip, `conns.csv.gz`,
+`cgroup.csv.gz` (15 colunas, com `shmem`, `memory_max`, `events_max`, `oom_kill` e a linha `slice`) e
+`gen.json.gz`; em `official-f7-side`, `side247.sh` (o vigia), `health_watch.jsonl.gz` (objetos JSON do health,
+indentados, um por amostra), `metrics.txt.gz`, `store_mem.txt.gz`, `foreign_watch.txt.gz` (conexões por origem a
+cada 5 s; as origens do Mac aparecem como `mac-ipv4`, `mac-ipv6` e `mac-ipv6b`), `jsz-{antes,depois}.json` e
+`db-{antes,depois}.txt`. Os `conntrack-dmesg.txt` saíram vazios e não foram copiados.
 
 ### Orçamento de entrada do web (task 215, quarta rodada)
 

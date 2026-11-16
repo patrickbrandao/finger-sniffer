@@ -1,0 +1,946 @@
+{
+ "commit": "v0.3.0-10-g8a6ba1b",
+ "date": "2026-11-16T07:50:33Z",
+ "profile": "100 novas/s, até 400 simultâneas (máx. visto 400), vida 3.8s, 3 trocas, 10m0s com 1m0s de aquecimento descartado, mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac; 57280 abertas, 2720 puladas",
+ "checks": [
+  {
+   "goal": "RNF-02",
+   "metric": "atraso do feed /ws (p99)",
+   "target": "\u003c 1000 ms",
+   "value": "p50 67 / p95 232 / p99 352 / máx 2112 ms (n=435164)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-02*",
+   "metric": "atraso do feed /ws sem o connection.updated do raw.session (ts = accept), p99",
+   "target": "\u003c 1000 ms",
+   "value": "p50 68 / p95 243 / p99 354 / máx 2112 ms (n=402863)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-02",
+   "metric": "stream.dropped /ws",
+   "target": "0",
+   "value": "0 avisos, 0 eventos",
+   "pass": true
+  },
+  {
+   "goal": "RNF-02",
+   "metric": "atraso do feed /sse (p99)",
+   "target": "\u003c 1000 ms",
+   "value": "p50 66 / p95 232 / p99 351 / máx 2112 ms (n=435164)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-02*",
+   "metric": "atraso do feed /sse sem o connection.updated do raw.session (ts = accept), p99",
+   "target": "\u003c 1000 ms",
+   "value": "p50 68 / p95 243 / p99 354 / máx 2112 ms (n=402863)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-02",
+   "metric": "stream.dropped /sse",
+   "target": "0",
+   "value": "0 avisos, 0 eventos",
+   "pass": true
+  },
+  {
+   "goal": "RNF-03",
+   "metric": "GET /connections/{id} no cliente (p95)",
+   "target": "\u003c 100 ms",
+   "value": "p50 17.2 / p95 19.3 / p99 33.4 / máx 153.5 ms (n=2700)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-03",
+   "metric": "GET /probes/{id} no cliente (p95)",
+   "target": "\u003c 100 ms",
+   "value": "p50 17.3 / p95 19.5 / p99 33.5 / máx 152.5 ms (n=2700)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-03",
+   "metric": "erros na amostragem da API",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-04",
+   "metric": "TCP: fim no cliente → connection.closed (p95)",
+   "target": "≤ 500 ms",
+   "value": "p50 138 / p95 193 / p99 208 / máx 3280 ms (n=42048)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-04",
+   "metric": "QUIC: CONNECTION_CLOSE no cliente → connection.closed (p95)",
+   "target": "≤ 500 ms",
+   "value": "p50 151 / p95 188 / p99 212 / máx 28989 ms (n=9655)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "probes sem registro",
+   "target": "0",
+   "value": "0 de 57145 (feed ws 57145, sse 57145, só API 0)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "registros degraded da carga",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "conexões com erro no cliente",
+   "target": "0",
+   "value": "135 de 57280",
+   "pass": false
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "conexões puladas pelo teto do gerador",
+   "target": "0",
+   "value": "2720",
+   "pass": false
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "dropped_events_total (todos os serviços, Δ)",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "kernel_drops do capture (Δ)",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "health: serviços fora de ok (amostras)",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "—",
+   "metric": "versão estável durante a medição (versions_match)",
+   "target": "1 versão",
+   "value": "v0.3.0-10-g8a6ba1b",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "RAM por unit: anon máx (memory.current máx) / MemoryMax, MiB",
+   "target": "anon \u003c MemoryMax",
+   "value": "capture 10 (12)/512, web 41 (44)/768, raw 18 (20)/256, dns 4 (4)/256, store 132 (2399)/6144, nats 312 (315)/1024, slice 516 (2802)/10240",
+   "pass": true
+  },
+  {
+   "goal": "ADR 0045",
+   "metric": "memory.events do store: max / oom_kill (Δ na medição)",
+   "target": "0 / 0",
+   "value": "0 / 0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "cpu.stat nr_throttled por unit (Δ na medição)",
+   "target": "0 em todas",
+   "value": "capture 0, web 0, raw 0, dns 0, store 0, nats 0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "CPU do host (média / p95 / máx)",
+   "target": "informativo",
+   "value": "7.7 / 9.1 / 11.1 % do host (steal médio 0.0); 123 / 145 / 178 % de um núcleo (16 vCPU)",
+   "pass": true
+  },
+  {
+   "goal": "—",
+   "metric": "conntrack -S (Δ antes → depois: drop, insert_failed, early_drop, error)",
+   "target": "informativo",
+   "value": "drop 0, insert_failed 0, early_drop 0, error 1",
+   "pass": true
+  },
+  {
+   "goal": "RNF-05",
+   "metric": "idade (pelo início) do registro mais antigo durante a carga",
+   "target": "informativo",
+   "value": "678 s (retenção 600 s)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-05",
+   "metric": "expurgo depois da retenção",
+   "target": "20 primeiros 404; ~9 min ainda 200",
+   "value": "antigos: 20 sumiram, 0 ficaram; ~9 min: 20 presentes, 0 sumiram",
+   "pass": true
+  },
+  {
+   "goal": "RNF-07",
+   "metric": "maior frame capturado (capture_max_frame_bytes)",
+   "target": "≤ 1514",
+   "value": "1514",
+   "pass": true
+  },
+  {
+   "goal": "RNF-07",
+   "metric": "offload_suspect (Δ capture, registros amostrados)",
+   "target": "0",
+   "value": "0 / 0 de 2700",
+   "pass": true
+  }
+ ],
+ "usage": {
+  "capture": {
+   "cpu_mean_pct": 3.374544392391323,
+   "cpu_p95_pct": 3.761777429335424,
+   "cpu_max_pct": 4.302262438008719,
+   "mem_max_mib": 11.83984375,
+   "anon_max_mib": 9.7265625,
+   "memory_max_mib": 512,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "dns": {
+   "cpu_mean_pct": 0.06928548622961005,
+   "cpu_p95_pct": 0.08427303262955854,
+   "cpu_max_pct": 0.19432642839426162,
+   "mem_max_mib": 4.5,
+   "anon_max_mib": 3.953125,
+   "memory_max_mib": 256,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "nats": {
+   "cpu_mean_pct": 13.23436740476656,
+   "cpu_p95_pct": 15.954045944050277,
+   "cpu_max_pct": 18.090931730691334,
+   "mem_max_mib": 315.0546875,
+   "anon_max_mib": 311.91015625,
+   "memory_max_mib": 1024,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "raw": {
+   "cpu_mean_pct": 6.904005038736576,
+   "cpu_p95_pct": 8.13662863092327,
+   "cpu_max_pct": 9.052773680657983,
+   "mem_max_mib": 19.796875,
+   "anon_max_mib": 18.0859375,
+   "memory_max_mib": 256,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "slice": {
+   "cpu_mean_pct": 109.28478252076859,
+   "cpu_p95_pct": 120.6780040657845,
+   "cpu_max_pct": 130.18494128141816,
+   "mem_max_mib": 2801.83203125,
+   "anon_max_mib": 515.5703125,
+   "memory_max_mib": 10240,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 2268.68359375,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "store": {
+   "cpu_mean_pct": 50.58958645962688,
+   "cpu_p95_pct": 58.17969803976867,
+   "cpu_max_pct": 64.15525707827861,
+   "mem_max_mib": 2399.43359375,
+   "anon_max_mib": 131.63671875,
+   "memory_max_mib": 6144,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 2267.60546875,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "web": {
+   "cpu_mean_pct": 35.112965198063826,
+   "cpu_p95_pct": 39.67149741063724,
+   "cpu_max_pct": 44.37700699742684,
+   "mem_max_mib": 43.98046875,
+   "anon_max_mib": 41.02734375,
+   "memory_max_mib": 768,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  }
+ },
+ "decomposition_ms": {
+  "api GET /api/v1/connections/{conn_id} (servidor)": [
+   0.5019420903954802,
+   0.9536899717514123,
+   0.9938453389830509
+  ],
+  "api GET /api/v1/probes/{id} (servidor)": [
+   0.5111470693994966,
+   0.9711794318590435,
+   1.5388863857016977
+  ],
+  "cliente /ws (ts → chegada)": [
+   66.86703,
+   231.889489,
+   351.557733
+  ],
+  "ingest_lag (ts → commit)": [
+   62.21128974978036,
+   145.42316724601108,
+   157.65592381216186
+  ],
+  "live_delay (ts → envio ao cliente)": [
+   59.34441393452879,
+   248.8814047228743,
+   498.1022593351704
+  ],
+  "record_ready{close} (fim → gravado)": [
+   107.05606096731174,
+   172.37493791819296,
+   287.45720039710903
+  ],
+  "record_ready{idle} (fim → gravado)": [
+   10000.00000000001,
+   10000.00000000001,
+   10000.00000000001
+  ],
+  "record_ready{quic_close} (fim → gravado)": [
+   124.60462137128955,
+   253.13892162697198,
+   303.60999713886486
+  ]
+ },
+ "health_deltas": {
+  "capture_kernel_drops_total": 0,
+  "capture_kernel_packets_total": 1747294,
+  "capture_queue_freezes_total": 0,
+  "capture_truncated_total": 0,
+  "dropped_events_total/capture": 0,
+  "dropped_events_total/dns": 0,
+  "dropped_events_total/raw": 0,
+  "dropped_events_total/store": 0,
+  "dropped_events_total/web": 0,
+  "fs_store_connections_degraded_total": 0,
+  "fs_store_live_dropped_total": 0,
+  "store_late_packets_total": 62698,
+  "store_stray_total": 1350
+ },
+ "all_pass": false,
+ "generator": {
+  "conns": {
+   "h1": {
+    "launched": 8737,
+    "ok": 8703,
+    "errors": {
+     "Get \"http://ld0q0m6itohiw6ma.finger-west-01.badblock.net.br:8080/p/ld0q0m6itohiw6ma/\": context deadline exceeded (Client": 1,
+     "Get \"http://ld3hnpuo0eak1e10.finger-west-01.badblock.net.br:8080/p/ld3hnpuo0eak1e10/\": context deadline exceeded (Client": 1,
+     "Get \"http://ld5e7voja06051e5.finger-west-01.badblock.net.br:8080/p/ld5e7voja06051e5/\": context deadline exceeded (Client": 1,
+     "Get \"http://ld65q42yhddvmnjx.finger-west-01.badblock.net.br:8080/p/ld65q42yhddvmnjx/\": context deadline exceeded (Client": 1,
+     "Get \"http://ld861j7sv8rck0hj.finger-west-01.badblock.net.br:8080/p/ld861j7sv8rck0hj/\": context deadline exceeded (Client": 1,
+     "Get \"http://ld87jo8egiu309wz.finger-west-01.badblock.net.br:8080/p/ld87jo8egiu309wz/\": context deadline exceeded (Client": 1,
+     "Get \"http://ld9gzxo7psgp2zfy.finger-west-01.badblock.net.br:8080/p/ld9gzxo7psgp2zfy/\": context deadline exceeded (Client": 1,
+     "Get \"http://lda6qdux2tn4sv2u.finger-west-01.badblock.net.br:8080/p/lda6qdux2tn4sv2u/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldbvuroyg6f4gzdq.finger-west-01.badblock.net.br:8080/p/ldbvuroyg6f4gzdq/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldd1fudtn9p9oq10.finger-west-01.badblock.net.br:8080/p/ldd1fudtn9p9oq10/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldd7ce3onaidz2fs.finger-west-01.badblock.net.br:8080/p/ldd7ce3onaidz2fs/\": context deadline exceeded (Client": 1,
+     "Get \"http://lddbskj6r0gm8jdn.finger-west-01.badblock.net.br:8080/p/lddbskj6r0gm8jdn/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldhe63ndvz1w0vwz.finger-west-01.badblock.net.br:8080/p/ldhe63ndvz1w0vwz/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldi43concj66gebo.finger-west-01.badblock.net.br:8080/p/ldi43concj66gebo/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldjala7xocrbozat.finger-west-01.badblock.net.br:8080/p/ldjala7xocrbozat/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldmqgeucnwlmtb1w.finger-west-01.badblock.net.br:8080/p/ldmqgeucnwlmtb1w/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldorfc0ojj4qj6l9.finger-west-01.badblock.net.br:8080/p/ldorfc0ojj4qj6l9/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldqqakvqg2bccpnr.finger-west-01.badblock.net.br:8080/p/ldqqakvqg2bccpnr/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldr04kjvrrgfbxpg.finger-west-01.badblock.net.br:8080/p/ldr04kjvrrgfbxpg/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldr5azogmqepko4r.finger-west-01.badblock.net.br:8080/p/ldr5azogmqepko4r/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldriy2rkm1p5rj50.finger-west-01.badblock.net.br:8080/p/ldriy2rkm1p5rj50/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldsdc3pxz4htxvdu.finger-west-01.badblock.net.br:8080/p/ldsdc3pxz4htxvdu/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldsxtr7srgmaxwcu.finger-west-01.badblock.net.br:8080/p/ldsxtr7srgmaxwcu/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldu6rc6xpxt2m3hy.finger-west-01.badblock.net.br:8080/p/ldu6rc6xpxt2m3hy/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldujvly886zauish.finger-west-01.badblock.net.br:8080/p/ldujvly886zauish/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldujxcz5vvkxgjs3.finger-west-01.badblock.net.br:8080/p/ldujxcz5vvkxgjs3/\": context deadline exceeded (Client": 1,
+     "Get \"http://ldz4kvq7jfscohv5.finger-west-01.badblock.net.br:8080/p/ldz4kvq7jfscohv5/\": context deadline exceeded (Client": 1,
+     "context deadline exceeded (Client.Timeout or context cancellation while reading body)": 7
+    },
+    "degraded": 0,
+    "proto": {
+     "http1.1": 8736
+    }
+   },
+   "h1tls": {
+    "launched": 8843,
+    "ok": 8806,
+    "errors": {
+     "Get \"https://ld1gkp6yr0t0j14e.finger-west-01.badblock.net.br:8443/p/ld1gkp6yr0t0j14e/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld7kebqc8klwu85w.finger-west-01.badblock.net.br:8443/p/ld7kebqc8klwu85w/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld7p43mulj7zruvt.finger-west-01.badblock.net.br:8443/p/ld7p43mulj7zruvt/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld8hsxscm6q7fgx6.finger-west-01.badblock.net.br:8443/p/ld8hsxscm6q7fgx6/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld8o9ezpo4v62sv7.finger-west-01.badblock.net.br:8443/p/ld8o9ezpo4v62sv7/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld8sxybqrhw8va86.finger-west-01.badblock.net.br:8443/p/ld8sxybqrhw8va86/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld8tzfr7nglivtbb.finger-west-01.badblock.net.br:8443/p/ld8tzfr7nglivtbb/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld9kblneoy5htsup.finger-west-01.badblock.net.br:8443/p/ld9kblneoy5htsup/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldabuihj3b81f8ia.finger-west-01.badblock.net.br:8443/p/ldabuihj3b81f8ia/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldatkyst6avmp0ce.finger-west-01.badblock.net.br:8443/p/ldatkyst6avmp0ce/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldc66a5rxc98opq9.finger-west-01.badblock.net.br:8443/p/ldc66a5rxc98opq9/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldeqc47koosxofl9.finger-west-01.badblock.net.br:8443/p/ldeqc47koosxofl9/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldfw0uejk5ayo72f.finger-west-01.badblock.net.br:8443/p/ldfw0uejk5ayo72f/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldi28tcu0ggv674e.finger-west-01.badblock.net.br:8443/p/ldi28tcu0ggv674e/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldikaag7b7krx1gx.finger-west-01.badblock.net.br:8443/p/ldikaag7b7krx1gx/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldiswztowf713tfn.finger-west-01.badblock.net.br:8443/p/ldiswztowf713tfn/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldj0n24470qkl36z.finger-west-01.badblock.net.br:8443/p/ldj0n24470qkl36z/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldjev2otzlrsp2cc.finger-west-01.badblock.net.br:8443/p/ldjev2otzlrsp2cc/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldlmkmmh4a4latin.finger-west-01.badblock.net.br:8443/p/ldlmkmmh4a4latin/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldm390z9q7gsa9qr.finger-west-01.badblock.net.br:8443/p/ldm390z9q7gsa9qr/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldo1pp6v4lgmnrpj.finger-west-01.badblock.net.br:8443/p/ldo1pp6v4lgmnrpj/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldpuozxyt7ff7p87.finger-west-01.badblock.net.br:8443/p/ldpuozxyt7ff7p87/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldq45bywtw90v8rj.finger-west-01.badblock.net.br:8443/p/ldq45bywtw90v8rj/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldqa7hfw0d8iltad.finger-west-01.badblock.net.br:8443/p/ldqa7hfw0d8iltad/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldrk88wo9cw9zern.finger-west-01.badblock.net.br:8443/p/ldrk88wo9cw9zern/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldt679xo26ws6vz2.finger-west-01.badblock.net.br:8443/p/ldt679xo26ws6vz2/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldtkib0qa7tgj2um.finger-west-01.badblock.net.br:8443/p/ldtkib0qa7tgj2um/\": context deadline exceeded (Clien": 1,
+     "Get \"https://lduccx2239cnviuv.finger-west-01.badblock.net.br:8443/p/lduccx2239cnviuv/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldwcnra1a6k0agql.finger-west-01.badblock.net.br:8443/p/ldwcnra1a6k0agql/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldx7fqu3my03xrdl.finger-west-01.badblock.net.br:8443/p/ldx7fqu3my03xrdl/\": context deadline exceeded (Clien": 1,
+     "context deadline exceeded (Client.Timeout or context cancellation while reading body)": 7
+    },
+    "degraded": 0,
+    "proto": {
+     "tls": 3,
+     "tls/http1.1": 8836
+    }
+   },
+   "h2": {
+    "launched": 11600,
+    "ok": 11562,
+    "errors": {
+     "Get \"https://ld1i9s91dmqgbimk.finger-west-01.badblock.net.br:8443/p/ld1i9s91dmqgbimk/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld1wbpu41zykl4bz.finger-west-01.badblock.net.br:8443/p/ld1wbpu41zykl4bz/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld2dljvzzvho5vzy.finger-west-01.badblock.net.br:8443/p/ld2dljvzzvho5vzy/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld2ytm9sr4tjv9tv.finger-west-01.badblock.net.br:8443/p/ld2ytm9sr4tjv9tv/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld41jl1h5yw8dh1l.finger-west-01.badblock.net.br:8443/p/ld41jl1h5yw8dh1l/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld7vc89gzahlztsv.finger-west-01.badblock.net.br:8443/p/ld7vc89gzahlztsv/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld7y7yflgqmqi1e6.finger-west-01.badblock.net.br:8443/p/ld7y7yflgqmqi1e6/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld8e3uhoh2q9msc0.finger-west-01.badblock.net.br:8443/p/ld8e3uhoh2q9msc0/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld8fzwss71f8cqgd.finger-west-01.badblock.net.br:8443/p/ld8fzwss71f8cqgd/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld95ozoaxjsjzua5.finger-west-01.badblock.net.br:8443/p/ld95ozoaxjsjzua5/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ld99x451p4yocgfd.finger-west-01.badblock.net.br:8443/p/ld99x451p4yocgfd/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldc6c9pvssqkoc95.finger-west-01.badblock.net.br:8443/p/ldc6c9pvssqkoc95/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldd24m9k4neqimon.finger-west-01.badblock.net.br:8443/p/ldd24m9k4neqimon/\": context deadline exceeded (Clien": 1,
+     "Get \"https://lddi6zbutljmyfw0.finger-west-01.badblock.net.br:8443/p/lddi6zbutljmyfw0/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldeiej6kdbqux1p7.finger-west-01.badblock.net.br:8443/p/ldeiej6kdbqux1p7/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldf17vb0wei24d35.finger-west-01.badblock.net.br:8443/p/ldf17vb0wei24d35/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldhewzf8me6mcrdz.finger-west-01.badblock.net.br:8443/p/ldhewzf8me6mcrdz/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldls9d7khtonyly6.finger-west-01.badblock.net.br:8443/p/ldls9d7khtonyly6/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldmnaenei9gfrmaa.finger-west-01.badblock.net.br:8443/p/ldmnaenei9gfrmaa/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldnwik6k70mwebpc.finger-west-01.badblock.net.br:8443/p/ldnwik6k70mwebpc/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldo0qowke5bj7mol.finger-west-01.badblock.net.br:8443/p/ldo0qowke5bj7mol/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldpvbgaqhti7jl56.finger-west-01.badblock.net.br:8443/p/ldpvbgaqhti7jl56/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldqaki7dm2vfsnh2.finger-west-01.badblock.net.br:8443/p/ldqaki7dm2vfsnh2/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldqj65dtdb5uygdb.finger-west-01.badblock.net.br:8443/p/ldqj65dtdb5uygdb/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldqms5br74u1lv8g.finger-west-01.badblock.net.br:8443/p/ldqms5br74u1lv8g/\": context deadline exceeded (Clien": 1,
+     "Get \"https://lds00cz1n15rn30d.finger-west-01.badblock.net.br:8443/p/lds00cz1n15rn30d/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldurcdcgvv5c0ktm.finger-west-01.badblock.net.br:8443/p/ldurcdcgvv5c0ktm/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldv7y148v2gqfmax.finger-west-01.badblock.net.br:8443/p/ldv7y148v2gqfmax/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldw82aq05l5rlh4r.finger-west-01.badblock.net.br:8443/p/ldw82aq05l5rlh4r/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldwf8n25ogf5cuab.finger-west-01.badblock.net.br:8443/p/ldwf8n25ogf5cuab/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldwroiftmfkw4jen.finger-west-01.badblock.net.br:8443/p/ldwroiftmfkw4jen/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldxhtxfq02sr6sc4.finger-west-01.badblock.net.br:8443/p/ldxhtxfq02sr6sc4/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldy3uifxp8ou6q32.finger-west-01.badblock.net.br:8443/p/ldy3uifxp8ou6q32/\": context deadline exceeded (Clien": 1,
+     "Get \"https://ldzshsb3zd122mun.finger-west-01.badblock.net.br:8443/p/ldzshsb3zd122mun/\": context deadline exceeded (Clien": 1,
+     "context deadline exceeded (Client.Timeout or context cancellation while reading body)": 4
+    },
+    "degraded": 0,
+    "proto": {
+     "tls": 3,
+     "tls/h2": 11594
+    }
+   },
+   "h3": {
+    "launched": 10702,
+    "ok": 10702,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "quic/h3": 10702
+    }
+   },
+   "raw-banner": {
+    "launched": 6959,
+    "ok": 6951,
+    "errors": {
+     "banner: read tcp4 192.168.1.4:49948-\u003e170.247.40.86:25: i/o timeout": 1,
+     "banner: read tcp4 192.168.1.4:57665-\u003e170.247.40.86:25: i/o timeout": 1,
+     "banner: read tcp4 192.168.1.4:58592-\u003e170.247.40.86:25: i/o timeout": 1,
+     "banner: read tcp4 192.168.1.4:59686-\u003e170.247.40.86:21: i/o timeout": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:59347-\u003e170.247.40.86:25: read tcp4 192.168.1.4:59347-\u003e170.247.40.86:": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:59857-\u003e170.247.40.86:25: read tcp4 192.168.1.4:59857-\u003e170.247.40.86:": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:65161-\u003e170.247.40.86:21: read tcp4 192.168.1.4:65161-\u003e170.247.40.86:": 1,
+     "dial tcp4 170.247.40.86:21: i/o timeout": 1
+    },
+    "degraded": 0,
+    "proto": {
+     "raw": 6954
+    }
+   },
+   "raw-echo": {
+    "launched": 5773,
+    "ok": 5760,
+    "errors": {
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:52527-\u003e170.247.40.86:7: read tcp4 192.168.1.4:52527-\u003e170.247.40.86:7": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:58633-\u003e170.247.40.86:7: read tcp4 192.168.1.4:58633-\u003e170.247.40.86:7": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:59274-\u003e170.247.40.86:7: read tcp4 192.168.1.4:59274-\u003e170.247.40.86:7": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:61935-\u003e170.247.40.86:7: read tcp4 192.168.1.4:61935-\u003e170.247.40.86:7": 1,
+     "eco: read tcp4 192.168.1.4:51142-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:53077-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:57882-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:59283-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:59439-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:60239-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:60308-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:60848-\u003e170.247.40.86:7: i/o timeout": 1,
+     "eco: read tcp4 192.168.1.4:65166-\u003e170.247.40.86:7: i/o timeout": 1
+    },
+    "degraded": 0,
+    "proto": {
+     "raw": 5773
+    }
+   },
+   "raw-sink": {
+    "launched": 4666,
+    "ok": 4661,
+    "errors": {
+     "banner: read tcp4 192.168.1.4:49468-\u003e170.247.40.86:143: i/o timeout": 1,
+     "banner: read tcp4 192.168.1.4:56605-\u003e170.247.40.86:143: i/o timeout": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:56456-\u003e170.247.40.86:143: read tcp4 192.168.1.4:56456-\u003e170.247.40.86": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:59324-\u003e170.247.40.86:143: read tcp4 192.168.1.4:59324-\u003e170.247.40.86": 1,
+     "depois do meio-fechamento: writeto tcp4 192.168.1.4:65387-\u003e170.247.40.86:143: read tcp4 192.168.1.4:65387-\u003e170.247.40.86": 1
+    },
+    "degraded": 0,
+    "proto": {
+     "raw": 4664
+    }
+   }
+  },
+  "feed_delay_ms": {
+   "sse": {
+    "n": 435164,
+    "mean": 84.2674728191108,
+    "p50": 66.357104,
+    "p95": 231.800587,
+    "p99": 351.408917,
+    "max": 2111.877828
+   },
+   "sse/@fact": {
+    "n": 402863,
+    "mean": 86.81143232268472,
+    "p50": 67.756285,
+    "p95": 243.03002,
+    "p99": 353.553036,
+    "max": 2111.877828
+   },
+   "sse/connection.closed": {
+    "n": 51489,
+    "mean": 122.75110908860091,
+    "p50": 132.420561,
+    "p95": 170.730064,
+    "p99": 191.991856,
+    "max": 251.093504
+   },
+   "sse/connection.opened": {
+    "n": 51966,
+    "mean": 75.04644139831804,
+    "p50": 73.472623,
+    "p95": 114.732046,
+    "p99": 129.892993,
+    "max": 2111.877828
+   },
+   "sse/connection.updated": {
+    "n": 223205,
+    "mean": 89.36861216557023,
+    "p50": 61.712518,
+    "p95": 321.799958,
+    "p99": 365.66532,
+    "max": 822.223681
+   },
+   "sse/connection.updated/h2": {
+    "n": 2,
+    "mean": 31.371031000000002,
+    "p50": 14.310515,
+    "p95": 48.431547,
+    "p99": 48.431547,
+    "max": 48.431547
+   },
+   "sse/connection.updated/http1.0": {
+    "n": 3,
+    "mean": 54.91775933333333,
+    "p50": 56.939082,
+    "p95": 64.582512,
+    "p99": 64.582512,
+    "max": 64.582512
+   },
+   "sse/connection.updated/http1.1": {
+    "n": 31005,
+    "mean": 61.12064822012609,
+    "p50": 50.701187,
+    "p95": 181.888155,
+    "p99": 233.601109,
+    "max": 497.649239
+   },
+   "sse/connection.updated/quic/h3": {
+    "n": 47954,
+    "mean": 115.32923312042719,
+    "p50": 70.333875,
+    "p95": 344.742724,
+    "p99": 371.677971,
+    "max": 423.271649
+   },
+   "sse/connection.updated/raw": {
+    "n": 32285,
+    "mean": 52.534953416571256,
+    "p50": 38.888016,
+    "p95": 161.551853,
+    "p99": 221.848979,
+    "max": 278.002103
+   },
+   "sse/connection.updated/raw/unknown": {
+    "n": 15,
+    "mean": 63.437833733333335,
+    "p50": 39.946241,
+    "p95": 234.385675,
+    "p99": 234.385675,
+    "max": 234.385675
+   },
+   "sse/connection.updated/tcp": {
+    "n": 3,
+    "mean": 13.209056333333335,
+    "p50": 12.959997,
+    "p95": 14.735787,
+    "p99": 14.735787,
+    "max": 14.735787
+   },
+   "sse/connection.updated/tls": {
+    "n": 27186,
+    "mean": 63.343177139630306,
+    "p50": 61.990045,
+    "p95": 103.393456,
+    "p99": 118.671844,
+    "max": 371.492694
+   },
+   "sse/connection.updated/tls/h2": {
+    "n": 53088,
+    "mean": 104.49310228563922,
+    "p50": 68.981875,
+    "p95": 330.128524,
+    "p99": 386.219219,
+    "max": 822.223681
+   },
+   "sse/connection.updated/tls/http1.1": {
+    "n": 31663,
+    "mean": 112.28488465669716,
+    "p50": 70.05275,
+    "p95": 336.403264,
+    "p99": 396.089867,
+    "max": 646.829965
+   },
+   "sse/connection.updated/tls/raw": {
+    "n": 1,
+    "mean": 13.943482,
+    "p50": 13.943482,
+    "p95": 13.943482,
+    "p99": 13.943482,
+    "max": 13.943482
+   },
+   "sse/dns.query": {
+    "n": 10,
+    "mean": 68.56253610000002,
+    "p50": 62.045097,
+    "p95": 127.963556,
+    "p99": 127.963556,
+    "max": 127.963556
+   },
+   "sse/http.request": {
+    "n": 107262,
+    "mean": 60.419094921622026,
+    "p50": 58.354932,
+    "p95": 99.944384,
+    "p99": 114.658118,
+    "max": 165.353202
+   },
+   "sse/packet.stray": {
+    "n": 1232,
+    "mean": 17.123091743506507,
+    "p50": 10.150728,
+    "p95": 81.576137,
+    "p99": 106.248491,
+    "max": 134.118763
+   },
+   "ws": {
+    "n": 435164,
+    "mean": 84.65926864587952,
+    "p50": 66.86703,
+    "p95": 231.889489,
+    "p99": 351.557733,
+    "max": 2111.651828
+   },
+   "ws/@fact": {
+    "n": 402863,
+    "mean": 87.20472465183936,
+    "p50": 68.264104,
+    "p95": 243.099043,
+    "p99": 353.646318,
+    "max": 2111.651828
+   },
+   "ws/connection.closed": {
+    "n": 51489,
+    "mean": 122.93806931311423,
+    "p50": 132.611887,
+    "p95": 170.890184,
+    "p99": 192.353399,
+    "max": 250.886504
+   },
+   "ws/connection.opened": {
+    "n": 51966,
+    "mean": 75.50783566764817,
+    "p50": 73.94609,
+    "p95": 115.290479,
+    "p99": 130.654606,
+    "max": 2111.651828
+   },
+   "ws/connection.updated": {
+    "n": 223205,
+    "mean": 89.75163429034399,
+    "p50": 62.216026,
+    "p95": 321.953741,
+    "p99": 365.807899,
+    "max": 822.253681
+   },
+   "ws/connection.updated/h2": {
+    "n": 2,
+    "mean": 31.563531,
+    "p50": 14.091515,
+    "p95": 49.035547,
+    "p99": 49.035547,
+    "max": 49.035547
+   },
+   "ws/connection.updated/http1.0": {
+    "n": 3,
+    "mean": 55.329759333333335,
+    "p50": 56.916082,
+    "p95": 64.572512,
+    "p99": 64.572512,
+    "max": 64.572512
+   },
+   "ws/connection.updated/http1.1": {
+    "n": 31005,
+    "mean": 61.53048592372213,
+    "p50": 51.149295,
+    "p95": 181.997155,
+    "p99": 233.789969,
+    "max": 497.766239
+   },
+   "ws/connection.updated/quic/h3": {
+    "n": 47954,
+    "mean": 115.71991029188369,
+    "p50": 70.764069,
+    "p95": 344.811841,
+    "p99": 371.715151,
+    "max": 423.446649
+   },
+   "ws/connection.updated/raw": {
+    "n": 32285,
+    "mean": 52.90814266978486,
+    "p50": 39.245568,
+    "p95": 161.633048,
+    "p99": 221.973168,
+    "max": 278.245103
+   },
+   "ws/connection.updated/raw/unknown": {
+    "n": 15,
+    "mean": 63.73040173333333,
+    "p50": 39.796761,
+    "p95": 234.495675,
+    "p99": 234.495675,
+    "max": 234.495675
+   },
+   "ws/connection.updated/tcp": {
+    "n": 3,
+    "mean": 13.892389666666666,
+    "p50": 13.532997,
+    "p95": 14.896787,
+    "p99": 14.896787,
+    "max": 14.896787
+   },
+   "ws/connection.updated/tls": {
+    "n": 27186,
+    "mean": 63.829114998823,
+    "p50": 62.485196,
+    "p95": 104.038069,
+    "p99": 119.160751,
+    "max": 371.564694
+   },
+   "ws/connection.updated/tls/h2": {
+    "n": 53088,
+    "mean": 104.84921731276381,
+    "p50": 69.560448,
+    "p95": 330.260219,
+    "p99": 386.267786,
+    "max": 822.253681
+   },
+   "ws/connection.updated/tls/http1.1": {
+    "n": 31663,
+    "mean": 112.59687589315571,
+    "p50": 70.538108,
+    "p95": 336.513215,
+    "p99": 396.665377,
+    "max": 646.929965
+   },
+   "ws/connection.updated/tls/raw": {
+    "n": 1,
+    "mean": 13.651482,
+    "p50": 13.651482,
+    "p95": 13.651482,
+    "p99": 13.651482,
+    "max": 13.651482
+   },
+   "ws/dns.query": {
+    "n": 10,
+    "mean": 69.40813610000001,
+    "p50": 62.541097,
+    "p95": 128.916556,
+    "p99": 128.916556,
+    "max": 128.916556
+   },
+   "ws/http.request": {
+    "n": 107262,
+    "mean": 60.89559264868266,
+    "p50": 58.873225,
+    "p95": 100.562754,
+    "p99": 115.140075,
+    "max": 165.235202
+   },
+   "ws/packet.stray": {
+    "n": 1232,
+    "mean": 17.35135554220778,
+    "p50": 10.343021,
+    "p95": 82.082137,
+    "p99": 107.244634,
+    "max": 133.982763
+   }
+  },
+  "feed_dropped": {
+   "sse": [
+    0,
+    0
+   ],
+   "ws": [
+    0,
+    0
+   ]
+  },
+  "feed_errors": {
+   "sse": null,
+   "ws": null
+  },
+  "record_ms": {
+   "quic": {
+    "n": 9655,
+    "mean": 165.1605901605384,
+    "p50": 151.367,
+    "p95": 187.637,
+    "p99": 212.288,
+    "max": 28989.359
+   },
+   "tcp": {
+    "n": 42048,
+    "mean": 66.62360899448262,
+    "p50": 137.703,
+    "p95": 192.829,
+    "p99": 207.892,
+    "max": 3280.378
+   }
+  },
+  "record_end_ms": {
+   "quic": {
+    "n": 9655,
+    "mean": 144.49366010895966,
+    "p50": 142.671429,
+    "p95": 178.738353,
+    "p99": 201.819105,
+    "max": 254.909249
+   },
+   "tcp": {
+    "n": 42048,
+    "mean": 118.27751395752354,
+    "p50": 129.849627,
+    "p95": 168.56088,
+    "p99": 191.320098,
+    "max": 247.406831
+   }
+  },
+  "api_ms": {
+   "GET /connections/{id}": {
+    "n": 2700,
+    "mean": 17.787115185185172,
+    "p50": 17.167,
+    "p95": 19.338,
+    "p99": 33.406,
+    "max": 153.549
+   },
+   "GET /probes/{id}": {
+    "n": 2700,
+    "mean": 17.999439629629613,
+    "p50": 17.339,
+    "p95": 19.531,
+    "p99": 33.536,
+    "max": 152.483
+   }
+  },
+  "api_errors": {},
+  "api_checks": {
+   "connections_checked": 2700
+  },
+  "coverage": {
+   "probes": 57145,
+   "seen_ws": 57145,
+   "seen_sse": 57145,
+   "seen_api_only": 0,
+   "missing": 0,
+   "missing_ids": null,
+   "degraded": 0
+  },
+  "retention": {
+   "done": true,
+   "old_gone": 20,
+   "old_still": 0,
+   "recent_present": 20,
+   "recent_gone": 0,
+   "notes": [
+    "conferido 2026-11-16T05:01:51-03:00 (relógio local; deslocamento 4.029357ms)"
+   ]
+  }
+ }
+}
