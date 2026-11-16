@@ -1,6 +1,6 @@
 # 0039 — Limites por serviço e metas de RNF no finger-01
 
-Status: aceita (RNF-01 de 400/100 do item 5 substituído por 0042: 200/50 na v0.3.0, 400/100 na fase F7; a 1ª carga
+Status: aceita (RNF-01 de 400/100 do item 5 substituído por 0042: 200/50 na v0.3.0, e devolvido a 400/100 pela 0046 na F7; a 1ª carga
 falhou por causa pontual: ver 0041; fatia 10G, store 6G/1536MiB e `FS_STORE_MAX_BYTES` 3 GiB dos itens 1, 2 e 5
 substituídos por 0045, banco em RAM)
 Data: 2026-11-15
