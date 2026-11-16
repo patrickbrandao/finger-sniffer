@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"math"
 	"net"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -273,10 +277,16 @@ func (m *storeMetrics) ready(d time.Duration, reason string) {
 	}
 }
 
-// healthCollector expõe os heartbeats (fs_service_up, fs_service_info, fs_<métrica>{service}) e o estado do
-// host e do banco, lidos a cada coleta. Coletor sem descrição fixa (os nomes vêm dos heartbeats).
+// healthCollector expõe os heartbeats (fs_service_up, fs_service_info, fs_<métrica>{service,<rótulos>}) e o estado
+// do host e do banco, lidos a cada coleta. Coletor sem descrição fixa (os nomes vêm dos heartbeats).
 type healthCollector struct {
 	health func(context.Context) Health
+
+	// mu protege seen e invalid: fs_store_heartbeat_metrics_invalid_total soma as chaves rejeitadas uma vez por
+	// heartbeat (identificado por last_heartbeat), não a cada coleta.
+	mu      sync.Mutex
+	seen    map[string]string
+	invalid map[string]float64
 }
 
 func (c *healthCollector) Describe(chan<- *prometheus.Desc) {}
@@ -292,7 +302,12 @@ func (c *healthCollector) Collect(ch chan<- prometheus.Metric) {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	descs := map[string]*prometheus.Desc{}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.seen == nil {
+		c.seen, c.invalid = map[string]string{}, map[string]float64{}
+	}
+	fams := heartbeatFamilies{}
 	for _, svc := range names {
 		s := h.Services[svc]
 		v := 0.0
@@ -303,23 +318,16 @@ func (c *healthCollector) Collect(ch chan<- prometheus.Metric) {
 		if s.Version != "" {
 			ch <- prometheus.MustNewConstMetric(info, prometheus.GaugeValue, 1, svc, s.Version)
 		}
-		for k, val := range s.Metrics {
-			if svc == event.ServiceStore && replacedHeartbeat[k] {
-				continue
-			}
-			name := "fs_" + sanitize(k)
-			d := descs[name]
-			if d == nil {
-				d = prometheus.NewDesc(name, "Value from the service heartbeat ("+k+").", []string{"service"}, nil)
-				descs[name] = d
-			}
-			// Contadores acumulados no heartbeat terminam em _total; o resto é medida.
-			typ := prometheus.GaugeValue
-			if strings.HasSuffix(k, "_total") {
-				typ = prometheus.CounterValue
-			}
-			ch <- prometheus.MustNewConstMetric(d, typ, val, svc)
+		inv := fams.emit(ch, svc, s.Metrics)
+		id := ""
+		if s.LastHeartbeat != nil {
+			id = *s.LastHeartbeat
 		}
+		if last, ok := c.seen[svc]; !ok || last != id {
+			c.seen[svc] = id
+			c.invalid[svc] += float64(inv)
+		}
+		ch <- prometheus.MustNewConstMetric(heartbeatInvalidDesc, prometheus.CounterValue, c.invalid[svc], svc)
 	}
 	if h.Host != nil {
 		ch <- prometheus.MustNewConstMetric(prometheus.NewDesc("fs_host_syncookies_sent", "TcpExt SyncookiesSent of the host.", nil, nil),
@@ -331,6 +339,282 @@ func (c *healthCollector) Collect(ch chan<- prometheus.Metric) {
 				prometheus.GaugeValue, float64(st.Connections))
 		}
 	}
+}
+
+// maxHeartbeatMetrics é o limite de chaves por heartbeat de um serviço (ADR 0056 item 4): em ordem alfabética, o
+// que passar disso é ignorado e contado como inválido.
+const maxHeartbeatMetrics = 512
+
+var (
+	heartbeatInvalidDesc = prometheus.NewDesc("fs_store_heartbeat_metrics_invalid_total",
+		"Heartbeat metric keys ignored: malformed, conflicting label sets for the same name, or beyond 512 keys per heartbeat.",
+		[]string{"service"}, nil)
+	hbNameRe       = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	hbLabelNameRe  = regexp.MustCompile(`^[a-z_]+$`)
+	hbLabelValueRe = regexp.MustCompile(`^[A-Za-z0-9_.:/-]{1,64}$`)
+)
+
+// hbLabel é um rótulo de uma chave do heartbeat.
+type hbLabel struct{ name, value string }
+
+// hbSeries é uma chave do heartbeat já separada em nome e rótulos (ordenados pelo nome).
+type hbSeries struct {
+	key     string
+	name    string // sem o prefixo fs_
+	labels  []hbLabel
+	labeled bool
+	value   float64
+	used    bool // absorvida num histograma
+}
+
+// canon é a forma canônica dos rótulos (para casar _bucket, _sum e _count da mesma série).
+func canon(ls []hbLabel) string {
+	var b strings.Builder
+	for _, l := range ls {
+		b.WriteString(l.name)
+		b.WriteByte('=')
+		b.WriteString(l.value)
+		b.WriteByte(',')
+	}
+	return b.String()
+}
+
+// parseHeartbeatKey separa nome{rotulo="valor",...}. Chave sem chaves segue como antes (nome com sanitize).
+func parseHeartbeatKey(k string) (hbSeries, bool) {
+	i := strings.IndexByte(k, '{')
+	if i < 0 {
+		return hbSeries{key: k, name: sanitize(k)}, true
+	}
+	name := k[:i]
+	if !hbNameRe.MatchString(name) || !strings.HasSuffix(k, "}") || len(k) < i+3 {
+		return hbSeries{}, false
+	}
+	parts := strings.Split(k[i+1:len(k)-1], ",")
+	ls := make([]hbLabel, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		n, v, ok := strings.Cut(p, "=")
+		// service é o rótulo que o store acrescenta; repeti-lo quebraria a série.
+		if !ok || !hbLabelNameRe.MatchString(n) || n == "service" || seen[n] {
+			return hbSeries{}, false
+		}
+		if len(v) < 2 || v[0] != '"' || v[len(v)-1] != '"' || !hbLabelValueRe.MatchString(v[1:len(v)-1]) {
+			return hbSeries{}, false
+		}
+		seen[n] = true
+		ls = append(ls, hbLabel{n, v[1 : len(v)-1]})
+	}
+	sort.Slice(ls, func(a, b int) bool { return ls[a].name < ls[b].name })
+	return hbSeries{key: k, name: name, labels: ls, labeled: true}, true
+}
+
+// famKind é o tipo de uma família publicada a partir dos heartbeats.
+type famKind int
+
+const (
+	famGauge famKind = iota
+	famCounter
+	famHistogram
+	famHistogramPart // nome_bucket, nome_sum e nome_count reservados por um histograma
+)
+
+var histogramSuffixes = []string{"_bucket", "_sum", "_count"}
+
+type heartbeatFamily struct {
+	kind famKind
+	sig  string // nomes dos rótulos
+	desc *prometheus.Desc
+}
+
+// heartbeatFamilies garante uma descrição por nome: o primeiro conjunto de rótulos (e tipo) de um nome vence; série
+// com outro conjunto é inválida (o Gather falharia com dimensões diferentes na mesma família).
+type heartbeatFamilies map[string]*heartbeatFamily
+
+// claim devolve a descrição de name com o tipo e os rótulos pedidos, ou nil em conflito. Um histograma reserva
+// nome_bucket, nome_sum e nome_count (o registro recusa outra família com esses nomes).
+func (f heartbeatFamilies) claim(name string, kind famKind, labels []string, help string) *prometheus.Desc {
+	sig := strings.Join(labels, ",")
+	if fam := f[name]; fam != nil {
+		if fam.kind != kind || fam.sig != sig {
+			return nil
+		}
+		return fam.desc
+	}
+	for _, suf := range histogramSuffixes {
+		if kind == famHistogram && f[name+suf] != nil {
+			return nil
+		}
+		if base, ok := strings.CutSuffix(name, suf); ok && kind != famHistogram && f[base] != nil && f[base].kind == famHistogram {
+			return nil
+		}
+	}
+	fam := &heartbeatFamily{kind: kind, sig: sig, desc: prometheus.NewDesc(name, help, labels, nil)}
+	f[name] = fam
+	if kind == famHistogram {
+		for _, suf := range histogramSuffixes {
+			f[name+suf] = &heartbeatFamily{kind: famHistogramPart}
+		}
+	}
+	return fam.desc
+}
+
+// emit republica as métricas do heartbeat de svc e devolve quantas chaves foram ignoradas.
+func (f heartbeatFamilies) emit(ch chan<- prometheus.Metric, svc string, metrics map[string]float64) int {
+	keys := make([]string, 0, len(metrics))
+	for k := range metrics {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	invalid := 0
+	if len(keys) > maxHeartbeatMetrics {
+		invalid += len(keys) - maxHeartbeatMetrics
+		keys = keys[:maxHeartbeatMetrics]
+	}
+	series := make([]*hbSeries, 0, len(keys))
+	byName := map[string]*hbSeries{}
+	for _, k := range keys {
+		if svc == event.ServiceStore && replacedHeartbeat[k] {
+			continue
+		}
+		s, ok := parseHeartbeatKey(k)
+		if !ok {
+			invalid++
+			continue
+		}
+		s.value = metrics[k]
+		series = append(series, &s)
+		if id := s.name + "|" + canon(s.labels); byName[id] == nil {
+			byName[id] = &s
+		}
+	}
+	invalid += f.emitHistograms(ch, svc, series, byName)
+	for _, s := range series {
+		if s.used {
+			continue
+		}
+		labels, values := []string{"service"}, []string{svc}
+		typ, kind := prometheus.GaugeValue, famGauge
+		help := "Value from the service heartbeat (" + s.key + ")."
+		if s.labeled {
+			for _, l := range s.labels {
+				labels = append(labels, l.name)
+				values = append(values, l.value)
+			}
+			help = "Value from the service heartbeat (" + s.name + ")."
+			if strings.HasSuffix(s.name, "_total") || hasAnySuffix(s.name, histogramSuffixes) {
+				typ, kind = prometheus.CounterValue, famCounter
+			}
+		} else if strings.HasSuffix(s.key, "_total") {
+			// Contadores acumulados no heartbeat terminam em _total; o resto é medida (como antes da ADR 0056).
+			typ, kind = prometheus.CounterValue, famCounter
+		}
+		d := f.claim("fs_"+s.name, kind, labels, help)
+		if d == nil {
+			invalid++
+			continue
+		}
+		m, err := prometheus.NewConstMetric(d, typ, s.value, values...)
+		if err != nil {
+			invalid++
+			continue
+		}
+		ch <- m
+	}
+	return invalid
+}
+
+// emitHistograms junta nome_bucket{le}, nome_sum e nome_count (com os mesmos demais rótulos) num histograma
+// fs_nome, que no texto do /metrics sai como as mesmas séries cumulativas (e passa no lint). Grupo incompleto (sem
+// _sum ou _count, le repetido, valor negativo) fica como séries soltas (contadores). Devolve as séries ignoradas.
+func (f heartbeatFamilies) emitHistograms(ch chan<- prometheus.Metric, svc string, series []*hbSeries, byName map[string]*hbSeries) int {
+	type group struct {
+		base    string
+		others  []hbLabel
+		buckets []*hbSeries
+		bounds  []float64
+	}
+	groups := map[string]*group{}
+	var order []string
+	for _, s := range series {
+		base, ok := strings.CutSuffix(s.name, "_bucket")
+		if !ok || !s.labeled {
+			continue
+		}
+		le := ""
+		others := make([]hbLabel, 0, len(s.labels))
+		for _, l := range s.labels {
+			if l.name == "le" {
+				le = l.value
+			} else {
+				others = append(others, l)
+			}
+		}
+		bound, err := strconv.ParseFloat(le, 64)
+		if le == "" || err != nil || math.IsNaN(bound) {
+			continue
+		}
+		gk := base + "|" + canon(others)
+		g := groups[gk]
+		if g == nil {
+			g = &group{base: base, others: others}
+			groups[gk] = g
+			order = append(order, gk)
+		}
+		g.buckets = append(g.buckets, s)
+		g.bounds = append(g.bounds, bound)
+	}
+	invalid := 0
+	for _, gk := range order {
+		g := groups[gk]
+		sum, count := byName[g.base+"_sum|"+canon(g.others)], byName[g.base+"_count|"+canon(g.others)]
+		if sum == nil || count == nil || !(count.value >= 0) {
+			continue
+		}
+		buckets := make(map[float64]uint64, len(g.buckets))
+		ok := true
+		for i, b := range g.buckets {
+			if _, dup := buckets[g.bounds[i]]; dup || !(b.value >= 0) {
+				ok = false
+				break
+			}
+			buckets[g.bounds[i]] = uint64(b.value)
+		}
+		if !ok {
+			continue
+		}
+		// le="+Inf" é o total, que o histograma tira de _count.
+		delete(buckets, math.Inf(+1))
+		labels, values := []string{"service"}, []string{svc}
+		for _, l := range g.others {
+			labels = append(labels, l.name)
+			values = append(values, l.value)
+		}
+		parts := append([]*hbSeries{sum, count}, g.buckets...)
+		for _, p := range parts {
+			p.used = true
+		}
+		d := f.claim("fs_"+g.base, famHistogram, labels, "Histogram from the service heartbeat ("+g.base+").")
+		if d == nil {
+			invalid += len(parts)
+			continue
+		}
+		m, err := prometheus.NewConstHistogram(d, uint64(count.value), sum.value, buckets, values...)
+		if err != nil {
+			invalid += len(parts)
+			continue
+		}
+		ch <- m
+	}
+	return invalid
+}
+
+func hasAnySuffix(s string, sufs []string) bool {
+	for _, suf := range sufs {
+		if strings.HasSuffix(s, suf) {
+			return true
+		}
+	}
+	return false
 }
 
 // liveCollector expõe os contadores do hub do tempo real.

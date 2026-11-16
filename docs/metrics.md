@@ -18,11 +18,21 @@ Os serviços (capture, web, raw, dns e o próprio store) mandam um heartbeat a c
 os republica como `fs_<métrica>{service="<svc>"}`, com o valor do último heartbeat recebido. Nomes terminados em
 `_total` são contadores; os demais, gauges.
 
+Uma chave pode trazer rótulos no formato Prometheus, `nome{rotulo="valor",...}` (nomes de rótulo `[a-z_]+`, valores
+`[A-Za-z0-9_.:/-]{1,64}`, sem `service`), e vira `fs_<nome>{service="<svc>",<rótulos>}` (ADR 0056 item 4): contador
+quando o nome termina em `_total`, `_count`, `_sum` ou `_bucket`, gauge no resto. As séries `nome_bucket{le="..."}`,
+`nome_sum` e `nome_count` com os mesmos demais rótulos saem juntas como o histograma `fs_<nome>` (o bucket `+Inf`
+vem de `nome_count`; `le="+Inf"` não passa no conjunto de valores e é contado como inválido). O primeiro conjunto
+de rótulos de um nome vence; série do mesmo nome com outros rótulos, chave malformada e o que passar de 512 chaves
+num heartbeat (em ordem alfabética) são ignorados e contados em `fs_store_heartbeat_metrics_invalid_total{service}`.
+
 | Métrica | Tipo | Conteúdo |
 | --- | --- | --- |
 | `fs_service_up{service}` | gauge | 1 enquanto chegam heartbeats; 0 depois de 15 s sem heartbeat |
 | `fs_service_info{service,version}` | gauge | sempre 1; a versão (commit) que cada serviço roda |
 | `fs_<métrica>{service}` | contador ou gauge | contadores do heartbeat (lista abaixo) |
+| `fs_<nome>{service,<rótulos>}` | contador, gauge ou histograma | chaves do heartbeat com rótulos |
+| `fs_store_heartbeat_metrics_invalid_total{service}` | contador | chaves do heartbeat ignoradas (malformadas, rótulos em conflito ou além de 512), somadas uma vez por heartbeat |
 
 Publicados hoje no heartbeat (o conjunto depende de cada serviço e aparece também em `services.<svc>.metrics` do
 `/api/v1/health`; um contador só aparece depois do primeiro uso desde o último reinício do serviço, por exemplo os
