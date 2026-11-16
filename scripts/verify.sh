@@ -75,7 +75,29 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' INT
-trap 'exit 143' TERM
+trap on_term TERM
+
+# Passo em execução (nome e início), para o resumo de uma interrupção por TERM.
+CURRENT_STEP=""
+CURRENT_START=0
+# TERM (ex.: o `timeout` do CI): marca o passo em execução como interrompido e imprime o resumo, para o log
+# mostrar onde o tempo acabou em vez de terminar sem resultado (task 253).
+on_term() {
+	FAILED=1
+	if [ -n "$CURRENT_STEP" ]; then
+		STEP_NAMES+=("$CURRENT_STEP")
+		STEP_STATUS+=(fail)
+		STEP_TIMES+=("$(($(now_ms) - CURRENT_START))")
+		STEP_NOTES+=("interrompido por TERM")
+	fi
+	case "${MODE:-}" in
+	quick | full)
+		summary
+		echo "== interrompido por TERM durante: ${CURRENT_STEP:-nenhum passo}"
+		;;
+	esac
+	exit 143
+}
 
 now_ms() { perl -MTime::HiRes=time -e 'printf("%d\n", time()*1000)'; }
 
@@ -125,9 +147,13 @@ run_step() {
 	echo
 	echo "-- $name: $*"
 	start=$(now_ms)
+	CURRENT_STEP="$name"
+	CURRENT_START=$start
 	if "$@"; then
+		CURRENT_STEP=""
 		record "$name" ok "$start"
 	else
+		CURRENT_STEP=""
 		record "$name" fail "$start"
 	fi
 }
@@ -496,15 +522,56 @@ full_tests() {
 	coverage_check "$WORK/test.out"
 }
 
+cpu_count() { getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1; }
+
+# fuzz_one <pacote> <alvo> <workers> <saída>: um alvo, 10 s (FUZZ_TIME) com <workers> processos de fuzz.
+fuzz_one() {
+	go test -run='^$' -fuzz="^${2}\$" -fuzztime="$FUZZ_TIME" -parallel="$3" "$1" >"$4" 2>&1
+}
+
+# Fuzz curto de todos os alvos (spec 017 RF-08: FUZZ_TIME por alvo). Os alvos rodam em lotes de FUZZ_JOBS em
+# paralelo, cada um com FUZZ_WORKERS workers (CPUs / lotes): o tempo de cada alvo não muda e o passo cai de
+# soma(alvos) para soma/lotes (task 253). A saída de cada alvo sai inteira, na ordem, ao fim do lote.
 fuzz_all() {
-	local list rc=0 file pkg name
+	local list rc=0 file pkg name i j pid cpus jobs workers
+	local targets=() pids=()
+	cpus=$(cpu_count)
+	jobs="${FS_FUZZ_JOBS:-$((cpus / 2))}"
+	[ "$jobs" -ge 1 ] 2>/dev/null || jobs=1
+	workers=$((cpus / jobs))
+	[ "$workers" -ge 1 ] || workers=1
 	list=$(test_files_matching '^func Fuzz[A-Z0-9_][A-Za-z0-9_]*\(')
 	for file in $list; do
 		pkg=$(dirname "$file")
 		for name in $(sed -nE 's/^func (Fuzz[A-Za-z0-9_]*)\(.*/\1/p' "$file"); do
-			echo "fuzz $pkg $name ($FUZZ_TIME)"
-			go test -run='^$' -fuzz="^${name}\$" -fuzztime="$FUZZ_TIME" "$pkg" || rc=1
+			targets+=("$pkg $name")
 		done
+	done
+	echo "fuzz: ${#targets[@]} alvos, $jobs em paralelo, $workers workers cada ($FUZZ_TIME por alvo)"
+	mkdir -p "$WORK/fuzz"
+	i=0
+	while [ "$i" -lt "${#targets[@]}" ]; do
+		pids=()
+		j=$i
+		while [ "$j" -lt "${#targets[@]}" ] && [ "$j" -lt $((i + jobs)) ]; do
+			set -- ${targets[$j]}
+			fuzz_one "$1" "$2" "$workers" "$WORK/fuzz/$j.out" &
+			pids+=("$!")
+			j=$((j + 1))
+		done
+		j=$i
+		for pid in "${pids[@]}"; do
+			set -- ${targets[$j]}
+			if wait "$pid"; then
+				echo "fuzz $1 $2 ($FUZZ_TIME): ok"
+			else
+				echo "fuzz $1 $2 ($FUZZ_TIME): FALHOU"
+				rc=1
+			fi
+			cat "$WORK/fuzz/$j.out"
+			j=$((j + 1))
+		done
+		i=$j
 	done
 	return $rc
 }

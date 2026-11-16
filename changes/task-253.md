@@ -1,0 +1,1 @@
+- **infra (task 253)**: `verify-full` do CI roda o fuzz curto em lotes paralelos (10 s por alvo, `FS_FUZZ_JOBS`, padrão CPUs/2), de ~8 min para ~2 min; limite do passo 25 min com `timeout` que imprime o resumo e anota "tempo esgotado" (distinto de falha), job com 30 min.
