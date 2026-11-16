@@ -23,6 +23,9 @@ linters:
         - name: error-strings
         - name: receiver-naming
   exclusions:
+    # Fork do traefik: módulo Go próprio, com o passo "traefik" do verify (ADR 0048, task 262)
+    paths:
+      - ^traefik/
     rules:
       # Testes podem usar construções que o gosec reprova (arquivos temporários, números fixos).
       - path: _test\.go
@@ -32,6 +35,9 @@ formatters:
   enable:
     - gofumpt
     - goimports
+  exclusions:
+    paths:
+      - ^traefik/
   settings:
     goimports:
       local-prefixes:

@@ -56,9 +56,10 @@ build:
 test:
 	go test ./...
 
+# Só os .go do módulo raiz (versionados e novos não ignorados): o fork em traefik/ tem formato próprio (task 262)
 fmt:
-	gofumpt -w .
-	goimports -local $(MODULE) -w .
+	@files=$$(git ls-files --cached --others --exclude-standard -- '*.go' ':(exclude)traefik/'); \
+	[ -z "$$files" ] || { gofumpt -w $$files && goimports -local $(MODULE) -w $$files; }
 
 lint:
 	golangci-lint run ./...
