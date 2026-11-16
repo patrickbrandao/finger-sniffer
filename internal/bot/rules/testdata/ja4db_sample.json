@@ -1,0 +1,5 @@
+[
+  {"ja4": "t12d3805h1_10ed599f3404_aaf95bb78ec9", "name": "python-requests (synthetic sample)", "kind": "library"},
+  {"ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99", "name": "Chromium Browser (synthetic sample)", "kind": "browser"},
+  {"ja4": "t13d190900_9dc949149365_97f8aa674fd9", "name": "sqlmap (synthetic sample)", "kind": "tool"}
+]
