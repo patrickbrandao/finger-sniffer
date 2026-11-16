@@ -311,3 +311,36 @@ func TestF3CrossPortDetection(t *testing.T) {
 		t.Errorf("porta %d em claro: proto = %q", portTLS, c.Proto)
 	}
 }
+
+// TestF3AnalyzePcapOutOfOrderClientHello: o analyzePcap (caso 7) monta o ClientHello cujo primeiro segmento chegou
+// retransmitido depois do segundo (task 274, mesma causa da 260). Usa o pcap do TestF5ToolsOutOfOrderClientHello:
+// a JA4 do ja4 e a do tshark (ref.py) são as do caminho do F5, e o fluxo do cliente remontado começa pelo
+// registro TLS do ClientHello inteiro, apesar da ordem do fio.
+func TestF3AnalyzePcapOutOfOrderClientHello(t *testing.T) {
+	requireTools(t)
+	pcap, err := os.ReadFile(filepath.Join("testdata", "f5-clienthello-retransmit.pcap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := analyzePcapBytes(t, "ooo-"+newID(t), pcap, portTLS, nil)
+	if len(ref.ClientHellos) != 1 {
+		t.Fatalf("tshark achou %d ClientHellos no pcap", len(ref.ClientHellos))
+	}
+	const wantJA4 = "t13d1517h2_8daaf6152771_cb7bf5808d99"
+	ch := ref.ClientHellos[0]
+	if ch.JA4Tool != wantJA4 {
+		t.Errorf("ja4 (FoxIO) = %q, quer %q", ch.JA4Tool, wantJA4)
+	}
+	// o JA4 do tshark 4.4 difere no Chrome (não descarta GREASE nos algoritmos de assinatura); o JA3 dele prova
+	// que o tshark montou o ClientHello
+	if wantJA3 := "bf6d91e2df13ebe3041319bf097297d2"; ch.JA3 != wantJA3 {
+		t.Errorf("ja3 (tshark) = %q, quer %q", ch.JA3, wantJA3)
+	}
+	b := ref.ClientBytes
+	if len(b) < 6 || b[0] != 0x16 || b[5] != 0x01 {
+		t.Fatalf("fluxo do cliente não começa por um ClientHello (%d bytes, % x)", len(b), b[:min(len(b), 8)])
+	}
+	if n := 5 + (int(b[3])<<8 | int(b[4])); len(b) < n {
+		t.Errorf("fluxo do cliente com %d bytes, menor que o registro do ClientHello (%d)", len(b), n)
+	}
+}

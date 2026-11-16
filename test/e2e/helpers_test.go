@@ -541,29 +541,38 @@ var refPy = sync.OnceValues(func() ([]byte, error) {
 	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "tls", "ref.py")) //nolint:gosec // repositório
 })
 
-// analyzePcap manda o pcap (e o keylog do cliente, se houver) para o servidor e roda tshark, ja4 e ref.py
-// sobre ele, como no golden da task 036. serverPort é a porta do espelho na conexão.
+// analyzePcap baixa o pcap da conexão pela API e o confere com analyzePcapBytes.
 func analyzePcap(t *testing.T, connID string, serverPort int, keylog []byte) toolRef {
 	t.Helper()
 	requireTools(t)
-	pcap := pcapOf(t, connID)
+	return analyzePcapBytes(t, connID, pcapOf(t, connID), serverPort, keylog)
+}
+
+// analyzePcapBytes manda o pcap (e o keylog do cliente, se houver) para o servidor e roda tshark, ja4 e ref.py
+// sobre ele, como no golden da task 036. serverPort é a porta do espelho na conexão; name identifica o diretório
+// de trabalho remoto. Liga a remontagem TCP fora de ordem do tshark (f5WiresharkPrefs) por WIRESHARK_CONFIG_DIR,
+// que vale para o tshark chamado direto e para o que o ja4 chama: sem ela, um ClientHello cujo primeiro segmento
+// chega retransmitido depois do segundo sai sem impressão (task 274, mesma causa da 260).
+func analyzePcapBytes(t *testing.T, name string, pcap []byte, serverPort int, keylog []byte) toolRef {
+	t.Helper()
 	py, err := refPy()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// o ref.py do golden usa a porta 7702 do servidor temporário; aqui é a porta do espelho
 	py = bytes.Replace(py, []byte(`SERVER_PORT = "7702"`), []byte(fmt.Sprintf(`SERVER_PORT = "%d"`, serverPort)), 1)
-	dir := "/tmp/fs-e2e-f3/" + connID
+	dir := "/tmp/fs-e2e-f3/" + name
 	t.Cleanup(func() { remote(t, "rm -rf "+dir+"; rmdir /tmp/fs-e2e-f3 2>/dev/null; true") })
-	remoteIn(t, "mkdir -p "+dir+" && cat > "+dir+"/c.pcap", pcap)
+	remoteIn(t, "mkdir -p "+dir+"/ws && cat > "+dir+"/c.pcap", pcap)
 	remoteIn(t, "cat > "+dir+"/c.keys", keylog)
 	remoteIn(t, "cat > "+dir+"/ref.py", py)
-	out := remote(t, fmt.Sprintf("cd %s && "+
+	remoteIn(t, "cat > "+dir+"/ws/preferences", []byte(f5WiresharkPrefs+"\n"))
+	out := remote(t, fmt.Sprintf("cd %[1]s && export WIRESHARK_CONFIG_DIR=%[1]s/ws && "+
 		"tshark -r c.pcap -o tls.keylog_file:c.keys -T json --no-duplicate-keys -J 'tcp tls http2 http' "+
 		"-Y 'tls.handshake.type == 1 || http2 || http' > c.tshark.json 2>/dev/null && "+
 		"{ "+ja4Bin+" -j -r --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > c.ja4.jsonl || true; } && "+
 		"python3 ref.py c >/dev/null && cat c.ref.json && echo '=====' && "+
-		"tshark -r c.pcap -Y 'tcp.dstport == %d && tcp.len > 0' -T fields -e tcp.seq -e tcp.payload 2>/dev/null", dir, serverPort))
+		"tshark -r c.pcap -Y 'tcp.dstport == %[2]d && tcp.len > 0' -T fields -e tcp.seq -e tcp.payload 2>/dev/null", dir, serverPort))
 	js, segs, ok := strings.Cut(out, "=====")
 	if !ok {
 		t.Fatalf("saída inesperada das ferramentas:\n%s", out)
@@ -577,10 +586,15 @@ func analyzePcap(t *testing.T, connID string, serverPort int, keylog []byte) too
 }
 
 // reassemble junta os segmentos "seq<TAB>payload_hex" do tshark pela sequência relativa, descartando
-// retransmissões.
+// retransmissões. Os segmentos vêm na ordem do fio; ordená-los por seq (estável) monta também o fluxo cujo
+// primeiro segmento chegou depois do segundo (task 274).
 func reassemble(t *testing.T, lines string) []byte {
 	t.Helper()
-	var buf []byte
+	type seg struct {
+		off  int
+		data []byte
+	}
+	var segs []seg
 	for l := range strings.Lines(strings.TrimSpace(lines)) {
 		seqS, hexS, _ := strings.Cut(strings.TrimSpace(l), "\t")
 		hexS = strings.ReplaceAll(hexS, ":", "")
@@ -596,14 +610,18 @@ func reassemble(t *testing.T, lines string) []byte {
 			}
 			data[i] = byte(v)
 		}
-		off := seq - 1 // tcp.seq é relativo: o primeiro byte de dados é 1
-		if off+len(data) <= len(buf) {
+		segs = append(segs, seg{off: seq - 1, data: data}) // tcp.seq é relativo: o primeiro byte de dados é 1
+	}
+	sort.SliceStable(segs, func(i, j int) bool { return segs[i].off < segs[j].off })
+	var buf []byte
+	for _, s := range segs {
+		if s.off+len(s.data) <= len(buf) {
 			continue // retransmissão
 		}
-		if off > len(buf) {
-			t.Fatalf("buraco no fluxo do cliente em %d (tenho %d)", off, len(buf))
+		if s.off > len(buf) {
+			t.Fatalf("buraco no fluxo do cliente em %d (tenho %d)", s.off, len(buf))
 		}
-		buf = append(buf, data[len(buf)-off:]...)
+		buf = append(buf, s.data[len(buf)-s.off:]...)
 	}
 	return buf
 }
