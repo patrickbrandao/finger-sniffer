@@ -47,6 +47,48 @@ func TestCgroupUsageThrottled(t *testing.T) {
 	}
 }
 
+// TestCgroupUsageMemoryMax: com as 15 colunas do loadmon (task 247) o MemoryMax vem do memory.max lido do cgroup
+// (store 6G e fatia 10G, ADR 0045), com o shmem máximo e os Δ de memory.events max/oom_kill; sem elas, a tabela de
+// reserva já traz os limites da ADR 0045, e não os 2 GiB antigos do store.
+func TestCgroupUsageMemoryMax(t *testing.T) {
+	dir := t.TempDir()
+	in := filepath.Join(dir, "cgroup.csv")
+	csv := "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu,nr_throttled,shmem,memory_max,events_max,oom_kill\n" +
+		"1000000000,store,0,100,50,0,0,0,0,0,0,1048576,6442450944,4,0\n" +
+		"1000000000,slice,0,200,80,0,0,0,0,0,0,1048576,10737418240,0,0\n" +
+		"2000000000,store,1000,100,50,0,0,0,0,0,0,3145728,6442450944,4,0\n" +
+		"2000000000,slice,1000,200,80,0,0,0,0,0,0,3145728,10737418240,0,0\n" +
+		"3000000000,store,2000,100,50,0,0,0,0,0,0,2097152,6442450944,6,1\n" +
+		"3000000000,slice,2000,200,80,0,0,0,0,0,0,2097152,10737418240,0,0\n" +
+		"3000000000,web,0,1,1,0,0,0,0,0,0\n" + // 11 colunas: tabela de reserva
+		"4000000000,web,10,1,1,0,0,0,0,0,0\n"
+	if err := os.WriteFile(in, []byte(csv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	usage, _, err := cgroupUsage(in, filepath.Join(dir, "out.csv"), 1500000000, 5000000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, sl, web := usage["store"], usage["slice"], usage["web"]
+	if st.MemoryMax != 6144 || st.MemoryMaxSource != "cgroup" || sl.MemoryMax != 10240 {
+		t.Errorf("MemoryMax store %v (%s), fatia %v; esperava 6144 (cgroup) e 10240", st.MemoryMax, st.MemoryMaxSource, sl.MemoryMax)
+	}
+	if st.ShmemMax != 3 || st.EventsMax != 2 || st.OOMKill != 1 {
+		t.Errorf("store shmem %v, Δ max %d, Δ oom_kill %d; esperava 3, 2, 1", st.ShmemMax, st.EventsMax, st.OOMKill)
+	}
+	if web.MemoryMax != 768 || web.MemoryMaxSource != "tabela" || web.EventsMax != -1 {
+		t.Errorf("web sem as colunas: %+v", web)
+	}
+	if memoryMax["store"] != 6<<30 || memoryMax["slice"] != 10<<30 {
+		t.Errorf("tabela de reserva fora da ADR 0045: store %v, fatia %v", memoryMax["store"], memoryMax["slice"])
+	}
+	md := renderMD(summaryDoc{Usage: usage, Generator: results{}}, gen{})
+	if !strings.Contains(md, "| store | ") || !strings.Contains(md, "| 6144 | 0 | 2 / 1 |") || !strings.Contains(md, "| slice | ") ||
+		!strings.Contains(md, "768 (tabela)") {
+		t.Errorf("tabela de CPU/RAM:\n%s", md)
+	}
+}
+
 // TestConntrackDelta: deltas de drop/insert_failed/early_drop/error entre os dois arquivos do run.sh.
 func TestConntrackDelta(t *testing.T) {
 	dir := t.TempDir()

@@ -21,10 +21,15 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/test/load/loadstat"
 )
 
-// memoryMax das units (deploy/systemd/*.service; ADR 0039 item 2).
+// memoryMax das units e da fatia (deploy/systemd/*; ADR 0039 item 2, ADR 0045 item 3). É só o valor de reserva
+// para brutos antigos: desde a task 247 o loadmon grava o memory.max real de cada cgroup no cgroup.csv, e ele vale.
 var memoryMax = map[string]float64{
-	"capture": 512 << 20, "web": 768 << 20, "raw": 256 << 20, "dns": 256 << 20, "store": 2 << 30, "nats": 1 << 30,
+	"capture": 512 << 20, "web": 768 << 20, "raw": 256 << 20, "dns": 256 << 20, "store": 6 << 30, "nats": 1 << 30,
+	"slice": 10 << 30,
 }
+
+// usageUnits são as linhas da tabela de CPU/RAM: as 6 units e a fatia que as contém.
+var usageUnits = []string{"capture", "web", "raw", "dns", "store", "nats", "slice"}
 
 type check struct {
 	Goal   string `json:"goal"`
@@ -43,6 +48,13 @@ type unitUsage struct {
 	MemoryMax float64 `json:"memory_max_mib"`
 	// Throttled é o crescimento do nr_throttled do cpu.stat na janela (-1 = o cgroup.csv não tem a coluna).
 	Throttled int64 `json:"nr_throttled_delta"`
+	// ShmemMax é o shmem máximo do memory.stat (páginas do tmpfs do banco, ADR 0045); EventsMax e OOMKill são
+	// o crescimento de max e oom_kill do memory.events na janela; -1 nos três = brutos sem as colunas.
+	ShmemMax  float64 `json:"shmem_max_mib"`
+	EventsMax int64   `json:"memory_events_max_delta"`
+	OOMKill   int64   `json:"oom_kill_delta"`
+	// MemoryMaxSource diz de onde veio o MemoryMax: "cgroup" (memory.max lido) ou "tabela" (valor de reserva).
+	MemoryMaxSource string `json:"memory_max_source"`
 }
 
 // hostUsage é a CPU do host na janela: % da capacidade do host (média, p95, máx), steal médio e núcleos.
@@ -169,8 +181,11 @@ func reportCmd(args []string) error {
 	sd.Usage = usage
 	memOK := true
 	var memV []string
-	for _, u := range []string{"capture", "web", "raw", "dns", "store", "nats"} {
-		us := usage[u]
+	for _, u := range usageUnits {
+		us, ok := usage[u]
+		if !ok {
+			continue // brutos antigos não têm a linha da fatia
+		}
 		// anon é a memória do processo; memory.current inclui o cache de página (recuperável) e pode encostar
 		// no MemoryMax sem OOM
 		if us.AnonMax >= us.MemoryMax {
@@ -179,6 +194,10 @@ func reportCmd(args []string) error {
 		memV = append(memV, fmt.Sprintf("%s %.0f (%.0f)/%.0f", u, us.AnonMax, us.MemMaxMiB, us.MemoryMax))
 	}
 	add("RNF-01", "RAM por unit: anon máx (memory.current máx) / MemoryMax, MiB", "anon < MemoryMax", strings.Join(memV, ", "), len(usage) > 0 && memOK)
+	if st, ok := usage["store"]; ok && st.EventsMax >= 0 {
+		// ADR 0045 item 6: o shmem do tmpfs é cobrado do store; bater no MemoryMax (max) ou matar (oom_kill) é falha
+		add("ADR 0045", "memory.events do store: max / oom_kill (Δ na medição)", "0 / 0", fmt.Sprintf("%d / %d", st.EventsMax, st.OOMKill), st.EventsMax == 0 && st.OOMKill == 0)
+	}
 	var thrV []string
 	thrOK, thrSeen := true, false
 	for _, u := range []string{"capture", "web", "raw", "dns", "store", "nats"} {
@@ -335,13 +354,14 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, hostUsag
 	}
 	defer f.Close() //nolint:errcheck // leitura
 	cr := csv.NewReader(f)
-	cr.FieldsPerRecord = -1 // brutos antigos (10 colunas) e novos (11, com nr_throttled)
+	cr.FieldsPerRecord = -1 // brutos antigos (10 colunas, 11 com nr_throttled) e novos (15, task 247)
 	rows, err := cr.ReadAll()
 	if err != nil {
 		return nil, host, err
 	}
-	// thr = nr_throttled (-1 sem a coluna, formato de antes da ADR 0039); file = núcleos na linha host
-	type pt struct{ t, cpu, mem, anon, file, thr int64 }
+	// thr = nr_throttled (-1 sem a coluna, formato de antes da ADR 0039); file = núcleos na linha host;
+	// shmem, mmax (memory.max, 0 = sem limite), evmax e oom (memory.events): -1 sem as colunas (antes da task 247)
+	type pt struct{ t, cpu, mem, anon, file, thr, shmem, mmax, evmax, oom int64 }
 	series := map[string][]pt{}
 	for _, row := range rows[1:] {
 		if len(row) < 6 {
@@ -355,14 +375,21 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, hostUsag
 		if len(row) >= 11 {
 			thr, _ = strconv.ParseInt(row[10], 10, 64)
 		}
-		series[row[1]] = append(series[row[1]], pt{v[0], v[1], v[2], v[3], v[4], thr})
+		ext := [4]int64{-1, -1, -1, -1}
+		if len(row) >= 15 {
+			for i := range ext {
+				ext[i], _ = strconv.ParseInt(row[11+i], 10, 64)
+			}
+		}
+		series[row[1]] = append(series[row[1]], pt{v[0], v[1], v[2], v[3], v[4], thr, ext[0], ext[1], ext[2], ext[3]})
 	}
 	usage := map[string]unitUsage{}
 	perSec := map[string][]float64{}
 	for unit, s := range series {
 		var cpus []float64
-		var memMax, anonMax float64
+		var memMax, anonMax, shmemMax float64
 		thrFirst, thrLast := int64(-1), int64(-1)
+		evFirst, evLast, oomFirst, oomLast, mmax := int64(-1), int64(-1), int64(-1), int64(-1), int64(0)
 		for i := 1; i < len(s); i++ {
 			if s[i].t < from || s[i].t > to {
 				continue
@@ -384,6 +411,16 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, hostUsag
 				}
 				thrLast = s[i].thr
 			}
+			if s[i].evmax >= 0 {
+				if evFirst < 0 {
+					evFirst, oomFirst = s[i-1].evmax, s[i-1].oom
+				}
+				evLast, oomLast = s[i].evmax, s[i].oom
+				shmemMax = math.Max(shmemMax, float64(s[i].shmem))
+				if s[i].mmax > 0 {
+					mmax = s[i].mmax
+				}
+			}
 			cpus = append(cpus, loadstat.CPUPercent(s[i-1].cpu, s[i].cpu, dt))
 			memMax = math.Max(memMax, float64(s[i].mem))
 			anonMax = math.Max(anonMax, float64(s[i].anon))
@@ -401,10 +438,19 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, hostUsag
 		if thrFirst >= 0 && thrLast >= 0 {
 			thr = thrLast - thrFirst
 		}
-		usage[unit] = unitUsage{
+		u := unitUsage{
 			CPUMean: sm.Mean, CPUP95: sm.P95, CPUMax: sm.Max, MemMaxMiB: memMax / (1 << 20), AnonMax: anonMax / (1 << 20),
-			MemoryMax: memoryMax[unit] / (1 << 20), Throttled: thr,
+			MemoryMax: memoryMax[unit] / (1 << 20), MemoryMaxSource: "tabela", Throttled: thr,
+			ShmemMax: -1, EventsMax: -1, OOMKill: -1,
 		}
+		if evFirst >= 0 && evLast >= 0 {
+			u.ShmemMax, u.EventsMax, u.OOMKill = shmemMax/(1<<20), evLast-evFirst, oomLast-oomFirst
+		}
+		// o memory.max lido do cgroup vale sobre a tabela (ADR 0045 mudou os limites sem mudar este arquivo)
+		if mmax > 0 {
+			u.MemoryMax, u.MemoryMaxSource = float64(mmax)/(1<<20), "cgroup"
+		}
+		usage[unit] = u
 	}
 	// série por segundo (CPU % por unit)
 	o, err := os.Create(out) //nolint:gosec // pasta do operador
@@ -413,7 +459,7 @@ func cgroupUsage(in, out string, from, to int64) (map[string]unitUsage, hostUsag
 	}
 	defer o.Close() //nolint:errcheck // gravação
 	w := csv.NewWriter(o)
-	units := []string{"host", "capture", "web", "raw", "dns", "store", "nats"}
+	units := append([]string{"host"}, usageUnits...)
 	_ = w.Write(append([]string{"second"}, units...))
 	n := 0
 	for _, u := range units {
@@ -446,14 +492,24 @@ func renderMD(sd summaryDoc, g gen) string {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", c.Goal, c.Metric, c.Target, c.Value, res)
 	}
 	b.WriteString("\nCPU (% de um núcleo) e RAM por unit (cgroup, a cada 1 s, sem o aquecimento):\n\n")
-	b.WriteString("| Unit | CPU média % | CPU p95 % | CPU máx % | RAM máx MiB | anon máx MiB | MemoryMax MiB | Δ nr_throttled |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
-	for _, u := range []string{"capture", "web", "raw", "dns", "store", "nats"} {
-		us := sd.Usage[u]
-		thr := "—"
+	b.WriteString("| Unit | CPU média % | CPU p95 % | CPU máx % | RAM máx MiB | anon máx MiB | shmem máx MiB | MemoryMax MiB | Δ nr_throttled | Δ memory.events max / oom_kill |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for _, u := range usageUnits {
+		us, ok := sd.Usage[u]
+		if !ok {
+			continue
+		}
+		thr, shm, ev := "—", "—", "—"
 		if us.Throttled >= 0 {
 			thr = strconv.FormatInt(us.Throttled, 10)
 		}
-		fmt.Fprintf(&b, "| %s | %.1f | %.1f | %.1f | %.0f | %.0f | %.0f | %s |\n", u, us.CPUMean, us.CPUP95, us.CPUMax, us.MemMaxMiB, us.AnonMax, us.MemoryMax, thr)
+		if us.EventsMax >= 0 {
+			shm, ev = fmt.Sprintf("%.0f", us.ShmemMax), fmt.Sprintf("%d / %d", us.EventsMax, us.OOMKill)
+		}
+		mm := fmt.Sprintf("%.0f", us.MemoryMax)
+		if us.MemoryMaxSource == "tabela" {
+			mm += " (tabela)"
+		}
+		fmt.Fprintf(&b, "| %s | %.1f | %.1f | %.1f | %.0f | %.0f | %s | %s | %s | %s |\n", u, us.CPUMean, us.CPUP95, us.CPUMax, us.MemMaxMiB, us.AnonMax, shm, mm, thr, ev)
 	}
 	b.WriteString("\nDecomposição (ms; histogramas do store por diferença aquecimento → fim, interpolados nos buckets):\n\n")
 	b.WriteString("| Etapa | p50 | p95 | p99 |\n| --- | --- | --- | --- |\n")

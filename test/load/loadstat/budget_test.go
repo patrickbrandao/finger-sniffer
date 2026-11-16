@@ -142,6 +142,21 @@ func TestMemWindowsThrottled(t *testing.T) {
 	}
 }
 
+// TestMemWindows15: o formato de 15 colunas (shmem, memory_max e memory.events no fim, task 247) é lido como o de
+// 10.
+func TestMemWindows15(t *testing.T) {
+	csv := "t_ns,unit,cpu_usec,mem_current,anon,file,sock,kernel,slab,percpu,nr_throttled,shmem,memory_max,events_max,oom_kill\n" +
+		"1000000000,store,1,100,50,10,7,20,5,1,0,30,6442450944,0,0\n" +
+		"2000000000,store,1,120,40,10,9,15,6,2,0,60,6442450944,0,0\n"
+	ws, err := MemWindows(strings.NewReader(csv), "store", 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws) != 1 || !ws[0].HasStat || ws[0].Samples != 2 || ws[0].SockMax != 9 || ws[0].CurrentMax != 120 {
+		t.Fatalf("janelas = %+v", ws)
+	}
+}
+
 func TestNstatDelta(t *testing.T) {
 	before := "#kernel\nTcpExtTCPRcvQDrop               57643              0.0\nUdpRcvbufErrors 361 0.0\n"
 	after := "#kernel\nTcpExtTCPRcvQDrop 57700 0.0\nUdpRcvbufErrors 361 0.0\nTcpExtPruneCalled 4 0.0\n"
