@@ -78,7 +78,7 @@ túneis) é do cliente, que usa as receitas genéricas e a lista de campos está
 repetidas do mesmo cliente.
 
 ### Carga
-- RF-13: `test/load/`: 200 conexões simultâneas e 50 novas/s por 10 min (RNF-01, ADR 0042), depois de 9 min de
+- RF-13: `test/load/`: 400 conexões simultâneas e 100 novas/s por 10 min (RNF-01, ADR 0046), depois de 9 min de
   pré-aquecimento no mesmo perfil (o expurgo roda dentro da janela), mix h1/h2/h3/raw;
   mede CPU/RAM por serviço, `cpu.stat nr_throttled` por unit, latência da API (p95), atraso do feed,
   `dropped_events_total`, `kernel_drops`, `fs_store_flows_dropped_total` e o `conntrack -S` antes e depois;
@@ -90,7 +90,12 @@ repetidas do mesmo cliente.
   do store e `fs_store_db_full_total` sem crescer. Degraus de 3 min (50, 75,
   100 novas/s, sem meta) medem o teto do ingest quando ele muda (ADR 0041; fase F7).
   Gerador em Go fora do finger-01 (a máquina cliente), para medir o caminho real e não disputar CPU com o espelho e
-  os sites; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;
+  os sites. As metas do gerador (conexões com erro no cliente 0, puladas pelo teto do gerador 0) ficam no
+  relatório; falha nelas é aceita como do cliente só quando o espelho não a acompanha na mesma janela (modo
+  degradado desligado; `kernel_drops`, `flows_dropped`, `conntrack -S` drop/insert_failed/early_drop e
+  `nr_throttled` sem crescer; backlog < 1 s; erros concentrados num caminho do cliente), e o relatório diz qual
+  condição sustenta a aceitação (ADR 0046 item 2). Ressalva: com o gerador no Mac (NAT doméstico, outros
+  processos) essas duas metas não são medidas de forma limpa; um gerador fora do Mac é a task 256; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;
   metas e percentis da ADR 0022, primeiro minuto descartado. Relatório em `test/load/RESULTS.md` com versão,
   data, perfil, números por meta (passou/falhou) e a decomposição do atraso do feed.
 
@@ -110,3 +115,5 @@ repetidas do mesmo cliente.
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
 - specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md
+- specs/decisions/0045-banco-do-store-em-ram.md
+- specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md

@@ -1,6 +1,6 @@
 # 0043 — Limite conhecido da v0.3.0: latência da carga 200/50 no finger-01 acima das metas
 
-Status: aceita (correção escolhida pelo humano: banco em RAM, ver 0045)
+Status: aceita (correção escolhida pelo humano: banco em RAM, ver 0045; limite resolvido na F7 e RNF-01 400/100, ver 0046)
 Data: 2026-11-15
 
 ## Contexto
@@ -30,7 +30,8 @@ da arquitetura (ADRs 0004 e 0005 ficam).
 ## Decisão
 1. **Decisão do humano (2026-11-15): "Lançar assim".** A `v0.3.0` sai com RNF-02 e RNF-04 não atingidos na carga
    oficial 200/50 do finger-01, registrados como **limite conhecido** desta versão (CHANGELOG, PR de release e
-   release do GitHub). RNF-01 (200/50, ADR 0042), RNF-03 e a integridade (perda 0, probes sem registro 0) valem.
+   release do GitHub). RNF-01 (200/50 na `v0.3.0`, ADR 0042; 400/100 desde a ADR 0046), RNF-03 e a integridade
+   (perda 0, probes sem registro 0) valem.
 2. As metas RNF-02 e RNF-04 da spec 000 **não mudam**: a exceção é só desta versão neste servidor. O item 3 dos
    objetivos da spec 000 fica pendente para a próxima release.
 3. A correção vai para a **fase F7**, antes da vazão 400/100: task 248 (implementer-store, `aberta`) parte do

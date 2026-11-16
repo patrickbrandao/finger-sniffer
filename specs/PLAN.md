@@ -107,7 +107,7 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   `https://finger-01.badblock.net.br/` (pelo traefik); nenhum script, spec ou doc com o servidor anterior como alvo;
   tag `v0.3.0`; CHANGELOG com a seção `[0.3.0]`.
 
-## F7 — Escrita e vazão do ingest: metas a 200/50 e RNF-01 de volta a 400/100
+## F7 — Escrita e vazão do ingest: metas a 200/50 e RNF-01 de volta a 400/100 (concluída em 2026-11-16)
 - **Objetivo**: o store cumpre RNF-02 e RNF-04 no finger-01 (limite conhecido da v0.3.0, ADR 0043) e sustenta 400
   simultâneas e 100 novas/s com as metas da carga oficial, sem perda no stream, e uma ADR nova devolve o RNF-01 a
   400/100 (ADR 0042 item 5).
@@ -121,6 +121,14 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
 - **Critério de saída**: limite conhecido da ADR 0043 resolvido (248, RNF-02 e RNF-04 a 200/50 no finger-01);
   carga 247 com todas as metas da ADR 0042 item 3 a 400/100, `fs_store_stream_lost_total`
   Δ 0 do pré-aquecimento ao fim; ADR nova com RNF-01 400/100; release seguinte.
+- **Saída (2026-11-16)**: atendido. Tasks 248, 246, 254, 255 e 247 na `main` (PRs #226–#231). Carga `official-f7`
+  (`test/load/RESULTS.md`, "finger-01, F7") a 400/100 com o banco em tmpfs: feed p95/p99 232/352 ms, registro p95
+  TCP 193 / QUIC 188 ms, backlog máx 0,11 s, `stream_lost`/`db_full`/`oom_kill` Δ 0, RAM do store 2,4 de 6 GiB;
+  degrau de 50/s com feed p99 379 ms e registro p95 229/234 ms (limite da ADR 0043 resolvido). As duas metas do
+  gerador que falharam (135 erros de cliente em TCP IPv4, 2 720 puladas no teto do gerador) foram aceitas como do
+  cliente pela ADR 0046, que devolve o RNF-01 a 400/100 (substitui a 0042) e registra a ressalva do gerador fora do
+  Mac (task 256, baixa prioridade). Adendo da ADR 0045 com a reserva de espaço e o checkpoint por passo da task 255.
+  A release seguinte fica para a próxima etapa, junto com o início da F8.
 
 ## F8 — Detecção de bots oferecida por API (futura)
 - **Objetivo**: a análise do espelho identifica bots e é oferecida por API (forwardAuth do traefik, consulta

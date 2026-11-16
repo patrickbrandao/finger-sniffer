@@ -1,2 +1,0 @@
-- store: escritor do SQLite escreve menos e não para no checkpoint (task 248, ADR 0043 alternativa b): pacotes das conexões abertas na memória do ingest até a finalização (`packets` só acima de 1 MiB/conexão ou 64 MiB no total, tardios e desligamento), WAL recomeçado fora do `COMMIT` e expurgo com prazo de 25 ms por passo.
-- Métricas `fs_store_writer_seconds{op}`, `fs_store_wal_frames` e `fs_store_packet_spills_total`.

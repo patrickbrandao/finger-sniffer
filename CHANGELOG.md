@@ -5,6 +5,29 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+Fase F7: banco do store em RAM (ADR 0045) e RNF-01 de volta a 400 simultâneas / 100 novas/s (ADR 0046); o limite conhecido da v0.3.0 (ADR 0043) está resolvido. Contratos sem mudança.
+
+### Adicionado
+- store: métricas `fs_store_writer_seconds{op}`, `fs_store_wal_frames` e `fs_store_packet_spills_total` (task 248); `/debug/pprof/` na 9001 só de loopback (task 246).
+- store: banco no tmpfs com expurgo pelo livre do tmpfs (< 10% → até 15%, `purged_total{reason=space}`); `SQLITE_FULL` no ingest com expurgo de emergência (reserva de 32 MiB ao lado do banco, checkpoint `TRUNCATE` por passo), uma nova tentativa, modo banco cheio (conexões degradadas, lote sem BLOBs, descarte com `Ack`) e health `db full`/`db space <n>% free`; métricas `fs_store_db_fs_bytes`, `fs_store_db_full_total`, `fs_store_db_full_dropped_total` (task 255, ADR 0045).
+- **infra (task 254)**: banco do store num tmpfs dedicado de 4G em `/finger-sniffer/var/store` (mount unit `finger\x2dsniffer-var-store.mount` com uid/gid resolvidos na instalação, `RequiresMountsFor` no store); a primeira instalação apaga o banco em disco e monta, os deploys seguintes nunca desmontam (tamanho novo por `remount`) e o smoke reprova sem o tmpfs (ADR 0045).
+- test: degraus e carga oficial 400/100 no finger-01 com o banco em tmpfs (`official-f7`): todas as metas do espelho passaram (feed p99 352 ms, registro p95 TCP 193 / QUIC 188 ms, backlog máx 0,11 s, `stream_lost`/`db_full`/`oom_kill` Δ 0, expurgo igual à criação); só as metas do gerador no Mac falharam (135 erros IPv4 no cliente, 2 720 puladas pelo teto). O relatório lê o `memory.max` real de cada cgroup e o `loadmon` grava a fatia, `shmem` e `memory.events` (task 247).
+- test: carga com padrão oficial 200/50 (ADR 0042) e meta QUIC 500 ms (ADR 0026) no `run.sh`/`loadgen report`; notas de captura da vps602 nos goldens h2/QUIC; teste de lacuna do stream num lote que volta por Nak (task 250).
+
+### Alterado
+- store: escritor do SQLite escreve menos e não para no checkpoint (task 248, ADR 0043 alternativa b): pacotes das conexões abertas na memória do ingest até a finalização (`packets` só acima de 1 MiB/conexão ou 64 MiB no total, tardios e desligamento), WAL recomeçado fora do `COMMIT` e expurgo com prazo de 25 ms por passo.
+- store: WAL sem corte a cada recomeço no disco (`journal_size_limit` 512 MiB, task 246; diagnóstico da vazão 400/100 em `docs/dev/ingest-vazao.md`), depois substituído pelo banco em tmpfs: `synchronous=OFF`, WAL de 64 MiB (`wal_autocheckpoint` 16384, recomeço a 8192 quadros), `FS_STORE_MAX_BYTES` padrão 3 GiB (task 255, ADR 0045).
+- infra: store `MemoryMax=6G`/`GOMEMLIMIT=1536MiB`, fatia `MemoryMax=10G`, `FS_STORE_MAX_BYTES=3221225472` (task 254, ADR 0045).
+- **infra (task 253)**: `verify-full` do CI roda o fuzz curto em lotes paralelos (10 s por alvo, `FS_FUZZ_JOBS`, padrão CPUs/2), de ~8 min para ~2 min; limite do passo 25 min com `timeout` que imprime o resumo e anota "tempo esgotado" (distinto de falha), job com 30 min.
+- Spec 004: pacotes de conexão aberta ficam em memória até a finalização; `packets` só recebe transbordo (1 MiB por conexão, 64 MiB no total), tardios e o desligamento; queda brusca perde o pcap parcial das conexões abertas (RF-04a, task 252).
+
+### Corrigido
+- test(e2e): `TestF4PageChrome` deixa de falhar quando o Chrome ganha a corrida pelo TCP com o QUIC já aberto: repete a fetch do probe até 3 vezes e exige requisição em quic/h3 (task 251).
+
+### Decidido
+- Banco do store num tmpfs dedicado de 4G, sem durabilidade em disco (some no reinício do host), com limites de memória para 400/100 e comportamento com o tmpfs cheio (ADR 0045); adendo com a reserva de espaço de 32 MiB e o checkpoint `TRUNCATE` por passo do expurgo de emergência.
+- RNF-01: 400 simultâneas e 100 novas/s com análise completa, provado na carga `official-f7`; as falhas do gerador no Mac são aceitas como do cliente quando os contadores do servidor não as acompanham; gerador fora do Mac fica como tarefa (ADR 0046, substitui a 0042).
+
 ## [0.3.0] - 2026-11-15
 
 Servidor `finger-01` (ADR 0038), endurecimento da auditoria de 2026-11 (ADRs 0032–0037) e ingest com relógio de captura (ADR 0041). Contratos openapi 0.6.1 e asyncapi 0.5.1 (documentais sobre 0.6.0/0.5.0). RNF-01 de 200/50 (ADR 0042), com o limite conhecido abaixo (ADR 0043).
