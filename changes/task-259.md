@@ -1,0 +1,1 @@
+- store: `/metrics` deixa de responder 500 depois do primeiro lote descartado no modo banco cheio; o heartbeat `store_db_full_dropped_total` não é mais reexportado com o nome do contador nativo `fs_store_db_full_dropped_total` (task 259).
