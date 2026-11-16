@@ -107,17 +107,31 @@ type ja4Line struct {
 	} `json:"http"`
 }
 
-// f5Analyze manda o pcap da conexão e o keylog do cliente para o servidor e roda tshark, ja4 (-r e -r -O), p0f -r
-// e, em TCP, o ref.py do golden TLS (Akamai). Uma saída por seção, separadas por marcadores.
+// f5Analyze baixa o pcap da conexão pela API e o confere com f5AnalyzePcap.
 func f5Analyze(t *testing.T, connID string, port int, quic bool, keylog []byte) f5Ref {
 	t.Helper()
 	requireTools(t)
-	pcap := pcapOf(t, connID)
-	dir := "/tmp/fs-e2e-f5/" + connID
+	return f5AnalyzePcap(t, connID, pcapOf(t, connID), port, quic, keylog)
+}
+
+// f5WiresharkPrefs liga a remontagem TCP fora de ordem do tshark (desligada por padrão no 4.4). Sem ela, quando
+// o primeiro segmento do ClientHello se perde no caminho e a retransmissão chega depois do segundo (task 260:
+// Chrome com ML-KEM, ClientHello de ~2 KB em dois segmentos), o tshark não monta o ClientHello e nem ele nem o ja4
+// (que usa o tshark por baixo) emitem impressão, embora o pcap esteja completo na ordem do fio.
+const f5WiresharkPrefs = `tcp.reassemble_out_of_order: TRUE`
+
+// f5AnalyzePcap manda o pcap e o keylog do cliente para o servidor e roda tshark, ja4 (-r e -r -O), p0f -r e, em
+// TCP, o ref.py do golden TLS (Akamai). Uma saída por seção, separadas por marcadores. name identifica o
+// diretório de trabalho remoto.
+func f5AnalyzePcap(t *testing.T, name string, pcap []byte, port int, quic bool, keylog []byte) f5Ref {
+	t.Helper()
+	dir := "/tmp/fs-e2e-f5/" + name
 	t.Cleanup(func() { remote(t, "rm -rf "+dir+"; rmdir /tmp/fs-e2e-f5 2>/dev/null; true") })
-	remoteIn(t, "mkdir -p "+dir+" && cat > "+dir+"/c.pcap", pcap)
+	remoteIn(t, "mkdir -p "+dir+"/ws && cat > "+dir+"/c.pcap", pcap)
 	remoteIn(t, "cat > "+dir+"/c.keys", keylog)
-	script := "cd " + dir + " && " +
+	remoteIn(t, "cat > "+dir+"/ws/preferences", []byte(f5WiresharkPrefs+"\n"))
+	// WIRESHARK_CONFIG_DIR vale para o tshark chamado direto e para o que o ja4 chama
+	script := "cd " + dir + " && export WIRESHARK_CONFIG_DIR=" + dir + "/ws && " +
 		"{ " + ja4Bin + " -j -r --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > c.ja4.jsonl || true; } && " +
 		"{ " + ja4Bin + " -j -r -O --keylog-file c.keys c.pcap 2>/dev/null | grep '^{' > o.jsonl || true; } && " +
 		"echo '=====ja4' && cat c.ja4.jsonl && echo '=====ja4o' && cat o.jsonl && echo '=====tshark' && " +
@@ -156,7 +170,9 @@ func f5Analyze(t *testing.T, connID string, port int, quic bool, keylog []byte) 
 	if f := strings.Split(sec["tshark"], "\t"); len(f) == 4 {
 		ref.TsharkJA3Full, ref.TsharkJA3, ref.TsharkJA4, ref.TsharkJA4R = f[0], f[1], f[2], f[3]
 	} else {
-		t.Errorf("%s: saída do tshark inesperada: %q", connID, sec["tshark"])
+		// com a remontagem fora de ordem ligada, pcap sem ClientHello montável é pcap incompleto: defeito do
+		// espelho, não do teste (task 260)
+		t.Errorf("%s: o tshark não montou o ClientHello do pcap (saída %q): pcap incompleto?", name, sec["tshark"])
 	}
 	if !quic {
 		for kv := range strings.SplitSeq(sec["p0f"], "|") {
@@ -168,7 +184,7 @@ func f5Analyze(t *testing.T, connID string, port int, quic bool, keylog []byte) 
 			Akamai *string `json:"akamai"`
 		}
 		if err := json.Unmarshal([]byte(sec["ref"]), &r); err != nil {
-			t.Fatalf("%s: ref.json: %v\n%.1500s", connID, err, sec["ref"])
+			t.Fatalf("%s: ref.json: %v\n%.1500s", name, err, sec["ref"])
 		}
 		ref.Akamai = r.Akamai
 	}
@@ -457,6 +473,34 @@ func TestF5Fingerprints(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestF5ToolsOutOfOrderClientHello: as ferramentas de referência montam o ClientHello cujo primeiro segmento se
+// perdeu no caminho (task 260). O pcap é o do espelho numa conexão de preconnect do Chrome 142 (endereços trocados
+// pelos de documentação): o segmento Seq=1 nunca chegou à eth0 (o servidor responde com SACK 1421–2018 e a
+// retransmissão vem 17 ms depois, com TSval novo), então o pcap tem, na ordem do fio, o segundo segmento antes do
+// primeiro. Os valores esperados são os do registro do espelho para essa conexão.
+func TestF5ToolsOutOfOrderClientHello(t *testing.T) {
+	requireTools(t)
+	pcap, err := os.ReadFile(filepath.Join("testdata", "f5-clienthello-retransmit.pcap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := f5AnalyzePcap(t, "ooo-"+newID(t), pcap, portTLS, false, nil)
+	want := map[string][2]string{
+		"ja4":        {ref.ToolJA4, "t13d1517h2_8daaf6152771_cb7bf5808d99"},
+		"ja4_o":      {ref.ToolJA4O, "t13d1517h2_acb858a92679_33843641376e"},
+		"ja4t":       {ref.ToolJA4T, "65535_2-1-3-1-1-8-4-0-0_1432_6"},
+		"tshark ja3": {ref.TsharkJA3, "bf6d91e2df13ebe3041319bf097297d2"},
+		"tshark ja3_full": {ref.TsharkJA3Full, "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53," +
+			"5-65037-16-23-51-17613-27-45-11-51764-65281-13-0-18-10-35-43,4588-29-23-24,0"},
+		"p0f": {ref.P0F, "6:53+11:0:1432:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:ecn,flow:0"},
+	}
+	for k, v := range want {
+		if v[0] != v[1] {
+			t.Errorf("%s: %q, quer %q", k, v[0], v[1])
+		}
 	}
 }
 
