@@ -3,7 +3,9 @@
 #   - o format do full lê só os .go versionados ou novos não ignorados (tmp/ fica de fora);
 #   - a lista de pacotes linux_priv também ignora tmp/;
 #   - os testes linux_priv usam um diretório remoto próprio por execução e apagam só ele, inclusive com duas
-#     execuções simultâneas, falha de compilação, falha de scp e sinal.
+#     execuções simultâneas, falha de compilação, falha de scp e sinal;
+#   - o fork do traefik (traefik/**) fica fora de format, lint, binários e listas do raiz e tem o passo próprio
+#     "traefik" (build + testes do código nosso e dos ganchos), e o openapi do bot entra nos contratos (task 262).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -117,6 +119,114 @@ check "linux_priv_pkgs ignora tmp/" '[ "$(cd "$M" && linux_priv_pkgs | tr "\n" "
 printf 'package p\nfunc   G( ) {  }\n' >"$M/p/new.go"
 check "format pega .go novo não ignorado" '! (cd "$M" && gofumpt_all >/dev/null)'
 rm -f "$M/p/new.go"
+
+# ---- task 262: fork do traefik fora do módulo raiz, com passo próprio --------------------------------------
+# Fork de teste em $M/traefik: módulo próprio, um .go mal formatado no código nosso, um gancho
+# `// finger-sniffer:` num pacote do "upstream", um pacote sem gancho com teste que falha (não pode rodar), um
+# teste linux_priv e um "binário" ELF versionado.
+TF="$M/traefik"
+mkdir -p "$TF/cmd/traefik" "$TF/pkg/fingersniffer" "$TF/pkg/server" "$TF/pkg/other" "$TF/p"
+printf 'module example.com/fork\n\ngo 1.21\n' >"$TF/go.mod"
+printf 'package main\n\nfunc main() {}\n' >"$TF/cmd/traefik/main.go"
+printf 'package fingersniffer\nfunc   F( ) {  }\n' >"$TF/pkg/fingersniffer/fs.go"
+for pkg in fingersniffer server; do
+	cat >"$TF/pkg/$pkg/mark_test.go" <<EOF
+package $pkg
+
+import (
+	"os"
+	"testing"
+)
+
+func TestMark(t *testing.T) {
+	f, err := os.OpenFile(os.Getenv("FS_MARK"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("$pkg\n")
+	_ = f.Close()
+}
+EOF
+done
+printf 'package server\n\n// finger-sniffer: gancho do listener\nfunc Serve() {}\n' >"$TF/pkg/server/server.go"
+printf 'package other\n\nimport "testing"\n\nfunc TestUpstream(t *testing.T) { t.Fatal("suíte do upstream não roda") }\n' \
+	>"$TF/pkg/other/other_test.go"
+cp "$M/p/x_test.go" "$TF/p/x_test.go"
+printf '\177ELF\002\001\001\000\000\000\000\000\000\000\000\000\002\000\076\000' >"$TF/fixture.bin"
+printf '/tmp/\n/bin/\n/dist/\n/finger-sniffer-*\n' >"$M/.gitignore"
+(cd "$M" && git add .gitignore traefik && git -c user.name=t -c user.email=t@t commit -qm traefik) || {
+	echo "FAIL commit do fork de teste"
+	exit 1
+}
+
+check "traefik: format do raiz ignora .go mal formatado em traefik/" '(cd "$M" && gofumpt_all >/dev/null)'
+check "traefik: go_source_files não lista traefik/" '! (cd "$M" && go_source_files) | grep -q "^traefik/"'
+check "traefik: linux_priv_pkgs ignora traefik/" '[ "$(cd "$M" && linux_priv_pkgs | tr "\n" " ")" = "./bad ./p ./q " ]'
+check "traefik: fuzz e testes do raiz não leem traefik/" '! (cd "$M" && test_files_matching "^package") | grep -q "traefik/"'
+check "traefik: quick tira traefik/ dos arquivos do raiz" '[ "$(printf "traefik/pkg/a.go\np/p.go\n" | root_only)" = "p/p.go" ]'
+check "traefik: binário em traefik/ não falha o raiz" 'FS_CHECK_ROOT="$M" "$ROOT/scripts/check-binaries.sh" >/dev/null'
+check "traefik: binário em traefik/ passado como alterado também não" 'FS_CHECK_ROOT="$M" "$ROOT/scripts/check-binaries.sh" traefik/fixture.bin >/dev/null'
+cp "$TF/fixture.bin" "$M/p/fixture.bin"
+check "traefik: binário fora de traefik/ ainda falha" '! FS_CHECK_ROOT="$M" "$ROOT/scripts/check-binaries.sh" p/fixture.bin >/dev/null'
+rm -f "$M/p/fixture.bin"
+
+# make fmt: só os .go do raiz (gofumpt/goimports trocados por stubs que registram os argumentos)
+mkdir -p "$T/fmtbin"
+for tool in gofumpt goimports; do
+	printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_FMT_LOG"\n' "$tool" >"$T/fmtbin/$tool"
+	chmod +x "$T/fmtbin/$tool"
+done
+: >"$T/fmt.log"
+(cd "$M" && PATH="$T/fmtbin:$PATH" STUB_FMT_LOG="$T/fmt.log" make -s -f "$ROOT/Makefile" fmt >/dev/null 2>&1)
+check "traefik: make fmt formata o raiz" '[ "$(grep -c "p/p.go" "$T/fmt.log")" = 2 ]'
+check "traefik: make fmt não toca em traefik/" '! grep -q "traefik/" "$T/fmt.log"'
+
+# plano do passo: quick só com traefik/** alterado; sem go.mod pula com aviso; full sempre (menos FS_SKIP_TRAEFIK)
+check "traefik: quick pula sem mudança" '[ "$(cd "$M" && traefik_plan quick "p/p.go")" = "traefik sem mudança" ]'
+check "traefik: quick roda com traefik/** alterado" '[ "$(cd "$M" && traefik_plan quick "traefik/pkg/server/server.go")" = run ]'
+check "traefik: full roda sempre" '[ "$(cd "$M" && FS_SKIP_TRAEFIK=0 traefik_plan full)" = run ]'
+check "traefik: FS_SKIP_TRAEFIK pula no full" '[ "$(cd "$M" && FS_SKIP_TRAEFIK=1 traefik_plan full)" = FS_SKIP_TRAEFIK=1 ]'
+check "traefik: sem traefik/go.mod pula com aviso" '(cd "$T" && traefik_plan full) | grep -q "^sem traefik/go.mod" &&
+	(cd "$T" && MODE=full traefik_step full) | grep -q "^aviso: passo traefik pulado"'
+check "traefik: pacotes do passo (nosso + ganchos)" '[ "$(cd "$M" && traefik_test_pkgs | tr "\n" " ")" = "./pkg/fingersniffer/... ./pkg/server " ]'
+
+# o passo de verdade: build do cmd/traefik e testes só do código nosso e dos ganchos
+: >"$T/mark"
+(cd "$M" && FS_MARK="$T/mark" traefik_check >"$T/out.traefik" 2>&1)
+tf_rc=$?
+check "traefik: passo roda build e testes" '[ "$tf_rc" = 0 ] && [ "$(sort "$T/mark" | tr "\n" " ")" = "fingersniffer server " ]'
+check "traefik: build não deixa binário em traefik/" '[ ! -e "$TF/traefik" ]'
+printf 'package server\n\nimport "testing"\n\nfunc TestBroken(t *testing.T) { t.Fatal("quebrado") }\n' >"$TF/pkg/server/broken_test.go"
+(cd "$M" && FS_MARK="$T/mark" traefik_check >"$T/out.traefik-fail" 2>&1)
+tf_rc=$?
+check "traefik: teste quebrado num gancho falha o passo" '[ "$tf_rc" != 0 ]'
+rm -f "$TF/pkg/server/broken_test.go"
+
+# contratos: o openapi do bot entra no passo (stubs de redocly/asyncapi registram os argumentos)
+CT="$T/ct"
+mkdir -p "$CT/node_modules/.bin"
+echo '{"lockfileVersion":3}' >"$CT/package-lock.json"
+git hash-object "$CT/package-lock.json" >"$CT/node_modules/.fs-lock-hash"
+for tool in redocly asyncapi; do
+	printf '#!/usr/bin/env bash\necho "%s $*" >>"$STUB_CT_LOG"\n' "$tool" >"$CT/node_modules/.bin/$tool"
+	chmod +x "$CT/node_modules/.bin/$tool"
+done
+: >"$T/ct.log"
+(CONTRACTS_TOOLS_DIR="$CT" STUB_CT_LOG="$T/ct.log" contracts_check >/dev/null 2>&1)
+check "contratos: redocly no openapi do bot" 'grep -q "^redocly lint .*cmd/finger-sniffer-bot/openapi.yaml$" "$T/ct.log"'
+check "contratos: redocly no openapi do store" 'grep -q "^redocly lint .*cmd/finger-sniffer-store/openapi.yaml$" "$T/ct.log"'
+check "contratos: openapi do bot alterado dispara o passo no quick" '[ "$(echo cmd/finger-sniffer-bot/openapi.yaml | grep -cE "$(contracts_re)")" = 1 ]'
+check "contratos: o openapi do bot existe" '[ -s "$ROOT/$BOT_OPENAPI_FILE" ]'
+
+# configuração: lint, hooks, .gitignore e CI tratam traefik/ à parte
+check "golangci exclui traefik/ (linters e formatters)" '[ "$(grep -c "^      - \^traefik/$" "$ROOT/.golangci.yml")" = 2 ]'
+check "lefthook exclui traefik/ (fmt e lint)" '[ "$(grep -c "^        - \"traefik/\*\*\"$" "$ROOT/lefthook.yml")" = 2 ]'
+check ".gitignore versiona os fixtures do upstream" '! git -C "$ROOT" check-ignore -q --no-index traefik/integration/fixtures/https/a.key &&
+	! git -C "$ROOT" check-ignore -q --no-index traefik/pkg/x/testdata/b.pem'
+check ".gitignore ainda ignora lixo de editor em traefik/" 'git -C "$ROOT" check-ignore -q --no-index traefik/.DS_Store'
+check "CI: job traefik roda o passo" 'grep -qF "run: scripts/verify.sh traefik" "$ROOT"/.github/workflows/ci.yml'
+check "CI: cache do módulo do fork" 'grep -qE "^[[:space:]]+traefik/go\.sum$" "$ROOT"/.github/workflows/ci.yml'
+check "CI: verify-full não repete o passo traefik" 'grep -qF "FS_SKIP_TRAEFIK: \"1\"" "$ROOT"/.github/workflows/ci.yml'
 
 # ---- task 174: diretório remoto por execução ---------------------------------------------------------------
 # run_priv <rótulo> <pacotes>: roda linux_priv_tests num subshell com WORK próprio; grava o rc em $T/rc.<rótulo>

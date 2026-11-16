@@ -41,6 +41,14 @@ coverage.*
 *.log
 !**/testdata/**/*.log
 
+# Fork do traefik (ADR 0048): os fixtures do upstream (chaves, certificados, logs) são versionados; o
+# traefik/.gitignore do upstream decide o resto (task 262)
+!/traefik/**/*.key
+!/traefik/**/*.pem
+!/traefik/**/*.log
+!/traefik/**/*.out
+!/traefik/**/*.db
+
 # Sistema e editores
 .DS_Store
 .idea/
