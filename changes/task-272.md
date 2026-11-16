@@ -1,0 +1,1 @@
+- infra: desfeito o tratamento de `traefik/` na verificação (ADR 0054: o fork virou o projeto externo traefix): sem passo/job "traefik", `FS_SKIP_TRAEFIK` e exclusões em verify.sh, check-binaries, golangci, lefthook, `make fmt` e `.gitignore`; o `redocly lint` do openapi do bot continua nos contratos (task 272).

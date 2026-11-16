@@ -17,9 +17,6 @@
 #                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
 #   FS_E2E_TIMEOUT       -timeout do go test no passo e2e (padrão 45m; com FS_E2E_LONG=1 a suíte passa dos
 #                        10 min padrão do go test)
-#   FS_SKIP_TRAEFIK=1    o full pula o passo "traefik" (o CI o roda num job próprio, em paralelo: task 262)
-#
-# Também: scripts/verify.sh traefik — só o passo do fork (spec 017 RF-14), usado pelo job "traefik" do CI.
 #
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
@@ -45,9 +42,6 @@ ASYNCAPI_FILE="eventbus/nats/asyncapi.yaml"
 CONTRACTS_TOOLS_DIR="scripts/contracts-tools"
 # Validador dos examples do asyncapi (Node; dependências fixadas no package-lock.json do diretório)
 ASYNCAPI_EXAMPLES_DIR="scripts/asyncapi-examples"
-# Fork do traefik (ADR 0048, spec 019): módulo Go próprio, fora de todos os passos do módulo raiz; tem o passo
-# "traefik" (spec 017 RF-14, task 262)
-TRAEFIK_DIR="traefik"
 FUZZ_TIME="${FS_FUZZ_TIME:-10s}"
 VPS_SSH="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
 VPS_PORT="${FS_VPS_PORT:-48022}"
@@ -189,12 +183,6 @@ changed_files() {
 	} | sort -u
 }
 
-# Filtra (stdin) os caminhos do módulo raiz: tira o que está no fork do traefik (task 262).
-root_only() { grep -v "^$TRAEFIK_DIR/" || true; }
-
-# Filtra (stdin) os caminhos do fork do traefik.
-traefik_only() { grep "^$TRAEFIK_DIR/" || true; }
-
 # Pacotes Go (import path) dos diretórios informados que ainda existem.
 packages_of_dirs() {
 	local d
@@ -323,11 +311,11 @@ pebble_check() {
 	echo "FS_TEST_PEBBLE=$FS_TEST_PEBBLE"
 }
 
-# Arquivos .go do módulo raiz: versionados e novos não ignorados. O que o .gitignore cobre (tmp/, bin/, dist/)
-# fica de fora, como no quick (task 203), e o fork do traefik também (task 262).
+# Arquivos .go do repositório: versionados e novos não ignorados. O que o .gitignore cobre (tmp/, bin/, dist/)
+# fica de fora, como no quick (task 203).
 go_source_files() {
 	local f
-	git ls-files --cached --others --exclude-standard -- '*.go' ":(exclude)$TRAEFIK_DIR/" | while IFS= read -r f; do
+	git ls-files --cached --others --exclude-standard -- '*.go' | while IFS= read -r f; do
 		[ -f "$f" ] && echo "$f"
 	done
 }
@@ -358,61 +346,6 @@ gofumpt_check() {
 	return 0
 }
 
-# Pacotes do fork testados pelo passo "traefik" (relativos a traefik/): o código nosso (./pkg/fingersniffer/...)
-# e os pacotes com gancho no upstream, marcados com o comentário `// finger-sniffer:` (spec 019 RF-02).
-traefik_test_pkgs() {
-	local own="pkg/fingersniffer"
-	(
-		cd "$TRAEFIK_DIR" || exit 0
-		[ -d "$own" ] && echo "./$own/..."
-		grep -rlE '//[[:space:]]*finger-sniffer:' --include='*.go' . 2>/dev/null |
-			grep -v "^\./$own/" | xargs -n1 dirname 2>/dev/null | sort -u
-	)
-}
-
-# Passo "traefik" (spec 017 RF-14): build do binário do fork e testes do código nosso e dos ganchos. Os testes
-# completos do upstream não rodam aqui (ADR 0048 item 6).
-traefik_check() {
-	local pkgs
-	pkgs=$(traefik_test_pkgs)
-	echo "traefik: go build ./cmd/traefik"
-	(cd "$TRAEFIK_DIR" && CGO_ENABLED=0 go build -o "$WORK/traefik.bin" ./cmd/traefik) || return 1
-	if [ -z "$pkgs" ]; then
-		echo "traefik: nenhum pacote nosso nem gancho // finger-sniffer: para testar"
-		return 0
-	fi
-	echo "traefik: go test" $pkgs
-	# shellcheck disable=SC2086
-	(cd "$TRAEFIK_DIR" && go test -count=1 $pkgs)
-}
-
-# traefik_plan <quick|full> [arquivos alterados]: "run" ou o motivo de pular o passo "traefik".
-traefik_plan() {
-	if [ "$1" = quick ] && [ -z "$(echo "${2:-}" | traefik_only)" ]; then
-		echo "traefik sem mudança"
-	elif [ ! -f "$TRAEFIK_DIR/go.mod" ]; then
-		echo "sem $TRAEFIK_DIR/go.mod (fork ainda não importado, task 263)"
-	elif [ "$1" = full ] && [ "${FS_SKIP_TRAEFIK:-0}" = 1 ]; then
-		echo "FS_SKIP_TRAEFIK=1"
-	else
-		echo run
-	fi
-}
-
-# traefik_step <quick|full> [arquivos alterados]: roda ou pula o passo "traefik".
-traefik_step() {
-	local plan
-	plan=$(traefik_plan "$@")
-	if [ "$plan" = run ]; then
-		run_step "traefik" traefik_check
-	else
-		case "$plan" in
-		sem*) echo "aviso: passo traefik pulado: $plan" ;;
-		esac
-		skip_step "traefik" "$plan"
-	fi
-}
-
 # Arquivos de contrato cuja mudança dispara o passo "contratos" no quick.
 contracts_re() {
 	echo "^($OPENAPI_FILE|$BOT_OPENAPI_FILE|$ASYNCAPI_FILE|$CONTRACTS_TOOLS_DIR/package(-lock)?\.json)\$"
@@ -422,7 +355,7 @@ contracts_re() {
 # Nível rápido
 # ---------------------------------------------------------------------------
 verify_quick() {
-	local explicit=() all_files files go_files dirs pkgs affected rdeps test_pkgs p start existing
+	local explicit=() files go_files dirs pkgs affected rdeps test_pkgs p start existing
 	if [ "${1:-}" = "--" ]; then
 		shift
 		explicit=("$@")
@@ -431,9 +364,7 @@ verify_quick() {
 		exit 2
 	fi
 
-	all_files=$(changed_files)
-	# Tudo abaixo é do módulo raiz; o fork do traefik só entra no passo "traefik" (task 262).
-	files=$(echo "$all_files" | root_only)
+	files=$(changed_files)
 	go_files=$(echo "$files" | grep -E '\.go$' | while read -r f; do [ -f "$f" ] && echo "$f"; done)
 	dirs=$( (echo "$files" | grep -E '\.go$' | xargs -n1 dirname 2>/dev/null) | sort -u)
 	# shellcheck disable=SC2086
@@ -527,9 +458,6 @@ verify_quick() {
 	else
 		skip_step "verify-test" "verify.sh e workflows sem mudança"
 	fi
-
-	# 4e. fork do traefik: só quando traefik/** muda
-	traefik_step quick "$all_files"
 
 	# 5. testes ligados ao que mudou (ou os explícitos)
 	if [ ${#explicit[@]} -gt 0 ]; then
@@ -769,7 +697,6 @@ verify_full() {
 
 	run_step "govulncheck" govulncheck ./...
 	run_step "build linux/amd64" make -s build
-	traefik_step full
 
 	pkgs=$(linux_priv_pkgs)
 	if [ "${FS_SKIP_LINUX_PRIV:-0}" = 1 ]; then
@@ -796,15 +723,8 @@ case "$MODE" in
 lib) return 0 2>/dev/null || exit 0 ;; # carregado por scripts/verify-test.sh só pelas funções
 quick) verify_quick "$@" ;;
 full) verify_full "$@" ;;
-traefik)
-	# Só o passo do fork (job "traefik" do CI); sem traefik/go.mod, pula com aviso.
-	STOP_ON_FAIL=1
-	traefik_step full
-	summary
-	[ "$FAILED" = 0 ]
-	;;
 *)
-	echo "uso: verify.sh quick|full|traefik [...]" >&2
+	echo "uso: verify.sh quick|full [...]" >&2
 	exit 2
 	;;
 esac
