@@ -180,3 +180,72 @@ sysctl_mismatches() {
 
 # unit_slice <unit>: fatia em que a unit roda (ADR 0039: finger-sniffer.slice).
 unit_slice() { systemctl show -p Slice --value "$1" 2>/dev/null || true; }
+
+# --- Banco do store em tmpfs (ADR 0045, spec 016 RF-07a, task 254) ---
+# A mount unit em deploy/systemd é um modelo com @FS_UID@/@FS_GID@; o deploy nunca a para, reinicia nem desmonta.
+# Variável para os testes: FS_STORE_MNT (ponto de montagem).
+FS_STORE_MOUNT_UNIT='finger\x2dsniffer-var-store.mount'
+
+# render_store_mount <modelo> <uid> <gid>: a mount unit com os ids numéricos do finger-sniffer (stdout).
+render_store_mount() { sed -e "s/@FS_UID@/$2/g" -e "s/@FS_GID@/$3/g" "$1"; }
+
+# mount_unit_size <unit>: valor de size= em Options= da mount unit (ex.: 4G).
+mount_unit_size() {
+	grep '^Options=' "$1" | tail -n1 | cut -d= -f2- | tr ',' '\n' | sed -n 's/^size=//p' | tail -n1
+}
+
+# size_bytes <tamanho>: bytes de um tamanho do tmpfs (sufixos k/m/g, potências de 1024; sem sufixo: bytes).
+size_bytes() {
+	local n=${1%[kKmMgG]}
+	case "$1" in
+	*[kK]) echo $((n * 1024)) ;;
+	*[mM]) echo $((n * 1024 * 1024)) ;;
+	*[gG]) echo $((n * 1024 * 1024 * 1024)) ;;
+	*) echo "$1" ;;
+	esac
+}
+
+# store_mount_info <ponto>: "<fstype> <bytes>" do ponto de montagem ("" se não for um ponto de montagem).
+store_mount_info() {
+	findmnt -bno FSTYPE,SIZE --mountpoint "$1" 2>/dev/null | awk 'NR==1{print $1, $2}' || true
+}
+
+# ensure_store_tmpfs <mount unit instalada>: garante o tmpfs do banco sem perder o conteúdo.
+#   - ponto ainda não montado (primeira instalação ou reinício do host): para o store, apaga o banco que estiver
+#     em disco (senão fica escondido debaixo do tmpfs ocupando disco) e monta pela mount unit; o store sobe depois
+#     no passo dos reinícios (unit parada);
+#   - montado como tmpfs com outro tamanho: mount -o remount,size=… (o conteúdo fica);
+#   - montado com o tamanho certo: nada;
+#   - montado com outro tipo: erro.
+ensure_store_tmpfs() {
+	local mnt=${FS_STORE_MNT:-/finger-sniffer/var/store} size want info
+	size=$(mount_unit_size "$1")
+	want=$(size_bytes "$size")
+	info=$(store_mount_info "$mnt")
+	if [ -z "$info" ]; then
+		echo "[deploy] $mnt sem tmpfs: parando o store, apagando o banco em disco e montando ($size)"
+		systemctl stop finger-sniffer-store.service
+		rm -f "$mnt"/finger-sniffer.sqlite "$mnt"/finger-sniffer.sqlite-*
+		systemctl start "$FS_STORE_MOUNT_UNIT"
+	elif [ "${info%% *}" != tmpfs ]; then
+		echo "[deploy] $mnt montado como ${info%% *}, não tmpfs" >&2
+		return 1
+	elif [ "${info#* }" != "$want" ]; then
+		echo "[deploy] tmpfs do banco de ${info#* } para $want bytes: remount (o conteúdo fica)"
+		mount -o "remount,size=$size" "$mnt"
+	fi
+}
+
+# store_tmpfs_check <mount unit instalada>: linha do smoke; falha se o ponto não for tmpfs do tamanho da unit.
+store_tmpfs_check() {
+	local mnt=${FS_STORE_MNT:-/finger-sniffer/var/store} size want info
+	size=$(mount_unit_size "$1")
+	want=$(size_bytes "$size")
+	info=$(store_mount_info "$mnt")
+	if [ "$info" = "tmpfs $want" ]; then
+		echo "  banco do store: tmpfs $size em $mnt"
+		return 0
+	fi
+	echo "  banco do store: $mnt NÃO é tmpfs de $size (${info:-não montado})"
+	return 1
+}

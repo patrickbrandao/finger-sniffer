@@ -105,12 +105,25 @@ if install_if_changed "$DEST/deploy/journald/finger-sniffer.conf" /etc/systemd/j
 	systemctl restart systemd-journald
 fi
 for f in "$DEST"/deploy/systemd/*; do
+	case "$f" in *.mount) continue ;; esac
 	install_if_changed "$f" "/etc/systemd/system/$(basename "$f")" 0644 && CHANGED_CONFIG=1
 done
-if [ "$CHANGED_CONFIG" = 1 ]; then
+# mount unit do banco do store (ADR 0045): o modelo recebe os ids numéricos do finger-sniffer. Mudança nela não
+# reinicia nada: o tamanho novo vale por remount (ensure_store_tmpfs) e o daemon-reload não desmonta.
+MOUNT_UNIT="/etc/systemd/system/$FS_STORE_MOUNT_UNIT"
+MOUNT_RELOAD=0
+mount_tmp=$(mktemp)
+render_store_mount "$DEST/deploy/systemd/$FS_STORE_MOUNT_UNIT" "$(id -u finger-sniffer)" "$(id -g finger-sniffer)" >"$mount_tmp"
+install_if_changed "$mount_tmp" "$MOUNT_UNIT" 0644 && MOUNT_RELOAD=1
+rm -f "$mount_tmp"
+if [ "$CHANGED_CONFIG" = 1 ] || [ "$MOUNT_RELOAD" = 1 ]; then
 	systemctl daemon-reload
+fi
+if [ "$CHANGED_CONFIG" = 1 ]; then
 	systemctl enable --quiet finger-sniffer.target finger-sniffer-net.service $(for u in $UNITS; do echo "$u.service"; done)
 fi
+# banco do store num tmpfs de tamanho fixo (primeira vez: para o store, apaga o banco em disco e monta)
+ensure_store_tmpfs "$MOUNT_UNIT"
 
 # 8. Rede (sempre: é barato e garante o estado)
 systemctl restart finger-sniffer-net.service
@@ -180,6 +193,8 @@ if grep -q '"nat_on_mirror_ports":true' "$NET_STATUS"; then
 else
 	echo "  nat: nenhuma regra nas portas do espelho"
 fi
+# banco do store num tmpfs do tamanho da mount unit (ADR 0045; findmnt -bno FSTYPE,SIZE)
+store_tmpfs_check "$MOUNT_UNIT" || fail=1
 # serviços respondendo (deploy/smoke.sh): com SVC=<svc>, só os passos daquele serviço + health
 SVC="$SVC" bash "$DEST/deploy/smoke.sh" || fail=1
 if [ "$fail" = 1 ]; then

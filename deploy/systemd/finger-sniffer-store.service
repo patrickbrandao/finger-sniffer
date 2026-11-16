@@ -1,9 +1,11 @@
-# Serviço store (spec 001, spec 016 RF-05..RF-07, ADR 0039).
+# Serviço store (spec 001, spec 016 RF-05..RF-07a, ADRs 0039 e 0045).
 [Unit]
 Description=finger-sniffer: store
 After=finger-sniffer-net.service finger-sniffer-nats.service
 Wants=finger-sniffer-nats.service
 PartOf=finger-sniffer.target
+# Banco no tmpfs dedicado (ADR 0045): monta antes de subir; reiniciar o store não desmonta (o banco fica)
+RequiresMountsFor=/finger-sniffer/var/store
 
 [Service]
 Type=simple
@@ -15,11 +17,13 @@ Restart=always
 RestartSec=2
 RestartSteps=5
 RestartMaxDelaySec=30
-# Limites no finger-01 (ADR 0039): fatia comum, sem swap, GOMEMLIMIT abaixo do MemoryMax e cota de CPU
+# Limites no finger-01 (ADRs 0039 e 0045): fatia comum, sem swap, GOMEMLIMIT abaixo do MemoryMax e cota de CPU
 # (o GOMAXPROCS do runtime Go segue o CPUQuota). disablethp: o heap Go fica fora do THP "always" do host.
+# MemoryMax 6G = tmpfs do banco 4G (shmem cobrado do store, sem swap) + GOMEMLIMIT 1536MiB + ~512 MiB de kernel,
+# sock e binário (ADR 0045 item 3): o tmpfs enche (ENOSPC) antes de o cgroup chegar ao MemoryMax.
 Slice=finger-sniffer.slice
-Environment=GOMEMLIMIT=1792MiB GODEBUG=disablethp=1
-MemoryMax=2G
+Environment=GOMEMLIMIT=1536MiB GODEBUG=disablethp=1
+MemoryMax=6G
 MemorySwapMax=0
 CPUQuota=400%
 LimitNOFILE=65536
