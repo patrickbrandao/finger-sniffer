@@ -18,9 +18,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Tempo (task 253): ~13 min depois do fuzz em lotes paralelos (eram 17–20 min, colado no limite antigo de 20).
+  # O passo tem 25 min pelo `timeout`, que imprime o resumo e marca o erro como tempo esgotado; o job tem 30 min
+  # só como rede de segurança (setup + ferramentas ~1,5 min).
   verify-full:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,10 +36,19 @@ jobs:
       - name: Ferramentas
         run: make tools-ci
 
+      # Tempo esgotado sai como erro próprio ("tempo esgotado"), distinto de falha de teste: o verify.sh recebe
+      # TERM, imprime o resumo com o passo interrompido e o passo anota o motivo.
       - name: verify-full
         env:
           FS_SKIP_LINUX_PRIV: "1"
-        run: make verify-full
+        run: |
+          rc=0
+          timeout --kill-after=30s 25m make verify-full || rc=$?
+          if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+            echo "::error title=verify-full: tempo esgotado::passou de 25 min; não é falha de teste (veja o resumo do verify.sh)"
+            echo "### verify-full: tempo esgotado (25 min)" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
 
   # Build reproduzível e pacote de release (task 070). Os hashes com VERSION/COMMIT fixos saem no log
   # para comparar com um build feito no Mac (mesma toolchain do go.mod).

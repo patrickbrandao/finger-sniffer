@@ -189,6 +189,11 @@ check "CI agrupa a main por SHA" 'grep -qF "$CI_GROUP" "$ROOT"/.github/workflows
 check "CI cancela execução anterior só em PR" 'grep -qF "$CI_CANCEL" "$ROOT"/.github/workflows/ci.yml'
 check "CI sem cancel-in-progress fixo em true" '! grep -qE "cancel-in-progress:[[:space:]]*true" "$ROOT"/.github/workflows/ci.yml'
 
+# Tempo do CI (task 253): o passo verify-full tem timeout próprio, menor que o do job, e anota o tempo esgotado.
+check "CI verify-full com timeout do passo" 'grep -qF "timeout --kill-after=30s 25m make verify-full" "$ROOT"/.github/workflows/ci.yml'
+check "CI anota tempo esgotado" 'grep -qF "title=verify-full: tempo esgotado" "$ROOT"/.github/workflows/ci.yml'
+check "CI job verify-full com 30 min" '[ "$(awk "/^  verify-full:/{f=1} f&&/timeout-minutes:/{print \$2; exit}" "$ROOT"/.github/workflows/ci.yml)" = 30 ]'
+
 # npm_deps: npm ci --ignore-scripts uma vez por package-lock.json (stub de npm registra as chamadas)
 cat >"$T/bin/npm" <<'EOF'
 #!/usr/bin/env bash
@@ -207,6 +212,47 @@ check "npm_deps roda npm ci --ignore-scripts uma vez" '[ "$(grep -c "^ci --prefi
 echo '{"lockfileVersion":3,"x":1}' >"$T/npmpkg/package-lock.json"
 npm_deps "$T/npmpkg"
 check "npm_deps reinstala quando o lock muda" '[ "$(grep -c "^ci " "$STUB_NPM_LOG")" = 2 ]'
+
+# ---- task 253: fuzz curto em lotes paralelos ---------------------------------------------------------------
+# Stub de go: registra os argumentos e quantos alvos rodam ao mesmo tempo; FuzzBad falha.
+FZ="$T/fz"
+mkdir -p "$FZ/bin" "$FZ/run" "$FZ/mod/a" "$FZ/mod/b"
+cat >"$FZ/bin/go" <<'EOF'
+#!/usr/bin/env bash
+name=$(printf '%s\n' "$@" | sed -nE 's/^-fuzz=\^(Fuzz[A-Za-z0-9_]*)\$$/\1/p')
+echo "$*" >>"$FZ/args.log"
+touch "$FZ/run/$name"
+ls "$FZ/run" | wc -l | tr -d ' ' >>"$FZ/conc.log"
+sleep 1
+rm -f "$FZ/run/$name"
+echo "saida de $name"
+[ "$name" != FuzzBad ]
+EOF
+chmod +x "$FZ/bin/go"
+printf 'package a\n\nimport "testing"\n\nfunc FuzzOne(f *testing.F) {}\n\nfunc FuzzTwo(f *testing.F) {}\n' >"$FZ/mod/a/a_test.go"
+printf 'package b\n\nimport "testing"\n\nfunc FuzzBad(f *testing.F) {}\n\nfunc FuzzFour(f *testing.F) {}\n\nfunc FuzzFive(f *testing.F) {}\n' >"$FZ/mod/b/b_test.go"
+(cd "$FZ/mod" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -qm init) || {
+	echo "FAIL git init do módulo de fuzz"
+	exit 1
+}
+(cd "$FZ/mod" && PATH="$FZ/bin:$PATH" FZ="$FZ" FS_FUZZ_JOBS=2 fuzz_all >"$T/out.fuzz" 2>&1)
+fz_rc=$?
+check "fuzz: alvo que falha falha o passo" '[ "$fz_rc" != 0 ]'
+check "fuzz: todos os 5 alvos rodam" '[ "$(wc -l <"$FZ/args.log" | tr -d " ")" = 5 ]'
+check "fuzz: cada alvo com FUZZ_TIME" '[ "$(grep -c -- "-fuzztime=$FUZZ_TIME " "$FZ/args.log")" = 5 ]'
+check "fuzz: no máximo FS_FUZZ_JOBS ao mesmo tempo" '[ "$(sort -n "$FZ/conc.log" | tail -1)" = 2 ]'
+check "fuzz: workers por alvo (-parallel)" '[ "$(grep -c -- "-parallel=[1-9]" "$FZ/args.log")" = 5 ]'
+check "fuzz: saída de cada alvo no log" '[ "$(grep -c "^saida de Fuzz" "$T/out.fuzz")" = 5 ] && grep -q "FuzzBad ($FUZZ_TIME): FALHOU" "$T/out.fuzz"'
+
+# ---- task 253: TERM (timeout do CI) imprime o resumo com o passo interrompido ----------------------------
+bash -c '. "$1/scripts/verify.sh" lib; MODE=full; run_step "passo lento" sleep 1' _ "$ROOT" >"$T/out.term" 2>&1 &
+pt=$!
+sleep 0.3
+kill -TERM "$pt" 2>/dev/null
+wait "$pt"
+term_rc=$?
+check "TERM sai com 143" '[ "$term_rc" = 143 ]'
+check "TERM imprime o passo interrompido" 'grep -q "interrompido por TERM durante: passo lento" "$T/out.term" && grep -q "== resultado: FALHOU" "$T/out.term"'
 
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do
