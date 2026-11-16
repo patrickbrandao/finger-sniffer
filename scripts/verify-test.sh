@@ -184,7 +184,7 @@ check "traefik: make fmt não toca em traefik/" '! grep -q "traefik/" "$T/fmt.lo
 # plano do passo: quick só com traefik/** alterado; sem go.mod pula com aviso; full sempre (menos FS_SKIP_TRAEFIK)
 check "traefik: quick pula sem mudança" '[ "$(cd "$M" && traefik_plan quick "p/p.go")" = "traefik sem mudança" ]'
 check "traefik: quick roda com traefik/** alterado" '[ "$(cd "$M" && traefik_plan quick "traefik/pkg/server/server.go")" = run ]'
-check "traefik: full roda sempre" '[ "$(cd "$M" && traefik_plan full)" = run ]'
+check "traefik: full roda sempre" '[ "$(cd "$M" && FS_SKIP_TRAEFIK=0 traefik_plan full)" = run ]'
 check "traefik: FS_SKIP_TRAEFIK pula no full" '[ "$(cd "$M" && FS_SKIP_TRAEFIK=1 traefik_plan full)" = FS_SKIP_TRAEFIK=1 ]'
 check "traefik: sem traefik/go.mod pula com aviso" '(cd "$T" && traefik_plan full) | grep -q "^sem traefik/go.mod" &&
 	(cd "$T" && MODE=full traefik_step full) | grep -q "^aviso: passo traefik pulado"'
