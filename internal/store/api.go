@@ -56,9 +56,14 @@ func (a *API) handler(withMetrics bool) http.Handler {
 		mux.HandleFunc("GET /api/v1/stream", a.stream)
 		mux.HandleFunc("GET /api/v1/ws", a.ws)
 	}
-	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+	notFound := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 	})
+	if withMetrics {
+		// perfis do processo só na 9001 e só de loopback (task 246)
+		mux.Handle("/debug/pprof/", pprofHandler(notFound))
+	}
+	mux.Handle("/", notFound)
 	return cors(a.Prom.instrument(mux))
 }
 

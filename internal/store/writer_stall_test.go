@@ -31,6 +31,7 @@ import (
 //	FS_STALL_SECS   duração da carga (padrão 8 s)
 //	FS_STALL_CONNS  conexões no banco antes da carga (padrão 3000; 30000 = 10 min a 50/s)
 //	FS_STALL_MAX_MS limite do pior atraso de mensagem (padrão 1000)
+//	FS_STALL_RATE   conexões novas por segundo (padrão 50; 100 = perfil 400/100 da task 246)
 //	FS_STALL_OLD=1  comportamento de antes da task 248, para comparar: pacotes pela tabela packets, checkpoint
 //	                automático a cada 16384 quadros dentro do COMMIT e expurgo com lote fixo
 
@@ -39,15 +40,16 @@ type stallCfg struct {
 	secs  int
 	conns int
 	maxMs int
+	rate  int
 	old   bool
 }
 
 func stallConfig(t *testing.T) stallCfg {
-	c := stallCfg{secs: 8, conns: 3000, maxMs: 1000, old: os.Getenv("FS_STALL_OLD") == "1"}
+	c := stallCfg{secs: 8, conns: 3000, maxMs: 1000, rate: 50, old: os.Getenv("FS_STALL_OLD") == "1"}
 	for _, v := range []struct {
 		env string
 		dst *int
-	}{{"FS_STALL_SECS", &c.secs}, {"FS_STALL_CONNS", &c.conns}, {"FS_STALL_MAX_MS", &c.maxMs}} {
+	}{{"FS_STALL_SECS", &c.secs}, {"FS_STALL_CONNS", &c.conns}, {"FS_STALL_MAX_MS", &c.maxMs}, {"FS_STALL_RATE", &c.rate}} {
 		if s := os.Getenv(v.env); s != "" {
 			n, err := strconv.Atoi(s)
 			if err != nil {
@@ -55,6 +57,15 @@ func stallConfig(t *testing.T) stallCfg {
 			}
 			*v.dst = n
 		}
+	}
+	if s := os.Getenv("FS_STALL_JSL"); s != "" {
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			t.Fatalf("FS_STALL_JSL: %v", err)
+		}
+		old := WALJournalLimit
+		WALJournalLimit = n
+		t.Cleanup(func() { WALJournalLimit = old })
 	}
 	c.dir = os.Getenv("FS_STALL_DIR")
 	if c.dir == "" {
@@ -175,13 +186,11 @@ func TestWriterNoStallDuringPurge(t *testing.T) {
 	}
 	defer func() { _ = cdb.Close() }()
 
-	const (
-		rate      = 50 // conexões novas/s
-		retention = 10 * time.Minute
-	)
+	const retention = 10 * time.Minute
+	rate := cfg.rate // conexões novas/s
 	// No relógio da carga (base + parede desde o início), a conexão antiga i vence em i*20 ms: dali em diante
 	// vencem 50/s, como no fim do pré-aquecimento da carga oficial.
-	step := int64(time.Second / rate)
+	step := int64(time.Second) / int64(rate)
 	t0 := time.Now()
 	stallFill(t, db, cfg.conns, base-retention.Nanoseconds()-int64(4*time.Second), step)
 	if _, _, err := Checkpoint(ctx, cdb); err != nil {
