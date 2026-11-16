@@ -1,0 +1,55 @@
+{
+  "rules_version": "v1.0",
+  "ja4db": false,
+  "input": {
+    "IP": "192.0.2.10",
+    "TCP": {
+      "P0fOS": "Mac OS X",
+      "TTLInitial": 64,
+      "JA4T": "65535_2-1-3-1-1-8-4-0-0_1430_6",
+      "MSSReduction": null,
+      "MTUImplied": null
+    },
+    "TLS": {
+      "JA4": "t13d1517h2_8daaf6152771_3cbfd9057e0d",
+      "JA4R": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,001c,0022,0023,002b,002d,0033,fe0d,ff01_0403,0503,0603,0804,0805,0806,0401,0501,0601,0203,0201",
+      "ALPN": [
+        "h2",
+        "http/1.1"
+      ]
+    },
+    "H2": {
+      "Akamai": "1:65536;2:0;4:131072;5:16384|12517377|0|m,p,a,s"
+    },
+    "HTTP": {
+      "UserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:159.0) Gecko/20100101 Firefox/159.0",
+      "Version": "2",
+      "JA4H": "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000",
+      "FieldOrder": null,
+      "HasAcceptLanguage": true
+    },
+    "Behavior": null,
+    "View": {
+      "tcp": true,
+      "tls": true,
+      "http": true,
+      "h2": true,
+      "h3": false,
+      "behavior": false
+    }
+  },
+  "result": {
+    "class": "human",
+    "score": 0,
+    "signals": [
+      {
+        "id": "known_client",
+        "kind": "list",
+        "weight": -20,
+        "detail": "coherent with measured firefox"
+      }
+    ],
+    "ua_family": "firefox",
+    "ua_os": "macos"
+  }
+}

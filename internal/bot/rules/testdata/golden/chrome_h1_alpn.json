@@ -1,0 +1,64 @@
+{
+  "rules_version": "v1.0",
+  "ja4db": false,
+  "input": {
+    "IP": "192.0.2.10",
+    "TCP": {
+      "P0fOS": "",
+      "TTLInitial": 64,
+      "JA4T": "65535_2-1-3-1-1-8-4-0-0_1432_6",
+      "MSSReduction": null,
+      "MTUImplied": null
+    },
+    "TLS": {
+      "JA4": "t13d1516h1_8daaf6152771_5b37b36a67c0",
+      "JA4R": "t13d1516h1_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+      "ALPN": [
+        "http/1.1"
+      ]
+    },
+    "H2": null,
+    "HTTP": {
+      "UserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+      "Version": "1.1",
+      "JA4H": "ge11nn14ptbr_d9d4fb46dcb1_000000000000_000000000000",
+      "FieldOrder": null,
+      "HasAcceptLanguage": true
+    },
+    "Behavior": null,
+    "View": {
+      "tcp": true,
+      "tls": true,
+      "http": true,
+      "h2": false,
+      "h3": false,
+      "behavior": false
+    }
+  },
+  "result": {
+    "class": "human",
+    "score": 25,
+    "signals": [
+      {
+        "id": "ua_h2_mismatch",
+        "kind": "incoherence",
+        "weight": 30,
+        "detail": "ua chrome, http/1.1 without h2 in alpn"
+      },
+      {
+        "id": "ua_alpn_mismatch",
+        "kind": "incoherence",
+        "weight": 15,
+        "detail": "ua chrome, alpn [http/1.1] without h2"
+      },
+      {
+        "id": "known_client",
+        "kind": "list",
+        "weight": -20,
+        "detail": "coherent with measured chrome"
+      }
+    ],
+    "ua_family": "chrome",
+    "ua_os": "macos"
+  }
+}
