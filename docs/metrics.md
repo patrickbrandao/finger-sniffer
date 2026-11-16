@@ -35,7 +35,7 @@ com a série ausente, e não `== 0` nem comparação com o valor anterior:
 | web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening`, `fs_web_h3_init_table_full_total`, `fs_web_input_budget_used_bytes`, `fs_web_input_budget_denied_total`, `fs_web_events_oversize_total`, `fs_web_events_marshal_errors_total`, `fs_web_acme_issued_total`, `fs_web_acme_failures_total` (detalhes [abaixo](#web)) |
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total` (detalhes [abaixo](#raw)) |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
-| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total` (detalhes [abaixo](#store-heartbeat)) |
+| store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total`, `fs_store_packet_spills_total` (detalhes [abaixo](#store-heartbeat)) |
 | todos que publicam no NATS | `fs_published_events_total`, `fs_dropped_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (detalhes [abaixo](#produtor-nats)) |
 | host (pelo store) | `fs_host_syncookies_sent` |
 
@@ -128,6 +128,7 @@ Além das [métricas nativas](#métricas-do-store), o store publica no próprio 
 | `fs_store_batch_count_mismatch_total` | lotes cujo `Fs-Count` diverge do número de pacotes decodificados (o lote é aplicado mesmo assim) |
 | `fs_store_ingest_errors_total` | transações do ingest desfeitas (o lote volta ao JetStream por Nak e é reentregue) e falhas de finalização de conexões depois do commit |
 | `fs_store_finalize_retries_total` | novas tentativas de finalizar uma conexão, uma a uma, até 5; esgotadas, a conexão é fechada sem pcap |
+| `fs_store_packet_spills_total` | conexões abertas cujos pacotes passaram da memória do ingest para a tabela `packets` (mais de 1 MiB na conexão ou de 64 MiB somando todas); daí em diante os pacotes delas vão direto para o banco (task 248) |
 
 ### produtor NATS
 
@@ -165,6 +166,8 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_flows_dropped_total{reason}` | contador | tabela de fluxos cheia (8192 entradas): `reason` = `evicted` (entrada não estabelecida mais antiga despejada, sem registro nem avulso) ou `table_full` (pacote de 5-tupla nova recusado sem nada para despejar) |
 | `fs_store_api_requests_total{route,code}` | contador | requisições da API por rota e código |
 | `fs_store_api_request_duration_seconds{route}` | histograma | duração das requisições da API (meta p95 < 100 ms) |
+| `fs_store_writer_seconds{op}` | histograma | duração das operações do escritor único do SQLite (task 248): `ingest_tx` (lote do ingest, do BEGIN ao fim do COMMIT), `ingest_commit` (só o COMMIT), `finalize_tx` (finalização com o pcap), `purge_delete` (um DELETE em lote do expurgo), `purge_vacuum` (`incremental_vacuum`), `wal_checkpoint` (checkpoint PASSIVE pela conexão própria, sem segurar o escritor) e `wal_restart` (última passada do checkpoint, com o escritor parado para o WAL recomeçar do início) |
+| `fs_store_wal_frames` | gauge | quadros (páginas de 4 KiB) no WAL do SQLite no último checkpoint; volta perto de 0 quando o WAL recomeça |
 
 `route` é o padrão da rota, nunca o caminho com IDs: por exemplo `GET /api/v1/connections/{conn_id}`.
 

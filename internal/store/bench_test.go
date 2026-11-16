@@ -48,6 +48,12 @@ func benchKinds() []string {
 // benchWorkload monta as mensagens da carga, em ordem de chegada ao stream, e o instante (ms) de cada uma.
 func benchWorkload(b testing.TB, conns int) ([]fakeMsg, []int) {
 	b.Helper()
+	return benchWorkloadRate(b, conns, benchRate)
+}
+
+// benchWorkloadRate é benchWorkload com rate conexões novas por segundo.
+func benchWorkloadRate(b testing.TB, conns, rate int) ([]fakeMsg, []int) {
+	b.Helper()
 	kinds := benchKinds()
 	var items []benchItem
 	addPkt := func(at int, src, dst netip.AddrPort, proto, flags byte, payload int, dir uint8, data []byte) {
@@ -63,7 +69,7 @@ func benchWorkload(b testing.TB, conns int) ([]fakeMsg, []int) {
 	addApp := func(at int, m fakeMsg) { items = append(items, benchItem{ms: at + 1, app: &m}) } // publicado 1 ms depois
 	for i := range conns {
 		kind := kinds[i%len(kinds)]
-		s := i*1000/benchRate + i%5 // o handshake cai às vezes entre duas janelas do capture
+		s := i*1000/rate + i%5 // o handshake cai às vezes entre duas janelas do capture
 		cli := netip.AddrPortFrom(netip.AddrFrom4([4]byte{198, 51, byte(i >> 8), byte(i)}), 40000)
 		if kind == "h3" {
 			srv := quicMirror

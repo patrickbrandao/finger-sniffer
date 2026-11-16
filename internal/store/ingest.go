@@ -78,6 +78,15 @@ type Ingestor struct {
 	toFinalize   []*conn             // conexões fora da tabela à espera da finalização (saem só depois do commit)
 	finalStats   []finalStat         // métricas da transação de finalização em curso
 
+	// Pacotes em memória (task 248, pktbuf.go): total em bytes, número do lote em curso, fotos dos buffers
+	// tocados pelo lote e conexões despejadas cujo buffer é liberado no fim do lote.
+	pktMem    int64
+	pktSerial uint64
+	// tetos do buffer (defaultPktConnMax, defaultPktMemMax; testes trocam)
+	pktConnMax, pktMemMax int64
+	pktUndo               []pktSnap
+	pktDrop               []*conn
+
 	// Relógio de captura (ADR 0041 item 2) e parede do lote em curso (P das observações do lote).
 	clock     captureClock
 	batchWall int64
@@ -102,6 +111,7 @@ func NewIngestor(db *sql.DB, cfg IngestConfig, log *slog.Logger, m *service.Metr
 		flows: newFlowTable(cfg), eventOnly: map[flowKey]*eventOnlyConn{},
 		pendingKeys: map[flowKey]int{}, dirty: map[string]dirtyConn{}, late: map[string]*conn{},
 		batchApp: map[string]struct{}{}, eoChecked: map[string]struct{}{},
+		pktConnMax: defaultPktConnMax, pktMemMax: defaultPktMemMax,
 	}
 }
 
@@ -155,6 +165,7 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 		in.afterBatch(work)
 	}
 	in.drainPending()
+	in.spillAll()
 	return nil
 }
 
@@ -250,6 +261,7 @@ func (in *Ingestor) process(ctx context.Context, msgs []msgSource) (err error) {
 
 func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	in.beginBatch()
+	txStart := time.Now()
 	tx, err := in.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -325,9 +337,12 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	if err := in.flushDirty(ctx, tx); err != nil {
 		return err
 	}
+	commitStart := time.Now()
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	in.prom.writerOp(opIngestCommit, time.Since(commitStart))
+	in.prom.writerOp(opIngestTx, time.Since(txStart))
 	in.commitBatch()
 	in.publishLive()
 	now := in.now().UnixNano()
@@ -356,6 +371,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if res.evicted != nil {
 		// Despejada pela tabela cheia (ADR 0034 item 1): sem registro nem avulso; a linha sai com as filhas.
 		in.prom.flowDropped(dropEvicted)
+		in.pktDrop = append(in.pktDrop, res.evicted)
 		if _, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", res.evicted.id); err != nil {
 			return err
 		}
@@ -422,12 +438,12 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	if c.degraded {
 		return nil // modo degradado: sem pcap nem bytes crus
 	}
+	in.touchPkts(c)
 	frame, keep := in.pcapFrame(c, fi, p.Frame)
 	if !keep {
 		return nil
 	}
-	_, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), frame)
-	return err
+	return in.storePkt(ctx, st.insPkt, c, p.TsNs, p.Dir, int(p.WireLen), frame)
 }
 
 // pcapFrame conta o frame no pcap da conexão. Até PcapMax o frame entra inteiro; depois, só os cabeçalhos, com
@@ -556,14 +572,14 @@ func (in *Ingestor) finalizeQueued(ctx context.Context) error {
 			}
 			in.toFinalize = append(in.toFinalize, fresh...)
 		} else {
-			in.flows.finalized(fresh...)
+			in.finalized(fresh...)
 		}
 	}
 	for _, c := range retry {
 		in.metrics.Add("store_finalize_retries_total", 1)
 		err := in.finalizeTx(ctx, []*conn{c})
 		if err == nil {
-			in.flows.finalized(c)
+			in.finalized(c)
 			continue
 		}
 		fail(err)
@@ -574,7 +590,7 @@ func (in *Ingestor) finalizeQueued(ctx context.Context) error {
 		}
 		in.log.Error("finalize gave up", "conn_id", c.id, "tries", c.finalTries, "err", err)
 		in.closeUnfinalized(ctx, c)
-		in.flows.finalized(c)
+		in.finalized(c)
 	}
 	return first
 }
@@ -604,6 +620,7 @@ func (in *Ingestor) finalizeTx(ctx context.Context, conns []*conn) error {
 	in.readyEnds = in.readyEnds[:0]
 	in.finalStats = in.finalStats[:0]
 	err := func() error {
+		txStart := time.Now()
 		tx, err := in.db.BeginTx(ctx, nil)
 		if err != nil {
 			return err
@@ -614,7 +631,11 @@ func (in *Ingestor) finalizeTx(ctx context.Context, conns []*conn) error {
 				return err
 			}
 		}
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		in.prom.writerOp(opFinalizeTx, time.Since(txStart))
+		return nil
 	}()
 	if err != nil {
 		in.liveBatch = nil // os eventos ao vivo são refeitos na nova tentativa
@@ -648,26 +669,10 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	if in.flows.isHidden(c.id) {
 		return nil // probe apagado pelo DELETE: a linha já saiu, nada a gravar (finalized tira do conjunto)
 	}
-	rows, err := tx.QueryContext(ctx, "SELECT ts_ns, dir, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", c.id)
+	pkts, err := in.finalPkts(ctx, tx, c)
 	if err != nil {
 		return err
 	}
-	type pkt struct {
-		ts      int64
-		dir     uint8
-		wireLen int
-		frame   []byte
-	}
-	var pkts []pkt
-	for rows.Next() {
-		var p pkt
-		if err := rows.Scan(&p.ts, &p.dir, &p.wireLen, &p.frame); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		pkts = append(pkts, p)
-	}
-	_ = rows.Close()
 
 	// Com eventos de aplicação a conexão existe de fato (ex. capture reiniciado no meio dela): não vira avulso.
 	if c.isStray() && c.app.events == 0 {
@@ -724,8 +729,10 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", c.id); err != nil {
-		return err
+	if c.buf.spill == spillDone {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM packets WHERE conn_id = ?", c.id); err != nil {
+			return err
+		}
 	}
 	// updated_ns é o relógio do store no instante em que ele registrou o fechamento (settle do long-poll, ADR 0029):
 	// no fim por ociosidade, bem depois do último pacote.

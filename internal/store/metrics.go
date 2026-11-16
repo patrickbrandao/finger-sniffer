@@ -20,7 +20,12 @@ import (
 var (
 	apiBuckets   = prometheus.ExponentialBucketsRange(0.001, 1, 11)
 	delayBuckets = prometheus.ExponentialBucketsRange(0.01, 10, 11)
+	// writerBuckets: comandos do escritor SQLite, de 0,5 ms a 10 s (task 248).
+	writerBuckets = prometheus.ExponentialBucketsRange(0.0005, 10, 16)
 )
+
+// writerOps são os valores de op em fs_store_writer_seconds (task 248).
+var writerOps = []string{opIngestTx, opIngestCommit, opFinalizeTx, opPurgeDelete, opPurgeVacuum, opCheckpoint, opWALRestart}
 
 // replacedHeartbeat são métricas do heartbeat do próprio store que viraram métricas nativas (outro nome ou tipo):
 // não são repetidas como fs_<nome>{service="store"}, para não haver dois tipos com o mesmo nome.
@@ -52,6 +57,8 @@ type storeMetrics struct {
 	liveDelay   prometheus.Histogram
 	apiRequests *prometheus.CounterVec
 	apiDuration *prometheus.HistogramVec
+	writer      *prometheus.HistogramVec
+	walFrames   prometheus.Gauge
 }
 
 // newStoreMetrics registra as métricas. health monta o estado agregado (heartbeats, host, banco); open conta as
@@ -97,12 +104,23 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 			Name: "fs_store_api_request_duration_seconds", Help: "API request duration, by mux pattern.", Buckets: apiBuckets,
 		}, []string{"route"}),
 	}
+	m.writer = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "fs_store_writer_seconds",
+		Help:    "Duration of SQLite writer operations, by op (ingest_tx, ingest_commit, finalize_tx, purge_delete, purge_vacuum, wal_checkpoint, wal_restart).",
+		Buckets: writerBuckets,
+	}, []string{"op"})
+	m.walFrames = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fs_store_wal_frames", Help: "Frames (4 KiB pages) in the SQLite WAL at the last checkpoint.",
+	})
 	m.flowsDrop = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "fs_store_flows_dropped_total",
 		Help: "Flow table cap (8192 entries): unestablished entries evicted, and packets of new 5-tuples refused with no entry to evict.",
 	}, []string{"reason"})
 	reg.MustRegister(m.ingested, m.ingestLag, m.connsTotal, m.degraded, m.stray, m.midflow, m.dnsQueries, m.purged, m.recordReady,
-		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop)
+		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop, m.writer, m.walFrames)
+	for _, op := range writerOps {
+		m.writer.WithLabelValues(op)
+	}
 	for _, r := range []string{dropEvicted, dropTableFull} {
 		m.flowsDrop.WithLabelValues(r)
 	}
@@ -187,6 +205,19 @@ func (m *storeMetrics) dnsQuery() {
 func (m *storeMetrics) flowDropped(reason string) {
 	if m != nil {
 		m.flowsDrop.WithLabelValues(reason).Inc()
+	}
+}
+
+// writerOp registra a duração de uma operação do escritor (task 248).
+func (m *storeMetrics) writerOp(op string, d time.Duration) {
+	if m != nil {
+		m.writer.WithLabelValues(op).Observe(d.Seconds())
+	}
+}
+
+func (m *storeMetrics) wal(frames int64) {
+	if m != nil {
+		m.walFrames.Set(float64(frames))
 	}
 }
 

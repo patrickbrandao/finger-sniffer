@@ -185,7 +185,7 @@ var fullTCP = []pkt{
 func TestIngestFullTCPConnection(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	run(t, in, 500, batch(client, mirror, protoTCP, fullTCP[:6]))
-	if n := count(t, db, "SELECT count(*) FROM packets"); n != 6 {
+	if n := pktCount(t, in, db); n != 6 || count(t, db, "SELECT count(*) FROM packets") != 0 {
 		t.Fatalf("open connection must keep packets: %d", n)
 	}
 	run(t, in, 3000, batch(client, mirror, protoTCP, fullTCP[6:]))
@@ -369,7 +369,7 @@ func TestIngestDegradedMode(t *testing.T) {
 	if n := count(t, db, "SELECT count(*) FROM connections WHERE degraded = 1"); n != 1 {
 		t.Fatalf("degraded=%d", n)
 	}
-	if n := count(t, db, "SELECT count(*) FROM packets"); n != 3 {
+	if n := pktCount(t, in, db); n != 3 {
 		t.Fatalf("degraded connection must not store packets: %d", n)
 	}
 	run(t, in, 200_000)
