@@ -2,14 +2,9 @@
 pre-commit:
   parallel: true
   commands:
-    # traefik/** (fork, módulo próprio) fica fora dos hooks do módulo raiz (task 262)
     fmt:
       glob: "*.go"
-      exclude:
-        - "traefik/**"
       run: gofumpt -l {staged_files} | (! grep .)
     lint:
       glob: "*.go"
-      exclude:
-        - "traefik/**"
       run: golangci-lint run --new-from-rev=HEAD

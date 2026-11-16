@@ -38,11 +38,9 @@ jobs:
 
       # Tempo esgotado sai como erro próprio ("tempo esgotado"), distinto de falha de teste: o verify.sh recebe
       # TERM, imprime o resumo com o passo interrompido e o passo anota o motivo.
-      # O passo "traefik" roda no job "traefik", em paralelo (task 262).
       - name: verify-full
         env:
           FS_SKIP_LINUX_PRIV: "1"
-          FS_SKIP_TRAEFIK: "1"
         run: |
           rc=0
           timeout --kill-after=30s 25m make verify-full || rc=$?
@@ -51,25 +49,6 @@ jobs:
             echo "### verify-full: tempo esgotado (25 min)" >>"$GITHUB_STEP_SUMMARY"
           fi
           exit "$rc"
-
-  # Fork do traefik (spec 017 RF-14, ADR 0048 item 6): go build ./cmd/traefik e os testes do código nosso e dos
-  # ganchos `// finger-sniffer:`. Cache próprio do módulo do fork (chave inclui traefik/go.sum). Sem
-  # traefik/go.mod (antes da task 263), o passo pula com aviso.
-  traefik:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            traefik/go.sum
-
-      - name: traefik
-        run: scripts/verify.sh traefik
 
   # Build reproduzível e pacote de release (task 070). Os hashes com VERSION/COMMIT fixos saem no log
   # para comparar com um build feito no Mac (mesma toolchain do go.mod).
