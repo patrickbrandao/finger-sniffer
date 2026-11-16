@@ -1,0 +1,7 @@
+{
+  "last_updated_timestamp": "2026-10-28T02:47:53.012304",
+  "regions": [
+    {"region": "mx-monterrey-1", "cidrs": [{"cidr": "192.0.2.128/25", "tags": ["OCI"]}, {"cidr": "2001:db8:c1::/48", "tags": ["OSN"]}]},
+    {"region": "sa-saopaulo-1", "cidrs": [{"cidr": "198.51.100.0/26", "tags": ["OCI"]}]}
+  ]
+}

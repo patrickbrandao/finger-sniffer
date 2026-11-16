@@ -17,6 +17,7 @@ import (
 	"golang.org/x/net/netutil"
 
 	"github.com/patrickbrandao/finger-sniffer/internal/bot/agg"
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/lists"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
@@ -65,6 +66,7 @@ type Server struct {
 	feed    *StoreFeed
 	api     *API
 	agg     *agg.Aggregator
+	lists   *lists.Manager
 }
 
 // New monta o serviço sem abrir portas.
@@ -84,6 +86,7 @@ func New(cfg Config, d Deps) *Server {
 	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, func(n int) { d.Metrics.Add(metricConnsEvicted, float64(n)) })
 	s.hub = NewHub()
 	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention})
+	s.lists = newLists(cfg, d)
 	s.feed = NewStoreFeed(s.index, d.Now)
 	s.api = &API{
 		Keys: s.keys, Limiter: s.limiter, Index: s.index, Hub: s.hub, DB: d.DB, OpenAPI: d.OpenAPI,
@@ -99,6 +102,9 @@ func (s *Server) Status() (string, []string) {
 	if s.cfg.MaxBytes > 0 && float64(dbFileSize(s.cfg.DBPath)) > dbSpaceDegraded*float64(s.cfg.MaxBytes) {
 		reasons = append(reasons, "db space")
 	}
+	if s.lists != nil {
+		reasons = append(reasons, s.lists.StaleReasons(s.deps.Now())...)
+	}
 	if s.deps.Reasons != nil {
 		reasons = append(reasons, s.deps.Reasons(s.deps.Now())...)
 	}
@@ -111,11 +117,39 @@ func (s *Server) Status() (string, []string) {
 // Health monta o BotHealth do openapi.
 func (s *Server) Health() Health {
 	st, reasons := s.Status()
-	return Health{
+	h := Health{
 		Status: st, Version: s.deps.Version, Reasons: reasons, RulesVersion: RulesVersion, ListsVersion: ListsVersion,
 		Lists: []ListHealth{},
 	}
+	if s.lists != nil {
+		h.ListsVersion = s.lists.Version()
+		for _, l := range s.lists.Status(s.deps.Now()) {
+			lh := ListHealth{Name: l.Name, Entries: l.Entries, Stale: l.Stale}
+			if !l.FetchedAt.IsZero() {
+				ts := event.FormatTime(l.FetchedAt)
+				lh.FetchedAt = &ts
+			}
+			h.Lists = append(h.Lists, lh)
+		}
+	}
+	return h
 }
+
+// newLists cria o gerenciador das listas (spec 018 RF-07); sem ListsDir (testes), só a base própria.
+func newLists(cfg Config, d Deps) *lists.Manager {
+	m, err := lists.NewManager(lists.Options{
+		Dir: cfg.ListsDir, URLs: cfg.ListURLs, JA4DBEnable: cfg.JA4DBEnable, JA4DBURL: cfg.JA4DBURL,
+		RefreshAt: cfg.ListRefreshAt, Version: d.Version, DB: d.DB, Now: d.Now, Log: d.Log,
+	})
+	if err != nil {
+		d.Log.Error("bot: lists disabled", "err", err)
+		return nil
+	}
+	return m
+}
+
+// Lists expõe o gerenciador das listas (vereditos e CLI, tasks 282 e 283); nil se a base própria é inválida.
+func (s *Server) Lists() *lists.Manager { return s.lists }
 
 // Handler devolve o handler de uma porta (para os testes).
 func (s *Server) Handler(internal bool) http.Handler {
@@ -211,6 +245,9 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	}
 	s.deps.Log.Info("bot: listening", "public", addrs(public), "internal", addrs(internal))
 
+	if s.lists != nil {
+		s.lists.Load(ctx)
+	}
 	var wg sync.WaitGroup
 	loopCtx, stopLoops := context.WithCancel(ctx)
 	wg.Add(1)
@@ -218,6 +255,13 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 		defer wg.Done()
 		s.loops(loopCtx)
 	}()
+	if s.lists != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.lists.Run(loopCtx)
+		}()
+	}
 
 	var runErr error
 	select {
@@ -309,6 +353,9 @@ func (s *Server) updateMetrics() {
 	m.Set(metricStoreFeedMessages, float64(s.feed.Messages()))
 	m.Set(metricDBBytes, float64(dbFileSize(s.cfg.DBPath)))
 	m.Set(metricAggDropped, float64(s.agg.Dropped()))
+	if s.lists != nil {
+		s.lists.UpdateMetrics(s.deps.Now(), m.Set)
+	}
 }
 
 func listenAll(addrs []string) ([]net.Listener, error) {

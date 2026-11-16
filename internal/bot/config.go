@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/lists"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
@@ -40,7 +44,12 @@ type Config struct {
 	ViewWait      time.Duration // FS_BOT_VIEW_WAIT
 	RateHigh      int           // FS_BOT_RATE_HIGH
 	ListRefreshAt time.Duration // FS_BOT_LIST_REFRESH_AT (HH:MM UTC, como deslocamento desde 00:00)
-	JA4DBURL      string        // FS_BOT_JA4DB_URL
+	JA4DBURL      string        // FS_BOT_JA4DB_URL (padrão https://ja4db.com/api/read/)
+	JA4DBEnable   bool          // FS_BOT_JA4DB_ENABLE (padrão false até a P4, ADR 0056 item 1)
+	// ListURLs troca a URL de uma lista do catálogo (FS_BOT_LIST_<NOME>_URL), por nome.
+	ListURLs map[string]string
+	// ListsDir é a pasta das cópias das listas (var/bot/lists, ao lado do banco); vazio desliga os downloads.
+	ListsDir string
 }
 
 // interfacePrefix acha a sub-rede da interface que tem o IP (variável para os testes).
@@ -141,7 +150,17 @@ func LoadConfig() (Config, error) {
 	if c.ListRefreshAt, err = parseClock(service.Env("FS_BOT_LIST_REFRESH_AT", "04:00")); err != nil {
 		return c, err
 	}
-	c.JA4DBURL = service.Env("FS_BOT_JA4DB_URL", "")
+	c.JA4DBURL = service.Env("FS_BOT_JA4DB_URL", lists.JA4DBDefaultURL)
+	if c.JA4DBEnable, err = strconv.ParseBool(service.Env("FS_BOT_JA4DB_ENABLE", "false")); err != nil {
+		return c, fmt.Errorf("bot: FS_BOT_JA4DB_ENABLE must be true or false: %w", err)
+	}
+	c.ListURLs = map[string]string{}
+	for _, src := range lists.Catalog {
+		if u := strings.TrimSpace(service.Env(lists.EnvKey(src.Name), "")); u != "" {
+			c.ListURLs[src.Name] = u
+		}
+	}
+	c.ListsDir = filepath.Join(filepath.Dir(c.DBPath), "lists")
 	return c, c.validate()
 }
 
@@ -161,8 +180,21 @@ func (c Config) validate() error {
 		return errors.New("bot: FS_BOT_VIEW_WAIT must be between 0 and 1s")
 	case c.RateHigh <= 0:
 		return errors.New("bot: FS_BOT_RATE_HIGH must be positive")
+	case c.JA4DBURL != "" && !isHTTPS(c.JA4DBURL):
+		return fmt.Errorf("bot: FS_BOT_JA4DB_URL must be https: %q", c.JA4DBURL)
+	}
+	for name, u := range c.ListURLs {
+		if !isHTTPS(u) {
+			return fmt.Errorf("bot: %s must be https: %q", lists.EnvKey(name), u)
+		}
 	}
 	return nil
+}
+
+// isHTTPS: as listas só são baixadas por HTTPS (ADR 0050 item 5).
+func isHTTPS(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 // publicIPs lê FS_LISTEN_IPV4 e FS_LISTEN_IPV6 (vazio = família ausente), nunca "*" (ADR 0023).
