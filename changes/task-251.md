@@ -1,0 +1,1 @@
+- test(e2e): `TestF4PageChrome` deixa de falhar quando o Chrome ganha a corrida pelo TCP com o QUIC já aberto: repete a fetch do probe até 3 vezes e exige requisição em quic/h3 (task 251).
