@@ -171,6 +171,8 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_db_fs_bytes{kind}` | gauge | tamanho (`size`) e livre (`free`) do sistema de arquivos do banco (`statfs` do tmpfs de 4G, ADR 0045) |
 | `fs_store_db_full_total` | contador | erros `SQLITE_FULL` (tmpfs do banco cheio) nas escritas do store; meta da carga: Δ 0 |
 | `fs_store_db_full_dropped_total` | contador | mensagens do `FS_EVENTS` confirmadas e descartadas no modo banco cheio, quando nem o lote sem BLOBs coube |
+| `fs_store_conn_publish_seconds` | histograma | tempo de montar e publicar uma mensagem `fs.v1.store.connection` (estado da conexão para o serviço bot, ADR 0047) |
+| `fs_store_conn_publish_dropped_total` | contador | mensagens `fs.v1.store.connection` descartadas: fila de 4096 cheia ou NATS que recusou; o ingest nunca espera por elas |
 
 `route` é o padrão da rota, nunca o caminho com IDs: por exemplo `GET /api/v1/connections/{conn_id}`.
 
