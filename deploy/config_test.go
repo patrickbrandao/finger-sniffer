@@ -107,9 +107,9 @@ func unitDirectives(t *testing.T, name string) map[string][]string {
 	return d
 }
 
-// unitLimits é a tabela da ADR 0039 item 2: MemoryMax, GOMEMLIMIT e CPUQuota por unit.
+// unitLimits é a tabela da ADR 0039 item 2 (store pela ADR 0045 item 3): MemoryMax, GOMEMLIMIT e CPUQuota por unit.
 var unitLimits = map[string][3]string{
-	"store":   {"2G", "1792MiB", "400%"},
+	"store":   {"6G", "1536MiB", "400%"},
 	"nats":    {"1G", "896MiB", "200%"},
 	"web":     {"768M", "512MiB", "400%"},
 	"capture": {"512M", "384MiB", "200%"},
@@ -150,21 +150,21 @@ func TestUnitLimitsADR0039(t *testing.T) {
 	}
 }
 
-// A fatia comum segura a soma: 6G e 800% (ADR 0039 item 1), acima da soma dos MemoryMax.
+// A fatia comum segura a soma: 10G e 800% (ADR 0039 item 1, ADR 0045 item 3), acima da soma dos MemoryMax.
 func TestSliceUnit(t *testing.T) {
 	d := unitDirectives(t, "finger-sniffer.slice")
-	for k, want := range map[string]string{"MemoryMax": "6G", "CPUQuota": "800%", "MemorySwapMax": "0"} {
+	for k, want := range map[string]string{"MemoryMax": "10G", "CPUQuota": "800%", "MemorySwapMax": "0"} {
 		if got := strings.Join(d[k], ","); got != want {
 			t.Errorf("slice: %s = %q, quer %q", k, got, want)
 		}
 	}
-	mib := map[string]int{"2G": 2048, "1G": 1024, "768M": 768, "512M": 512, "256M": 256}
+	mib := map[string]int{"6G": 6144, "1G": 1024, "768M": 768, "512M": 512, "256M": 256}
 	sum := 0
 	for _, lim := range unitLimits {
 		sum += mib[lim[0]]
 	}
-	if sum != 4864 {
-		t.Errorf("soma dos MemoryMax = %d MiB, quer 4864 (< 6G)", sum)
+	if sum != 8960 {
+		t.Errorf("soma dos MemoryMax = %d MiB, quer 8960 (8,8 GiB < 10G)", sum)
 	}
 }
 
@@ -241,10 +241,10 @@ func TestEnvExampleFinger01(t *testing.T) {
 		"FS_CERT_NAMES_DNS01":  "finger-west-01.badblock.net.br,*.finger-west-01.badblock.net.br",
 		"FS_CERT_NAMES_HTTP01": "finger-01.badblock.net.br",
 		"FS_ACME_ENABLE":       "0",
-		// modo degradado e teto do banco (ADR 0039 item 5)
+		// modo degradado (ADR 0039 item 5) e teto do banco (3 GiB, ADR 0045 item 3)
 		"FS_MAX_CONNS":           "1000",
 		"FS_MAX_NEW_CONNS_PER_S": "250",
-		"FS_STORE_MAX_BYTES":     "8589934592",
+		"FS_STORE_MAX_BYTES":     "3221225472",
 	}
 	for k, v := range want {
 		if vals[k] != v {

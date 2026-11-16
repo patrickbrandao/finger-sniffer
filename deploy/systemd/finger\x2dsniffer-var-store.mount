@@ -1,0 +1,14 @@
+# Banco do store em RAM (ADR 0045, spec 016 RF-07a): tmpfs só do store em /finger-sniffer/var/store, puxado pela
+# unit do store com RequiresMountsFor. Modelo: o remote-install.sh troca os marcadores de uid/gid pelos ids do
+# usuário finger-sniffer (numéricos) antes de instalar; nada de nome de usuário em Options=.
+# Sem PartOf=finger-sniffer.target: parar o target não desmonta. O deploy nunca para nem reinicia esta unit
+# (mudança de tamanho: mount -o remount,size=…); o banco some só no reinício do host.
+# As páginas são cobradas do cgroup do store (shmem, sem swap): size + GOMEMLIMIT cabem no MemoryMax do store.
+[Unit]
+Description=finger-sniffer: banco do store em tmpfs
+
+[Mount]
+What=tmpfs
+Where=/finger-sniffer/var/store
+Type=tmpfs
+Options=size=4G,mode=0700,uid=@FS_UID@,gid=@FS_GID@,nosuid,nodev,noexec
