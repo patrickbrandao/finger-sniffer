@@ -3,7 +3,7 @@
 # Uso: source "$(dirname "$0")/lib-release.sh"
 
 # shellcheck disable=SC2034 # usada por quem faz o source
-SERVICES="capture web raw dns store"
+SERVICES="capture web raw dns store bot"
 
 # sha256_of <arquivo>: imprime só o hash (sha256sum no Linux, shasum no macOS)
 sha256_of() {
@@ -23,7 +23,7 @@ sums_of_dir() {
 }
 
 # build_into <diretório do código> <diretório de saída> <versão> <commit> [GOCACHE]
-# Compila os 5 binários com as flags do Makefile, a partir de <diretório do código>.
+# Compila os 6 binários com as flags do Makefile, a partir de <diretório do código>.
 build_into() {
 	local src="$1" out="$2" ver="$3" commit="$4" cache="${5:-}"
 	mkdir -p "$out"

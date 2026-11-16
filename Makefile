@@ -1,7 +1,7 @@
 # finger-sniffer — alvos de desenvolvimento (specs/016, specs/017)
 
 MODULE   := github.com/patrickbrandao/finger-sniffer
-SERVICES := capture web raw dns store
+SERVICES := capture web raw dns store bot
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 # Build reproduzível (task 070): sem build ID, sem carimbo de VCS e sem caminhos locais (-trimpath);

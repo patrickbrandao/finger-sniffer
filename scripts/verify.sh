@@ -30,6 +30,9 @@ cd "$ROOT" || exit 2
 MODULE="github.com/patrickbrandao/finger-sniffer"
 MIGRATIONS_DIR="database/sqlite/migrations"
 TEMPLATE_DB="tmp/testdb/template.sqlite"
+# Banco-modelo do bot, com hash próprio (spec 017 RF-16, task 269)
+BOT_MIGRATIONS_DIR="database/sqlite/bot"
+BOT_TEMPLATE_DB="tmp/testdb/bot.sqlite"
 COVER_STRICT_PKGS="pkg/detect pkg/probe pkg/tlsparse pkg/h1 pkg/h2passive pkg/quicparse pkg/fingerprint"
 COVER_STRICT_MIN=80
 COVER_TOTAL_MIN=60
@@ -222,21 +225,37 @@ reverse_deps() {
 
 pkg_to_dir() { echo "./${1#"$MODULE"/}"; }
 
-# Prepara o banco-modelo SQLite e exporta as variáveis para os testes (spec 017 RF-06).
+# Prepara os bancos-modelo SQLite e exporta as variáveis para os testes: o do store (spec 017 RF-06;
+# FS_TEST_DB=local, FS_TEST_DB_TEMPLATE) e o do bot (RF-16; FS_TEST_BOT_DB=local, FS_TEST_BOT_DB_TEMPLATE), cada um
+# refeito só quando o hash das próprias migrations muda. DB_RESULT: "skipped" sem nenhum, senão
+# "store=<resultado> bot=<resultado>".
 prepare_test_db() {
-	local result
+	local result store="skipped" bot="skipped"
 	# Sem nenhum .sql não há modelo a manter (evita compilar a ferramenta à toa).
-	if ! ls "$MIGRATIONS_DIR"/*.sql >/dev/null 2>&1; then
-		DB_RESULT="skipped"
-		return 0
+	if ls "$MIGRATIONS_DIR"/*.sql >/dev/null 2>&1; then
+		result=$(go run ./scripts/testdb -migrations "$MIGRATIONS_DIR" -out "$TEMPLATE_DB") || return 1
+		echo "testdb store: $result"
+		store="$result"
+		if [ "$result" != "skipped" ]; then
+			export FS_TEST_DB=local
+			FS_TEST_DB_TEMPLATE="$ROOT/$TEMPLATE_DB"
+			export FS_TEST_DB_TEMPLATE
+		fi
 	fi
-	result=$(go run ./scripts/testdb -migrations "$MIGRATIONS_DIR" -out "$TEMPLATE_DB") || return 1
-	echo "testdb: $result"
-	DB_RESULT="$result"
-	if [ "$result" != "skipped" ]; then
-		export FS_TEST_DB=local
-		FS_TEST_DB_TEMPLATE="$ROOT/$TEMPLATE_DB"
-		export FS_TEST_DB_TEMPLATE
+	if ls "$BOT_MIGRATIONS_DIR"/*.sql >/dev/null 2>&1; then
+		result=$(go run ./scripts/testdb -migrations "$BOT_MIGRATIONS_DIR" -out "$BOT_TEMPLATE_DB") || return 1
+		echo "testdb bot: $result"
+		bot="$result"
+		if [ "$result" != "skipped" ]; then
+			export FS_TEST_BOT_DB=local
+			FS_TEST_BOT_DB_TEMPLATE="$ROOT/$BOT_TEMPLATE_DB"
+			export FS_TEST_BOT_DB_TEMPLATE
+		fi
+	fi
+	if [ "$store" = skipped ] && [ "$bot" = skipped ]; then
+		DB_RESULT="skipped"
+	else
+		DB_RESULT="store=$store bot=$bot"
 	fi
 	return 0
 }
@@ -420,6 +439,7 @@ verify_quick() {
 	# shellcheck disable=SC2086
 	pkgs=$(packages_of_dirs $dirs)
 	migrations_changed=$(echo "$files" | grep -c "^$MIGRATIONS_DIR/" || true)
+	bot_migrations_changed=$(echo "$files" | grep -c "^$BOT_MIGRATIONS_DIR/" || true)
 	gomod_changed=$(echo "$files" | grep -cE '^go\.(mod|sum)$' || true)
 	contracts_changed=$(echo "$files" | grep -cE "$(contracts_re)" || true)
 	# examples do asyncapi: contratos, goldens referenciados (testdata) ou o próprio validador
@@ -536,6 +556,10 @@ verify_quick() {
 			mig_pkg="$MODULE/$MIGRATIONS_DIR"
 			for p in $(reverse_deps "$mig_pkg") $mig_pkg; do test_pkgs="$test_pkgs $p"; done
 		fi
+		if [ "$bot_migrations_changed" -gt 0 ] && [ -f "$BOT_MIGRATIONS_DIR/embed.go" ]; then
+			mig_pkg="$MODULE/$BOT_MIGRATIONS_DIR"
+			for p in $(reverse_deps "$mig_pkg") $mig_pkg; do test_pkgs="$test_pkgs $p"; done
+		fi
 		if [ -n "$(echo "$test_pkgs" | tr -d ' ')" ]; then
 			# shellcheck disable=SC2086
 			run_step "testes (afetados)" go test $(echo $test_pkgs | tr ' ' '\n' | sort -u)
@@ -595,7 +619,7 @@ coverage_check() {
 
 full_tests() {
 	# Banco isolado: sem FS_TEST_DB, cada teste cria e migra um SQLite novo.
-	unset FS_TEST_DB FS_TEST_DB_TEMPLATE
+	unset FS_TEST_DB FS_TEST_DB_TEMPLATE FS_TEST_BOT_DB FS_TEST_BOT_DB_TEMPLATE
 	go test -race -count=1 -covermode=atomic -coverprofile="$WORK/cover.out" ./... | tee "$WORK/test.out"
 	local rc=${PIPESTATUS[0]}
 	[ "$rc" = 0 ] || return "$rc"

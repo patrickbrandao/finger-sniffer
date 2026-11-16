@@ -45,7 +45,8 @@ if ! id finger-sniffer >/dev/null 2>&1; then
 	useradd --system --home-dir "$DEST/var" --no-create-home --shell /usr/sbin/nologin finger-sniffer
 	log "usuário finger-sniffer criado"
 fi
-mkdir -p "$DEST/bin" "$DEST/etc" "$DEST/var/store" "$DEST/var/certs" "$DEST/var/acme" "$DEST/var/nats"
+# var/bot: banco do bot em disco (ADR 0047 item 2); o deploy nunca o apaga (o rsync do passo 2 exclui /var/)
+mkdir -p "$DEST/bin" "$DEST/etc" "$DEST/var/store" "$DEST/var/certs" "$DEST/var/acme" "$DEST/var/nats" "$DEST/var/bot"
 chown -R finger-sniffer:finger-sniffer "$DEST/var"
 chmod 0750 "$DEST/var"
 
@@ -72,6 +73,9 @@ if [ ! -f "$DEST/etc/finger-sniffer.env" ]; then
 else
 	env_before=$(sha256sum "$DEST/etc/finger-sniffer.env" | cut -d' ' -f1)
 	bash "$DEST/deploy/env-merge.sh" "$DEST/.env.example" "$DEST/etc/finger-sniffer.env"
+	# padrões trocados de propósito (o merge não muda chave existente): só se o servidor ainda tem o antigo
+	env_upgrade "$DEST/etc/finger-sniffer.env" FS_CAPTURE_EXCLUDE_PORTS 48022,48161,9000,9001 \
+		48022,48161,9000,9001,9002,9003 || true
 	# chave nova muda o ambiente das units com EnvironmentFile (todas menos o NATS): reinicia essas
 	[ "$env_before" = "$(sha256sum "$DEST/etc/finger-sniffer.env" | cut -d' ' -f1)" ] || ENV_CHANGED=1
 fi

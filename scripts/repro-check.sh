@@ -3,7 +3,7 @@
 #
 #   scripts/repro-check.sh [SHA256SUMS]
 #
-# Compila os 5 binários três vezes: duas seguidas no repositório e uma numa cópia da árvore em outro
+# Compila os 6 binários três vezes: duas seguidas no repositório e uma numa cópia da árvore em outro
 # diretório, com GOCACHE vazio. Os três conjuntos precisam ter o mesmo SHA-256. Com SHA256SUMS (do tar de
 # release), os binários também são conferidos contra ele (linhas "bin/finger-sniffer-*").
 #

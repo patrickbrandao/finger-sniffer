@@ -107,9 +107,11 @@ func unitDirectives(t *testing.T, name string) map[string][]string {
 	return d
 }
 
-// unitLimits é a tabela da ADR 0039 item 2 (store pela ADR 0045 item 3): MemoryMax, GOMEMLIMIT e CPUQuota por unit.
+// unitLimits é a tabela da ADR 0039 item 2 (store pela ADR 0045 item 3, bot pela ADR 0047 item 5): MemoryMax,
+// GOMEMLIMIT e CPUQuota por unit.
 var unitLimits = map[string][3]string{
 	"store":   {"6G", "1536MiB", "400%"},
+	"bot":     {"1G", "768MiB", "200%"},
 	"nats":    {"1G", "896MiB", "200%"},
 	"web":     {"768M", "512MiB", "400%"},
 	"capture": {"512M", "384MiB", "200%"},
@@ -163,8 +165,8 @@ func TestSliceUnit(t *testing.T) {
 	for _, lim := range unitLimits {
 		sum += mib[lim[0]]
 	}
-	if sum != 8960 {
-		t.Errorf("soma dos MemoryMax = %d MiB, quer 8960 (8,8 GiB < 10G)", sum)
+	if sum != 9984 {
+		t.Errorf("soma dos MemoryMax = %d MiB, quer 9984 (9,75 GiB < 10G)", sum)
 	}
 }
 
@@ -173,7 +175,7 @@ func TestSliceUnit(t *testing.T) {
 func TestUnitCapabilities(t *testing.T) {
 	want := map[string]string{
 		"web": "", "raw": "CAP_NET_BIND_SERVICE", "dns": "CAP_NET_BIND_SERVICE", "capture": "CAP_NET_RAW",
-		"store": "", "nats": "",
+		"store": "", "nats": "", "bot": "",
 	}
 	for svc, caps := range want {
 		d := unitDirectives(t, "finger-sniffer-"+svc+".service")
@@ -231,8 +233,11 @@ func TestEnvExampleFinger01(t *testing.T) {
 		"FS_LISTEN_IPV4":           "170.247.40.86",
 		"FS_LISTEN_IPV6":           "2804:231c:e500:cafe::86",
 		"FS_CAPTURE_IFACE":         "ens192",
-		"FS_CAPTURE_EXCLUDE_PORTS": "48022,48161,9000,9001",
-		"FS_DNS_ZONE":              "finger-west-01.badblock.net.br",
+		"FS_CAPTURE_EXCLUDE_PORTS": "48022,48161,9000,9001,9002,9003",
+		// 9003 do bot no gateway de br-net-public do traefik-app (ADR 0047 item 4, task 269)
+		"FS_BOT_INTERNAL_LISTEN": "10.249.255.254/16",
+		"FS_BOT_INTERNAL_ALLOW":  "10.249.0.0/16",
+		"FS_DNS_ZONE":            "finger-west-01.badblock.net.br",
 		// web fora de 80/443, que são do traefik (ADR 0038 item 3)
 		"FS_WEB_TCP_PORTS": "8080,8443",
 		"FS_WEB_UDP_PORTS": "8443",
@@ -262,5 +267,33 @@ func TestEnvExampleFinger01(t *testing.T) {
 		case "80", "443", "8080", "8443":
 			t.Errorf("FS_CAPTURE_EXCLUDE_PORTS exclui %s", p)
 		}
+	}
+}
+
+// Unit do bot (spec 016 RF-14, ADR 0047): no target, depois do store, banco em disco em var/bot (fora do tmpfs
+// do store) como único caminho gravável.
+func TestBotUnit(t *testing.T) {
+	d := unitDirectives(t, "finger-sniffer-bot.service")
+	after := " " + strings.Join(d["After"], " ") + " "
+	if !strings.Contains(after, " finger-sniffer-store.service ") {
+		t.Errorf("bot: After sem o store: %v", d["After"])
+	}
+	if got := strings.Join(d["ReadWritePaths"], ","); got != "/finger-sniffer/var/bot" {
+		t.Errorf("bot: ReadWritePaths = %q", got)
+	}
+	if strings.Contains(strings.Join(d["RequiresMountsFor"], " "), "var/store") {
+		t.Error("bot: não depende do tmpfs do store")
+	}
+	for k, want := range map[string]string{
+		"ExecStart": "/finger-sniffer/bin/finger-sniffer-bot", "User": "finger-sniffer", "PartOf": "finger-sniffer.target",
+		"ProtectSystem": "strict", "NoNewPrivileges": "yes", "WantedBy": "finger-sniffer.target",
+	} {
+		if got := strings.Join(d[k], ","); got != want {
+			t.Errorf("bot: %s = %q, quer %q", k, got, want)
+		}
+	}
+	tgt := unitDirectives(t, "finger-sniffer.target")
+	if !strings.Contains(" "+strings.Join(tgt["Wants"], " ")+" ", " finger-sniffer-bot.service ") {
+		t.Errorf("target sem o bot: %v", tgt["Wants"])
 	}
 }

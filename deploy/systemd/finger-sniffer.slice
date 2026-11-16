@@ -1,7 +1,7 @@
-# Fatia das 7 units do finger-sniffer no finger-01 (ADR 0039 item 1, ADR 0045 item 3): o espelho nunca passa de
-# metade das vCPU nem de ~31% dos 32 GB de RAM; o resto (>= 22 GB) fica para o host, o traefik e os sites.
-# Soma dos MemoryMax das units: store 6G (com o tmpfs de 4G do banco) + nats 1G + web 768M + capture 512M +
-# raw 256M + dns 256M = 8,8 GiB, com ~1,2 GiB de folga até os 10G (páginas do tmpfs passam à fatia depois de um
+# Fatia das 8 units do finger-sniffer no finger-01 (ADR 0039 item 1, ADR 0045 item 3, ADR 0047 item 5): o espelho
+# nunca passa de metade das vCPU nem de ~31% dos 32 GB de RAM; o resto (>= 22 GB) fica para o host, o traefik e
+# os sites. Soma dos MemoryMax das units: store 6G (com o tmpfs de 4G do banco) + nats 1G + bot 1G + web 768M +
+# capture 512M + raw 256M + dns 256M = 9,75 GiB, dentro dos 10G (páginas do tmpfs passam à fatia depois de um
 # reinício do store até serem apagadas). O systemd aninha pelo hífen: o cgroup das
 # units fica em /sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>.
 [Unit]

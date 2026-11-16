@@ -17,7 +17,7 @@ Quem conduz: architect (task 072 para a `v0.1.0`). Infra mantém o processo (tas
 ## Pacote
 - [ ] Depois do merge do PR de release, na `main` atualizada: `make release VERSION=vX.Y.Z`
       (confere árvore limpa e `origin/main`, roda `verify-full`, compila e gera em `dist/`):
-      - `finger-sniffer-vX.Y.Z-linux-amd64.tar.gz` (5 binários, units, sysctl, journald, rede, nats.conf, htdocs,
+      - `finger-sniffer-vX.Y.Z-linux-amd64.tar.gz` (6 binários, units, sysctl, journald, rede, nats.conf, htdocs,
         `SHA256SUMS`);
       - `finger-sniffer-vX.Y.Z-linux-amd64.SHA256SUMS` e `.tar.gz.sha256`.
 - [ ] `make repro-check` verde (dois builds seguidos e um em outro diretório com o mesmo SHA-256).
@@ -31,11 +31,11 @@ Quem conduz: architect (task 072 para a `v0.1.0`). Infra mantém o processo (tas
       git push origin vX.Y.Z
       ```
 - [ ] Workflow `release` da tag verde: rebuild no Linux igual ao `SHA256SUMS` do tar e da anotação, `-version` dos
-      5 binários mostra `vX.Y.Z`.
+      6 binários mostra `vX.Y.Z`.
 
 ## Deploy e smoke
 - [ ] `git checkout --detach vX.Y.Z && make deploy` (o `git describe` dá `vX.Y.Z`, sem `-dirty`).
 - [ ] `ssh -p 48022 root@finger-01.tmsoft.com.br /finger-sniffer/bin/finger-sniffer-web -version` mostra `vX.Y.Z`
       (idem para os outros 4).
-- [ ] Smoke do deploy ok e `GET http://finger-01.badblock.net.br:9001/api/v1/health` com os 5 serviços `ok`.
+- [ ] Smoke do deploy ok e `GET http://finger-01.badblock.net.br:9001/api/v1/health` com os 6 serviços `ok` e `GET https://finger-01.badblock.net.br:9002/bot/v1/health` 200.
 - [ ] Voltar à `main` (`git checkout main`).

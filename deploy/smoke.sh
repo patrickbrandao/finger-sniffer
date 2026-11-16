@@ -4,13 +4,17 @@
 #   SVC=""      todos os passos
 #   SVC=<svc>   só os passos daquele serviço + health (capture, store e nats só têm o health)
 #
-# Passos: health :9001 com os 5 serviços presentes e nenhum down; degraded sai como AVISO com os reasons e só
+# Passos: health :9001 com os 6 serviços presentes e nenhum down; degraded sai como AVISO com os reasons e só
 # passa por motivo tolerado (reason_tolerated: cert_self_signed; com SVC, também a versão desencontrada), e
 # reprova por qualquer outro (task 173); versions_match=true (sem SVC: falha; com SVC: AVISO em vermelho, porque
 # implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :8080/ e GET :8443/
 # (TLS estrito, salvo quando o health do web aponta cert_self_signed: aí aceita com aviso; ADR 0038: 80/443 são do
 # traefik); dns A de <probe>.<zona> com o IP do espelho e example.com → REFUSED; raw eco na 7 e banner 220 na 25;
 # store GET https://:9000/api/v1/health.
+# bot (spec 016 RF-14, ADR 0047 item 4): GET https://<nome>:9002/bot/v1/health 200 (TLS estrito, salvo
+# cert_self_signed no health do store, dono do mesmo certificado); 9003: 200 no loopback e, com
+# FS_BOT_INTERNAL_LISTEN, 200 da origem na bridge e 403 da origem no IP público (curl --interface); a 9003 não
+# escuta no IP público (conexão recusada).
 # h3 (com o web): só quando o heartbeat do web anuncia h3_listening=1 (senão o passo é pulado com aviso):
 # Alt-Svc h3=":8443" na resposta da 8443 (a porta é a do listener UDP, SMOKE_H3_PORT), listener UDP 8443
 # (ss -Hlun) e, se o curl local tiver HTTP3, um GET por h3 na 8443.
@@ -21,6 +25,8 @@
 # Variáveis (os padrões vêm do env instalado; os testes de deploy/smoke_test.go apontam para servidores falsos):
 #   FS_ENV_FILE, SMOKE_HOST (IPv4), SMOKE_NAME (nome do certificado B; padrão: o primeiro de FS_CERT_NAMES_HTTP01),
 #   SMOKE_ZONE, SMOKE_DNS_EXPECT, SMOKE_*_PORT (SMOKE_H3_PORT: padrão a primeira de FS_WEB_UDP_PORTS),
+#   SMOKE_BOT_PUBLIC_PORT (9002), SMOKE_BOT_INTERNAL_PORT (9003), SMOKE_BOT_LOOPBACK (127.0.0.1),
+#   SMOKE_BOT_BRIDGE (padrão: o IP de FS_BOT_INTERNAL_LISTEN; vazio pula os passos da bridge),
 #   SMOKE_TRAEFIK_NAME, SMOKE_TRAEFIK_PORT (443), SMOKE_TRAEFIK_REQUIRED (padrão 1; 0: o passo do traefik avisa
 #   em vez de reprovar), SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os passos
 #   selecionados, sem executar), SMOKE_CONFIG=1 (só mostra os alvos resolvidos), SMOKE_H3_GET=0 (não tenta o GET por h3 mesmo com curl HTTP3).
@@ -56,11 +62,19 @@ TRAEFIK_REQUIRED="${SMOKE_TRAEFIK_REQUIRED:-1}"
 DNS_PORT="${SMOKE_DNS_PORT:-53}"
 ECHO_PORT="${SMOKE_ECHO_PORT:-7}"
 BANNER_PORT="${SMOKE_BANNER_PORT:-25}"
+BOT_PUBLIC_PORT="${SMOKE_BOT_PUBLIC_PORT:-$(env_get FS_BOT_PUBLIC_PORT)}"
+BOT_PUBLIC_PORT="${BOT_PUBLIC_PORT:-9002}"
+BOT_INTERNAL_PORT="${SMOKE_BOT_INTERNAL_PORT:-$(env_get FS_BOT_INTERNAL_PORT)}"
+BOT_INTERNAL_PORT="${BOT_INTERNAL_PORT:-9003}"
+BOT_LOOPBACK="${SMOKE_BOT_LOOPBACK:-127.0.0.1}"
+BOT_BRIDGE="${SMOKE_BOT_BRIDGE-$(env_get FS_BOT_INTERNAL_LISTEN | cut -d/ -f1)}"
+# serviços que o health tem de mostrar (o store espera os 6, ADR 0047 item 1)
+SERVICES="capture web raw dns store bot"
 HEALTH_WAIT="${SMOKE_HEALTH_WAIT:-30}"
 TIMEOUT="${SMOKE_TIMEOUT:-5}"
 
 case "$SVC" in
-"" | capture | web | raw | dns | store | nats) ;;
+"" | capture | web | raw | dns | store | bot | nats) ;;
 *)
 	echo "SVC inválido: $SVC" >&2
 	exit 2
@@ -139,7 +153,7 @@ svc_status() { svc_block "$1" | sed -E 's/^"[a-z]+":\{"status":"([a-z]*)".*/\1/'
 # svc_version <svc>: versão anunciada pelo serviço no heartbeat.
 svc_version() { svc_block "$1" | grep -o '"version":"[^"]*"' | head -n1 | cut -d'"' -f4; }
 
-# versions_match: o health diz que os 5 serviços e o store rodam a mesma versão?
+# versions_match: o health diz que os 6 serviços e o store rodam a mesma versão?
 versions_match() { printf '%s' "$HEALTH" | grep -q '"versions_match":true'; }
 
 # self_signed <svc>: o health do serviço aponta certificado autoassinado?
@@ -163,7 +177,7 @@ step_health() {
 		health_fetch
 		bad_list=""
 		intolerable=""
-		for s in capture web raw dns store; do
+		for s in $SERVICES; do
 			st=$(svc_status "$s")
 			case "$st" in
 			ok) ;;
@@ -189,7 +203,7 @@ step_health() {
 		sleep 1
 	done
 	local summary="" versions=""
-	for s in capture web raw dns store; do
+	for s in $SERVICES; do
 		summary="$summary $s=$(svc_status "$s")"
 		versions="$versions $s=$(svc_version "$s")"
 	done
@@ -199,7 +213,7 @@ step_health() {
 		pass "health :$API_HTTP_PORT" "$summary"
 	fi
 	# degraded sempre sai como AVISO com os motivos (spec 016 RF-10); o motivo fora da lista reprova
-	for s in capture web raw dns store; do
+	for s in $SERVICES; do
 		[ "$(svc_status "$s")" = degraded ] || continue
 		warn "health $s" "degraded: $(svc_reasons "$s" | paste -sd ';' - | sed 's/;/; /g')"
 		while IFS= read -r r; do
@@ -354,6 +368,52 @@ step_raw() {
 	esac
 }
 
+# http_code <url> [opções do curl]: código HTTP ("000" sem conexão).
+http_code() {
+	local url="$1" code
+	shift
+	code=$(curl -sS -o /dev/null -w '%{http_code}' -m "$TIMEOUT" "$@" "$url" 2>/dev/null) || true
+	echo "${code:-000}"
+}
+
+step_bot() {
+	local url="/bot/v1/health" code
+	# mesmo certificado da 9000 (ADR 0047 item 4): o heartbeat do bot não aponta cert_self_signed, o do store sim
+	https_get "bot GET https :$BOT_PUBLIC_PORT/health" "$BOT_PUBLIC_PORT" "$url" store
+	code=$(http_code "http://$BOT_LOOPBACK:$BOT_INTERNAL_PORT$url")
+	if [ "$code" = 200 ]; then
+		pass "bot :$BOT_INTERNAL_PORT loopback" "HTTP 200"
+	else
+		bad "bot :$BOT_INTERNAL_PORT loopback" "HTTP $code"
+	fi
+	if [ -z "$BOT_BRIDGE" ]; then
+		warn "bot :$BOT_INTERNAL_PORT bridge" "sem FS_BOT_INTERNAL_LISTEN: pulado"
+	else
+		# origem na bridge do traefik: aceita; origem no IP público, mesmo destino: 403 (spec 020 RF-01)
+		code=$(http_code "http://$BOT_BRIDGE:$BOT_INTERNAL_PORT$url" --interface "$BOT_BRIDGE")
+		if [ "$code" = 200 ]; then
+			pass "bot :$BOT_INTERNAL_PORT bridge" "HTTP 200 de $BOT_BRIDGE"
+		else
+			bad "bot :$BOT_INTERNAL_PORT bridge" "HTTP $code de $BOT_BRIDGE"
+		fi
+		code=$(http_code "http://$BOT_BRIDGE:$BOT_INTERNAL_PORT$url" --interface "$HOST")
+		if [ "$code" = 403 ]; then
+			pass "bot :$BOT_INTERNAL_PORT recusa" "HTTP 403 de $HOST"
+		else
+			bad "bot :$BOT_INTERNAL_PORT recusa" "esperado 403 de $HOST, veio $code"
+		fi
+	fi
+	# nunca em * (ADR 0023): no IP público a 9003 não escuta
+	if [ "$HOST" != "$BOT_LOOPBACK" ] && [ "$HOST" != "$BOT_BRIDGE" ]; then
+		code=$(http_code "http://$HOST:$BOT_INTERNAL_PORT$url")
+		if [ "$code" = 000 ]; then
+			pass "bot :$BOT_INTERNAL_PORT fora de $HOST" "sem listener"
+		else
+			bad "bot :$BOT_INTERNAL_PORT fora de $HOST" "respondeu HTTP $code no IP público"
+		fi
+	fi
+}
+
 step_store() {
 	https_get "store GET https :$API_HTTPS_PORT/health" "$API_HTTPS_PORT" /api/v1/health store
 }
@@ -363,6 +423,7 @@ selected web && steps="$steps web h3 traefik"
 selected dns && steps="$steps dns"
 selected raw && steps="$steps raw"
 selected store && steps="$steps store"
+selected bot && steps="$steps bot"
 
 if [ "${SMOKE_LIST:-0}" = 1 ]; then
 	echo "$steps"

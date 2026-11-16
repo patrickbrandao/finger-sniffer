@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Teste de `make release` (task 070; rodado no CI): gera o pacote de uma versão de teste num diretório
 # temporário, sem conferência de Git nem verify-full, e confere que:
-#   - o tar tem os 5 binários, units, nats.conf, htdocs e SHA256SUMS, e o SHA256SUMS bate com o conteúdo;
+#   - o tar tem os 6 binários, units, nats.conf, htdocs e SHA256SUMS, e o SHA256SUMS bate com o conteúdo;
 #   - nada no Git mudou (HEAD, refs/tags, status).
 set -euo pipefail
 
@@ -45,7 +45,7 @@ done
 check "nats.conf" "[ -f '$PKG/eventbus/nats/nats.conf' ]"
 check "htdocs/index.html" "[ -f '$PKG/htdocs/index.html' ]"
 check "SHA256SUMS confere com o conteúdo" "[ \"\$(sums_of_dir '$PKG')\" = \"\$(cat '$PKG/SHA256SUMS')\" ]"
-check "SHA256SUMS cobre os binários" "[ \$(grep -c ' bin/finger-sniffer-' '$PKG/SHA256SUMS') = 5 ]"
+check "SHA256SUMS cobre os binários" "[ \$(grep -c ' bin/finger-sniffer-' '$PKG/SHA256SUMS') = 6 ]"
 check "SHA256SUMS ao lado do tar" "cmp -s '$PKG/SHA256SUMS' '$WORK/dist/$NAME.SHA256SUMS'"
 check ".sha256 do tar" "[ \"\$(awk '{print \$1}' '$TAR.sha256')\" = \"\$(sha256_of '$TAR')\" ]"
 check "versão nos binários" "grep -aqF '$VERSION' '$PKG/bin/finger-sniffer-web'"
