@@ -5,6 +5,16 @@
     "version": "0.1.0",
     "versions_match": true,
     "services": {
+      "bot": {
+        "status": "ok",
+        "version": "0.1.0",
+        "commit": "abc1234",
+        "last_heartbeat": "2026-11-07T12:00:00.000000000Z",
+        "metrics": {
+          "dropped_events_total": 0,
+          "published_events_total": 42
+        }
+      },
       "capture": {
         "status": "ok",
         "version": "0.1.0",

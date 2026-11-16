@@ -100,7 +100,7 @@ func TestIntegrationHealth(t *testing.T) {
 	go func() { _ = heartbeatsOnly(ctx, storeSvc) }()
 
 	stops := map[string]context.CancelFunc{}
-	for _, name := range []string{event.ServiceCapture, event.ServiceWeb, event.ServiceRaw, event.ServiceDNS} {
+	for _, name := range []string{event.ServiceCapture, event.ServiceWeb, event.ServiceRaw, event.ServiceDNS, event.ServiceBot} {
 		svc, err := service.New(name)
 		if err != nil {
 			t.Fatal(err)
@@ -113,7 +113,7 @@ func TestIntegrationHealth(t *testing.T) {
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port)
 	eventually(t, 5*time.Second, func() bool {
 		h, err := getHealth(t, url)
-		return err == nil && h.OK && len(h.Services) == 5
+		return err == nil && h.OK && len(h.Services) == 6
 	}, "all services never became ok")
 
 	// Stream criado em memória (ADR 0016).

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -34,6 +35,16 @@ type layers struct {
 	raw          json.RawMessage
 	rawFromWeb   bool // web.raw.session (raw/unknown)
 	dns          bool
+
+	// Cache do JSON das camadas que mudam pouco (task 268: o registro é montado a cada updated publicado para o
+	// bot e serializar os mapas era o custo maior). Os eventos (addLayer, sob a trava da tabela de fluxos)
+	// invalidam; o registro pode ser montado pela API e pelo ingest ao mesmo tempo, daí a trava própria.
+	cacheMu  sync.Mutex
+	tlsJSON  json.RawMessage // tls do registro; vale para tlsSeg
+	tlsSeg   int             // client_hello_segments usado em tlsJSON
+	h3Level  json.RawMessage // nível de conexão h3 serializado, sem requests
+	h3Cached bool
+	h3TLS    json.RawMessage // tls vindo do client_hello do Initial (QUIC)
 }
 
 // wsJSON é o schema WebSocketInfo.
@@ -78,11 +89,13 @@ func (l *layers) addLayer(ev appEvent) {
 	case event.SubjectWebTLSClientHello:
 		if m := decodeObject(ev.env.Payload); m != nil {
 			l.clientHello = m
+			l.invalidate()
 		}
 	case event.SubjectWebTLSHandshake:
 		var h event.TLSHandshake
 		if json.Unmarshal(ev.env.Payload, &h) == nil {
 			l.handshake = &h
+			l.invalidate()
 			// tls_done é o fim do handshake (como no QUIC): handshake falho (ClientHello e FIN, alerta) fica null
 			if h.Negotiated != nil {
 				l.tlsDone = ev.ts
@@ -189,6 +202,7 @@ func (l *layers) addHTTP3Connection(ev appEvent) {
 	}
 	delete(m, "requests")
 	l.http3 = m
+	l.invalidate()
 	var h struct {
 		ClientHello *struct {
 			Negotiated *event.TLSNegotiated `json:"negotiated"`
@@ -215,18 +229,50 @@ func (l *layers) h3ALPN() string {
 	return alpn
 }
 
+// invalidate descarta o JSON em cache (camada TLS ou h3 mudou).
+func (l *layers) invalidate() {
+	l.cacheMu.Lock()
+	l.tlsJSON, l.h3Level, l.h3Cached, l.h3TLS = nil, nil, false, nil
+	l.cacheMu.Unlock()
+}
+
 // applyLayers escreve as camadas no registro (aberto ou gravado).
 func (l *layers) applyLayers(r *connectionJSON) {
 	start := parseTs(r.Started)
 	if l.clientHello != nil || l.handshake != nil {
+		r.TLS = l.tlsLayer(r)
+		if l.handshake != nil && r.Times != nil {
+			r.Times.TLSDone = tsPtr(l.tlsDone)
+		}
+	}
+	l.applyApp(r, start)
+}
+
+// tlsLayer devolve o tls do registro, do cache quando client_hello_segments (que depende da análise TCP) não
+// mudou.
+func (l *layers) tlsLayer(r *connectionJSON) json.RawMessage {
+	seg := 0
+	if l.clientHello != nil {
+		seg = clientHelloSegments(l.clientHello, r.TCP)
+	}
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+	if l.tlsJSON != nil && l.tlsSeg == seg {
+		return l.tlsJSON
+	}
+	l.tlsJSON, l.tlsSeg = l.buildTLS(seg), seg
+	return l.tlsJSON
+}
+
+// buildTLS serializa o tls (ClientHello + handshake).
+func (l *layers) buildTLS(seg int) json.RawMessage {
+	{
 		tls := map[string]any{}
 		for k, v := range l.clientHello {
 			tls[k] = v
 		}
-		if l.clientHello != nil {
-			if n := clientHelloSegments(l.clientHello, r.TCP); n > 0 {
-				tls["client_hello_segments"] = n
-			}
+		if seg > 0 {
+			tls["client_hello_segments"] = seg
 		}
 		if h := l.handshake; h != nil {
 			tls["negotiated"] = h.Negotiated
@@ -236,12 +282,14 @@ func (l *layers) applyLayers(r *connectionJSON) {
 				alerts = append(alerts, map[string]any{"dir": a.Dir, "level": a.Level, "description": a.Description, "name": alertName(a.Description)})
 			}
 			tls["alerts"] = alerts
-			if r.Times != nil {
-				r.Times.TLSDone = tsPtr(l.tlsDone)
-			}
 		}
-		r.TLS, _ = json.Marshal(tls)
+		out, _ := json.Marshal(tls)
+		return out
 	}
+}
+
+// applyApp escreve as camadas HTTP, h2, h3, WebSocket e raw.
+func (l *layers) applyApp(r *connectionJSON, start int64) {
 	requests := 0
 	if len(l.http1) > 0 {
 		idx := make([]int, 0, len(l.http1))
@@ -293,18 +341,14 @@ func (l *layers) applyLayers(r *connectionJSON) {
 // client_hello do Initial, quando não houve ClientHello por TCP), times.tls_done e, com a conexão encerrada pelo
 // web, o close (quic_close, ou timeout no idle_timeout). Devolve quantas requisições h3 houve.
 func (l *layers) applyHTTP3(r *connectionJSON) int {
-	h3 := map[string]any{}
-	for k, v := range l.http3 {
-		h3[k] = v
-	}
-	reqs := l.h3Requests
-	if reqs == nil {
-		reqs = []json.RawMessage{}
-	}
-	h3["requests"] = reqs
-	r.HTTP3, _ = json.Marshal(h3)
+	r.HTTP3 = l.h3Layer()
 	if ch, ok := l.http3["client_hello"].(map[string]any); ok && l.clientHello == nil && l.handshake == nil {
-		r.TLS, _ = json.Marshal(ch)
+		l.cacheMu.Lock()
+		if l.h3TLS == nil {
+			l.h3TLS, _ = json.Marshal(ch)
+		}
+		r.TLS = l.h3TLS
+		l.cacheMu.Unlock()
 	}
 	if l.h3TLSDone != 0 || r.Ended != nil {
 		if r.Times == nil {
@@ -326,6 +370,39 @@ func (l *layers) applyHTTP3(r *connectionJSON) int {
 		r.Close = closeJSON{By: by, How: how, IdleBeforeCloseMs: r.Close.IdleBeforeCloseMs}
 	}
 	return len(l.h3Requests)
+}
+
+// h3Layer monta o http3 do registro: o nível de conexão (em cache até o próximo http3.connection) com as
+// requisições ao fim.
+func (l *layers) h3Layer() json.RawMessage {
+	l.cacheMu.Lock()
+	if !l.h3Cached {
+		h3 := make(map[string]any, len(l.http3))
+		for k, v := range l.http3 {
+			h3[k] = v
+		}
+		l.h3Level, _ = json.Marshal(h3)
+		l.h3Cached = true
+	}
+	level := l.h3Level
+	l.cacheMu.Unlock()
+	n := len(level) + 16
+	for _, q := range l.h3Requests {
+		n += len(q) + 1
+	}
+	out := make([]byte, 0, n)
+	out = append(out, level[:len(level)-1]...)
+	if len(level) > 2 {
+		out = append(out, ',')
+	}
+	out = append(out, `"requests":[`...)
+	for i, q := range l.h3Requests {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, q...)
+	}
+	return append(out, "]}"...)
 }
 
 func parseTs(s string) int64 {

@@ -39,7 +39,7 @@ func heartbeat(t *testing.T, svc, ver, status string, reasons ...string) []byte 
 
 func TestTracker(t *testing.T) {
 	tr := NewTracker(event.Services, 15*time.Second)
-	for _, s := range []string{"capture", "web", "raw", "store"} {
+	for _, s := range []string{"capture", "web", "raw", "store", "bot"} {
 		if err := tr.Observe(heartbeat(t, s, "1.0.0", event.StatusOK), t0); err != nil {
 			t.Fatal(err)
 		}

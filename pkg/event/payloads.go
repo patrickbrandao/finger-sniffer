@@ -5,6 +5,21 @@ import (
 	"fmt"
 )
 
+// Estágios de fs.v1.store.connection (spec 004 RF-12, ADR 0047).
+const (
+	StageOpened  = "opened"
+	StageUpdated = "updated"
+	StageClosed  = "closed"
+)
+
+// StoreConnection é o payload de fs.v1.store.connection: o Connection da API (sem BLOBs) depois do commit do
+// estágio. ConnectionTruncated marca o registro reduzido para caber em MaxEventBytes.
+type StoreConnection struct {
+	Stage               string          `json:"stage"`
+	ConnectionTruncated bool            `json:"connection_truncated"`
+	Connection          json.RawMessage `json:"connection"`
+}
+
 // Limites de tamanho dos eventos (ADR 0018).
 const (
 	// MaxEventBytes é o teto de qualquer evento JSON publicado.

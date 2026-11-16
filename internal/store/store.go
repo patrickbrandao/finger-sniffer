@@ -150,6 +150,7 @@ type Store struct {
 	openapi []byte
 	certs   *certs.Store // nil quando a 9000 está desligada
 	live    *Hub
+	conns   *connPublisher // fs.v1.store.connection para o bot (ADR 0047)
 	prom    *storeMetrics
 	space   *dbSpace // statfs do tmpfs do banco e modo banco cheio (ADR 0045)
 }
@@ -195,6 +196,10 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.ingest.SetLive(s.live)
 	s.prom = newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, time.Now()) }, s.ingest.flows.open, s.live)
 	s.ingest.SetMetrics(s.prom)
+	// Estado das conexões para o bot (spec 004 RF-12): NATS core, fora do stream.
+	s.conns = newConnPublisher(svc.NC.Publish, version.Version, s.ingest.flows.live)
+	s.ingest.SetConnPublisher(s.conns)
+	s.prom.reg.MustRegister(s.conns.collectors()...)
 	s.prom.registerStream(&s.ingest.stream)
 	s.space = newDBSpace(NewStatfsSpace(cfg.DBPath)).withReserve(cfg.DBPath)
 	if err := s.space.ensureReserve(); err != nil {
@@ -280,7 +285,7 @@ func (s *Store) Run(ctx context.Context) error {
 	defer func() { _ = cid.Unsubscribe() }()
 
 	// O stream é criado em segundo plano (o NATS pode ainda estar subindo); depois começa o ingest.
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		cons := s.ensureStream(ctx)
@@ -293,6 +298,7 @@ func (s *Store) Run(ctx context.Context) error {
 	}()
 	go func() { defer wg.Done(); s.retentionLoop(ctx) }()
 	go func() { defer wg.Done(); s.live.Run(ctx.Done()) }()
+	go func() { defer wg.Done(); s.conns.Run(ctx.Done()) }()
 
 	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom}
 	srv := &http.Server{
