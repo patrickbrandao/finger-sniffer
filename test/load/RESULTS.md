@@ -26,6 +26,9 @@ junto com a rodada de `899ade1` (v0.1.0).
 QUIC 1 490 ms. Todas as outras metas passaram, sem perda no stream. **Aceito pelo humano (2026-11-15) como limite
 conhecido da v0.3.0 (ADR 0043)**; causa provável no IO/fsync do disco da VM, correção na fase F7 (task 248).
 
+**Depois da task 248 (`official-f01d`, 2026-11-16, `v0.3.0-3-g38e4415`): todas as metas passaram** (feed p99
+441 ms, registro p95 TCP 234 / QUIC 236 ms); seção própria abaixo.
+
 Preparo comum a todas as rodadas abaixo: `versions_match` na versão implantada, finger-01 só para a carga
 (`/tmp/fs-load-running` do início ao fim; traefik e qdisc intocados), clientes no Mac (h1/WebSocket por IPv4, h3 por
 IPv6), `QUIC_TARGET=500ms`, vida e mix do `official-50k` (vida 3,8 s, 3 trocas; h1 15, h1 TLS 15, h2 20, h3 20, raw
@@ -43,6 +46,9 @@ echo 10, banner 12, sink 8), vigia de tráfego alheio. Desde os degraus, vigia l
 | [`results/prefill-f01c`](results/prefill-f01c/) | 2026-11-15 21:44:01 | `v0.2.1-83-gaf14a7c` | 200/50, 9 min | pré-aquecimento emendado na janela |
 | [`results/official-f01c`](results/official-f01c/) | 2026-11-15 21:53:37 | `v0.2.1-83-gaf14a7c` | 200/50, 10 min + 1 min | **janela oficial da v0.3.0** |
 | [`results/official-f01c-side`](results/official-f01c-side/) | 21:44:01–22:05:22 | — | — | vigia lateral da `prefill-f01c` e da `official-f01c` |
+| [`results/prefill-f01d`](results/prefill-f01d/) | 2026-11-16 03:02:10 | `v0.3.0-3-g38e4415` | 200/50, 9 min | pré-aquecimento emendado na janela (depois da task 248) |
+| [`results/official-f01d`](results/official-f01d/) | 2026-11-16 03:11:37 | `v0.3.0-3-g38e4415` | 200/50, 10 min + 1 min | **janela oficial depois da task 248: passou** |
+| [`results/official-f01d-side`](results/official-f01d-side/) | 03:02:02–03:22:59 | — | — | vigia lateral da `prefill-f01d` e da `official-f01d` |
 
 ```sh
 test/load/run.sh -commit v0.2.1-75-g1f83ec0                            # official-f01a (padrão de então, 400/100)
@@ -176,6 +182,95 @@ da `prefill-f01c` ao fim da `official-f01c`), `store_mem.txt.gz` (memória, `mem
 do store a cada 5 s), `jsz-{antes,depois}.json` e `db-{antes,depois}.txt`. Os `conntrack-dmesg.txt` saíram vazios
 (sem "table full") e não foram copiados. Fora do Git ficou só o `prefill-f01` (pré-aquecimento da `official-f01a`,
 sem relatório).
+
+### Carga oficial 200/50 depois da task 248 (`official-f01d`, critério de saída da F7 para a 248)
+
+**Resultado: todas as metas passaram** na janela oficial `official-f01d` (`v0.3.0-3-g38e4415`, PR #222 implantado,
+`versions_match`): feed p99 441 ms (era 1 908 ms na `official-f01c`), registro p95 TCP 234 / QUIC 236 ms (eram
+1 465 / 1 490 ms), sem perda no stream. O limite conhecido da ADR 0043 não se repete com o escritor da task 248.
+
+Mesmo procedimento da `official-f01c` (preparo comum acima; perfil padrão do `loadgen`, 200/50): pré-aquecimento
+`prefill-f01d` de 9 min (03:02:10–03:11:10 UTC de 2026-11-16, 30 s de aquecimento) emendado na janela, para o
+expurgo dele rodar dentro dela; banco recém-criado pelo deploy da 248 (8,4 MB no início). Janela: geração
+03:11:37–03:21:37 UTC (medida 03:12:37–03:21:37), expurgo conferido até 03:22:57. Vigia lateral de
+03:02:02 a 03:22:59 UTC, a cada 5 s, rodando no próprio finger-01 (health, `/metrics` do store com as métricas
+novas da 248, memória e pressões do cgroup do store).
+
+```sh
+OUT=test/load/results/prefill-f01d  test/load/run.sh -commit v0.3.0-3-g38e4415 -duration 9m -warmup 30s -retention-check=false
+OUT=test/load/results/official-f01d test/load/run.sh -commit v0.3.0-3-g38e4415
+```
+
+| Meta | Medido (`official-f01d`) | `official-f01c` | Resultado |
+| --- | --- | --- | --- |
+| feed p99 ws / sse < 1 s | p50 88 / p95 263 / p99 441 (sse 442) / máx 1 400 ms | p99 1 908 ms | ok |
+| `stream.dropped` 0 | 0 / 0 | 0 / 0 | ok |
+| API p95 < 100 ms | `/connections/{id}` 24,0 ms, `/probes/{id}` 23,2 ms; 0 erro | 21,3 / 21,0 ms | ok |
+| registro p95 ≤ 500 ms | TCP 234 ms (p99 478, máx 1 011); QUIC 236 ms (p99 525, máx 29 116) | 1 465 / 1 490 ms | ok |
+| probes sem registro 0 | 0 de 30 000; 0 erro no cliente; 0 pulada pelo teto | 0 de 29 999, 1 pulada | ok |
+| `degraded` 0 | 0 | 0 | ok |
+| `dropped_events_total` 0, `kernel_drops` 0 | 0, 0 | 0, 0 | ok |
+| `flows_dropped` sem crescer | Δ 0 (`evicted` e `table_full`) | Δ 0 | ok |
+| `nr_throttled` sem crescer | 0 em todas as units | 0 | ok |
+| `anon` < `MemoryMax` (MiB) | capture 11/512, web 28/768, raw 13/256, dns 3/256, store 78/2048, nats 180/1024 | store 81/2048 | ok |
+| maior frame ≤ 1514 | 1514, `offload_suspect` 0 | 1514, 0 | ok |
+| expurgo depois de 10 min | 20 primeiros 404; ~9 min 20 presentes | igual | ok |
+| `stream_lost` Δ 0 (pré-aquecimento → fim) | 0 → 0 (Δ 0) | Δ 0 | ok |
+| health do store sem `ingest backlog`/`stream lost` | 0 amostras fora de `ok` em 250 (03:02:02–03:22:59) | 0 em 257 | ok |
+
+Pré-aquecimento (`prefill-f01d`, sem meta oficial; gate ok: `stream_lost` Δ 0, health sempre `ok`, backlog máx
+0,056 s): feed p99 379 ms, registro p95 TCP 231 / QUIC 232 ms, API p95 20,8 / 22,3 ms; **1 probe h3 sem registro**
+de 27 000 (`ldajgdbd0x6o3y9z`, t=221 s ≈ 03:05:51 UTC, 3 trocas sem erro no cliente; já expurgado quando foi
+notado, causa não investigada). O máx QUIC de ~29 s (um registro por rodada, também na `prefill-f01d`) é o caso
+de sempre do `CONNECTION_CLOSE` que não chega e o fluxo fecha por ociosidade.
+
+**Sem meta.**
+- CPU (% de um núcleo, média/p95/máx): store 24,3/28,3/39,5 (pré-aquecimento 22,8/25,5/31,3); web 20,1, nats 8,0,
+  raw 3,6, capture 3,2, dns 0,1 de média; host 64/77/95% de um núcleo (4,0% dos 16 vCPU, steal 0,0).
+- Ingest: backlog máx 0,224 s na janela (0,056 s no pré-aquecimento), pendentes máx 110 (933 na `f01c`); avulsos
+  ~0,6/s, meio de fluxo 0. Decomposição na janela (p50/p95/p99 ms): `ingest_lag` 81/156/776, `live_delay`
+  77/282/564, `record_ready{close}` 90/158/472, `record_ready{quic_close}` 177/308/526.
+- Feed por segundo (`feed_delay_by_second.csv`): 1 dos 680 segundos com p50 > 500 ms (96 de 679 na `f01c`); as
+  paradas periódicas de ~6 s da ADR 0043 não aparecem.
+- Memória do store (cgroup, a cada 5 s, `store_mem.txt.gz`): `memory.current` 13 → 1 245 MiB no pré-aquecimento,
+  1 270–1 354 MiB na janela (`file` 1 158–1 241, `anon` 75–78) contra o `MemoryMax` de 2 048; `memory.events`
+  high/max/oom 0 → 0; `pgscan`, `pgsteal` e `workingset_refault_file` 0 do início ao fim; `memory.pressure` some
+  e full avg10 0,00 o tempo todo.
+- `io.pressure` do store: full avg10 3,6–13,0% (média 8,4) no pré-aquecimento e **11,9–28,5% (média 20,2) na
+  janela**; pelo `total`, 9,1% e 20,8% do tempo com todas as tarefas paradas em IO. O disco continua lento (igual à
+  `f01c`, 18–32%), mas a espera deixou de travar o caminho do feed.
+- Banco (`db-antes.txt`, `db-depois.txt`, horários do servidor em UTC−5): `finger-sniffer.sqlite` 8,4 MB →
+  1 205,0 MB; WAL 0,5 MB → 64 MiB; `fs_store_db_bytes` 1 223–1 309 MB na janela. Expurgo: `purged_total{age}`
+  Δ 25 882 na janela (31 000 no total), `size` 0.
+- `fs_store_packet_spills_total`: nunca apareceu no `/metrics` (0 transbordos para a tabela `packets`).
+- `fs_store_wal_frames`: 693–36 458 na janela (179–32 690 no pré-aquecimento).
+
+Durações do escritor (`fs_store_writer_seconds{op}`, Δ do histograma; p* = limite superior do bucket, máx = faixa do
+maior bucket com contagem):
+
+| op | pré-aquecimento n / média / p95 / p99 / máx (ms) | janela n / média / p95 / p99 / máx (ms) |
+| --- | --- | --- |
+| `ingest_tx` | 4 479 / 11,3 / ≤ 13,6 / ≤ 50,8 / 368–713 | 4 727 / 13,0 / ≤ 26,3 / ≤ 98,4 / 713–1 380 |
+| `ingest_commit` | 4 479 / 1,5 / ≤ 1,9 / ≤ 50,8 / 98–190 | 4 727 / 2,0 / ≤ 1,9 / ≤ 50,8 / 368–713 |
+| `finalize_tx` | 4 434 / 2,1 / ≤ 3,6 / ≤ 7,0 / 190–368 | 4 669 / 2,8 / ≤ 7,0 / ≤ 13,6 / 368–713 |
+| `purge_delete` | 2 005 / 0,8 / ≤ 1,0 / ≤ 13,6 / 98–190 | 2 071 / 2,9 / ≤ 13,6 / ≤ 98,4 / 98–190 |
+| `purge_vacuum` | 0 | 0 |
+| `wal_checkpoint` | 545 / 240 / ≤ 713 / ≤ 1 380 / 713–1 380 | 563 / 425 / ≤ 2 670 / ≤ 2 670 / 1 380–2 670 |
+| `wal_restart` | 19 / 298 / ≤ 713 / ≤ 713 / 368–713 | 24 / 450 / ≤ 1 380 / ≤ 1 380 / 713–1 380 |
+
+Leitura: o checkpoint continua lento no disco desta VM (até 1,4–2,7 s na janela, com o expurgo), mas agora roda
+fora do `COMMIT`; o `ingest_commit` fica em p95 ≤ 1,9 ms e só raras transações de ingest passam de 0,7 s, o que
+explica o máx de 1,4 s do feed sem levar o p99 acima de 0,5 s.
+
+**Brutos** (como nas rodadas anteriores): em `prefill-f01d` e `official-f01d`, `summary.md`, `summary.json`,
+`timeline.csv`, `feed_delay_by_second.csv`, `cpu_mem_by_second.csv`, `metrics_{start,warm,end}.prom`,
+`conntrack-{antes,depois}.txt`, `run.txt` (log do gerador, horários locais UTC−3) e, em gzip, `conns.csv.gz`,
+`cgroup.csv.gz` e `gen.json.gz`; em `official-f01d-side`, `health_watch.jsonl.gz` (health do store a cada 5 s),
+`metrics.txt.gz` (`/metrics` do store a cada 5 s: `fs_store_writer_seconds`, `fs_store_wal_frames`,
+`fs_store_packet_spills_total`, `stream_lost`, backlog, pendentes, avulsos, `flows_dropped`, `db_bytes`, `purged`,
+somas de `record_ready`/`ingest_lag`/`live_delay`), `store_mem.txt.gz` (memória, `memory.events`, `memory.stat`,
+pressões e `cpu.stat` do store a cada 5 s), `jsz-{antes,depois}.json` e `db-{antes,depois}.txt`. Os
+`conntrack-dmesg.txt` saíram vazios e não foram copiados.
 
 ### Orçamento de entrada do web (task 215, quarta rodada)
 
