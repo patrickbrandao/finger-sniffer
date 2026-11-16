@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.6.1
+  version: 0.6.2
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 128 MiB — ADRs 0016 e 0039) assina a lista explícita de subjects de eventos
@@ -35,7 +35,8 @@ info:
     `status` 0 no `HTTP2Stream`, de `probe_line` no `RawInfo` e de `rate_limited` no `DNSQuery`; 0.5.1, documental, com
     o openapi 0.6.1, ADRs 0038 e 0039: stream de 128 MiB e zona `finger-west-01.badblock.net.br` nos exemplos;
     0.6.0, aditivo, ADR 0047: canal `fs.v1.store.connection` publicado pelo store e serviço `bot` no envelope e
-    no heartbeat; nenhum payload do openapi do store mudou).
+    no heartbeat; nenhum payload do openapi do store mudou; 0.6.1, documental, ADR 0056: métricas com rótulos no
+    heartbeat; 0.6.2, documental, ADR 0057: o bucket `+Inf` dos histogramas não é enviado).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -357,7 +358,8 @@ components:
           description: |
             Contadores e medidas para o /metrics agregado (ex. dropped_events_total). A chave pode trazer rótulos no
             formato Prometheus, `nome{rotulo="valor",...}` (rótulos `[a-z_]+`, valores `[A-Za-z0-9_.:/-]{1,64}`);
-            histograma vai como as séries cumulativas `nome_bucket{le="..."}`, `nome_sum` e `nome_count`. O store
+            histograma vai como as séries cumulativas `nome_bucket{le="..."}` (só limites finitos: o bucket `+Inf` não
+            é enviado, o store o tira de `nome_count`; ADR 0057 item 3), `nome_sum` e `nome_count`. O store
             republica `fs_<nome>{service,<rótulos>}`; chave malformada é ignorada e contada; até 512 chaves por
             heartbeat (ADR 0056 item 4).
           additionalProperties: { type: number }

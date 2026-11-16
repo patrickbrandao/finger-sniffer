@@ -1,1 +1,0 @@
-- bot: motor de regras v1.0 do veredito em `internal/bot/rules` (pacote puro): famílias/versão/SO do `User-Agent` com robôs da ADR 0050, os 17 sinais e pesos da spec 018, combinação e classes da ADR 0049, consultas às listas como interfaces e goldens de curl, Go, python-requests, Chrome, Firefox, Chrome headless e Googlebot falso (task 276).
