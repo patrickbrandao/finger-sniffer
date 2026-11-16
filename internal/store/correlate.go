@@ -418,6 +418,7 @@ func (in *Ingestor) setEventOnly(k flowKey, eo *eventOnlyConn) {
 
 // beginBatch guarda o que o rollback do lote precisa repor (ADR 0034): a fila de eventos pendentes.
 func (in *Ingestor) beginBatch() {
+	in.pktSerial++
 	in.pendSnap = slices.Clip(in.pending)
 	in.pendKeysSnap = maps.Clone(in.pendingKeys)
 	in.batchCreated = in.batchCreated[:0]
@@ -439,6 +440,7 @@ func (in *Ingestor) commitBatch() {
 	in.batchCreated = in.batchCreated[:0]
 	in.eoUndo = in.eoUndo[:0]
 	clear(in.batchApp)
+	in.commitPkts()
 }
 
 // discardBatchState desfaz o estado em memória que dependia do lote cuja transação foi desfeita; as mensagens
@@ -454,6 +456,7 @@ func (in *Ingestor) commitBatch() {
 // Limitação aceita: a análise IP/TCP e os contadores das conexões que já existiam contam de novo os pacotes
 // reentregues.
 func (in *Ingestor) discardBatchState() {
+	in.discardPkts()
 	clear(in.dirty)
 	clear(in.late)
 	in.liveBatch = nil

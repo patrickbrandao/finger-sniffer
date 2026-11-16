@@ -39,24 +39,30 @@ func processErr(in *Ingestor, msgs ...fakeMsg) error {
 }
 
 // TestPacketSQLErrorAbortsBatch: erro de SQL de um pacote não é "lote ruim": a transação inteira é desfeita
-// (Nak) e a conexão seguinte do mesmo lote não fica gravada pela metade.
+// (Nak), a conexão seguinte do mesmo lote não fica gravada pela metade e os pacotes do lote saem do buffer em
+// memória (task 248).
 func TestPacketSQLErrorAbortsBatch(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	run(t, in, 30, batch(client, mirror, protoTCP, fullTCP[:3]))
-	if _, err := db.Exec("DELETE FROM connections"); err != nil {
-		t.Fatal(err)
-	}
 	m := batch(client, mirror, protoTCP, fullTCP[3:4])
 	m2 := batch(client2, mirror, protoTCP, fullTCP[:3])
 	m.data = append(m.data, m2.data...)
+	drop := failOn(t, db, "connections") // o INSERT da conexão nova falha depois do pacote da primeira
 	if err := processErr(in, m); err == nil {
 		t.Fatal("SQL error must abort the batch")
 	}
 	if in.metrics.Get("store_bad_batches_total") != 0 {
 		t.Fatal("SQL error counted as bad batch")
 	}
-	if count(t, db, "SELECT count(*) FROM connections") != 0 || count(t, db, "SELECT count(*) FROM packets") != 0 {
-		t.Fatal("rolled back batch left rows")
+	if count(t, db, "SELECT count(*) FROM connections") != 1 || pktCount(t, in, db) != 3 || in.pktMem != 3*pktOverhead+frameBytes(fullTCP[:3]) {
+		t.Fatalf("rolled back batch left rows or buffered packets: %d packets, %d bytes", pktCount(t, in, db), in.pktMem)
+	}
+	drop()
+	if err := processErr(in, m); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, db, "SELECT count(*) FROM connections") != 2 || pktCount(t, in, db) != 7 {
+		t.Fatalf("redelivery: %d packets", pktCount(t, in, db))
 	}
 }
 
@@ -85,8 +91,8 @@ func TestRollbackReinsertsConnection(t *testing.T) {
 	if got, _ := onlyConn(t, db); got != id {
 		t.Fatalf("conn_id %s, want the one from the failed batch %s", got, id)
 	}
-	if count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NULL") != 1 || count(t, db, "SELECT count(*) FROM packets") != 3 {
-		t.Fatalf("connections %d packets %d", count(t, db, "SELECT count(*) FROM connections"), count(t, db, "SELECT count(*) FROM packets"))
+	if count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NULL") != 1 || pktCount(t, in, db) != 3 {
+		t.Fatalf("connections %d packets %d", count(t, db, "SELECT count(*) FROM connections"), pktCount(t, in, db))
 	}
 	if in.metrics.Get("store_connections_total") != 1 {
 		t.Fatalf("connections_total %v", in.metrics.Get("store_connections_total"))
@@ -215,7 +221,7 @@ func TestFinalizeAfterCommitNoNak(t *testing.T) {
 	if err := processErr(in, batch(client, mirror, protoTCP, reuse)); err != nil {
 		t.Fatalf("error after commit must not fail the batch: %v", err)
 	}
-	if count(t, db, "SELECT count(*) FROM packets") != len(reuse) || count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NULL") != 2 {
+	if pktCount(t, in, db) != len(reuse) || count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NULL") != 2 {
 		t.Fatal("batch must be stored once")
 	}
 	drop()
@@ -223,7 +229,7 @@ func TestFinalizeAfterCommitNoNak(t *testing.T) {
 		t.Fatal(err)
 	}
 	if count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NOT NULL") != 1 || count(t, db, "SELECT count(*) FROM pcaps") != 1 ||
-		count(t, db, "SELECT count(*) FROM packets") != 2 {
+		pktCount(t, in, db) != 2 {
 		t.Fatal("old connection must be finalized on retry")
 	}
 }
@@ -282,7 +288,7 @@ func TestPacketBatchHeaders(t *testing.T) {
 	if err := processErr(in, withHeaders(m, event.FSPBFormat, "1", "4")); err != nil {
 		t.Fatal(err)
 	}
-	if count(t, db, "SELECT count(*) FROM packets") != 3 || in.metrics.Get("store_batch_count_mismatch_total") != 1 || in.metrics.Get("store_bad_batches_total") != 0 {
+	if pktCount(t, in, db) != 3 || in.metrics.Get("store_batch_count_mismatch_total") != 1 || in.metrics.Get("store_bad_batches_total") != 0 {
 		t.Fatal("count mismatch must only warn")
 	}
 	if err := processErr(in, batch(client2, mirror, protoTCP, fullTCP[:3])); err != nil {

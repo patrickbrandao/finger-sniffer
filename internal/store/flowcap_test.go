@@ -140,7 +140,7 @@ func TestIngestEvictionDeletesRow(t *testing.T) {
 	}
 	run(t, in, 0, batch(srcN(4), mirror, protoTCP, fullTCP[:3]))
 	if count(t, db, "SELECT count(*) FROM connections") != 2 || count(t, db, "SELECT count(*) FROM stray_packets") != 0 ||
-		count(t, db, "SELECT count(*) FROM packets") != 6 {
+		pktCount(t, in, db) != 6 {
 		t.Fatal("refused 5-tuple must store nothing")
 	}
 }

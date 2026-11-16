@@ -94,6 +94,8 @@ type conn struct {
 	// suspect: o fluxo estava aberto quando um salto de sequência do stream revelou mensagens perdidas e não viu
 	// pacote desde então; vence na ociosidade do meio-aberto (ADR 0041 item 4). Um pacote novo tira a marca.
 	suspect bool
+	// buf são os pacotes ainda não gravados em packets (task 248, pktbuf.go).
+	buf pktBuf
 }
 
 // dataSeg é um segmento com dados, guardado para medir a ociosidade antes do fechamento.
@@ -276,7 +278,7 @@ type flowTable struct {
 	byID   map[string]*conn
 	// finalizing são as conexões que saíram da tabela e esperam a finalização no ingest (ADR 0034): a linha
 	// delas ainda tem ended_ns nulo, mas não é órfã (Retention.Tracked).
-	finalizing map[string]struct{}
+	finalizing map[string]*conn
 	// hidden são as conexões abertas de um probe apagado pelo DELETE (ADR 0034 item 8): a linha já saiu do banco
 	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
 	hidden     map[string]struct{}
@@ -315,7 +317,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 	}
 	return &flowTable{
 		quicIdle: quicIdle, maxFlows: maxFlows, half: list.New(),
-		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]struct{}{}, hidden: map[string]struct{}{},
+		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]*conn{}, hidden: map[string]struct{}{},
 		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
@@ -474,7 +476,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	}
 	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
 		t.drop(k, c)
-		t.finalizing[c.id] = struct{}{}
+		t.finalizing[c.id] = c
 		t.finish(c)
 		res.ended, c = c, nil
 	}
@@ -630,7 +632,7 @@ func (t *flowTable) due(now int64) []*conn {
 		if (c.closing() && now >= c.closeAt) || now-c.lastSeen > idle.Nanoseconds() {
 			out = append(out, c)
 			t.drop(k, c)
-			t.finalizing[c.id] = struct{}{}
+			t.finalizing[c.id] = c
 			t.finish(c)
 			if c.isStray() {
 				t.refund(c)

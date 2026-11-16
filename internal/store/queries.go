@@ -38,8 +38,17 @@ type Queries struct {
 	// openSummary, se definido, dá o resumo ao vivo de uma conexão aberta sem montar o registro inteiro; sem ele,
 	// a lista usa live (task 176).
 	openSummary func(id string) (summaryJSON, bool)
+	// livePcap, se definido, monta o pcap parcial de uma conexão aberta a partir da memória do ingest (task 248).
+	livePcap func(id string, snaplen uint32) ([]byte, int, bool)
 	// hide e unhide avisam o ingest das conexões abertas de um probe apagado (SetHideOpen).
 	hide, unhide func(ids []string)
+}
+
+// WithLivePcap liga o acessor do pcap parcial das conexões abertas, cujos pacotes ficam na memória do ingest
+// (task 248).
+func (q *Queries) WithLivePcap(f func(id string, snaplen uint32) ([]byte, int, bool)) *Queries {
+	q.livePcap = f
+	return q
 }
 
 // WithOpenSummary liga o acessor de resumo ao vivo usado por /connections.
@@ -311,6 +320,19 @@ func (q *Queries) Pcap(ctx context.Context, id string) ([]byte, error) {
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
+	}
+	// Conexão aberta: os pacotes estão na memória do ingest ou, se ela passou para a tabela, em packets.
+	if q.livePcap != nil {
+		if pcap, n, ok := q.livePcap(id, q.snaplen); ok {
+			if n == 0 {
+				return nil, ErrNotFound
+			}
+			return pcap, nil
+		}
+		// A finalização pode ter gravado o pcap e liberado a memória entre as duas leituras.
+		if err := q.db.QueryRowContext(ctx, "SELECT data FROM pcaps WHERE conn_id = ?", id).Scan(&data); err == nil {
+			return data, nil
+		}
 	}
 	rows, err := q.db.QueryContext(ctx, "SELECT ts_ns, wire_len, frame FROM packets WHERE conn_id = ? ORDER BY id", id)
 	if err != nil {

@@ -193,7 +193,8 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.prom = newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, time.Now()) }, s.ingest.flows.open, s.live)
 	s.ingest.SetMetrics(s.prom)
 	s.prom.registerStream(&s.ingest.stream)
-	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen).WithOpenSummary(s.ingest.flows.openSummary)
+	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen).WithOpenSummary(s.ingest.flows.openSummary).
+		WithLivePcap(s.ingest.flows.livePcap)
 	s.queries.SetHideOpen(s.ingest.flows.hide, s.ingest.flows.unhide)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
 	// O estado dos certificados da 9000 também conta (spec 015 RF-05: autoassinado ou expirando = degraded).
@@ -382,7 +383,8 @@ func (s *Store) ensureStream(ctx context.Context) jetstream.Consumer {
 func (s *Store) retentionLoop(ctx context.Context) {
 	r := NewRetention(s.db, s.cfg.RetentionDur, s.cfg.MaxBytes)
 	r.OnPurge = s.prom.purge
-	r.Budget = DefaultRetentionBudget
+	r.Observe = s.prom.writerOp
+	r.Budget, r.StepTarget = DefaultRetentionBudget, DefaultRetentionStep
 	r.Tracked, r.OrphanIdle = s.ingest.flows.tracked, s.cfg.Ingest.TCPIdle
 	t := time.NewTicker(RetentionInterval)
 	defer t.Stop()
@@ -391,15 +393,25 @@ func (s *Store) retentionLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n, err := r.RunOnce(ctx, time.Now())
-			if err != nil && ctx.Err() == nil {
-				s.svc.Log.Warn("retention", "err", err)
+			n, frames, rerr, cerr := maintain(ctx, r, s.db, s.cdb, s.cfg.DBPath, time.Now(), s.prom.writerOp)
+			if rerr != nil && ctx.Err() == nil {
+				s.svc.Log.Warn("retention", "err", rerr)
 			}
-			if _, _, err := Checkpoint(ctx, s.cdb); err != nil && ctx.Err() == nil {
-				s.svc.Log.Warn("wal checkpoint", "err", err)
+			if cerr != nil && ctx.Err() == nil {
+				s.svc.Log.Warn("wal checkpoint", "err", cerr)
 			}
+			s.prom.wal(frames)
 			s.svc.Metrics.Add("store_expunged_total", float64(n))
 			s.svc.Metrics.Set("store_db_bytes", float64(dbFileSize(s.cfg.DBPath)))
 		}
 	}
+}
+
+// maintain é uma rodada do laço do store: expurgo com orçamento e checkpoint do WAL fora do escritor, com o
+// recomeço do WAL quando ele passa de WALRestartFrames (task 248). Devolve as conexões expurgadas e os quadros
+// no WAL.
+func maintain(ctx context.Context, r *Retention, db, cdb *sql.DB, path string, now time.Time, obs func(string, time.Duration)) (purged, frames int64, rerr, cerr error) {
+	purged, rerr = r.RunOnce(ctx, now)
+	frames, cerr = CheckpointRestart(ctx, db, cdb, path, WALRestartFrames, obs)
+	return purged, frames, rerr, cerr
 }

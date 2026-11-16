@@ -15,6 +15,11 @@ import (
 const (
 	// DefaultRetentionBatch é o máximo de conexões apagadas por comando (com BLOBs e eventos, em cascata).
 	DefaultRetentionBatch = 100
+	// DefaultRetentionStep é o prazo de cada passo (um DELETE em lote) do expurgo de conexões (Retention.adapt,
+	// task 248).
+	DefaultRetentionStep = 25 * time.Millisecond
+	// minRetentionBatch é o menor lote a que o prazo por passo reduz o expurgo de conexões.
+	minRetentionBatch = 10
 	// DefaultRetentionBudget é o tempo máximo de uma rodada do laço do store.
 	DefaultRetentionBudget = 100 * time.Millisecond
 	// RetentionInterval é o intervalo entre rodadas do laço do store.
@@ -37,12 +42,18 @@ type Retention struct {
 	db       *sql.DB
 	maxAge   time.Duration
 	maxBytes int64
-	batch    int
+	batch    int // lote corrente do expurgo de conexões (adapt), entre minRetentionBatch e maxBatch
+	maxBatch int
 	// Budget limita o tempo de uma chamada de RunOnce (0 = até acabar o que venceu). Passado o orçamento, a
 	// rodada para no fim do lote corrente e o restante fica para a próxima.
 	Budget time.Duration
+	// StepTarget é o prazo de cada DELETE em lote de conexões (0 = lote fixo): ver adapt.
+	StepTarget time.Duration
 	// OnPurge, se definido, recebe as conexões expurgadas por motivo (age ou size).
 	OnPurge func(reason string, n int64)
+	// Observe, se definido, recebe a duração de cada comando de escrita do expurgo: opPurgeDelete (um DELETE em
+	// lote) e opPurgeVacuum (incremental_vacuum) (task 248).
+	Observe func(op string, d time.Duration)
 	// Tracked, se definido, diz se um conn_id está na memória do ingest (aberto ou à espera da finalização).
 	// Liga o expurgo de órfãs (ADR 0034): linha com ended_ns nulo, fora da memória e com started_ns mais velho
 	// que maxAge + OrphanIdle, que nenhuma finalização vai fechar.
@@ -55,7 +66,7 @@ type Retention struct {
 
 // NewRetention cria o expurgador, sem orçamento (o laço do store define Budget).
 func NewRetention(db *sql.DB, maxAge time.Duration, maxBytes int64) *Retention {
-	return &Retention{db: db, maxAge: maxAge, maxBytes: maxBytes, batch: DefaultRetentionBatch, now: time.Now}
+	return &Retention{db: db, maxAge: maxAge, maxBytes: maxBytes, batch: DefaultRetentionBatch, maxBatch: DefaultRetentionBatch, now: time.Now}
 }
 
 // RunOnce expurga e devolve quantas conexões saíram. Só conexões já encerradas são apagadas: as abertas estão
@@ -68,13 +79,16 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 	cut := now.Add(-r.maxAge).UnixNano()
 	var total int64
 	for {
-		n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE started_ns < ? AND ended_ns IS NOT NULL AND ended_ns < ? ORDER BY started_ns LIMIT ?)", cut, cut, r.batch)
+		batch := r.batch
+		t0 := time.Now() // o prazo por passo usa o relógio real (r.now é o do orçamento)
+		n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE started_ns < ? AND ended_ns IS NOT NULL AND ended_ns < ? ORDER BY started_ns LIMIT ?)", cut, cut, batch)
 		if err != nil {
 			return total, err
 		}
+		r.adapt(time.Since(t0))
 		total += n
 		r.purged("age", n)
-		if n < int64(r.batch) {
+		if n < int64(batch) {
 			break
 		}
 		if over() {
@@ -248,7 +262,9 @@ func (r *Retention) vacuum(ctx context.Context) error {
 	if !needVacuum(pages, free) {
 		return nil
 	}
+	t0 := time.Now()
 	_, err := r.db.ExecContext(ctx, "PRAGMA incremental_vacuum("+strconv.Itoa(vacuumPages)+")")
+	r.observe(opPurgeVacuum, t0)
 	return err
 }
 
@@ -257,14 +273,35 @@ func needVacuum(pages, free int64) bool {
 	return free >= vacuumMinFree && free*vacuumFreeRatio >= pages
 }
 
+// adapt ajusta o lote do expurgo de conexões ao prazo por passo (task 248): o passo que segurou o escritor por
+// mais que StepTarget divide o lote por 2 (até minRetentionBatch); o que levou menos de 1/4 dele dobra o lote,
+// até o máximo do NewRetention. Um disco lento (fsync, cache frio) encolhe os passos em vez de alongá-los.
+func (r *Retention) adapt(d time.Duration) {
+	switch {
+	case r.StepTarget <= 0:
+	case d > r.StepTarget:
+		r.batch = max(r.batch/2, minRetentionBatch)
+	case d < r.StepTarget/4:
+		r.batch = min(r.batch*2, r.maxBatch)
+	}
+}
+
 func (r *Retention) purged(reason string, n int64) {
 	if r.OnPurge != nil && n > 0 {
 		r.OnPurge(reason, n)
 	}
 }
 
+func (r *Retention) observe(op string, t0 time.Time) {
+	if r.Observe != nil {
+		r.Observe(op, time.Since(t0))
+	}
+}
+
 func (r *Retention) exec(ctx context.Context, q string, args ...any) (int64, error) {
+	t0 := time.Now()
 	res, err := r.db.ExecContext(ctx, q, args...)
+	r.observe(opPurgeDelete, t0)
 	if err != nil {
 		return 0, err
 	}
@@ -285,3 +322,14 @@ func (r *Retention) logicalSize(ctx context.Context) (int64, error) {
 	}
 	return (pages - free) * size, nil
 }
+
+// Operações do escritor medidas em fs_store_writer_seconds{op} (task 248).
+const (
+	opIngestTx     = "ingest_tx"      // transação de um lote do ingest, do BEGIN ao fim do COMMIT
+	opIngestCommit = "ingest_commit"  // só o COMMIT do lote (onde cai o checkpoint automático do WAL)
+	opFinalizeTx   = "finalize_tx"    // transação da finalização (pcap, registro final)
+	opPurgeDelete  = "purge_delete"   // um DELETE em lote do expurgo
+	opPurgeVacuum  = "purge_vacuum"   // um incremental_vacuum do expurgo
+	opCheckpoint   = "wal_checkpoint" // checkpoint PASSIVE da conexão própria (fora do escritor)
+	opWALRestart   = "wal_restart"    // última passada do checkpoint, com o escritor parado (CheckpointRestart)
+)
