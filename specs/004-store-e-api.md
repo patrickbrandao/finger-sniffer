@@ -46,6 +46,13 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   ou 2 s), checkpoint `TRUNCATE` e uma nova tentativa; se falhar, **modo banco cheio** (conexões novas sem pcap e
   sem bytes crus, `degraded=true`) até o livre voltar a 15%; lote que falha até sem BLOBs é confirmado e
   descartado com métrica, nunca `Nak` em laço (ADR 0045).
+  - **Reserva de espaço** (ADR 0045, adendo): o store mantém ao lado do banco um arquivo de 32 MiB,
+    `<FS_STORE_DB>-reserve` (escrito de verdade, não esparso, modo `0600`), criado na partida e recriado depois de
+    cada rodada de manutenção só com o livre do tmpfs, descontada a reserva, em ≥ 15% e fora do modo banco cheio.
+    Com o tmpfs cheio de verdade o `DELETE` e o checkpoint também dão `SQLITE_FULL`; por isso o expurgo de
+    emergência apaga a reserva **antes** de tudo, faz checkpoint `TRUNCATE` antes de começar, **depois de cada
+    passo** de `DELETE` e no fim (corta o WAL e o arquivo do banco). Checkpoint que não roda (leitor longo) não
+    interrompe o expurgo. A reserva conta no `statfs` do tmpfs, não em `FS_STORE_MAX_BYTES`.
 - RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
   e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês. Escuta em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`
   e em `127.0.0.1` (diagnóstico local), nunca em `*` (ADR 0001, ADR 0023).
@@ -63,7 +70,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 1000) conexões simultâneas ou
   `FS_MAX_NEW_CONNS_PER_S` (padrão 250) novas/s, mantém o resumo, para de guardar pcap/bytes crus das novas
-  conexões e marca `degraded=true`. A garantia continua a da spec 000 (200 e 50/s com análise completa, ADR 0042); o padrão
+  conexões e marca `degraded=true`. A garantia continua a da spec 000 (400 e 100/s com análise completa, ADR
+  0046); o padrão
   fica acima dela, com margem para o tráfego alheio de um servidor público e dos sites do host, que também é
   capturado (ADRs 0030 e 0039). Contagem (ADR 0026):
   - simultâneas = conexões TCP e QUIC vivas, de qualquer cliente; as já fechadas (FIN dos dois lados ou RST) que
@@ -312,7 +320,7 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
       `close`, com `close.how = quic_close`; datagramas tardios entram no mesmo registro (ADR 0026).
 - [ ] FIN dos dois lados com ACK final fecha o registro no ACK; sem ACK, depois de `FS_TCP_CLOSE_GRACE`; RST fecha
       na hora; ACK/RST tardio até 2 s entra no registro gravado, sem conexão nova nem avulso.
-- [ ] Com os padrões (1000/250), o perfil do RNF-01 (200 vivas, 50 novas/s com jitter, consultas DNS, varreduras
+- [ ] Com os padrões (1000/250), o perfil do RNF-01 (400 vivas, 100 novas/s com jitter, consultas DNS, varreduras
       e algumas dezenas de conexões alheias por cima) não marca `degraded`; excesso sustentado acima de
       `FS_MAX_CONNS` vivas ou de `FS_MAX_NEW_CONNS_PER_S` novas/s marca (ADR 0030).
 - [ ] Conexão aberta não grava linhas em `packets` abaixo de 1 MiB; o `/pcap` dela durante a conexão e depois de
@@ -341,3 +349,5 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
 - specs/decisions/0041-ingest-atrasado-relogio-e-lacunas.md
 - specs/decisions/0043-limite-conhecido-da-v0-3-0-no-finger-01.md
+- specs/decisions/0045-banco-do-store-em-ram.md
+- specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md

@@ -73,18 +73,18 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - Privacidade: API totalmente aberta; tráfego de terceiros visível por até 10 min (ADR 0007).
 
 ## Requisitos
-- RNF-01: 200 conexões simultâneas e 50 conexões novas/s com análise completa (ADR 0042; 400/100 é a meta da fase
-  F7). Acima do limite do modo degradado (configurável, padrão acima desta garantia para absorver
-  o tráfego alheio; spec 004 RF-11, ADRs 0030 e 0039) degrada:
+- RNF-01: 400 conexões simultâneas e 100 conexões novas/s com análise completa (ADR 0046, provado na carga
+  oficial da F7 no finger-01 com o banco do store em RAM, ADR 0045; a `v0.3.0` saiu com 200/50, ADR 0042). Acima
+  do limite do modo degradado (configurável, padrão acima desta garantia para absorver o tráfego alheio; spec 004 RF-11, ADRs 0030 e 0039) degrada:
   mantém o resumo, corta o pcap e marca `degraded` no registro.
 - RNF-02: evento ao vivo entregue ao cliente da 9000 em < 1 s após o espelho ter o fato (o pacote chegar ou o
   evento de aplicação ser publicado; `ts` do evento, ADR 0025).
 - RNF-03: `GET` de conexão ou probe com p95 < 100 ms.
 - RNF-04: registro completo disponível em ≤ 500 ms após o fim da conexão (p95), TCP e QUIC; no QUIC, o fim é o
   CONNECTION_CLOSE visto pelo web (ADR 0026).
-- Limite conhecido da `v0.3.0` (ADR 0043, decisão do humano): no finger-01, a carga oficial 200/50 cumpre RNF-01 e
-  RNF-03 sem perda, mas não RNF-02 nem RNF-04 (feed p99 1,9 s, registro p95 ~1,5 s) por causa da IO do disco da VM;
-  as metas ficam e a correção é da fase F7.
+- Limite conhecido da `v0.3.0` (ADR 0043, decisão do humano): no finger-01, a carga oficial 200/50 cumpriu RNF-01 e
+  RNF-03 sem perda, mas não RNF-02 nem RNF-04 (feed p99 1,9 s, registro p95 ~1,5 s) por causa da IO do disco da VM.
+  **Resolvido na F7** (ADRs 0045 e 0046): a 400/100, feed p99 352 ms e registro p95 TCP 193 / QUIC 188 ms.
 - RNF-05: retenção padrão de 10 min (`FS_RETENTION`) e teto de 3 GiB (`FS_STORE_MAX_BYTES`, ADR 0045; banco num tmpfs de 4G, perdido no reinício do host); o primeiro limite
   atingido expurga o mais antigo.
 - RNF-06: tempos em UTC com nanossegundos; relógio sincronizado por NTP.
@@ -104,3 +104,5 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
 - specs/decisions/0042-rnf-01-200-50-na-v0-3-0.md
 - specs/decisions/0043-limite-conhecido-da-v0-3-0-no-finger-01.md
+- specs/decisions/0045-banco-do-store-em-ram.md
+- specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md

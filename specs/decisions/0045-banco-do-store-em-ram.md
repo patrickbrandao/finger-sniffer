@@ -1,6 +1,6 @@
 # 0045 — Banco do store em RAM (tmpfs dedicado) e limites de memória para 400/100
 
-Status: aceita
+Status: aceita (adendo de 2026-11-16: reserva de espaço e checkpoint TRUNCATE no expurgo de emergência; prova na carga 247, ver 0046)
 Data: 2026-11-16
 
 ## Contexto
@@ -127,3 +127,29 @@ reinício do host não fere nenhum requisito, e a privacidade melhora (nada vai 
   RF-06/RF-07 e layout, spec 001 (falhas) atualizadas nesta ADR.
 - Altera: ADR 0039 (itens 1, 2 e 5: fatia 10G, store 6G/1536MiB, `FS_STORE_MAX_BYTES` 3 GiB), ADR 0043 (a
   correção escolhida é esta), ADR 0005 (banco em RAM, sem durabilidade em disco). A ADR 0042 (400/100 na F7) fica.
+
+## Adendo (2026-11-16): reserva de espaço e checkpoint por passo no expurgo de emergência
+Fato novo da task 255 (PRs #229 e #230): num tmpfs cheio de verdade (medido num tmpfs de 32 MiB), o expurgo de
+emergência do item 5 não conseguia rodar. O `DELETE` precisa de quadros novos no WAL e o checkpoint precisa de
+páginas novas no arquivo do banco; com zero bytes livres os dois davam `SQLITE_FULL`, e o store ficaria no modo banco
+cheio sem conseguir sair dele. A implementação acrescentou dois mecanismos que esta ADR não previa; ficam como parte
+da decisão (item 5):
+1. **Reserva de espaço**: um arquivo de **32 MiB** ao lado do banco, `<FS_STORE_DB>-reserve`
+   (`/finger-sniffer/var/store/finger-sniffer.sqlite-reserve`), escrito de verdade (não esparso, para ocupar páginas
+   do tmpfs), dono do store, modo `0600`.
+   - É criado na partida do store e recriado pelo laço do store depois de cada rodada de manutenção, só quando o
+     livre do tmpfs, já descontada a reserva, está em **≥ 15%** e o store está fora do modo banco cheio (nunca gasta
+     o último espaço). Falha ao criar só gera aviso no log e apaga a reserva parcial.
+   - O expurgo de emergência **apaga a reserva primeiro** (o espaço volta ao tmpfs na hora) e só então expurga.
+   - 32 MiB são 0,8% do tmpfs de 4G e cobrem com folga o WAL de um expurgo de 2 s; não entram em
+     `FS_STORE_MAX_BYTES` (que mede páginas usadas do banco), mas entram no `statfs` do tmpfs (`fs_store_db_fs_bytes`
+     e o limiar de 10%/15%).
+2. **Checkpoint `TRUNCATE` em cada passo do expurgo de emergência**: além do checkpoint `TRUNCATE` antes do expurgo
+   (que corta o WAL e devolve espaço para o próprio expurgo escrever) e do final (que corta o arquivo do banco), o
+   expurgo de emergência faz um checkpoint `TRUNCATE` depois de **cada passo** de `DELETE`, para o WAL não crescer
+   de novo até o fim do espaço. Um checkpoint que não consegue rodar (leitor longo) não interrompe o expurgo.
+   O expurgo normal (com orçamento) segue com o checkpoint `PASSIVE` e o recomeço do WAL da task 248.
+
+Sem mudança no openapi, no asyncapi, nas métricas ou nos motivos do health. A carga 247 (`official-f7`) passou com
+`fs_store_db_full_total` Δ 0 e livre mínimo de 45% no tmpfs; o caminho do tmpfs cheio fica coberto pelos testes do
+store da task 255.

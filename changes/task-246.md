@@ -1,1 +1,0 @@
-- store: WAL sem corte a cada recomeço (`journal_size_limit` 512 MiB; a 100/s no disco do finger-01, pior atraso 1,35 → 0,73 s) e `/debug/pprof/` na 9001 só de loopback; diagnóstico da vazão 400/100 em `docs/dev/ingest-vazao.md` (gargalo: escrita aleatória do disco e expurgo atrás da criação; decisão com o architect) (task 246).
