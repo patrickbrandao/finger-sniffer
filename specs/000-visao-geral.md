@@ -20,7 +20,10 @@ arquivo original não é versionado). O projeto é independente de consumidores 
 - **Visitante humano**: abre a página estática em `https://finger-01.badblock.net.br/` (pelo traefik do servidor)
   ou em `https://<nome>:8443/` e assiste, ao vivo, ao feed global do tráfego que chega ao servidor, servido pela
   porta não capturada.
-- Não há administradores nem contas (servidor de testes).
+- **Sites que querem se proteger de bots** (fase F8, ADRs 0047–0053): os sites atrás do traefik do finger-01 e
+  clientes externos não comerciais, com chave de API emitida pelo operador, consultam o veredito de bot de cada
+  requisição, conexão ou probe (forwardAuth, consulta, feed, webhook; specs 018–020).
+- Não há administradores nem contas; as chaves do bot são emitidas pelo operador na CLI do servidor, sem cadastro.
 
 ## Objetivos e medida de sucesso
 O MVP está pronto quando:
@@ -45,13 +48,19 @@ O MVP está pronto quando:
   JA4 stable, JA4T, JA4H, Akamai h2, p0f).
 - API JSON `/api/v1` em 9000 (HTTPS) e 9001 (HTTP), sem captura, com consultas, pcap, bytes crus, SSE e WebSocket.
 - Endpoints de status, saúde e métricas Prometheus.
+- Detecção de bots (F8): serviço `bot` com veredito explicável por incoerências, listas (base própria, ja4db, IPs de
+  robôs e nuvens) e comportamento; agregados por IP/fingerprint por 7 dias; API própria em 9002 (HTTPS, chave) e
+  9003 (interna); traefik modificado em `./traefik/` que entrega ao bot a visão de aplicação dos sites (specs
+  018–020).
 - Execução por systemd; deploy automático por rsync a partir da máquina local.
 
 ## Fora de escopo
 - Comparar caminhos (direto × proxy): é responsabilidade do cliente.
-- Histórico longo, relatórios, banco permanente.
+- Histórico longo, relatórios, banco permanente (exceção: agregados do bot por no máximo 7 dias e as chaves de API,
+  ADRs 0047 e 0052).
 - Multi-servidor, alta disponibilidade, réplica.
-- Contas de usuário, login, autorização.
+- Contas de usuário, login (exceção: chaves de API do bot emitidas pelo operador, ADR 0051).
+- Uso comercial (ADR 0053).
 - Modo reverse-proxy (encaminhar para backend) e atalho de probe do Kubernetes do fingerproxy.
 - O fingerproxy como dependência: é só referência de técnicas.
 
@@ -70,7 +79,9 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - Equipe: 1 humano + agentes, sem prazo rígido.
 - Identificadores, endpoints, chaves JSON em inglês; comentários de código em pt-BR; página web em inglês.
 - Licença Apache-2.0; JA4+ sob FoxIO License isolado (ADR 0010).
-- Privacidade: API totalmente aberta; tráfego de terceiros visível por até 10 min (ADR 0007).
+- Privacidade: API do store totalmente aberta; tráfego de terceiros visível por até 10 min (ADR 0007). Os dados
+  do bot seguem a ADR 0052 (LGPD, minimização, 7 dias); a exposição do tráfego dos sites na API aberta espera a
+  decisão do humano (pendência P7 da spec 018).
 
 ## Requisitos
 - RNF-01: 400 conexões simultâneas e 100 conexões novas/s com análise completa (ADR 0046, provado na carga
@@ -106,3 +117,6 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - specs/decisions/0043-limite-conhecido-da-v0-3-0-no-finger-01.md
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md
+- specs/decisions/0047-fase-de-bots-servico-bot.md
+- specs/decisions/0052-dados-pessoais-e-retencao-de-7-dias.md
+- specs/decisions/0053-uso-nao-comercial-e-licencas.md

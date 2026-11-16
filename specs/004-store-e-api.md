@@ -91,6 +91,15 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   resposta), sem gravar registro nem avulso dela; sem entrada a despejar, a 5-tupla nova é recusada (nenhuma
   linha em `connections`, `packets` ou `stray_packets`). Os dois casos contam em
   `fs_store_flows_dropped_total{reason=evicted|table_full}`. Sem limite por IP.
+- RF-12: publicação para o serviço bot (ADR 0047, spec 018): depois do commit de cada estágio da conexão
+  (`opened` com o SYN ou primeiro datagrama/evento analisado, `updated` a cada evento de aplicação incorporado,
+  `closed` com o registro final), o store publica em `fs.v1.store.connection` (NATS core, fora do `FS_EVENTS`)
+  o `Connection` da API sem BLOBs, nos mesmos pontos em que o tempo real emite `connection.*`. Acima de 900 KiB,
+  corta as listas como na ADR 0032 e marca `connection_truncated`. A publicação não bloqueia o escritor:
+  serialização e envio fora da transação, fila de 4096 mensagens com descarte contado
+  (`fs_store_conn_publish_dropped_total`) e tempo em `fs_store_conn_publish_seconds` (histograma). Conexão em modo
+  degradado publica só `opened` e `closed`. Sem assinante, o NATS descarta.
+- RF-13: o health conhece o sexto serviço `bot` como os outros (heartbeat, `down` após 15 s, `versions_match`).
 - RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95, TCP e QUIC; no QUIC
   o fim é o `http3.connection` com `close`, ADR 0026); evento ao vivo < 1 s (p99), medidos como na
   ADR 0022 (`ts` do evento ao vivo pela ADR 0025). Referência da F4 (task 060): evento isolado 430–570 ms do `ts` ao feed; a
@@ -333,10 +342,12 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - [ ] `/metrics` traz as métricas da seção "Métricas" e passa no lint do `prometheus/testutil` (`GatherAndLint`).
 
 ## Fora de escopo
-- Autenticação, paginação por cursor (só `limit`), histórico além da retenção.
+- Autenticação, paginação por cursor (só `limit`), histórico além da retenção (vereditos e agregados de 7 dias são
+  do serviço bot, spec 018).
 
 ## Decisões relacionadas
 - specs/decisions/0005-sqlite-com-blobs.md
+- specs/decisions/0047-fase-de-bots-servico-bot.md
 - specs/decisions/0007-api-aberta-e-feed-global.md
 - specs/decisions/0012-retencao-curta.md
 - specs/decisions/0004-pacotes-pelo-nats.md

@@ -11,21 +11,26 @@ Git, fluxo de tarefas, Definition of Done e quando parar para perguntar.
 
 | Papel | Responsabilidade | Pode alterar | Sub-agente |
 | --- | --- | --- | --- |
-| architect | guardião das specs, ADRs e contratos; aprova migrations; resolve conflitos de contrato; cria tarefas da próxima fase | `specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/agents/**`, `tasks/**` | .claude/agents/architect.md |
+| architect | guardião das specs, ADRs e contratos; aprova migrations; resolve conflitos de contrato; cria tarefas da próxima fase | `specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `cmd/finger-sniffer-bot/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/agents/**`, `tasks/**` | .claude/agents/architect.md |
 | implementer-capture | serviço capture | `cmd/finger-sniffer-capture/**` (exceto contratos), `internal/capture/**` | .claude/agents/implementer-capture.md |
 | implementer-web | serviço web; dono de `pkg/` de detecção, probe, parsers, fingerprints e certificados (`pkg/certs`, usado também por raw e store) | `cmd/finger-sniffer-web/**`, `internal/web/**`, `pkg/detect/**`, `pkg/probe/**`, `pkg/tlsparse/**`, `pkg/h1/**`, `pkg/h2passive/**`, `pkg/quicparse/**`, `pkg/fingerprint/**`, `pkg/iana/**`, `pkg/certs/**` | .claude/agents/implementer-web.md |
 | implementer-raw | serviço raw | `cmd/finger-sniffer-raw/**`, `internal/raw/**` | .claude/agents/implementer-raw.md |
 | implementer-dns | serviço dns | `cmd/finger-sniffer-dns/**`, `internal/dns/**` | .claude/agents/implementer-dns.md |
 | implementer-store | serviço store, API, análise IP/TCP; dono de `pkg/` de base de serviço e envelope; escreve migrations | `cmd/finger-sniffer-store/**` (exceto openapi.yaml), `internal/store/**`, `pkg/service/**`, `pkg/event/**`, `database/sqlite/migrations/**` (com aprovação do architect) | .claude/agents/implementer-store.md |
-| tester | e2e, matriz da spec 017, golden pcaps, fuzzing longo, carga | `test/**`, `**/testdata/**`, `**/*_test.go` de qualquer pacote (somente testes) | .claude/agents/tester.md |
+| implementer-bot | serviço bot (F8): veredito, sinais, listas, agregados, chaves, API de vereditos, feed e webhook; escreve as migrations do banco do bot | `cmd/finger-sniffer-bot/**` (exceto openapi.yaml), `internal/bot/**` (exceto `internal/bot/lists/known_clients.json`), `database/sqlite/bot/**` (com aprovação do architect) | .claude/agents/implementer-bot.md |
+| implementer-traefik | fork do traefik (F8): captura de TLS/h2/requisições, cabeçalhos `X-Fs-*`, ingest ao bot, forwardAuth com fail-open, Dockerfile da imagem, atualização do upstream | `traefik/**` | .claude/agents/implementer-traefik.md |
+| tester | e2e, matriz da spec 017, golden pcaps, fuzzing longo, carga; base própria de fingerprints medidos | `test/**`, `**/testdata/**`, `**/*_test.go` de qualquer pacote (somente testes), `internal/bot/lists/known_clients.json` | .claude/agents/tester.md |
 | reviewer | revisa PRs contra spec, ADRs e DoD; não altera código | nada (só comenta) | .claude/agents/reviewer.md |
 | infra | systemd, NIC/sysctl, NATS, deploy, Makefile, verify, CI, lint, versão do build | `deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `redocly.yaml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE`, `internal/version/**` | .claude/agents/infra.md |
 | docs | documentação derivada e site estático | `docs/**`, `htdocs/**`, `README.md` | .claude/agents/docs.md |
 
 Regras de propriedade:
-- **specs/, specs/decisions/, openapi.yaml e asyncapi.yaml: só o architect altera.** Quem precisar de mudança abre
+- **specs/, specs/decisions/, os dois openapi.yaml (store e bot) e asyncapi.yaml: só o architect altera.** Quem precisar de mudança abre
   uma tarefa "mudança de contrato" e espera o architect aplicar.
-- **Migrations**: implementer-store escreve; o architect aprova no PR antes do merge.
+- **Migrations**: implementer-store (`database/sqlite/migrations/`) e implementer-bot (`database/sqlite/bot/`)
+  escrevem; o architect aprova no PR antes do merge.
+- **`traefik/`**: módulo Go separado do upstream (ADR 0048); dependência nova além das do upstream escala ao humano
+  como na ADR 0009; o enquadramento enviado ao bot é contrato do openapi do bot (architect).
 - `go.mod`/`go.sum`: infra; outro papel que precise de dependência da lista da ADR 0009 pede na tarefa; fora da
   lista, escala ao humano.
 - `changes/task-NNN.md`: cada papel escreve o fragmento da sua tarefa (ver "Git e PR"); o architect os junta no
@@ -82,7 +87,8 @@ Pare e pergunte quando:
 3. é preciso uma dependência fora da lista da ADR 0009;
 4. a ação tem efeito fora do espelho no finger-01: zona DNS no udns.com.br, configurações do GitHub, o resto do
    host (containers, Docker, sysctls e THP do host, snmpd, opencode; o script do traefik só nos termos da ADR 0038
-   item 6), mais de 3 emissões de certificado Let's Encrypt de produção por semana;
+   item 6), mais de 3 emissões de certificado Let's Encrypt de produção por semana, publicar imagem no Docker Hub,
+   trocar a imagem do `traefik-app` ou ligar o forwardAuth nos sites do humano (ADR 0048);
 5. uma meta de RNF (spec 000) parece inalcançável — isso aciona a revisão das ADRs 0004 e 0005.
 
 **No finger-01, tudo o que é do espelho pode ser feito sem aprovação** (`/finger-sniffer`, units

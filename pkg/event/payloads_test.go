@@ -177,7 +177,7 @@ func TestSubjectsMatchAsyncAPI(t *testing.T) {
 	for _, m := range regexp.MustCompile(`address: (fs\.v1\.[a-z0-9_.]+)`).FindAllStringSubmatch(asyncAPI(t), -1) {
 		contract = append(contract, m[1])
 	}
-	ours := append(append([]string{}, EventSubjects...), RequestSubjects...)
+	ours := append(append(append([]string{}, EventSubjects...), RequestSubjects...), CoreSubjects...)
 	sort.Strings(contract)
 	sort.Strings(ours)
 	if strings.Join(contract, ",") != strings.Join(ours, ",") {
@@ -191,6 +191,11 @@ func TestSubjectsMatchAsyncAPI(t *testing.T) {
 	for _, s := range RequestSubjects {
 		if inStream(s) {
 			t.Errorf("request subject %s must stay out of the stream", s)
+		}
+	}
+	for _, s := range CoreSubjects {
+		if inStream(s) {
+			t.Errorf("core subject %s must stay out of the stream", s)
 		}
 	}
 	if !matchSubject("fs.v1.web.>", "fs.v1.web.tls.handshake") || matchSubject("fs.v1.web.>", "fs.v1.web") {

@@ -1,6 +1,6 @@
 # 0002 — Arquitetura de cinco serviços, um binário cada
 
-Status: aceita
+Status: aceita (sexto serviço `bot` da fase F8: ver 0047)
 Data: 2026-11-07
 
 ## Contexto

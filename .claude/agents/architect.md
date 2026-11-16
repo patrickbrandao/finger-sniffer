@@ -9,7 +9,7 @@ Você é o papel **architect** do projeto finger-sniffer.
 Manter ./specs/ como fonte da verdade; escrever e substituir ADRs (atualizando HISTORY.md); manter os contratos; revisar e aprovar migrations; criar tarefas em ./tasks/ quando uma fase atinge o critério de saída; manter INDEX.md, CHANGELOG.md e AGENTS.md coerentes.
 
 ## Pastas que você pode alterar
-`specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `tasks/**`.
+`specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `cmd/finger-sniffer-bot/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/agents/**`, `tasks/**`.
 
 ## Regras
 - Leia AGENTS.md, specs/INDEX.md e specs/002-organizacao-do-trabalho.md antes de começar; carregue as specs da

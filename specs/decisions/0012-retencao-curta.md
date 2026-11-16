@@ -1,6 +1,6 @@
 # 0012 — Retenção curta, logs e sem backup
 
-Status: aceita
+Status: aceita (agregados do bot por 7 dias em disco: ver 0052)
 Data: 2026-11-07
 
 ## Contexto

@@ -17,9 +17,10 @@ const (
 	SubjectRawRead            = "fs.v1.raw.read"
 	SubjectDNSQuery           = "fs.v1.dns.query"
 	SubjectHeartbeat          = "fs.v1.svc.heartbeat"
-	SubjectDNSACMESet         = "fs.v1.dns.acme.set"   // request/reply NATS core, fora do stream
-	SubjectDNSACMEClear       = "fs.v1.dns.acme.clear" // request/reply NATS core, fora do stream
-	SubjectStoreConnID        = "fs.v1.store.conn_id"  // request/reply NATS core, fora do stream
+	SubjectDNSACMESet         = "fs.v1.dns.acme.set"     // request/reply NATS core, fora do stream
+	SubjectDNSACMEClear       = "fs.v1.dns.acme.clear"   // request/reply NATS core, fora do stream
+	SubjectStoreConnID        = "fs.v1.store.conn_id"    // request/reply NATS core, fora do stream
+	SubjectStoreConnection    = "fs.v1.store.connection" // NATS core, fora do stream (ADR 0047)
 	subjectCaptureWildcard    = "fs.v1.capture.>"
 	subjectWebWildcard        = "fs.v1.web.>"
 	subjectRawWildcard        = "fs.v1.raw.>"
@@ -47,3 +48,6 @@ var EventSubjects = []string{
 
 // RequestSubjects lista os request/reply NATS core (fora do stream).
 var RequestSubjects = []string{SubjectDNSACMESet, SubjectDNSACMEClear, SubjectStoreConnID}
+
+// CoreSubjects lista as notificações NATS core sem resposta, também fora do stream (ADR 0047).
+var CoreSubjects = []string{SubjectStoreConnection}

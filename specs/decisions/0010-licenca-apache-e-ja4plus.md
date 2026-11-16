@@ -1,6 +1,6 @@
 # 0010 — Licença Apache-2.0 e isolamento do JA4+
 
-Status: aceita
+Status: aceita (uso não comercial e ja4db: ver 0053)
 Data: 2026-11-07
 
 ## Contexto

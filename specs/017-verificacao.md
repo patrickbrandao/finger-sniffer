@@ -103,6 +103,19 @@ repetidas do mesmo cliente.
 - Toda mudança vem com o teste que a cobre; o nível só decide quanto da suíte roda.
 - Ao terminar, dizer qual nível rodou e o resultado. Subagentes: rápido por padrão, completo só sob pedido.
 
+### Fase F8 (ADRs 0047 e 0048)
+- RF-14: `traefik/**` fica fora dos passos do módulo raiz (lint, gofumpt, vet, testes, cobertura, govulncheck,
+  `go_source_files`); passo próprio "traefik": `go build ./cmd/traefik` e `go test` de `./pkg/fingersniffer/...` e
+  dos pacotes com gancho `// finger-sniffer:` dentro de `traefik/`, no quick só quando `traefik/**` muda, sempre no
+  full e no CI.
+- RF-15: contratos: o passo valida também `cmd/finger-sniffer-bot/openapi.yaml` (Redocly) e o teste de contrato
+  do bot confere as respostas das rotas contra ele.
+- RF-16: banco-modelo do bot (`database/sqlite/bot/`) como o do store (RF-06), com hash próprio.
+- RF-17: e2e da F8 (`--e2e`, depois do deploy do bot e do fork num traefik de teste no finger-01): veredito de
+  curl, Go, python-requests, Chrome, Firefox e um Googlebot falso, pelo traefik de teste (forwardAuth e consulta) e
+  por probe; casamento fork ↔ store ≥ 99%; fail-open com o bot parado. Carga da F8: forwardAuth a 200
+  requisições/s por 10 min com a carga oficial 400/100 do espelho ao mesmo tempo (RNF da spec 018).
+
 ## Critérios de aceite
 - [ ] `make verify-quick` sem mudanças termina em < 10 s com tudo "pulado".
 - [ ] Alterar um `.go` de `pkg/h1` roda só lint/vet/test de `pkg/h1` e dependentes.

@@ -1,6 +1,6 @@
 # 0006 — Portas capturadas e API fora da captura
 
-Status: aceita (portas do web alteradas pela 0038 em 2026-11-15: TCP 8080/8443 e UDP 8443; 80/443 são do traefik)
+Status: aceita (portas do web alteradas pela 0038 em 2026-11-15: TCP 8080/8443 e UDP 8443; 80/443 são do traefik; 9002/9003 do bot fora da captura: ver 0047)
 Data: 2026-11-07
 
 ## Contexto

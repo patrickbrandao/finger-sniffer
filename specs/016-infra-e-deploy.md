@@ -85,6 +85,15 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   (`tmsoft-servers/tmsoft-finger-01/setup-902-docker-traefik-app.sh`); o infra só edita esse script e o reaplica
   (ADR 0038 item 6).
 
+- RF-14: serviço bot (F8, ADR 0047): unit `finger-sniffer-bot.service` no target e na fatia, depois do store,
+  `MemoryMax=1G`, `GOMEMLIMIT=768MiB`, `CPUQuota=200%`, `MemorySwapMax=0`, `GODEBUG=disablethp=1`, sem capabilities;
+  `ReadWritePaths` com `/finger-sniffer/var/bot` (no disco, **fora** do tmpfs do store); `FS_CAPTURE_EXCLUDE_PORTS`
+  com 9002 e 9003; `FS_BOT_INTERNAL_LISTEN` = IP do host na bridge `br-net-public` do traefik, descoberto e fixado
+  pelo infra; `make build`/`make deploy` com 6 binários e `SVC=bot`; o smoke exige o bot `ok` e `GET
+  https://finger-01.badblock.net.br:9002/bot/v1/health` 200. O deploy nunca apaga `var/bot`.
+- RF-15: fork do traefik (ADR 0048): o deploy do espelho não instala nem reinicia o traefik; a troca da imagem do
+  `traefik-app` é tarefa própria com aval do humano.
+
 ## Interfaces e contratos
 - [eventbus/nats/nats.conf](../eventbus/nats/nats.conf), `.env.example`.
 
@@ -95,7 +104,8 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - [ ] `make deploy` duas vezes seguidas não muda nada no segundo (idempotente).
 
 ## Fora de escopo
-- Docker para o espelho (o Docker do host é do humano), Kubernetes, outros sistemas operacionais.
+- Docker para o espelho (o Docker do host é do humano; só o fork do traefik vira imagem, ADR 0048), Kubernetes,
+  outros sistemas operacionais.
 
 ## Decisões relacionadas
 - specs/decisions/0011-rede-offloads-e-pilha-tcp.md
