@@ -85,7 +85,7 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - Limite conhecido da `v0.3.0` (ADR 0043, decisão do humano): no finger-01, a carga oficial 200/50 cumpre RNF-01 e
   RNF-03 sem perda, mas não RNF-02 nem RNF-04 (feed p99 1,9 s, registro p95 ~1,5 s) por causa da IO do disco da VM;
   as metas ficam e a correção é da fase F7.
-- RNF-05: retenção padrão de 10 min (`FS_RETENTION`) e teto de 8 GiB (`FS_STORE_MAX_BYTES`, ADR 0039); o primeiro limite
+- RNF-05: retenção padrão de 10 min (`FS_RETENTION`) e teto de 3 GiB (`FS_STORE_MAX_BYTES`, ADR 0045; banco num tmpfs de 4G, perdido no reinício do host); o primeiro limite
   atingido expurga o mais antigo.
 - RNF-06: tempos em UTC com nanossegundos; relógio sincronizado por NTP.
 - RNF-07: nenhum frame capturado maior que MTU + 14 bytes (prova de que não há agregação por offload).

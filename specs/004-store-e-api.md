@@ -35,11 +35,17 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (o registro sobrevive; a órfã fica com um pcap sem pacotes, só o cabeçalho do arquivo) — o mesmo risco já aceito para os eventos pendentes;
   desligamento normal e deploy não perdem pacotes.
 - RF-05: persistência em SQLite (modernc, WAL) — registros, índices e **BLOBs** (pcap, bytes crus de cada sentido).
+  O banco (`FS_STORE_DB`, com `-wal` e `-shm`) fica num **tmpfs dedicado** de 4G em `/finger-sniffer/var/store`
+  (ADR 0045): sobrevive ao reinício do store e some no reinício do host, quando o store sobe com o banco vazio.
   Schema em [database/sqlite/migrations/](../database/sqlite/migrations/) aplicado por goose embutido no start.
-- RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (8 GiB, ADR 0039): o primeiro atingido expurga o mais
+- RF-06: retenção `FS_RETENTION` (10 min) e teto `FS_STORE_MAX_BYTES` (3 GiB, ADR 0045): o primeiro atingido expurga o mais
   antigo, em lotes, com `incremental_vacuum`. O expurgo por tamanho cobre `connections` (com as filhas),
   `dns_queries` e `stray_packets`, do mais antigo para o mais novo, e só desiste quando nada mais pode ser apagado
-  (ADR 0034).
+  (ADR 0034). O mesmo expurgo dispara quando o livre do tmpfs do banco (`statfs`) cai abaixo de 10% e vai até
+  15% (`reason=space`). `SQLITE_FULL` no ingest: rollback, expurgo de emergência (fora do orçamento, até 15% livre
+  ou 2 s), checkpoint `TRUNCATE` e uma nova tentativa; se falhar, **modo banco cheio** (conexões novas sem pcap e
+  sem bytes crus, `degraded=true`) até o livre voltar a 15%; lote que falha até sem BLOBs é confirmado e
+  descartado com métrica, nunca `Nak` em laço (ADR 0045).
 - RF-07: API em 9000 (HTTPS, certificado de `FS_CERT_DIR` com recarga a quente por `pkg/certs`, spec 015 RF-04)
   e 9001 (HTTP), CORS `*`, sem autenticação, JSON, nomes em inglês. Escuta em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`
   e em `127.0.0.1` (diagnóstico local), nunca em `*` (ADR 0001, ADR 0023).
@@ -50,7 +56,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-09: health agregado: heartbeat de cada serviço (5 s; `down` após 15 s sem heartbeat), versões
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
   O store fica `degraded`, com motivo, enquanto o ingest está mais de 5 s atrás do stream (`ingest backlog <n>s`)
-  e por 5 min depois de perder mensagens do stream (`stream lost <n> messages in 5m`) (ADR 0041).
+  e por 5 min depois de perder mensagens do stream (`stream lost <n> messages in 5m`) (ADR 0041); também com
+  `db full` (modo banco cheio e 5 min depois do último `SQLITE_FULL`) e `db space <n>% free` (livre do tmpfs
+  abaixo de 10%) (ADR 0045).
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
   "Métricas") e as recebidas no heartbeat dos demais.
 - RF-11: modo degradado (RNF-01): acima de `FS_MAX_CONNS` (padrão 1000) conexões simultâneas ou
@@ -174,7 +182,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   - a retenção expurga também linhas com `ended_ns` nulo que já não estão na tabela de fluxos e são mais velhas
     que `FS_RETENTION` + a ociosidade máxima do TCP;
   - sem `MaxDeliver`/`BackOff` no consumidor (ADR 0016 mantida).
-- Reinício: o índice vem do SQLite; o consumidor durável retoma do último ack.
+- Reinício: o índice vem do SQLite (tmpfs, ADR 0045); o consumidor durável retoma do último ack. Depois do
+  reinício do host o banco começa vazio e o que ainda estiver no stream entra nele.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
   openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
   ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno; 503 com
@@ -227,7 +236,8 @@ Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no h
 `fs_service_info{service,version}`, `fs_store_events_ingested_total{subject}`, `fs_store_ingest_lag_seconds`
 (histograma: `ts` do envelope → commit), `fs_store_connections_open`, `fs_store_connections_total{l4,proto}`,
 `fs_store_connections_degraded_total`, `fs_store_stray_packets_total`, `fs_store_dns_queries_total`,
-`fs_store_purged_total{reason=age|size}`, `fs_store_db_bytes`, `fs_store_late_packets_total`,
+`fs_store_purged_total{reason=age|size|space}`, `fs_store_db_bytes`, `fs_store_db_fs_bytes{kind=size|free}`,
+`fs_store_db_full_total`, `fs_store_db_full_dropped_total`, `fs_store_late_packets_total`,
 `fs_store_record_ready_seconds{reason=close|quic_close|idle}` (histograma: fim → registro gravado; `close` = FIN/RST,
 `quic_close` = close do web, `idle` = ociosidade; os três pré-criados; a meta RNF-01 é lida em `close` e
 `quic_close`, ADR 0026), `fs_store_live_clients{transport=sse|ws}`, `fs_store_live_events_total{kind}`,
@@ -282,7 +292,8 @@ Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initi
 sobre `connections`, para o expurgo apagar tudo de uma vez. O `record_json` de uma conexão aberta é o da criação
 (ou da última mudança de `proto`/`probe`); a API sobrepõe o estado ao vivo da tabela de fluxos em toda leitura
 de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06. O store abre o banco com
-`foreign_keys=ON`, `journal_mode=WAL` e `auto_vacuum=INCREMENTAL`.
+`foreign_keys=ON`, `journal_mode=WAL` e `auto_vacuum=INCREMENTAL`; o escritor com `synchronous=OFF`,
+`wal_autocheckpoint=16384` e `journal_size_limit` de 64 MiB (banco em tmpfs, ADR 0045).
 
 ## Critérios de aceite
 - [ ] Uma sondagem por probe aparece completa em `GET /api/v1/probes/{id}` em ≤ 500 ms após o fechamento.

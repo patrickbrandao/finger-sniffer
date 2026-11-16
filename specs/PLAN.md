@@ -115,7 +115,8 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
 - **Dependências**: F6 (tag `v0.3.0`).
 - **Frentes**: implementer-store: paradas do escritor por IO do disco (task 248, ADR 0043; primeiro, partindo do
   rascunho `ef6c2a9`) → diagnóstico e tratamento da vazão do ingest (task 246; mudanças de unit, limites, durabilidade
-  ou ADR voltam ao architect) → tester: degraus 50/75/100 e carga oficial 400/100 com pré-aquecimento de 9 min
+  ou ADR voltam ao architect; diagnóstico no PR #226) → banco do store em RAM (ADR 0045): infra: tmpfs e limites
+  (task 254) ‖ implementer-store: pragmas, teto e tmpfs cheio, medida rápida a 100/400 (task 255) → tester: degraus 50/75/100 e carga oficial 400/100 com pré-aquecimento de 9 min
   (task 247).
 - **Critério de saída**: limite conhecido da ADR 0043 resolvido (248, RNF-02 e RNF-04 a 200/50 no finger-01);
   carga 247 com todas as metas da ADR 0042 item 3 a 400/100, `fs_store_stream_lost_total`

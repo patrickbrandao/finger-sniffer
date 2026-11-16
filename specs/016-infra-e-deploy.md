@@ -36,11 +36,16 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - RF-06: hardening: usuário de sistema `finger-sniffer`; `ProtectSystem=strict`, `ReadWritePaths=/finger-sniffer/var`,
   `NoNewPrivileges`, `AmbientCapabilities` mínimas (NET_BIND_SERVICE para raw/dns; NET_RAW para capture;
   nenhuma para web, com portas acima de 1024, e para store/nats), `EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env`.
-- RF-07: limites (ADR 0039): fatia `finger-sniffer.slice` com `MemoryMax=6G` e `CPUQuota=800%`; por unit
-  `MemoryMax`/`GOMEMLIMIT`/`CPUQuota`: store 2G/1792MiB/400%, nats 1G/896MiB/200%, web 768M/512MiB/400%, capture
+- RF-07: limites (ADRs 0039 e 0045): fatia `finger-sniffer.slice` com `MemoryMax=10G` e `CPUQuota=800%`; por unit
+  `MemoryMax`/`GOMEMLIMIT`/`CPUQuota`: store 6G/1536MiB/400% (inclui o tmpfs do banco), nats 1G/896MiB/200%, web 768M/512MiB/400%, capture
   512M/384MiB/200%, raw 256M/192MiB/100%, dns 256M/192MiB/100%; todas com `MemorySwapMax=0` e
   `LimitNOFILE=65536`; as units Go (5 serviços e `nats-server`) com `Environment=GODEBUG=disablethp=1` (o THP do
   host fica `always`). Web com `Environment=QUIC_GO_DISABLE_GSO=true QUIC_GO_DISABLE_ECN=true` (ADR 0019).
+- RF-07a: banco do store em RAM (ADR 0045): mount unit `finger\x2dsniffer-var-store.mount` (tmpfs em
+  `/finger-sniffer/var/store`, `size=4G,mode=0700,nosuid,nodev,noexec`, uid/gid numéricos do `finger-sniffer`
+  resolvidos na instalação); o store com `RequiresMountsFor=/finger-sniffer/var/store`. O deploy nunca para nem
+  reinicia a mount unit (mudança de tamanho por `mount -o remount`); a primeira instalação apaga o banco em disco
+  antes de montar. O banco sobrevive ao reinício do store e some no do host.
 - RF-08: journald drop-in: `MaxRetentionSec=24h`, `SystemMaxUse=200M`.
 
 ### NATS
@@ -53,7 +58,7 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   bin/        binários (5 serviços + nats-server)
   htdocs/     site estático
   etc/        finger-sniffer.env (instalado de .env.example só se ausente), p0f.fp
-  var/        store/ (SQLite), certs/, acme/, nats/   — nunca tocado pelo rsync
+  var/        store/ (SQLite num tmpfs de 4G, ADR 0045), certs/, acme/, nats/   — nunca tocado pelo rsync
   (fontes do repositório, para referência)
 ```
 
