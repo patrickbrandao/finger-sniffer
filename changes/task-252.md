@@ -1,0 +1,1 @@
+- Spec 004: pacotes de conexão aberta ficam em memória até a finalização; `packets` só recebe transbordo (1 MiB por conexão, 64 MiB no total), tardios e o desligamento; queda brusca perde o pcap parcial das conexões abertas (RF-04a, task 252).
