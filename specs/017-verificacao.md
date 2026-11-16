@@ -85,7 +85,9 @@ repetidas do mesmo cliente.
   `fs_store_stream_lost_total` sem crescer e health do store sem `ingest backlog`/`stream lost` (ADR 0041), com
   `fs_store_ingest_backlog_seconds` máximo e `fs_store_stray_midflow_total`/s registrados; memória do store por 5 s
   (`memory.current`, `file`, `anon`, `memory.events`, `pgscan`/`pgsteal`/`workingset_refault_file`,
-  `memory.pressure`, `io.pressure`) e tamanho do banco e do WAL registrados (ADR 0042). Degraus de 3 min (50, 75,
+  `memory.pressure`, `io.pressure`) e tamanho do banco e do WAL registrados (ADR 0042); com o banco em tmpfs
+  (ADR 0045), também `shmem` do store e da fatia e `fs_store_db_fs_bytes`, com `memory.events max`/`oom_kill`
+  do store e `fs_store_db_full_total` sem crescer. Degraus de 3 min (50, 75,
   100 novas/s, sem meta) medem o teto do ingest quando ele muda (ADR 0041; fase F7).
   Gerador em Go fora do finger-01 (a máquina cliente), para medir o caminho real e não disputar CPU com o espelho e
   os sites; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;

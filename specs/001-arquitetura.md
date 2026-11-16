@@ -17,7 +17,7 @@ analisa IP/TCP, guarda em SQLite e serve a API.
             ──► UDP/TCP 53 ─────────────────────► finger-sniffer-dns ─┤  fs.v1.* (NATS 127.0.0.1:4222,
    AF_PACKET (todos os pacotes) ────────────────► finger-sniffer-capture ┤   JetStream FS_EVENTS)
                                                                          ▼
-                                                     finger-sniffer-store ── SQLite (var/store)
+                                                     finger-sniffer-store ── SQLite (var/store, tmpfs)
    clientes da API ◄── 9000 HTTPS / 9001 HTTP (sem captura) ◄────────────┘
 
    visitantes ──► traefik do host (TCP 443, passthrough por SNI de finger-01.*) ──► web :8443 (página)
@@ -127,7 +127,7 @@ fingerproxy; tabela IANA própria. Sem Docker (ADR 0009). NATS oficial fixado (A
 | Tabela de Initials QUIC ocupada por datagramas forjados; CRYPTO fragmentado | tracker com 4096 entradas e 8 MiB, entrada sem ClientHello sai em 2 s, despejo da mais antiga encerrada; no máximo 64 fragmentos CRYPTO pendentes (spec 011) | teste com relógio falso e benchmark |
 | Store saturado por 5-tuplas novas (SYN flood de origens mudas, UDP solto) | tabela de fluxos com 8192 entradas, meio-aberto ocioso em 10 s, despejo do não estabelecido mais antigo, `fs_store_flows_dropped_total` (ADR 0034) | unitário com 100 mil SYNs; carga com flood |
 | Memória do store esgotada por leitura (probe enorme, `wait` em laço, downloads de BLOB, cliente ao vivo lento, pcap truncado) | probe com até 1000 conexões e 1000 consultas e `truncated`; até 64 `wait` e 4 downloads simultâneos, 503 acima, prazo de escrita de 60 s (ADR 0032); filas ao vivo com 4 MiB por cliente e 64 MiB no hub; orçamento de "só cabeçalhos" no pcap (ADR 0034) | testes de alocação e de 503 |
-| Disco cheio por BLOBs | teto `FS_STORE_MAX_BYTES`, expurgo do mais antigo | teste de retenção |
+| tmpfs do banco cheio por BLOBs (ADR 0045) | teto `FS_STORE_MAX_BYTES`, expurgo do mais antigo e pelo livre do tmpfs, `SQLITE_FULL` → expurgo de emergência e modo banco cheio, health `db full` | teste de retenção e de `SQLITE_FULL` |
 | Parser travando/estourando com entrada maliciosa | `go test -fuzz` em todos os parsers | fuzz no verify-full (tempo curto), longo sob pedido |
 | DNS usado para amplificação | sem recursão, só zona própria, REFUSED fora dela, rate limit de respostas UDP por IP (IPv6 por /64, balde de transbordo com a tabela cheia; TCP fora do RRL, ADR 0035) | teste do dns |
 | Privilégios | capabilities mínimas, ProtectSystem=strict, usuário dedicado | revisão das units |

@@ -1,6 +1,6 @@
 # 0043 — Limite conhecido da v0.3.0: latência da carga 200/50 no finger-01 acima das metas
 
-Status: aceita
+Status: aceita (correção escolhida pelo humano: banco em RAM, ver 0045)
 Data: 2026-11-15
 
 ## Contexto
