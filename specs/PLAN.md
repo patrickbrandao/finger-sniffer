@@ -135,30 +135,37 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   site, probe, feed e webhook) a sites próprios atrás do traefik do finger-01 e a clientes externos não comerciais com
   chave emitida pelo operador; o **traefix** (traefik modificado, projeto externo do humano, imagem
   `tmsoftbrasil/traefix`) entrega a visão de aplicação dos sites pelos requisitos da spec 019; agregados de 7 dias com
-  LGPD (ADRs 0047–0055).
+  LGPD (ADRs 0047–0056).
 - **Specs**: 018 (bot), 019 (requisitos do traefix), 020 (API de vereditos); mudanças em 000, 001, 002, 003, 004,
-  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.0, asyncapi 0.6.0 (`fs.v1.store.connection`);
-  migration 0001 do bot.
+  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.1, asyncapi 0.6.1 (`fs.v1.store.connection`,
+  métricas com rótulos no heartbeat); migrations 0001 e 0002 do bot.
 - **Dependências**: F7 (tag `v0.4.0`). Nenhuma dependência nova no módulo do espelho. O traefix é do humano (ADR
   0054): o calendário dele não é deste plano, e a integração é por contrato.
 - **Frentes**:
-  - **Primeira onda (tasks 262, 267–270, 272, 274)**:
-    - infra: contrato do bot no passo de contratos (262, entregue) → desfazer o que a 262 pôs para `traefik/` (272)
-      ‖ unit, env e deploy do bot, portas excluídas da captura, IP da bridge (269, depois de 267);
-    - implementer-bot: esqueleto do serviço — config, heartbeat, banco em disco com a migration 0001, CLI de
-      chaves, 9002/9003 com chave, limites, ingest do traefix e índice da visão do store (267);
-    - implementer-store: `fs.v1.store.connection` e o sexto serviço no health (268, entregue);
-    - tester: base própria `known_clients.json` (270, entregue) ‖ `TestF5Fingerprints` (260, entregue) →
-      remontagem fora de ordem também no `analyzePcap` do e2e (274).
-  - **Segunda onda** (tarefas criadas pelo architect quando 267 e 269 entrarem): implementer-bot: sinais e veredito
-    v1, listas externas, agregados e expurgo, forwardAuth/consulta/probe com veredito, feed e webhook; docs: guia de
-    integração (sites atrás do traefix e clientes externos por probe ou traefix com chave) e exemplo de verificação do
-    webhook; tester: e2e da F8 e carga (spec 017 RF-17), com os casos do traefix pulando até a 273.
+  - **Primeira onda (tasks 262, 267–270, 272, 274; concluída em 2026-11-16)**: infra 262 (#238), 269 (#244, bot
+    implantado no finger-01, health com 6 serviços `ok`) e 272; implementer-bot 267 (#239, esqueleto, migration
+    0001, CLI de chaves, 9002/9003, ingest e índice); implementer-store 268 (#241, `fs.v1.store.connection`); tester
+    270 (#237, `known_clients.json`), 260 (#240) e 274 (#243). Ajustes na ADR 0055.
+  - **Segunda onda (tasks 276–287, ADR 0056)**:
+    - implementer-bot, em paralelo desde já, cada uma no seu pacote: regras v1 e famílias de UA em
+      `internal/bot/rules` (276) ‖ fingerprints do ClientHello/h2 no ingest e resumo HTTP do store no índice (277) ‖
+      listas — base própria, ja4db atrás de `FS_BOT_JA4DB_ENABLE=false` até a P4, listas de IP, verificação de robô,
+      atualização diária, `list stale` (278) ‖ agregados de 7 dias, flush, teto de bytes e cache de comportamento em
+      `internal/bot/agg` (279) ‖ webhook com HMAC e `webhook backlog` em `internal/bot/webhook` (280);
+    - implementer-store: métricas com rótulos do heartbeat no `/metrics` (281, desde já);
+    - implementer-bot: veredito nas rotas — forwardAuth, consulta, probe, `ip`, `fingerprints`, feed e webhook uma vez
+      por requisição, métricas `verdicts_total{class,source}` e `auth_seconds` (282, depois de 276–280) → `forget`
+      alcançando a memória e `lists refresh` por `control_requests` (migration 0002), `store feed silent` e
+      conferência das métricas da RF-12 (283, depois de 278, 279 e 282);
+    - tester: e2e da F8 do lado do bot — probe, traefix simulado com `TraefikIngestBatch` na 9002 e a origem vista
+      pelo store, erros, feed, `forget`; casos do traefix real pulando até a 273 (284, depois de 282 e 283) → carga
+      da F8, sozinha no finger-01 (285, depois de 281 e 284);
+    - docs: `docs/bot.md`, guia de integração e verificação do webhook testada (286, depois de 280–282) → página de
+      privacidade (287, bloqueada até P5 e P6).
   - **Traefix** (depende do humano): o humano implementa a spec 019 no projeto traefix e avisa → infra: teste da
     imagem num container à parte, troca do `traefik-app` em modo só observação e aceite (273, bloqueada até o aviso).
     Ligar forwardAuth ou `block` nos sites é ação do humano. h3 no traefix: segunda entrega do traefix (spec 019
     RF-13).
-  - **Terceira onda** (depende do humano): página de privacidade (P5, P6).
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
   Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
   store ≥ 99%; fail-open); carga da F8 com forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga

@@ -252,7 +252,10 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   `fs_store_live_delay_seconds` (`ts` do `LiveEvent` até o envio).
 
 ### Métricas (RF-10)
-Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no heartbeat e `fs_service_up`:
+Próprias do store, além das gauges `fs_<métrica>{service=...}` recebidas no heartbeat e `fs_service_up`. Chave do
+heartbeat com rótulos (`nome{r="v"}`, histograma em `_bucket`/`_sum`/`_count`, ADR 0056 item 4) vira
+`fs_<nome>{service,<rótulos>}`; malformada ou além de 512 chaves por heartbeat é ignorada e contada em
+`fs_store_heartbeat_metrics_invalid_total`:
 `fs_service_info{service,version}`, `fs_store_events_ingested_total{subject}`, `fs_store_ingest_lag_seconds`
 (histograma: `ts` do envelope → commit), `fs_store_connections_open`, `fs_store_connections_total{l4,proto}`,
 `fs_store_connections_degraded_total`, `fs_store_stray_packets_total`, `fs_store_dns_queries_total`,
@@ -369,3 +372,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md
 - specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md
+- specs/decisions/0056-segunda-onda-da-f8.md

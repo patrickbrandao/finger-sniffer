@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.1.0
+  version: 0.1.1
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -29,7 +29,7 @@ security:
 servers:
   - url: https://finger-01.badblock.net.br:9002
     description: HTTPS pública (chave obrigatória)
-  - url: http://10.249.0.1:9003
+  - url: http://10.249.255.254:9003
     description: Interna, só para o traefik do finger-01 e loopback (chave opcional)
 tags:
   - name: health

@@ -6,7 +6,7 @@ Depende de: 018, 019
 ## Contexto
 O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, fora da captura (ADRs 0047 e 0051):
 9002 HTTPS pública com chave e 9003 HTTP interna para o traefik do finger-01. Contrato:
-[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.1.0).
+[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.1.1).
 
 ## Requisitos
 - RF-01: 9002 em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6` com TLS de `FS_CERT_DIR` (`pkg/certs`, A e B por SNI, recarga a
@@ -69,3 +69,4 @@ site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `
 - specs/decisions/0052-dados-pessoais-e-retencao-de-7-dias.md
 - specs/decisions/0054-traefix-projeto-externo.md
 - specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md
+- specs/decisions/0056-segunda-onda-da-f8.md
