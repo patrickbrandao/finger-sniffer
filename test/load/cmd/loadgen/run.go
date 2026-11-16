@@ -234,15 +234,16 @@ type retentionCheck struct {
 	Notes         []string `json:"notes"`
 }
 
-func runCmd(args []string) error {
-	var c config
+// runFlags declara as flags do "run" sobre c; separado de runCmd para o teste conferir os padrões.
+func runFlags(c *config) (*flag.FlagSet, *string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	fs.StringVar(&c.Host, "host", "finger-01.badblock.net.br", "servidor")
 	fs.StringVar(&c.API, "api", "https://finger-01.badblock.net.br:9000/api/v1", "base da API (feed e amostragem)")
 	fs.StringVar(&c.MetricsURL, "metrics", "http://finger-01.badblock.net.br:9001/metrics", "/metrics do store")
-	// perfil do RNF-01 no finger-01 (ADR 0039 item 5): 400 simultâneas, 100 novas/s
-	fs.IntVar(&c.Rate, "rate", 100, "conexões novas por segundo")
-	fs.IntVar(&c.MaxActive, "max-active", 400, "teto de conexões simultâneas do gerador")
+	// perfil oficial do RNF-01 (ADR 0042): 200 simultâneas, 50 novas/s; o de 400/100 é meta da fase F7
+	// (-rate 100 -max-active 400)
+	fs.IntVar(&c.Rate, "rate", 50, "conexões novas por segundo")
+	fs.IntVar(&c.MaxActive, "max-active", 200, "teto de conexões simultâneas do gerador")
 	fs.StringVar(&c.H3Family, "h3-family", "6", "família do h3 (4 ou 6): do Mac ao finger-01 o UDP IPv4 grande se perde")
 	fs.DurationVar(&c.Life, "life", 3800*time.Millisecond, "duração de cada conexão")
 	fs.IntVar(&c.Reqs, "reqs", 3, "trocas por conexão (requisições HTTP ou linhas no raw)")
@@ -256,6 +257,12 @@ func runCmd(args []string) error {
 	fs.StringVar(&c.LabelOrigin, "origin", "mac", "rótulo da origem da carga (relatório)")
 	fs.StringVar(&c.Out, "out", "", "pasta de saída")
 	commit := fs.String("commit", "", "commit esperado no servidor (vazio = não confere)")
+	return fs, commit
+}
+
+func runCmd(args []string) error {
+	var c config
+	fs, commit := runFlags(&c)
 	_ = fs.Parse(args)
 	if c.Out == "" {
 		return fmt.Errorf("-out é obrigatório")

@@ -100,3 +100,50 @@ func mustID(t *testing.T, in *Ingestor, cli netip.AddrPort) string {
 	}
 	return id
 }
+
+// TestGapNakReplayCountsOnce: o lote que revela a lacuna falha no banco e volta por Nak (ADR 0034 itens 6 e 10).
+// stream.observe e flows.markSuspect rodam antes do commit e não são desfeitos no rollback (ADR 0041 item 4); a
+// reentrega do mesmo lote não conta a lacuna de novo nem marca fluxos outra vez, e o fluxo suspeito fecha por
+// ociosidade uma única vez (task 250).
+func TestGapNakReplayCountsOnce(t *testing.T) {
+	in := gapIngestor(t)
+	db := in.db
+	stepSeq(t, in, ms(50), seqAt(batch(client, mirror, protoTCP, fullTCP[:6]), 1, 45))
+	// 2..4 expiraram; a 5 cria a conexão de otherCli e falha no INSERT
+	gap := seqAt(batch(otherCli, mirror, protoTCP, []pkt{{2000, true, tcpSYN, 0}}), 5, 2005)
+	undo := failOn(t, db, "connections")
+	in.now = func() time.Time { return time.Unix(0, base).Add(ms(2010)) }
+	if err := in.process(t.Context(), []msgSource{gap}); err == nil {
+		t.Fatal("SQL error must abort the batch")
+	}
+	undo()
+	if lost, _, _ := in.stream.snapshot(); lost != 3 || len(in.stream.lostLog) != 1 {
+		t.Fatalf("after Nak: lost %d, log %d", lost, len(in.stream.lostLog))
+	}
+	if c := in.flows.connByID(mustID(t, in, client)); c == nil || !c.suspect {
+		t.Fatal("flow before the gap must stay suspect after the rollback")
+	}
+
+	// reentrega do mesmo lote (mesma sequência): sem lacuna nova
+	stepSeq(t, in, ms(2020), gap)
+	if lost, _, _ := in.stream.snapshot(); lost != 3 || len(in.stream.lostLog) != 1 {
+		t.Fatalf("after replay: lost %d, log %d", lost, len(in.stream.lostLog))
+	}
+	if o := in.flows.connByID(mustID(t, in, otherCli)); o == nil || o.suspect {
+		t.Fatal("flow created by the replayed batch must not be suspect")
+	}
+	if n := count(t, db, "SELECT count(*) FROM connections WHERE src_port = ?", int(otherCli.Port())); n != 1 {
+		t.Fatalf("otherCli rows %d", n)
+	}
+
+	stepSeq(t, in, ms(10_061)) // 10 s depois do último pacote de client (40 ms) no relógio de captura
+	if n := count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NOT NULL AND src_port = ?", int(client.Port())); n != 1 {
+		t.Fatalf("suspect flow closed %d times (want 1)", n)
+	}
+	if r := recordOf(t, in, mustID(t, in, client)); r.Close.How != "timeout" {
+		t.Fatalf("close %+v", r.Close)
+	}
+	if in.flows.connByID(mustID(t, in, client)) != nil {
+		t.Fatal("closed suspect flow still in the table")
+	}
+}

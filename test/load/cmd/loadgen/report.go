@@ -63,10 +63,13 @@ type summaryDoc struct {
 	Generator results               `json:"generator"`
 }
 
+// defaultQUICTarget é a meta p95 do registro QUIC (ADR 0026, que substituiu os 3 s da ADR 0024).
+const defaultQUICTarget = 500 * time.Millisecond
+
 func reportCmd(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	dir := fs.String("dir", "", "pasta do run")
-	quicTarget := fs.Duration("quic-target", 3*time.Second, "meta p95 do registro QUIC (ADR 0024: 3 s; depois da task 090: 500 ms)")
+	quicTarget := fs.Duration("quic-target", defaultQUICTarget, "meta p95 do registro QUIC (ADR 0026)")
 	_ = fs.Parse(args)
 	if *dir == "" {
 		return fmt.Errorf("-dir é obrigatório")
