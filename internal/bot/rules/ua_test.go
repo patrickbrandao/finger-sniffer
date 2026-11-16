@@ -108,6 +108,50 @@ func TestParseUALongInput(t *testing.T) {
 	}
 }
 
+func TestParseUAAutomation(t *testing.T) {
+	cases := []struct {
+		name, ua, marker, family string
+	}{
+		{"headless chrome", goldenUA["headless"], "headlesschrome", FamilyHeadless},
+		{"phantomjs", "Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/538.1 (KHTML, like Gecko) PhantomJS/2.1.1 Safari/538.1", "phantomjs", FamilyHeadless},
+		{"slimerjs", "Mozilla/5.0 (X11; Linux x86_64; rv:60.0) Gecko/20100101 SlimerJS/1.0.0", "slimerjs", FamilyOther},
+		{"selenium com chrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Selenium/4.27", "selenium", FamilyChrome},
+		{"webdriver maiúsculas", "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0 WEBDRIVER", "webdriver", FamilyFirefox},
+		{"puppeteer", "Puppeteer/23.0 (Node.js)", "puppeteer", FamilyNode},
+		{"playwright", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15 Playwright/1.48", "playwright", FamilySafari},
+		{"cypress", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Cypress/13.15.0 Chrome/128.0.0.0 Electron/32.0.0 Safari/537.36", "cypress", FamilyChrome},
+		{"htmlunit", "HtmlUnit/4.5.0", "htmlunit", FamilyOther},
+		{"misto", "pLaYwRiGhT", "playwright", FamilyOther},
+		{"chrome comum", goldenUA["chrome"], "", FamilyChrome},
+		{"firefox comum", goldenUA["firefox"], "", FamilyFirefox},
+		{"curl", goldenUA["curl"], "", FamilyCurl},
+		{"vazio", "", "", FamilyOther},
+		{"googlebot", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", "", "crawler:googlebot"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ParseUA(c.ua)
+			if got.Automation != c.marker || got.Family != c.family {
+				t.Fatalf("ParseUA(%q) = marcador %q família %q; quer %q %q", c.ua, got.Automation, got.Family, c.marker,
+					c.family)
+			}
+		})
+	}
+	// UA truncado em 512 bytes: o marcador que cabe conta, o que passa do corte não conta
+	inside := strings.Repeat("x", maxUALen-len("selenium")) + "Selenium"
+	if got := ParseUA(inside); got.Automation != "selenium" {
+		t.Fatalf("marcador no fim dos 512 bytes: %q", got.Automation)
+	}
+	cut := strings.Repeat("x", maxUALen-4) + "Selenium"
+	if got := ParseUA(cut); got.Automation != "" {
+		t.Fatalf("marcador cortado nos 512 bytes: %q", got.Automation)
+	}
+	after := strings.Repeat("x", maxUALen) + " HeadlessChrome/131"
+	if got := ParseUA(after); got.Automation != "" || got.Family != FamilyOther {
+		t.Fatalf("marcador depois dos 512 bytes: %+v", got)
+	}
+}
+
 var validFamilies = map[string]bool{
 	FamilyChrome: true, FamilyFirefox: true, FamilySafari: true, FamilyEdge: true, FamilyCurl: true, FamilyGo: true,
 	FamilyPython: true, FamilyJava: true, FamilyNode: true, FamilyHeadless: true, FamilyOther: true,

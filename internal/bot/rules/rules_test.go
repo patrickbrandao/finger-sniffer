@@ -4,6 +4,7 @@ import (
 	"go/build"
 	"net/netip"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -189,6 +190,108 @@ func TestCrawlerVerification(t *testing.T) {
 	}
 }
 
+// spyVerifier conta as consultas (a prova por lista não deve consultar o DNS).
+type spyVerifier struct {
+	calls *int
+	res   Verification
+}
+
+func (s spyVerifier) Verified(netip.Addr, string) Verification {
+	*s.calls++
+	return s.res
+}
+
+func TestCrawlerVerifiedByList(t *testing.T) {
+	go1 := loadKnownClients(t).entry(t, "go", "h2")
+	calls := 0
+	en := goldenEngine(t, false)
+	// mesmo um verificador que reprova não muda a prova por lista: ele nem é consultado
+	en.Sources.Verifier = spyVerifier{calls: &calls, res: VerifyFailed}
+	cases := []struct {
+		name, ua string
+		ip       netip.Addr
+		good     bool
+		crawler  string
+	}{
+		{"gptbot na lista", uaGPTBot, ipGPTBot, true, "gptbot"},
+		{"oai-searchbot na lista da openai", "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot", ipGPTBot, true, "oai-searchbot"},
+		{"duckduckbot na lista", uaDuckDuckBot, ipDuckDuckBot, true, "duckduckbot"},
+		{"gptbot fora da lista", uaGPTBot, ipResidential, false, ""},
+		{"gptbot na lista do duckduckgo", uaGPTBot, ipDuckDuckBot, false, ""},
+		{"duckduckbot na lista da openai", uaDuckDuckBot, ipGPTBot, false, ""},
+	}
+	for _, c := range cases {
+		got := en.Evaluate(inputFrom(go1, c.ua, c.ip))
+		if (got.Class == ClassGoodBot) != c.good || got.Crawler != c.crawler {
+			t.Errorf("%s: %+v", c.name, got)
+		}
+		if c.good && (!hasSignal(got, SignalIPVerifiedCrawler) || hasSignal(got, SignalUAClaimsCrawler)) {
+			t.Errorf("%s: sinais %v", c.name, signalIDs(got))
+		}
+		if !c.good && !hasSignal(got, SignalUAClaimsCrawler) {
+			t.Errorf("%s: sem ua_claims_crawler: %v", c.name, signalIDs(got))
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("CrawlerVerifier consultado %d vezes para operadores provados por lista", calls)
+	}
+	// Google continua exigindo o DNS: o verificador é consultado e a reprovação vale
+	got := en.Evaluate(inputFrom(go1, uaGooglebot, ipGooglebot))
+	if calls != 1 || got.Class == ClassGoodBot || !hasSignal(got, SignalUAClaimsCrawler) {
+		t.Fatalf("googlebot sem DNS: chamadas %d, %+v", calls, got)
+	}
+	for op, byList := range map[string]bool{
+		OperatorGoogle: false, OperatorBing: false, OperatorApple: false, OperatorOpenAI: true, OperatorDuckDuckGo: true,
+		"": false,
+	} {
+		if VerifiedByList(op) != byList {
+			t.Errorf("VerifiedByList(%q) != %v", op, byList)
+		}
+	}
+}
+
+func TestLibraryClient(t *testing.T) {
+	base := loadKnownClients(t)
+	en := goldenEngine(t, false)
+	cases := []struct {
+		name, client, proto, ua string
+		want                    bool
+	}{
+		{"curl declara", "curl", "h2", "curl/8.23.0", true},
+		{"java declara", "chrome", "h2", "okhttp/4.12.0", true},
+		{"node declara", "chrome", "h2", "axios/1.7.7", true},
+		{"ua vazio com ja4 de python", "python", "h1", "", true},
+		{"ua other com ja4 de go", "go", "h2", "custom-agent/1.0", true},
+		{"ua other com ja4 de chrome", "chrome", "h2", "custom-agent/1.0", false},
+		{"chrome com ja4 de curl", "curl", "h2", goldenUA["chrome"], false},
+		{"firefox com ja4 de go", "go", "h2", goldenUA["firefox"], false},
+		{"headless com ja4 de curl", "curl", "h2", goldenUA["headless"], false},
+		{"robô com ja4 de go", "go", "h2", uaGooglebot, false},
+		{"robô genérico com ja4 de go", "go", "h2", "Mozilla/5.0 (compatible; FooBar-Bot/1.0)", false},
+	}
+	for _, c := range cases {
+		got := en.Evaluate(inputFrom(base.entry(t, c.client, c.proto), c.ua, ipResidential))
+		if hasSignal(got, SignalLibraryClient) != c.want {
+			t.Errorf("%s: %v; quer library_client=%v", c.name, signalIDs(got), c.want)
+		}
+	}
+	// JA4 que a base não conhece e base desligada: nada conclui
+	in := inputFrom(base.entry(t, "go", "h2"), "", ipResidential)
+	in.TLS.JA4 = "t13d0000h2_000000000000_000000000000"
+	if got := en.Evaluate(in); hasSignal(got, SignalLibraryClient) {
+		t.Errorf("ja4 desconhecido: %v", signalIDs(got))
+	}
+	if got := (Engine{}).Evaluate(inputFrom(base.entry(t, "go", "h2"), "", ipResidential)); hasSignal(got, SignalLibraryClient) {
+		t.Errorf("sem base própria: %v", signalIDs(got))
+	}
+	// sem visão HTTP não há UA a julgar
+	in = inputFrom(base.entry(t, "go", "h2"), "", ipResidential)
+	in.HTTP = nil
+	if got := en.Evaluate(withView(in)); hasSignal(got, SignalLibraryClient) {
+		t.Errorf("sem HTTP: %v", signalIDs(got))
+	}
+}
+
 func TestOSTCPMismatch(t *testing.T) {
 	cases := []struct {
 		ua   string
@@ -216,8 +319,14 @@ func TestOSTCPMismatch(t *testing.T) {
 }
 
 func TestSignalTable(t *testing.T) {
-	if len(signalTable) != 17 {
-		t.Fatalf("%d sinais; a spec 018 tem 17", len(signalTable))
+	if len(signalTable) != 19 {
+		t.Fatalf("%d sinais; a spec 018 (rules v1.1) tem 19", len(signalTable))
+	}
+	// os dois sinais da v1.1 entram logo antes de ja4db_match, com o tipo e o peso da ADR 0057 item 1
+	pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalJA4DBMatch })
+	if want := []signalDef{{SignalUAAutomation, KindList, 70}, {SignalLibraryClient, KindList, 50}}; pos < 2 ||
+		!slices.Equal(signalTable[pos-2:pos], want) {
+		t.Fatalf("ordem/pesos dos sinais da v1.1: %+v", signalTable[max(pos-2, 0):pos])
 	}
 	seen := map[string]bool{}
 	for _, d := range signalTable {
@@ -232,7 +341,7 @@ func TestSignalTable(t *testing.T) {
 	if _, ok := SignalWeight("nope"); ok {
 		t.Fatal("id desconhecido com peso")
 	}
-	if RulesVersion != "v1.0" {
+	if RulesVersion != "v1.1" {
 		t.Fatalf("RulesVersion %q", RulesVersion)
 	}
 }
