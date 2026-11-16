@@ -1,0 +1,1 @@
+- test(e2e): `analyzePcap` (caso 7) liga `tcp.reassemble_out_of_order` no tshark/ja4 e remonta o fluxo do cliente por seq; ClientHello com o primeiro segmento retransmitido depois do segundo não falha mais (task 274).
