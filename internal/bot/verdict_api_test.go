@@ -252,6 +252,28 @@ func TestIPAndFingerprintLabels(t *testing.T) {
 	}
 }
 
+// TestAuthLongConnection: o forwardAuth que chega antes do registro de conexão do traefix cria a conexão do fork
+// sem inventar o início dela; requisições seguintes na mesma conexão, minutos depois do SYN, continuam casadas com
+// a visão do store (RF-04) e não esperam FS_BOT_VIEW_WAIT.
+func TestAuthLongConnection(t *testing.T) {
+	f := newFixture(t)
+	f.putStore() // SYN às 11:59:59.9
+	hdr := forkHeadersFor()
+	for i := range 3 {
+		f.clock.Advance(time.Minute)
+		start := time.Now()
+		_, _, b := f.do(f.internal, "GET", "/bot/v1/auth", "", hdr, "")
+		var v Verdict
+		_ = json.Unmarshal(b, &v)
+		if !v.View.TCP || v.Subject.ConnID == nil {
+			t.Fatalf("requisição %d sem a visão do store: %s", i, b)
+		}
+		if i > 0 && time.Since(start) > 40*time.Millisecond {
+			t.Errorf("requisição %d esperou a visão (%v)", i, time.Since(start))
+		}
+	}
+}
+
 // TestAuthMetrics: bot_auth_seconds e bot_auth_wait_seconds saem como histogramas cumulativos com os limites da
 // spec 018 RF-12, sem o bucket +Inf (ADR 0057 item 3); bot_view_wait_total conta a visão que faltou.
 func TestAuthMetrics(t *testing.T) {

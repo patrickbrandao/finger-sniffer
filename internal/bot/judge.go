@@ -343,14 +343,12 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn) Verdict {
 	vw := views{ip: f.srcIP, site: site, fork: fork, store: store, http: httpFromAuth(h, f.proto, fork), proto: f.proto}
 	v, res := j.evaluate(vw, requestSubject(site, f.srcIP, f.srcPort, f.dstPort, f.fsConnID, store, method, path))
-	now := j.now()
 	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path}, func(c *ForkConn) {
-		// conexão ainda sem registro do traefix: a origem vem dos X-Fs-* (o registro de conexão completa depois)
+		// conexão ainda sem registro do traefix: a origem vem dos X-Fs-* (o registro de conexão completa depois). First
+		// fica zero: o instante do forwardAuth não é o início da conexão, e numa conexão longa (keep-alive) ele
+		// tiraria a do store da janela de 5 s do casamento (RF-04).
 		if !c.HasSrc {
 			c.SrcIP, c.SrcPort, c.DstPort, c.HasSrc = f.srcIP, f.srcPort, f.dstPort, true
-		}
-		if c.First.IsZero() {
-			c.First = now
 		}
 	})
 	j.count(SourceAuth, v.Class)
