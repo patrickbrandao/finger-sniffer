@@ -1,0 +1,2 @@
+- test: e2e da F8 do lado do bot (`TestF8Bot`): veredito por probe dos 6 clientes, traefix simulado com ingest na 9002 e casamento traefix ↔ store em 100 conexões reais ao traefik-app, forwardAuth com `X-Fs-Ja4h` e `block`, erros sem `X-Fs-Verdict`, feed em ≤ 1 s e `forget`; chaves criadas pela CLI e revogadas no fim.
+- test: casos do traefix real (`TestF8TraefixReal`) escritos e pulando com aviso até a task 273 (task 284).
