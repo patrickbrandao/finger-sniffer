@@ -17,8 +17,8 @@ import (
 )
 
 // TestServe: o serviço sobe a 9002 com TLS (pkg/certs, autoassinado sem certificado em FS_CERT_DIR) e a 9003 em
-// HTTP, assina fs.v1.store.connection (publicador falso), põe a conexão no índice, publica as métricas e para
-// limpo no cancelamento.
+// HTTP, assina fs.v1.store.connection e fs.v1.svc.heartbeat (publicador falso), põe a conexão no índice, acompanha
+// o heartbeat do store, publica as métricas e para limpo no cancelamento.
 func TestServe(t *testing.T) {
 	db, path := testDB(t)
 	log := slog.New(slog.DiscardHandler)
@@ -27,13 +27,13 @@ func TestServe(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cs.Close() })
-	var deliver func([]byte)
-	subscribed := make(chan string, 1)
+	handlers := map[string]func([]byte){}
+	subscribed := make(chan string, 2)
 	m := service.NewMetrics()
 	srv := New(testConfig(path), Deps{
 		Log: log, Metrics: m, DB: db, TLS: cs.TLSConfig(), OpenAPI: []byte("openapi: 3.1.0\n"), Version: "test",
 		Subscribe: func(subject string, h func([]byte)) (func(), error) {
-			deliver = h
+			handlers[subject] = h
 			subscribed <- subject
 			return func() {}, nil
 		},
@@ -50,9 +50,11 @@ func TestServe(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ctx, []net.Listener{pub}, []net.Listener{in}) }()
 
-	if s := <-subscribed; s != event.SubjectStoreConnection {
-		t.Fatalf("assinou %s", s)
+	if s1, s2 := <-subscribed, <-subscribed; s1 != event.SubjectStoreConnection || s2 != event.SubjectHeartbeat {
+		t.Fatalf("assinou %s e %s", s1, s2)
 	}
+	deliver := handlers[event.SubjectStoreConnection]
+	handlers[event.SubjectHeartbeat](heartbeatMessage(t, event.ServiceStore, event.StatusOK))
 	deliver(storeMessage("opened", testStoreConnID, "203.0.113.9", 40000))
 	deliver([]byte(`{"lixo":1}`))
 	if _, ok := srv.Index().StoreByID(testStoreConnID, time.Now()); !ok {
@@ -98,6 +100,9 @@ func TestServe(t *testing.T) {
 	}
 	if st, _ := srv.Status(); st != event.StatusOK {
 		t.Errorf("status %s", st)
+	}
+	if !srv.store.okLocked(time.Now()) {
+		t.Error("heartbeat do store não acompanhado")
 	}
 }
 

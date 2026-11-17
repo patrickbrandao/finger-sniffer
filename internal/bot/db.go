@@ -132,6 +132,11 @@ func Purge(ctx context.Context, db *sql.DB, now time.Time, retention time.Durati
 	if _, err := db.ExecContext(ctx, "DELETE FROM key_usage_daily WHERE day < ?", usageCut); err != nil {
 		return total, fmt.Errorf("bot: purge: %w", err)
 	}
+	// Pedidos da CLI concluídos há mais de 24 h (ADR 0056 item 2); fora de bot_purged_total, que é dos agregados.
+	if _, err := db.ExecContext(ctx, "DELETE FROM control_requests WHERE done_at IS NOT NULL AND done_at < ?",
+		now.Add(-controlRetention).Unix()); err != nil {
+		return total, fmt.Errorf("bot: purge: %w", err)
+	}
 	return total, vacuum(ctx, db)
 }
 

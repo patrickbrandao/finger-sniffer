@@ -1,6 +1,7 @@
 // Comando finger-sniffer-bot: serviço de vereditos de bot (specs 018 e 020). Sem subcomando, sobe o serviço
 // (API 9002 HTTPS e 9003 HTTP, ingest do traefik, assinatura de fs.v1.store.connection, heartbeat); com
-// `key ...` ou `forget ...`, opera a CLI no banco em disco (FS_BOT_DB).
+// `key ...`, `forget ...` ou `lists refresh`, opera a CLI no banco em disco (FS_BOT_DB); forget e lists refresh
+// chegam ao serviço em execução pela tabela control_requests (ADR 0056 item 2).
 package main
 
 import (
@@ -83,7 +84,7 @@ func main() {
 	}
 }
 
-// runCLI roda key/forget e devolve o código de saída.
+// runCLI roda key/forget/lists e devolve o código de saída.
 func runCLI(args []string) int {
 	path := service.Env("FS_BOT_DB", "/finger-sniffer/var/bot/bot.db")
 	err := bot.RunCLI(context.Background(), args, path, os.Stdout, os.Stderr, time.Now())

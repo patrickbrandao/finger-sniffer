@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/netutil"
@@ -60,6 +61,10 @@ type Deps struct {
 	// Reasons (opcional) soma motivos de degraded externos ao bot (certificados).
 	Reasons func(now time.Time) []string
 	Now     func() time.Time
+	// ListsClient e Resolver (opcionais) são o cliente HTTP do download das listas e o DNS da verificação de robô
+	// (nil = os padrões; falsos nos testes).
+	ListsClient *http.Client
+	Resolver    lists.Resolver
 }
 
 // Server é o serviço bot.
@@ -76,6 +81,13 @@ type Server struct {
 	lists   *lists.Manager
 	hooks   *webhook.Dispatcher
 	judge   *Judge
+	// store é o estado do store pelos heartbeats (health store feed silent).
+	store storeWatch
+	// reloadEvery é o ciclo da recarga das chaves e dos pedidos da CLI (keyReload; menor nos testes).
+	reloadEvery time.Duration
+	// refreshing marca um lists refresh pedido pela CLI em andamento; bg espera as goroutines dele na parada.
+	refreshing atomic.Bool
+	bg         sync.WaitGroup
 }
 
 // New monta o serviço sem abrir portas.
@@ -89,7 +101,7 @@ func New(cfg Config, d Deps) *Server {
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
 	}
-	s := &Server{cfg: cfg, deps: d}
+	s := &Server{cfg: cfg, deps: d, reloadEvery: keyReload}
 	s.keys = NewKeyStore(d.DB)
 	s.limiter = NewLimiter(d.DB, d.Now)
 	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, cfg.IndexMaxBytes, func(reason string, n int) {
@@ -97,6 +109,14 @@ func New(cfg Config, d Deps) *Server {
 	})
 	for _, r := range []string{evictCount, evictBytes} {
 		d.Metrics.Add(evictedMetric(r), 0) // as duas séries aparecem desde o início
+	}
+	// Contadores da spec 018 RF-12 que só andam com eventos aparecem zerados desde o primeiro heartbeat.
+	for _, k := range []string{
+		metricIngestRecords, metricIngestDropped, metricRateLimited, webhook.DroppedMetric,
+		metricIngestParseErrors + `{part="client_hello"}`, metricIngestParseErrors + `{part="h2_prefix"}`,
+		metricPurged + `{reason="age"}`, metricPurged + `{reason="size"}`,
+	} {
+		d.Metrics.Add(k, 0)
 	}
 	s.hub = NewHub()
 	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention})
@@ -124,6 +144,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if t := s.index.LastBytesEviction(); !t.IsZero() && s.deps.Now().Sub(t) < indexBytesDegraded {
 		reasons = append(reasons, "index bytes")
+	}
+	if s.store.silent(s.feed.LastMessage(), s.deps.Now()) {
+		reasons = append(reasons, "store feed silent")
 	}
 	if s.hooks.Backlog(s.deps.Now()) {
 		reasons = append(reasons, "webhook backlog")
@@ -162,6 +185,7 @@ func newLists(cfg Config, d Deps) *lists.Manager {
 	m, err := lists.NewManager(lists.Options{
 		Dir: cfg.ListsDir, URLs: cfg.ListURLs, JA4DBEnable: cfg.JA4DBEnable, JA4DBURL: cfg.JA4DBURL,
 		RefreshAt: cfg.ListRefreshAt, Version: d.Version, DB: d.DB, Now: d.Now, Log: d.Log,
+		Client: d.ListsClient, Resolver: d.Resolver,
 	})
 	if err != nil {
 		d.Log.Error("bot: lists disabled", "err", err)
@@ -232,7 +256,15 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 			closeAll(internal)
 			return fmt.Errorf("bot: subscribe: %w", err)
 		}
-		unsubscribe = u
+		// Heartbeats só para saber se o store está ok (store feed silent, spec 018 RF-11).
+		uh, err := s.deps.Subscribe(event.SubjectHeartbeat, func(data []byte) { s.store.heartbeat(data, s.deps.Now()) })
+		if err != nil {
+			u()
+			closeAll(public)
+			closeAll(internal)
+			return fmt.Errorf("bot: subscribe: %w", err)
+		}
+		unsubscribe = func() { uh(); u() }
 	}
 	defer unsubscribe()
 
@@ -292,6 +324,7 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	}
 	stopLoops()
 	wg.Wait()
+	s.bg.Wait()
 	s.hooks.Wait()
 	s.judge.bg.Wait()
 	shCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -308,9 +341,9 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	return runErr
 }
 
-// loops roda a recarga das chaves, o flush do uso e das métricas e o expurgo.
+// loops roda a recarga das chaves e os pedidos da CLI, o flush do uso, dos agregados e das métricas e o expurgo.
 func (s *Server) loops(ctx context.Context) {
-	reload := time.NewTicker(keyReload)
+	reload := time.NewTicker(s.reloadEvery)
 	defer reload.Stop()
 	flush := time.NewTicker(s.cfg.FlushInterval)
 	defer flush.Stop()
@@ -319,6 +352,7 @@ func (s *Server) loops(ctx context.Context) {
 	s.purge(ctx)
 	s.updateMetrics()
 	s.syncWebhooks(ctx)
+	s.handleControls(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -328,6 +362,7 @@ func (s *Server) loops(ctx context.Context) {
 				s.deps.Log.Warn("bot: key reload", "err", err)
 			}
 			s.syncWebhooks(ctx)
+			s.handleControls(ctx)
 		case <-flush.C:
 			if err := s.limiter.Flush(ctx); err != nil && ctx.Err() == nil {
 				s.deps.Log.Warn("bot: usage flush", "err", err)
