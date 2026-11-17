@@ -130,7 +130,7 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   Mac (task 256, baixa prioridade). Adendo da ADR 0045 com a reserva de espaço e o checkpoint por passo da task 255.
   Release `v0.4.0` em 2026-11-16 (task 258, PR #235), com a correção bloqueante da auditoria (task 259, PR #234).
 
-## F8 — Detecção de bots oferecida por API e traefik modificado
+## F8 — Detecção de bots oferecida por API e traefik modificado (concluída em 2026-11-17, sem o traefix)
 - **Objetivo**: a análise do espelho identifica bots e é oferecida por API (forwardAuth do traefik, consulta pelo
   site, probe, feed e webhook) a sites próprios atrás do traefik do finger-01 e a clientes externos não comerciais com
   chave emitida pelo operador; o **traefix** (traefik modificado, projeto externo do humano, imagem
@@ -180,6 +180,30 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   oficial 400/100 sem perder as metas da ADR 0046; expurgo de 7 dias comprovado com relógio falso; pendências P4–P6
   respondidas ou registradas no PR de release; tag `v0.5.0`. Se o traefix não estiver no finger-01 na hora da
   release, o architect escala ao humano (esperar ou lançar sem a visão do traefix).
+- **Saída (2026-11-17)**: atendido do lado do bot; **lançada sem o traefix por decisão do humano** (escalonamento
+  previsto no critério). Tasks 260–262, 267–272, 274–286 e 288–295 e 298 na `main` (PRs #236–#272). e2e da F8 (`TestF8Bot`, tasks
+  284 e 295, PRs #265, #267 e #270) contra o finger-01: pelo probe curl, Go e python-requests `bot` 75 e o Googlebot
+  falso `bot` 85 (`ja4h_library` normalizado, ADR 0060, + `tunnel_mss` do caminho; goldens sem o caminho 70/80),
+  Chrome e Firefox `human` 0; traefix simulado (`TraefikIngestBatch` na 9002) com as classes esperadas nos 6 clientes
+  e casamento traefix ↔ store 100/100; forwardAuth com `X-Fs-Ja4h` e `block`, erros sem `X-Fs-Verdict` (fail-open),
+  feed em ≤ 1 s sem o veredito do probe, `forget`. Carga da F8 (task 285, PR #268, `test/load/RESULTS.md`,
+  "finger-01, F8") a 200 forwardAuth/s junto da oficial 400/100: forwardAuth p95 0,62 / p99 1,62 ms no cliente,
+  consulta p95 0,31 ms, veredito no feed ≤ 86 ms, `bot_auth_ja4h_total{source="header"}` = 318 217 requisições;
+  metas da ADR 0046 no espelho com o bot assinando (backlog máx 0,07 s, `stream_lost`/`db_full` Δ 0, feed global p99
+  327 ms), CPU do store igual com e sem o bot; trecho hostil com o índice no teto de 384 MiB, sem OOM (`anon` 733 MiB),
+  forwardAuth p99 44,8 ms e health de volta a `ok` em 7 min 23 s, dentro da meta da ADR 0061 (`FS_BOT_CONN_TTL` +
+  60 s). Expurgo de 7 dias com relógio falso em `TestForgetAndPurge` (`internal/bot`). Auditoria do reviewer: o bloqueante (uma chave escrevia em site de outra pelo ingest) e os ajustes de retenção ≤ 7 d 1 h e campos por lista permitida corrigidos na task 298 (PR #272); `forget` sem limpar a fila do webhook (task 299) e `control_requests` na privacidade do `docs/bot.md` (task 300, adendo da ADR 0052 já feito) ficam para depois, não bloqueantes. Release `v0.5.0` (task 297).
+  **Pendente na release**:
+  - task 273 (traefix real no finger-01, router de teste e casos `TestF8TraefixReal`): bloqueada até o aviso do
+    humano; o critério "pelo router de teste do traefix" fica para quando ela sair;
+  - P4 (termos da ja4db; `FS_BOT_JA4DB_ENABLE=false`), P5 (base legal, LGPD) e P6 (controlador, encarregado e canal
+    do titular): sem resposta, registradas no PR de release; task 287 (página de privacidade) bloqueada até P5 e P6;
+  - task 296 (probe h3 sem registro, 1 em 21 000 na carga da F8), prioridade baixa;
+  - task 256 (gerador de carga fora do Mac, ressalva da ADR 0046), prioridade baixa;
+  - task 221 (carga contra o teto da tabela de fluxos do store), bloqueada com o humano;
+  - questão aberta ao humano: no modo `block`, o 403 do forwardAuth devolve o corpo `Verdict` completo (ADR 0051
+    item 1: classe, score e sinais) ao visitante bloqueado; manter assim ou responder com corpo mínimo é decisão
+    dele, por nova ADR, antes de ligar `block` nos sites.
 - **Pendências para o humano** (detalhe na spec 018): P4 termos da ja4db; P5 base legal (LGPD); P6 controlador,
   encarregado e canal do titular. Respondidas em 2026-11-16 (ADR 0054): P1 e P2 (traefix externo), P3 (os dois
   casos de clientes externos), P7 (tráfego dos sites segue visível), P8 (troca só observando, task 273).

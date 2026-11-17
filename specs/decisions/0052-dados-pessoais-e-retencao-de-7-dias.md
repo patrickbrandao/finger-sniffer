@@ -19,6 +19,7 @@ para esta fase.
    | agregados por fingerprint por dia (contagens por família de UA e classe, sem IP) | disco | 7 dias |
    | chaves, uso diário, webhooks | disco | enquanto a chave existir; uso diário 90 dias |
    | listas baixadas | disco | até a próxima atualização |
+   | pedidos da CLI ao serviço (`control_requests`: `forget` com o IP ou prefixo, `lists refresh`) | disco | concluídos apagados em 24 h (ADR 0056 item 2; linha acrescentada na auditoria da v0.5.0, task 297) |
    Expurgo de hora em hora; nada com IP passa de 7 dias e 1 hora.
 2. **Minimização**: o bot não guarda corpo, query string, valores de cookie, de `Authorization` nem de campos fora
    da lista permitida (ADR 0048 item 3); caminhos entram nos agregados só como contagem e hash (SHA-256 truncado com
