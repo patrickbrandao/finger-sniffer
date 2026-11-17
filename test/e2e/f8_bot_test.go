@@ -6,7 +6,7 @@ package e2e
 // 0058), contra o bot da main no finger-01:
 //   - probe: curl, Go, python-requests, Chrome, Firefox e um Googlebot falso abrem o probe com Origin (linha de
 //     comando) ou Referer (navegadores, por uma página local em fs-e2e.localhost) de um domínio da chave, e
-//     GET /bot/v1/probes/{id}/verdict dá a classe da tabela da ADR 0057 item 1 (rules v1.2);
+//     GET /bot/v1/probes/{id}/verdict dá a classe da tabela da ADR 0057 item 1 (rules v1.3, ADR 0060);
 //   - traefix simulado: cada cliente abre o probe sem Origin (o espelho registra o ClientHello, o prefixo h2
 //     decifrado e o JA4H da requisição); o teste abre uma conexão real ao traefik-app (443) repetindo esse
 //     ClientHello, acha a origem pública dela no store, manda o TraefikIngestBatch ao POST /bot/v1/ingest/traefik
@@ -43,6 +43,8 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"golang.org/x/net/http2"
+
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/rules"
 )
 
 var (
@@ -252,8 +254,8 @@ func decodeVerdict(t *testing.T, what string, r botResp) botVerdict {
 	return v
 }
 
-// f8Expected é a tabela da ADR 0057 item 1 (ja4db desligada, IP residencial, sem comportamento; rules v1.2 da ADR
-// 0058 dá o known_client a Chrome e Firefox pelo probe).
+// f8Expected é a tabela da ADR 0057 item 1 (ja4db desligada, IP residencial, sem comportamento; rules v1.3: a v1.2 da ADR
+// 0058 dá o known_client a Chrome e Firefox e a v1.3 da ADR 0060 o ja4h_library às bibliotecas pelo probe).
 var f8Expected = map[string]struct {
 	class   string
 	signals []string
@@ -283,10 +285,11 @@ func checkClass(t *testing.T, client string, v botVerdict) {
 	ws := slices.Clone(want.signals)
 	sort.Strings(ws)
 	if v.Class != want.class || !slices.Equal(got, ws) {
-		t.Errorf("%s: veredito %s; esperado %s com %v (ADR 0057 item 1, rules v1.2)", client, v.String(), want.class, ws)
+		t.Errorf("%s: veredito %s; esperado %s com %v (ADR 0057 item 1, rules %s)", client, v.String(), want.class, ws, rules.RulesVersion)
 	}
-	if v.RulesVersion != "v1.2" {
-		t.Errorf("%s: rules_version %q, esperado v1.2", client, v.RulesVersion)
+	// a versão das regras é a do código desta árvore (o bot implantado tem de ser o mesmo)
+	if v.RulesVersion != rules.RulesVersion {
+		t.Errorf("%s: rules_version %q, esperado %s", client, v.RulesVersion, rules.RulesVersion)
 	}
 	if v.ListsVersion == "" || v.ListsVersion == "none" {
 		t.Errorf("%s: lists_version %q", client, v.ListsVersion)
