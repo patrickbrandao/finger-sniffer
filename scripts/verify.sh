@@ -60,7 +60,7 @@ RACE_SPLIT_PKGS="${FS_RACE_SPLIT_PKGS:-}"
 # Duração medida no CI dos testes lentos dos pacotes em lotes ("<Teste> <segundos>"); só equilibra os lotes:
 # teste ausente pesa RACE_DEFAULT_WEIGHT e nenhum teste fica de fora por causa deste arquivo.
 RACE_WEIGHTS="${FS_RACE_WEIGHTS:-scripts/race-weights.txt}"
-RACE_DEFAULT_WEIGHT=0.15
+RACE_DEFAULT_WEIGHT=0.1
 
 export PATH="$(go env GOPATH)/bin:$PATH"
 
@@ -613,7 +613,8 @@ race_list() {
 	local pkg
 	# shellcheck disable=SC2086 # padrões do go list
 	for pkg in $(go list $RACE_SPLIT_PKGS); do
-		if ! go test -race -list '.*' "$pkg" >"$WORK/list.out"; then
+		# mesmo -covermode do lote: o binário compilado aqui é o que o lote roda (cache)
+		if ! go test -race -covermode=atomic -list '.*' "$pkg" >"$WORK/list.out"; then
 			cat "$WORK/list.out"
 			return 1
 		fi

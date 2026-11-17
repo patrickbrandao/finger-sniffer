@@ -80,6 +80,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          # Cache próprio (chave com o race-weights.txt): o da chave só do go.sum é salvo pelo primeiro job a
+          # terminar (release-build, sem -race) e não traz as dependências compiladas com -race.
+          cache-dependency-path: |
+            go.sum
+            scripts/race-weights.txt
 
       - name: store -race (lote ${{ matrix.shard }}/${{ strategy.job-total }})
         run: timeout --kill-after=30s 10m scripts/verify.sh race-shard "${{ matrix.shard }}" "${{ strategy.job-total }}" "$FS_RACE_OUT"
