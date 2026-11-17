@@ -25,11 +25,12 @@ import (
 // para brutos antigos: desde a task 247 o loadmon grava o memory.max real de cada cgroup no cgroup.csv, e ele vale.
 var memoryMax = map[string]float64{
 	"capture": 512 << 20, "web": 768 << 20, "raw": 256 << 20, "dns": 256 << 20, "store": 6 << 30, "nats": 1 << 30,
-	"slice": 10 << 30,
+	"bot": 1 << 30, "slice": 10 << 30,
 }
 
-// usageUnits são as linhas da tabela de CPU/RAM: as 6 units e a fatia que as contém.
-var usageUnits = []string{"capture", "web", "raw", "dns", "store", "nats", "slice"}
+// usageUnits são as linhas da tabela de CPU/RAM: as 6 units do espelho, o bot (F8, task 285; brutos anteriores não
+// têm a linha) e a fatia que as contém.
+var usageUnits = []string{"capture", "web", "raw", "dns", "store", "nats", "bot", "slice"}
 
 type check struct {
 	Goal   string `json:"goal"`
@@ -209,6 +210,12 @@ func reportCmd(args []string) error {
 	}
 	if thrSeen {
 		add("RNF-01", "cpu.stat nr_throttled por unit (Δ na medição)", "0 em todas", strings.Join(thrV, ", "), thrOK)
+	}
+	if b, ok := usage["bot"]; ok {
+		// bot (spec 018 RNF-02): CPUQuota=200% e MemoryMax=1G; o nr_throttled dele é informativo (a meta do espelho
+		// acima é das units do espelho), bater no MemoryMax ou matar é falha
+		add("RNF-02 (018)", "bot: nr_throttled / memory.events max / oom_kill (Δ na medição)", "— / 0 / 0",
+			fmt.Sprintf("%d / %d / %d", b.Throttled, b.EventsMax, b.OOMKill), b.EventsMax <= 0 && b.OOMKill <= 0)
 	}
 	add("RNF-01", "CPU do host (média / p95 / máx)", "informativo", hostCPUText(hostCPU), true)
 	if ct := conntrackDelta(*dir); ct != "" {
