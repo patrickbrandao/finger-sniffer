@@ -64,6 +64,15 @@ func inputFrom(e knownEntry, ua string, ip netip.Addr) Input {
 	return withView(in)
 }
 
+// probeFrom é a medida da base aberta pelo probe (caso (a) da spec 020, ADR 0060): a ordem real dos campos do
+// cliente com o Origin (ou o Referer, nos navegadores) de um domínio da chave, e o JA4H medido dessa ordem.
+func probeFrom(e knownEntry, ua string, ip netip.Addr, fields []string) Input {
+	in := inputFrom(e, ua, ip)
+	in.HTTP.JA4H = measuredJA4H("GET", e.Proto, fields)
+	in.HTTP.FieldOrder = fields
+	return in
+}
+
 // withView preenche a visão pelo que há na entrada (o H3 vem de quem monta).
 func withView(in Input) Input {
 	in.View.TCP, in.View.TLS, in.View.HTTP = in.TCP != nil, in.TLS != nil, in.HTTP != nil
@@ -152,6 +161,14 @@ func goldenCases(t testing.TB) []goldenCase {
 		// casos novos da v1.2
 		{"chrome_other_mss", chromeMSS, false, ClassHuman, []string{SignalKnownClient}},
 		{"firefox_other_window", firefoxWindow, false, ClassHuman, nil},
+		// casos novos da v1.3 (ADR 0060 item 1): o caminho do probe, com Origin nas bibliotecas e Referer nos navegadores
+		{"curl_probe", probeFrom(e("curl", "h2"), ua["curl"], ipResidential, curlProbeFields), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"go_probe", probeFrom(e("go", "h2"), ua["go"], ipResidential, goProbeFields), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"python_requests_probe", probeFrom(e("python", "h1"), ua["python"], ipResidential, pythonProbeFields), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
+		{"googlebot_fake_probe", probeFrom(e("curl", "h2"), uaGooglebot, ipFakeGoogle, curlProbeFields), false, ClassBot, []string{SignalJA4HLibrary, SignalUAClaimsCrawler}},
+		{"ua_missing_probe", probeFrom(e("python", "h1"), "", ipResidential, pythonProbeFields), false, ClassBot, []string{SignalUAMissing, SignalJA4HLibrary, SignalLibraryClient}},
+		{"chrome_probe", probeFrom(e("chrome", "h2"), ua["chrome"], ipResidential, chromeProbeFields), false, ClassHuman, []string{SignalKnownClient}},
+		{"firefox_probe", probeFrom(e("firefox", "h2"), ua["firefox"], ipResidential, firefoxProbeFields), false, ClassHuman, []string{SignalKnownClient}},
 	}
 }
 

@@ -23,7 +23,7 @@ const (
 	KindBehavior    = "behavior"
 )
 
-// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.2)"), na ordem em que aparecem no veredito.
+// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.3)"), na ordem em que aparecem no veredito.
 const (
 	SignalUAMissing               = "ua_missing"
 	SignalUATLSMismatch           = "ua_tls_mismatch"
@@ -46,7 +46,7 @@ const (
 	SignalRouteBreadth            = "route_breadth"
 )
 
-// signalDef é uma linha da tabela de pesos (rules v1.2, provisórios; ADRs 0049, 0057 e 0058).
+// signalDef é uma linha da tabela de pesos (rules v1.3, provisórios; ADRs 0049, 0057, 0058 e 0060).
 type signalDef struct {
 	id     string
 	kind   string
@@ -115,7 +115,7 @@ type Result struct {
 	UAOS     string `json:"ua_os,omitempty"`
 }
 
-// Engine avalia as regras v1.2 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
+// Engine avalia as regras v1.3 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
 type Engine struct {
 	Sources Sources
 	// RateHigh é FS_BOT_RATE_HIGH; 0 usa DefaultRateHigh.
@@ -134,7 +134,7 @@ func (e *eval) add(id, detail string) {
 	e.present[id] = detail
 }
 
-// Evaluate aplica as regras v1.2 (ADRs 0049, 0057 e 0058). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
+// Evaluate aplica as regras v1.3 (ADRs 0049, 0057, 0058 e 0060). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
 // resultado.
 func (en Engine) Evaluate(in Input) Result {
 	ev := &eval{present: map[string]string{}}
@@ -199,11 +199,7 @@ func (en Engine) incoherence(ev *eval, in Input, ua UA) {
 		osTCP(ev, ua, in.TCP)
 	}
 	if in.HTTP != nil && !in.HTTP.HasAcceptLanguage && en.Sources.Known != nil {
-		if ab := ja4hAB(in.HTTP.JA4H); ab != "" {
-			if lib := firstLibrary(en.Sources.Known.Families(KindJA4HAB, ab)); lib != "" {
-				ev.add(SignalJA4HLibrary, "ja4h "+ab+" of "+lib+", no accept-language")
-			}
-		}
+		en.ja4hLibrary(ev, in.HTTP)
 	}
 	if t := in.TCP; t != nil {
 		switch {
@@ -478,7 +474,7 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// SignalWeight devolve o peso v1.2 do sinal (false para id desconhecido).
+// SignalWeight devolve o peso v1.3 do sinal (false para id desconhecido).
 func SignalWeight(id string) (int, bool) {
 	for _, d := range signalTable {
 		if d.id == id {
