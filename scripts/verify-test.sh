@@ -4,7 +4,9 @@
 #   - a lista de pacotes linux_priv também ignora tmp/;
 #   - os testes linux_priv usam um diretório remoto próprio por execução e apagam só ele, inclusive com duas
 #     execuções simultâneas, falha de compilação, falha de scp e sinal;
-#   - o openapi do bot entra nos contratos (task 262).
+#   - o openapi do bot entra nos contratos (task 262);
+#   - os testes -race do store em lotes no CI: repartição, união dos lotes = lista (falha com um teste omitido de
+#     propósito), race-shard num módulo mínimo e o workflow (task 294).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -298,6 +300,126 @@ check "banco-modelo do bot: criado e exportado (store sem migrations fica de for
 check "banco-modelo do bot: segunda vez em dia" '[ "$(cut -d"|" -f1 "$T/out.botdb2")" = "store=skipped bot=fresh" ]'
 check "banco-modelo do bot: migrado (goose_db_version)" 'grep -q goose_db_version "$ROOT/$DBREL/bot.sqlite"'
 rm -rf "${ROOT:?}/$DBREL"
+
+# ---- task 294: testes -race do store em lotes no CI --------------------------------------------------------
+RC="$T/race"
+mkdir -p "$RC"
+# race_assign: cada teste em exatamente um lote de 1..n, o pesado sozinho, determinístico
+printf 'TestHeavy 50\nTestMid 10\n' >"$RC/weights"
+for i in 1 2 3 4 5 6 7 8; do echo "p/x Test$i"; done >"$RC/list"
+printf 'p/x TestHeavy\np/x TestMid\np/y TestOther\n' >>"$RC/list"
+RACE_WEIGHTS="$RC/weights" race_assign 3 <"$RC/list" >"$RC/assign1"
+RACE_WEIGHTS="$RC/weights" race_assign 3 <"$RC/list" >"$RC/assign2"
+awk '{ print $2, $3 }' "$RC/assign1" | LC_ALL=C sort >"$RC/assigned"
+LC_ALL=C sort "$RC/list" >"$RC/listed"
+check "lotes: cada teste em exatamente um lote" '[ -s "$RC/listed" ] && cmp -s "$RC/assigned" "$RC/listed"'
+check "lotes: só lotes 1..n" '[ -z "$(awk "\$1 < 1 || \$1 > 3" "$RC/assign1")" ]'
+check "lotes: determinístico" 'cmp -s "$RC/assign1" "$RC/assign2"'
+heavy=$(awk '$3 == "TestHeavy" { print $1 }' "$RC/assign1")
+check "lotes: teste pesado sozinho no lote" '[ "$(awk -v k="$heavy" "\$1 == k" "$RC/assign1" | wc -l | tr -d " ")" = 1 ]'
+check "lotes: sem arquivo de pesos também reparte" '[ "$(RACE_WEIGHTS="$RC/nada" race_assign 4 <"$RC/list" | awk "{print \$1}" | sort -u | wc -l | tr -d " ")" = 4 ]'
+
+# race_union_check: lista e resultados montados à mão (ok, um teste omitido, repetido, sobrando, listas diferentes)
+union() {
+	rm -rf "$RC/u" && mkdir -p "$RC/u"
+	for k in 1 2 3; do cp "$RC/list" "$RC/u/expected-$k.txt"; done
+	awk '{print $2, $3 > ("'"$RC"'/u/ran-" $1 ".txt")}' "$RC/assign1"
+}
+union
+(race_union_check 3 "$RC/u") >"$T/out.union-ok" 2>&1
+union_rc=$?
+check "união dos lotes: completa passa" '[ "$union_rc" = 0 ] && grep -q "testes na lista: 11; com resultado: 11" "$T/out.union-ok"'
+union
+for k in 1 2 3; do
+	{ grep -v " TestMid$" "$RC/u/ran-$k.txt" || true; } >"$RC/u/x"
+	mv "$RC/u/x" "$RC/u/ran-$k.txt"
+done
+(race_union_check 3 "$RC/u") >"$T/out.union-miss" 2>&1
+union_rc=$?
+check "união dos lotes: teste omitido falha" '[ "$union_rc" != 0 ] && grep -q "fora de todos os lotes: p/x TestMid" "$T/out.union-miss"'
+union
+echo "p/x Test1" >>"$RC/u/ran-3.txt"
+echo "p/x Test1" >>"$RC/u/ran-2.txt"
+(race_union_check 3 "$RC/u") >"$T/out.union-dup" 2>&1
+union_rc=$?
+check "união dos lotes: teste repetido falha" '[ "$union_rc" != 0 ] && grep -q "em mais de um lote: p/x Test1" "$T/out.union-dup"'
+union
+echo "p/x TestNovo" >>"$RC/u/ran-1.txt"
+(race_union_check 3 "$RC/u") >"$T/out.union-extra" 2>&1
+union_rc=$?
+check "união dos lotes: teste fora da lista falha" '[ "$union_rc" != 0 ] && grep -q "fora da lista: p/x TestNovo" "$T/out.union-extra"'
+union
+echo "p/x TestSoNoLote2" >>"$RC/u/expected-2.txt"
+(race_union_check 3 "$RC/u") >"$T/out.union-lists" 2>&1
+union_rc=$?
+check "união dos lotes: listas diferentes entre lotes falham" '[ "$union_rc" != 0 ] && grep -q "lote 2: lista de testes diferente" "$T/out.union-lists"'
+union
+rm "$RC/u/ran-3.txt"
+(race_union_check 3 "$RC/u") >"$T/out.union-lost" 2>&1
+union_rc=$?
+check "união dos lotes: lote sem resultado falha" '[ "$union_rc" != 0 ] && grep -q "lote 3: sem" "$T/out.union-lost"'
+
+# full_test_pkgs: sem FS_RACE_SPLIT_PKGS, ./...; com, ./... sem os pacotes em lotes
+check "full sem lotes roda ./..." '[ "$(RACE_SPLIT_PKGS="" full_test_pkgs)" = "./..." ]'
+RACE_SPLIT_PKGS=./internal/store/... full_test_pkgs >"$T/out.fullpkgs" 2>&1
+check "full com lotes tira só o store" '! grep -q "/internal/store$" "$T/out.fullpkgs" && grep -q "/internal/web$" "$T/out.fullpkgs" &&
+	[ "$(($(wc -l <"$T/out.fullpkgs")))" = "$(($(go list ./... | wc -l) - $(go list ./internal/store/... | wc -l)))" ]'
+
+# race_shard de ponta a ponta num módulo mínimo: 2 lotes rodam tudo (subteste e exemplo inclusive); um lote que
+# omite um teste de propósito faz a união falhar com o nome dele
+RM="$T/racemod"
+mkdir -p "$RM/a" "$RM/b"
+printf 'module racemod\n\ngo 1.22\n' >"$RM/go.mod"
+cat >"$RM/a/a_test.go" <<'EOF'
+package a
+
+import (
+	"fmt"
+	"testing"
+)
+
+func TestOne(t *testing.T) { t.Run("sub", func(t *testing.T) {}) }
+
+func TestTwo(t *testing.T) {}
+
+func TestSkip(t *testing.T) { t.Skip("pulado") }
+
+func Example_hello() {
+	fmt.Println("oi")
+	// Output: oi
+}
+EOF
+printf 'package b\n\nimport "testing"\n\nfunc TestThree(t *testing.T) {}\n\nfunc FuzzSeed(f *testing.F) { f.Add(1); f.Fuzz(func(t *testing.T, _ int) {}) }\n' >"$RM/b/b_test.go"
+shard_mod() { (cd "$RM" && RACE_SPLIT_PKGS=./... RACE_WEIGHTS=/nada race_shard "$@"); }
+shard_mod 1 2 "$RM/out" >"$T/out.shard1" 2>&1
+s1=$?
+shard_mod 2 2 "$RM/out" >"$T/out.shard2" 2>&1
+s2=$?
+check "race-shard: os dois lotes passam" '[ "$s1" = 0 ] && [ "$s2" = 0 ]'
+check "race-shard: lista com testes, exemplo e fuzz dos dois pacotes" '[ "$(wc -l <"$RM/out/expected-1.txt" | tr -d " ")" = 6 ]'
+(race_union_check 2 "$RM/out") >"$T/out.shard-union" 2>&1
+union_rc=$?
+check "race-shard: união dos 2 lotes = lista" '[ "$union_rc" = 0 ] && grep -q "testes na lista: 6; com resultado: 6" "$T/out.shard-union"'
+check "race-shard: cobertura de cada lote" '[ -s "$RM/out/cover-1.out" ] && [ -s "$RM/out/cover-2.out" ]'
+check "race-shard: subteste não entra na lista de resultados" '! grep -q "/" <(cut -d" " -f2 "$RM/out/ran-1.txt" "$RM/out/ran-2.txt")'
+# lotes que "esquecem" um teste: race_assign embrulhado para tirar TestTwo da repartição
+(
+	eval "orig_$(declare -f race_assign)"
+	race_assign() { orig_race_assign "$@" | grep -v " TestTwo$"; }
+	shard_mod 1 2 "$RM/out2"
+	shard_mod 2 2 "$RM/out2"
+) >"$T/out.shard-omit-run" 2>&1
+(race_union_check 2 "$RM/out2") >"$T/out.shard-omit" 2>&1
+omit_rc=$?
+check "race-shard: teste omitido de propósito falha a união" '[ "$omit_rc" != 0 ] && grep -q "fora de todos os lotes: racemod/a TestTwo" "$T/out.shard-omit"'
+
+# CI: o store sai do verify-full e roda nos lotes; race-check com o mesmo número de lotes da matriz e depois de tudo
+CI_YML="$ROOT/.github/workflows/ci.yml"
+check "CI: FS_RACE_SPLIT_PKGS do store no workflow" 'grep -qE "^  FS_RACE_SPLIT_PKGS: \./internal/store/\.\.\.$" "$CI_YML"'
+ci_shards=$(sed -nE 's/^ +shard: \[([0-9, ]+)\]$/\1/p' "$CI_YML" | tr ',' '\n' | grep -c .)
+check "CI: race-check com o número de lotes da matriz" '[ "$ci_shards" -ge 2 ] && grep -qE "verify\.sh race-check $ci_shards " "$CI_YML"'
+check "CI: race-check depende do verify-full e dos lotes" 'grep -qF "needs: [verify-full, store-race]" "$CI_YML"'
+check "CI: lote com race-shard e tamanho da matriz" 'grep -qF "race-shard \"\${{ matrix.shard }}\" \"\${{ strategy.job-total }}\"" "$CI_YML"'
 
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do

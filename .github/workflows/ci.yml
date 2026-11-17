@@ -17,6 +17,13 @@ concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Testes do store com -race em lotes paralelos (task 294, ADR 0059): saem do passo de testes do verify-full e
+# rodam nos jobs store-race; o race-check confere que a união dos lotes é a lista inteira de testes e soma a
+# cobertura. O verify-full local (sem estas variáveis) continua rodando tudo de uma vez.
+env:
+  FS_RACE_SPLIT_PKGS: ./internal/store/...
+  FS_RACE_OUT: tmp/race
+
 jobs:
   # Tempo (task 253): ~13 min depois do fuzz em lotes paralelos (eram 17–20 min, colado no limite antigo de 20).
   # O passo tem 25 min pelo `timeout`, que imprime o resumo e marca o erro como tempo esgotado; o job tem 30 min
@@ -49,6 +56,67 @@ jobs:
             echo "### verify-full: tempo esgotado (25 min)" >>"$GITHUB_STEP_SUMMARY"
           fi
           exit "$rc"
+
+      # perfil de cobertura sem o store, somado aos lotes no race-check
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: race-main
+          path: tmp/race/
+          if-no-files-found: error
+          retention-days: 3
+
+  # Lotes do store com -race (task 294). Lotes e pesos: race_assign em scripts/verify.sh e
+  # scripts/race-weights.txt; o número de lotes é o tamanho da matriz (o race-check recebe o mesmo número).
+  store-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # Cache próprio (chave com o race-weights.txt): o da chave só do go.sum é salvo pelo primeiro job a
+          # terminar (release-build, sem -race) e não traz as dependências compiladas com -race.
+          cache-dependency-path: |
+            go.sum
+            scripts/race-weights.txt
+
+      - name: store -race (lote ${{ matrix.shard }}/${{ strategy.job-total }})
+        run: timeout --kill-after=30s 10m scripts/verify.sh race-shard "${{ matrix.shard }}" "${{ strategy.job-total }}" "$FS_RACE_OUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: race-shard-${{ matrix.shard }}
+          path: tmp/race/
+          if-no-files-found: error
+          retention-days: 3
+
+  # Nenhum teste fora dos lotes (nem repetido) e cobertura total = verify-full + lotes.
+  race-check:
+    needs: [verify-full, store-race]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: race-*
+          path: tmp/race
+          merge-multiple: true
+
+      - name: race-check
+        run: scripts/verify.sh race-check 4 "$FS_RACE_OUT"
 
   # Build reproduzível e pacote de release (task 070). Os hashes com VERSION/COMMIT fixos saem no log
   # para comparar com um build feito no Mac (mesma toolchain do go.mod).
