@@ -67,7 +67,8 @@ O espelho não fixa estes sysctls do host, e eles aparecem no que o cliente vê 
 | [probes.md](probes.md) | Como sondar com um probe ID; `Date` e controles de resposta; uma receita por caso da matriz (1–13) com campos estáveis e diferenças esperadas por caminho (proxy HTTP, túnel CONNECT, HTTPS-proxy) para o cliente comparar |
 | [realtime.md](realtime.md) | Feed ao vivo: `/api/v1/stream` (SSE) e `/api/v1/ws` (WebSocket), tipos de evento, filtros, descarte |
 | [http3.md](http3.md) | O que o registro `http3` traz (Initial, parâmetros de transporte, JA4 `q`, QPACK) e como forçar h3 |
-| [metrics.md](metrics.md) | Métricas Prometheus em `/metrics` (porta 9001) |
+| [bot.md](bot.md) | API de vereditos de bot (portas 9002/9003): classes, sinais, chaves, rotas, feed, webhook com verificação da assinatura, integração com o traefix e por probe, retenção de 7 dias |
+| [metrics.md](metrics.md) | Métricas Prometheus em `/metrics` (porta 9001), inclusive as `fs_bot_*` |
 
 ## Para quem desenvolve
 

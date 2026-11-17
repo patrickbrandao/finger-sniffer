@@ -2,13 +2,20 @@
 package docs
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/webhook"
 )
 
 // linkRe acha links Markdown [texto](alvo); imagens e links externos são filtrados depois.
@@ -459,10 +466,10 @@ func TestContracts06Docs(t *testing.T) {
 	}
 }
 
-// Nomes de métricas no código (task 188): constantes Metric* e literais passados a Metrics.Add/Set (ou m.Add/Set
+// Nomes de métricas no código (task 188): constantes Metric* (ou metric*, no bot) e literais passados a Metrics.Add/Set (ou m.Add/Set
 // no capture), e os nomes das métricas nativas do store (prometheus Name/NewDesc).
 var (
-	metricConstRe   = regexp.MustCompile(`\bMetric\w*\s*=\s*"([a-z0-9_]+)"`)
+	metricConstRe   = regexp.MustCompile(`\b[mM]etric\w*\s*=\s*"([a-z0-9_]+)"`)
 	metricLiteralRe = regexp.MustCompile(`(?:[mM]etrics|\bm)\.(?:Add|Set)\("([a-z0-9_]+)"`)
 	metricNativeRe  = regexp.MustCompile(`(?:Name:\s*|NewDesc\()"(fs_[a-z0-9_]+)"`)
 	replacedRe      = regexp.MustCompile(`"([a-z0-9_]+)":\s*true`)
@@ -531,6 +538,7 @@ func TestMetricsDocCoversCode(t *testing.T) {
 		"fs_capture_batches_total", "fs_web_acme_failures_total", "fs_raw_events_oversize_total",
 		"fs_dns_rate_limited_total", "fs_store_bad_batches_total", "fs_dropped_events_total",
 		"fs_web_h3_init_table_full_total", "fs_store_flows_dropped_total", "fs_store_live_dropped_total",
+		"fs_bot_verdicts_total", "fs_bot_webhook_sent_total", "fs_bot_list_entries", "fs_bot_index_bytes",
 	} {
 		if _, ok := names[n]; !ok {
 			t.Errorf("varredura do código não achou %s", n)
@@ -715,5 +723,205 @@ func TestCertBAndRNF01(t *testing.T) {
 	}
 	if !strings.Contains(api, "o **B** (só `finger-01.badblock.net.br`, ADR 0044)") {
 		t.Error("api.md sem o certificado B só com finger-01.badblock.net.br")
+	}
+}
+
+// verifyFsWebhook confere X-Fs-Signature e X-Fs-Timestamp de um webhook do bot. secretHex é o
+// "webhook secret" impresso por `key create`; maxSkew recusa envios antigos (reenvio).
+func verifyFsWebhook(secretHex, timestamp, signature string, body []byte, now time.Time, maxSkew time.Duration) bool {
+	secret, err := hex.DecodeString(secretHex)
+	if err != nil {
+		return false
+	}
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	if d := now.Sub(time.Unix(ts, 0)); d > maxSkew || d < -maxSkew {
+		return false
+	}
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(timestamp + "."))
+	mac.Write(body)
+	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(want), []byte(signature))
+}
+
+// fencedBlock devolve o conteúdo do primeiro bloco ```lang de doc que contém marker.
+func fencedBlock(t *testing.T, doc, lang, marker string) string {
+	t.Helper()
+	re := regexp.MustCompile("(?s)```" + lang + "\n(.*?)```")
+	for _, m := range re.FindAllStringSubmatch(doc, -1) {
+		if strings.Contains(m[1], marker) {
+			return m[1]
+		}
+	}
+	t.Fatalf("bot.md sem bloco %s com %q", lang, marker)
+	return ""
+}
+
+// TestBotWebhookExamples: os exemplos de verificação do webhook em bot.md (Go, Python e shell com openssl) aceitam
+// uma assinatura gerada pelo pacote do bot e recusam corpo, segredo ou timestamp errados (spec 020, critério de
+// aceite do webhook). O exemplo Go é a função verifyFsWebhook acima, idêntica ao bloco do documento.
+func TestBotWebhookExamples(t *testing.T) {
+	data, err := os.ReadFile("bot.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	src, err := os.ReadFile("docs_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	i := strings.Index(s, "// verifyFsWebhook confere")
+	if i < 0 {
+		t.Fatal("verifyFsWebhook não achada em docs_test.go")
+	}
+	goSrc := s[i : i+strings.Index(s[i:], "\n}\n")+3]
+	if got := fencedBlock(t, doc, "go", "func verifyFsWebhook"); got != goSrc {
+		t.Errorf("bloco Go de bot.md difere de verifyFsWebhook em docs_test.go:\n%s", got)
+	}
+
+	// segredo como a CLI gera (32 bytes) e imprime (hex); corpo VerdictEvent qualquer
+	secret := make([]byte, 32)
+	for i := range secret {
+		secret[i] = byte(i*7 + 3)
+	}
+	secretHex := hex.EncodeToString(secret)
+	body := []byte(`{"kind":"verdict","ts":"2026-11-16T12:00:00.060000000Z","verdict":{"class":"bot","score":70}}`)
+	now := time.Now()
+	ts := now.Unix()
+	tsStr := strconv.FormatInt(ts, 10)
+	sig := webhook.Sign(secret, ts, body)
+	if !webhook.Verify(secret, tsStr, sig, body, now, 5*time.Minute) {
+		t.Fatal("webhook.Verify recusa a própria assinatura")
+	}
+
+	// Go
+	if !verifyFsWebhook(secretHex, tsStr, sig, body, now, 5*time.Minute) {
+		t.Error("Go: assinatura válida recusada")
+	}
+	for name, ok := range map[string]bool{
+		"corpo alterado":     verifyFsWebhook(secretHex, tsStr, sig, append(append([]byte{}, body...), ' '), now, 5*time.Minute),
+		"segredo errado":     verifyFsWebhook(strings.Repeat("00", 32), tsStr, sig, body, now, 5*time.Minute),
+		"timestamp velho":    verifyFsWebhook(secretHex, tsStr, sig, body, now.Add(10*time.Minute), 5*time.Minute),
+		"segredo como texto": verifyFsWebhook(hex.EncodeToString([]byte(secretHex)), tsStr, sig, body, now, 5*time.Minute),
+	} {
+		if ok {
+			t.Errorf("Go: aceitou %s", name)
+		}
+	}
+
+	dir := t.TempDir()
+
+	// Python: a função do documento, chamada por um harness que lê o corpo de um arquivo
+	if py, err := exec.LookPath("python3"); err != nil {
+		t.Log("python3 ausente: exemplo Python não executado")
+	} else {
+		code := fencedBlock(t, doc, "python", "def verify_fs_webhook") + `
+import sys
+print("ok" if verify_fs_webhook(sys.argv[1], sys.argv[2], sys.argv[3], open(sys.argv[4], "rb").read()) else "invalid")
+`
+		script := filepath.Join(dir, "verify.py")
+		bodyFile := filepath.Join(dir, "body.bin")
+		if err := os.WriteFile(script, []byte(code), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bodyFile, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct{ sig, want string }{{sig, "ok"}, {webhook.Sign([]byte("x"), ts, body), "invalid"}} {
+			out, err := exec.Command(py, "-I", script, secretHex, tsStr, c.sig, bodyFile).CombinedOutput()
+			if err != nil || strings.TrimSpace(string(out)) != c.want {
+				t.Errorf("Python: quer %s, saiu %q (%v)", c.want, out, err)
+			}
+		}
+	}
+
+	// shell: o comando do documento, com openssl dgst
+	if _, err := exec.LookPath("openssl"); err != nil {
+		t.Log("openssl ausente: exemplo de shell não executado")
+	} else {
+		cmd := fencedBlock(t, doc, "sh", "openssl dgst")
+		if err := os.WriteFile(filepath.Join(dir, "body.json"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct{ sig, want string }{{sig, "ok"}, {webhook.Sign(secret, ts+1, body), "invalid"}} {
+			sh := exec.Command("/bin/sh", "-c", cmd)
+			sh.Dir = dir
+			sh.Env = append(os.Environ(), "SECRET="+secretHex, "TS="+tsStr, "SIG="+c.sig)
+			out, err := sh.CombinedOutput()
+			if err != nil || strings.TrimSpace(string(out)) != c.want {
+				t.Errorf("shell: quer %s, saiu %q (%v)", c.want, out, err)
+			}
+		}
+	}
+}
+
+// botPathRe acha as rotas do openapi do bot (chaves de paths com dois espaços de recuo).
+var botPathRe = regexp.MustCompile(`(?m)^  (/bot/v1/[^:]+):\n    (get|post):`)
+
+// TestBotDoc: bot.md cita cada rota do openapi do bot com um exemplo curl, todos os sinais da spec 018, os códigos
+// de erro da spec 020, o webhook, os três casos de integração, as limitações conhecidas, o uso não comercial e a
+// retenção (task 286).
+func TestBotDoc(t *testing.T) {
+	data, err := os.ReadFile("bot.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	api, err := os.ReadFile("../cmd/finger-sniffer-bot/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := botPathRe.FindAllStringSubmatch(string(api), -1)
+	if len(routes) < 10 {
+		t.Fatalf("só %d rotas achadas no openapi do bot: o padrão do teste ficou velho", len(routes))
+	}
+	for _, m := range routes {
+		method, path := strings.ToUpper(m[2]), m[1]
+		// o título leva o caminho até o "?" da query (ex. "GET /bot/v1/verdict?src_ip=...")
+		if !strings.Contains(doc, "`"+method+" "+path) {
+			t.Errorf("bot.md não tem a rota %s %s", method, path)
+		}
+		// exemplo curl: o prefixo fixo do caminho (antes do primeiro parâmetro) aparece num comando curl
+		prefix, _, _ := strings.Cut(path, "{")
+		found := false
+		for _, line := range strings.Split(doc, "\n") {
+			if strings.Contains(line, "curl ") && strings.Contains(line, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("bot.md sem exemplo curl de %s", path)
+		}
+	}
+	spec, err := os.ReadFile("../specs/018-bot.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signals := regexp.MustCompile("(?m)^\\| `([a-z0-9_]+)` \\| (?:incoerência|lista|comportamento) \\|").FindAllStringSubmatch(string(spec), -1)
+	if len(signals) < 15 {
+		t.Fatalf("só %d sinais achados na spec 018", len(signals))
+	}
+	for _, m := range signals {
+		if !strings.Contains(doc, "| `"+m[1]+"` |") {
+			t.Errorf("bot.md sem o sinal %s na tabela", m[1])
+		}
+	}
+	for _, w := range []string{
+		"`invalid_key`", "`rate_limited`", "`not_found`", "`bad_request`", "`missing_fork_headers`",
+		"`payload_too_large`", "`forbidden_origin`", "`internal`", "Retry-After",
+		"X-Fs-Signature", "X-Fs-Timestamp", "X-Fs-Key-Prefix", "1 s, 5 s e 30 s", "4xx não repete",
+		"10.249.255.254:9003", "failOpen", "authResponseHeaders", "X-Fs-Verdict: unavailable", "tmsoftbrasil/traefix",
+		"spec 019", "ingestURL: https://finger-01.badblock.net.br:9002", ".finger-west-01.badblock.net.br:8443/p/",
+		"mas não a ordem deles", "Automação não declarada de um Chrome real sai `human`", "Uso não comercial",
+		"7 dias e 1 hora", "`observe`", "`block`", "key create", "forget",
+	} {
+		if !strings.Contains(doc, w) {
+			t.Errorf("bot.md sem %q", w)
+		}
 	}
 }

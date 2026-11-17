@@ -31,6 +31,7 @@ web leva a porta explícita (`:8443` ou `:8080`); sem porta, a conexão cai no t
 | TCP 7, 21, 22, 25, 110, 143, 587, 993 | portas cruas: eco, banner, sink, source; TLS na 993 |
 | UDP e TCP 53 | DNS autoritativo de `finger-west-01.badblock.net.br` |
 | TCP 80, 443 e UDP 443 | do traefik do host, não do espelho (capturadas como tráfego alheio) |
+| TCP 9002 (HTTPS), 9003 (HTTP, só a rede do traefik) | API de vereditos de bot, com chave ([docs/bot.md](docs/bot.md)); **não capturadas** |
 | TCP 9000 (HTTPS), 9001 (HTTP) | API, tempo real (SSE e WebSocket) e `/metrics` (só 9001); **não capturadas**; escutam só em `127.0.0.1` e nos IPs públicos (`FS_LISTEN_IPV4`/`FS_LISTEN_IPV6`) |
 
 ## Sondar em 3 comandos
@@ -49,6 +50,8 @@ comparar caminhos estão em [docs/probes.md](docs/probes.md).
 ## Documentação
 
 - [docs/](docs/README.md): uso da API, sondagens, tempo real, HTTP/3 e métricas (derivada das specs).
+- [docs/bot.md](docs/bot.md): vereditos de bot (humano, robô bom, robô, suspeito) por forwardAuth do traefix, consulta,
+  probe, feed e webhook, com chaves emitidas pelo operador para uso não comercial.
 - [specs/](specs/INDEX.md): especificações, a fonte da verdade; decisões em
   [specs/decisions/HISTORY.md](specs/decisions/HISTORY.md).
 - Contratos: API HTTP em [openapi.yaml](cmd/finger-sniffer-store/openapi.yaml) (OpenAPI 3.1, também em
@@ -57,10 +60,10 @@ comparar caminhos estão em [docs/probes.md](docs/probes.md).
 
 ## Arquitetura em uma linha
 
-Cinco serviços Go estáticos (capture, web, raw, dns, store) e um NATS JetStream, em units systemd numa fatia
+Seis serviços Go estáticos (capture, web, raw, dns, store e bot) e um NATS JetStream, em units systemd numa fatia
 própria (`finger-sniffer.slice`, 6 GiB e 8 vCPU no máximo) de uma VM compartilhada: o capture lê a `ens192` por
 AF_PACKET, os serviços de protocolo publicam o que viram, e o store correlaciona tudo
-por conexão e probe num SQLite com retenção curta. Detalhes na [spec 001](specs/001-arquitetura.md).
+por conexão e probe num SQLite com retenção curta; o bot junta essa visão à do traefix para dar vereditos de bot. Detalhes na [spec 001](specs/001-arquitetura.md).
 
 ## Desenvolvimento
 
@@ -68,7 +71,7 @@ Requisitos: Go 1.27, `make`, `ssh -p 48022` para o `finger-01.tmsoft.com.br` (de
 
 ```sh
 make tools          # golangci-lint, gofumpt, goose, lefthook, govulncheck
-make build          # 5 binários linux/amd64 estáticos em ./bin/
+make build          # 6 binários linux/amd64 estáticos em ./bin/
 make verify-quick   # padrão: lint, vet e testes só do que mudou desde a main
 make verify-full    # tudo: -race, contratos, govulncheck, build, testes Linux no finger-01
 make deploy         # implanta no finger-01 (make deploy SVC=web para um serviço)
