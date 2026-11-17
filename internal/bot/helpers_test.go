@@ -39,7 +39,7 @@ func (c *fakeClock) Advance(d time.Duration) {
 }
 
 // testDB abre um banco do bot novo num diretório temporário.
-func testDB(t *testing.T) (*sql.DB, string) {
+func testDB(t testing.TB) (*sql.DB, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "bot.db")
 	db, err := OpenDB(context.Background(), path)
@@ -60,7 +60,7 @@ func testConfig(dbPath string) Config {
 }
 
 // openapiBytes lê o contrato do bot.
-func openapiBytes(t *testing.T) []byte {
+func openapiBytes(t testing.TB) []byte {
 	t.Helper()
 	b, err := os.ReadFile(openapiFile)
 	if err != nil {
@@ -71,7 +71,7 @@ func openapiBytes(t *testing.T) []byte {
 
 // fixture é um serviço bot com banco temporário e as duas portas em httptest.
 type fixture struct {
-	t        *testing.T
+	t        testing.TB
 	db       *sql.DB
 	srv      *Server
 	clock    *fakeClock
@@ -80,7 +80,7 @@ type fixture struct {
 	internal *httptest.Server
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t testing.TB) *fixture {
 	t.Helper()
 	db, path := testDB(t)
 	clock := newFakeClock(time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC))

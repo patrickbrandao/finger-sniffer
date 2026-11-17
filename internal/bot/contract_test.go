@@ -181,8 +181,41 @@ func TestContractResponses(t *testing.T) {
 	f.putStore()
 	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", "", forkHeadersFor(), "")
 	expect(200, c, refVerdict, b)
-	if h.Get("X-Fs-Verdict") != ClassUnknown || h.Get("X-Fs-Score") != "0" {
+	if h.Get("X-Fs-Verdict") == "" || h.Get("X-Fs-Score") == "" {
 		t.Errorf("cabeçalhos do forwardAuth: %v", h)
+	}
+	// Vereditos reais das rotas de consulta (task 282): pelo id do fork, pela origem, por probe e o 403 do block.
+	c, _, b = f.do(f.internal, "GET", "/bot/v1/verdict/conn/"+testForkConnID, "", nil, "")
+	expect(200, c, refVerdict, b)
+	c, _, b = f.do(f.internal, "GET", "/bot/v1/verdict?src_ip=198.51.100.7&src_port=51234&site=www.example.com", "", nil, "")
+	expect(200, c, refVerdict, b)
+	probe := storeMessageWith(t, "01JC0X3K8V2T7Q9N4M6P1R5S71", "probe5678", 4445, map[string]any{
+		"http2": map[string]any{"streams": []any{h2Stream(1)}},
+	})
+	if err := f.srv.feed.Handle(probe); err != nil {
+		t.Fatal(err)
+	}
+	c, _, b = f.do(f.internal, "GET", "/bot/v1/probes/probe5678/verdict", "", nil, "")
+	expect(200, c, refVerdict, b)
+	c, _, b = f.do(f.internal, "GET", "/bot/v1/fingerprints/ja4/t13d1517h2_8daaf6152771_cb7bf5808d99", "", nil, "")
+	expect(200, c, refFPStats, b)
+	// Goldens ponta a ponta: lote e veredito de cada cliente.
+	for i, vc := range verdictCases {
+		batch, _ := vc.build(t, i)
+		vals.add(refBatch, batch)
+		g := newFixture(t)
+		g.goldenSetup(vc.name)
+		fsID, _, _ := goldenIDs(i)
+		c, _, b = g.do(g.internal, "GET", "/bot/v1/verdict/conn/"+fsID, "", nil, "")
+		expect(200, c, refVerdict, b)
+		// forwardAuth com chave em modo block: 403 com o Verdict para bot, 200 para os demais
+		_, block := g.createKey(KeyOptions{Name: "blk", Domains: []string{"www.example.com"}, Mode: ModeBlock})
+		want := 200
+		if vc.wantClass == ClassBot {
+			want = 403
+		}
+		c, _, b = g.do(g.internal, "GET", "/bot/v1/auth", block, authHeaders(i, vc.ua), "")
+		expect(want, c, refVerdict, b)
 	}
 	// Evento do feed (o serializador é o mesmo do SSE).
 	var v Verdict

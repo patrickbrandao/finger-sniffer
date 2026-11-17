@@ -85,6 +85,7 @@ type API struct {
 	Metrics  *service.Metrics
 	Now      func() time.Time
 	ViewWait time.Duration
+	Judge    *Judge
 }
 
 type ctxKey struct{}
@@ -315,9 +316,11 @@ func cutPath(uri string) string {
 	return path
 }
 
-// forwardAuth é o GET /bot/v1/auth (spec 020 RF-05). Sem regras nesta entrega, o veredito é `unknown`; espera
-// as duas visões até FS_BOT_VIEW_WAIT e diz em `view` o que havia.
+// forwardAuth é o GET /bot/v1/auth (spec 020 RF-05): espera as duas visões até FS_BOT_VIEW_WAIT, avalia o
+// veredito v1.1 da requisição e responde 200 (ou 403 em modo block para `bot`) com os X-Fs-* e o Verdict. A
+// verificação de robô nunca segura a resposta (cache ou desconhecido, com a verificação em segundo plano).
 func (a *API) forwardAuth(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	f, code, detail := parseForkHeaders(r.Header)
 	if code != "" {
 		writeError(w, http.StatusBadRequest, code, detail)
@@ -350,19 +353,22 @@ func (a *API) forwardAuth(w http.ResponseWriter, r *http.Request) {
 		}
 		return hasFork && hasTCP
 	})
-	subject := Subject{
-		Kind: "request", Site: optString(site), Src: &endpoint{IP: f.srcIP.String(), Port: f.srcPort},
-		DstPort: ptr(f.dstPort), FsConnID: ptr(f.fsConnID), Method: optString(r.Header.Get("X-Forwarded-Method")),
-		Path: optString(cutPath(r.Header.Get("X-Forwarded-Uri"))),
+	waited := time.Since(start)
+	if !hasFork {
+		a.count(viewWaitMetric("fork"), 1)
 	}
+	if !hasTCP {
+		a.count(viewWaitMetric("tcp"), 1)
+	}
+	var fp *ForkConn
+	if hasFork {
+		fp = &fork
+	}
+	var sp *StoreConn
 	if hasTCP {
-		subject.ConnID = ptr(store.ConnID)
+		sp = &store
 	}
-	view := View{
-		TCP: hasTCP, TLS: hasFork && fork.TLS != nil && !fork.TLS.ParseError, HTTP: true, H2: f.proto == "h2",
-		H3: f.proto == "h3", ParseError: hasFork && fork.ParseError(),
-	}
-	v := unknownVerdict(subject, view, a.now())
+	v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp)
 	w.Header().Set("X-Fs-Verdict", v.Class)
 	w.Header().Set("X-Fs-Score", strconv.Itoa(v.Score))
 	w.Header().Set("X-Fs-Signals", signalIDs(v.Signals))
@@ -371,6 +377,8 @@ func (a *API) forwardAuth(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusForbidden
 	}
 	writeJSON(w, status, v)
+	a.Judge.authWait.Observe(waited)
+	a.Judge.authTime.Observe(time.Since(start))
 }
 
 // signalIDs junta os ids por vírgula, até 1 KiB (cabeçalho X-Fs-Signals).
@@ -401,15 +409,63 @@ func parseWait(r *http.Request) (time.Duration, bool) {
 	return time.Duration(n) * time.Millisecond, true
 }
 
-// verdictBySource é o GET /bot/v1/verdict. Os vereditos chegam na segunda onda: por ora 404 para tudo, depois de
-// validar os parâmetros (e o domínio, que dá o mesmo 404).
+// writeVerdict responde um veredito já serializado (o guardado na conexão).
+func writeVerdict(w http.ResponseWriter, data []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// connResult é o que a consulta achou de uma conexão: a do fork (com o veredito guardado) e a do store casada.
+type connResult struct {
+	fork    ForkConn
+	hasFork bool
+	store   StoreConn
+	hasTCP  bool
+}
+
+// lookupFork lê a conexão do fork e a do store casada; ready diz se já há o que responder sem esperar mais.
+func (a *API) lookupFork(c *connResult, fork ForkConn, now time.Time) bool {
+	c.fork, c.hasFork = fork, true
+	if !c.hasTCP && fork.HasSrc {
+		c.store, c.hasTCP = a.Index.MatchStore(fork.SrcIP, fork.SrcPort, fork.DstPort, fork.First, now)
+	}
+	return fork.LastVerdict != nil || c.hasTCP
+}
+
+// answerConn responde o último veredito da conexão do fork (o da última requisição) ou, sem ele, o da conexão.
+func (a *API) answerConn(w http.ResponseWriter, c *connResult) {
+	if c.hasFork && c.fork.LastVerdict != nil {
+		a.Judge.count(SourceQuery, c.fork.LastClass)
+		writeVerdict(w, c.fork.LastVerdict)
+		return
+	}
+	var fp *ForkConn
+	if c.hasFork {
+		fp = &c.fork
+	}
+	var sp *StoreConn
+	if c.hasTCP {
+		sp = &c.store
+	}
+	v := a.Judge.connectionVerdict(fp, sp)
+	a.Judge.count(SourceQuery, v.Class)
+	writeJSON(w, http.StatusOK, v)
+}
+
+// verdictBySource é o GET /bot/v1/verdict: a conexão mais recente com a origem dada e o site pedido (a do fork; sem
+// ela, a do store com requisição daquele host). Site fora da chave, conexão desconhecida ou de outro site: o mesmo
+// 404.
 func (a *API) verdictBySource(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	if _, err := netip.ParseAddr(q.Get("src_ip")); err != nil {
+	ip, err := netip.ParseAddr(q.Get("src_ip"))
+	if err != nil {
 		writeError(w, http.StatusBadRequest, errBadRequest, "invalid src_ip")
 		return
 	}
-	if _, err := parsePort(q.Get("src_port")); err != nil {
+	port, err := parsePort(q.Get("src_port"))
+	if err != nil {
 		writeError(w, http.StatusBadRequest, errBadRequest, "invalid src_port")
 		return
 	}
@@ -418,37 +474,110 @@ func (a *API) verdictBySource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errBadRequest, "site is required")
 		return
 	}
-	if _, ok := parseWait(r); !ok {
+	wait, ok := parseWait(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, errBadRequest, "wait must be 0-1000")
 		return
 	}
-	notFound(w)
+	if !principalFrom(r).allows(site) {
+		notFound(w)
+		return
+	}
+	ip = ip.Unmap().WithZone("")
+	var (
+		c        connResult
+		direct   StoreConn
+		hasStore bool
+	)
+	a.Index.Wait(r.Context(), wait, func() bool {
+		now := a.now()
+		if fork, ok := a.Index.ForkByOrigin(ip, port, now); ok && fork.Site() == site {
+			return a.lookupFork(&c, fork, now)
+		}
+		if s, ok := a.Index.StoreByOrigin(ip, port, now); ok && storeSite(&s) == site {
+			direct, hasStore = s, true
+			return true
+		}
+		return false
+	})
+	switch {
+	case c.hasFork:
+		a.answerConn(w, &c)
+	case hasStore:
+		a.answerConn(w, &connResult{store: direct, hasTCP: true})
+	default:
+		notFound(w)
+	}
 }
 
-// verdictByConn é o GET /bot/v1/verdict/conn/{fs_conn_id}; 404 até a segunda onda.
+// verdictByConn é o GET /bot/v1/verdict/conn/{fs_conn_id}.
 func (a *API) verdictByConn(w http.ResponseWriter, r *http.Request) {
-	if !ulidPattern(r.PathValue("fs_conn_id")) {
+	id := r.PathValue("fs_conn_id")
+	if !ulidPattern(id) {
 		writeError(w, http.StatusBadRequest, errBadRequest, "invalid fs_conn_id")
 		return
 	}
-	if _, ok := parseWait(r); !ok {
+	wait, ok := parseWait(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, errBadRequest, "wait must be 0-1000")
 		return
 	}
-	notFound(w)
+	var c connResult
+	a.Index.Wait(r.Context(), wait, func() bool {
+		now := a.now()
+		fork, ok := a.Index.Fork(id, now)
+		return ok && a.lookupFork(&c, fork, now)
+	})
+	if !c.hasFork || !principalFrom(r).allows(c.fork.Site()) {
+		notFound(w)
+		return
+	}
+	a.answerConn(w, &c)
 }
 
-// probeVerdict é o GET /bot/v1/probes/{id}/verdict; 404 até a segunda onda.
+// probeVerdict é o GET /bot/v1/probes/{id}/verdict: veredito sobre as conexões do probe vistas pelo store; o
+// domínio é o host de Origin/Referer delas (ADR 0051 item 3). Sem conexões com requisição, ou sem domínio da chave:
+// o mesmo 404.
 func (a *API) probeVerdict(w http.ResponseWriter, r *http.Request) {
-	if !probeIDPattern.MatchString(r.PathValue("id")) {
+	id := r.PathValue("id")
+	if !probeIDPattern.MatchString(id) {
 		writeError(w, http.StatusBadRequest, errBadRequest, "invalid probe id")
 		return
 	}
-	if _, ok := parseWait(r); !ok {
+	wait, ok := parseWait(r)
+	if !ok {
 		writeError(w, http.StatusBadRequest, errBadRequest, "wait must be 0-1000")
 		return
 	}
-	notFound(w)
+	var conns []StoreConn
+	a.Index.Wait(r.Context(), wait, func() bool {
+		conns = a.Index.StoreByProbe(id, a.now())
+		for i := range conns {
+			if len(conns[i].Requests) > 0 {
+				return true
+			}
+		}
+		return false
+	})
+	p := principalFrom(r)
+	site, allowed := "", p.key == nil
+	for _, s := range probeSites(conns) {
+		if p.allows(s) {
+			site, allowed = s, true
+			break
+		}
+	}
+	if !allowed {
+		notFound(w)
+		return
+	}
+	v, ok := a.Judge.probeVerdict(id, site, conns)
+	if !ok {
+		notFound(w)
+		return
+	}
+	a.Judge.count(SourceProbe, v.Class)
+	writeJSON(w, http.StatusOK, v)
 }
 
 // ipDay é um item de IPReputation.days.
@@ -460,8 +589,8 @@ type ipDay struct {
 	Classes  map[string]int64 `json:"classes"`
 }
 
-// ipReputation é o GET /bot/v1/ip/{ip}: agregados por dia nos domínios da chave. As listas e a verificação de
-// robô vêm na segunda onda (vazias por ora).
+// ipReputation é o GET /bot/v1/ip/{ip}: agregados por dia nos domínios da chave, as listas de IP em que o IP
+// está e o robô verificado (cache da verificação; sem cache, null e a verificação segue em segundo plano).
 func (a *API) ipReputation(w http.ResponseWriter, r *http.Request) {
 	ip, err := netip.ParseAddr(r.PathValue("ip"))
 	if err != nil {
@@ -500,7 +629,8 @@ func (a *API) ipReputation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errInternal, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ip": ip.String(), "days": days, "lists": []string{}, "crawler_verified": nil})
+	names, crawler := a.Judge.ipLists(ip)
+	writeJSON(w, http.StatusOK, map[string]any{"ip": ip.String(), "days": days, "lists": names, "crawler_verified": crawler})
 }
 
 // fpDay é um item de FingerprintStats.days.
@@ -513,8 +643,8 @@ type fpDay struct {
 	ClassHuman int64  `json:"class_human"`
 }
 
-// fingerprintStats é o GET /bot/v1/fingerprints/{kind}/{value}: contagens dos 7 dias (sem IP). Os rótulos da
-// base própria e da ja4db vêm na segunda onda.
+// fingerprintStats é o GET /bot/v1/fingerprints/{kind}/{value}: contagens dos 7 dias (sem IP), o rótulo da base
+// própria (famílias medidas) e o da ja4db (null com ela desligada, ADR 0056 item 1).
 func (a *API) fingerprintStats(w http.ResponseWriter, r *http.Request) {
 	kind, value := r.PathValue("kind"), r.PathValue("value")
 	switch kind {
@@ -549,7 +679,8 @@ func (a *API) fingerprintStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, errInternal, "query failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"kind": kind, "value": value, "known_client": nil, "ja4db_label": nil, "days": days})
+	known, label := a.Judge.fingerprintLabels(kind, value)
+	writeJSON(w, http.StatusOK, map[string]any{"kind": kind, "value": value, "known_client": known, "ja4db_label": label, "days": days})
 }
 
 // stream é o GET /bot/v1/stream (SSE de VerdictEvent dos domínios da chave).
@@ -615,6 +746,10 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 			a.count(metricIngestParseErrors+`{part="`+part+`"}`, 1)
 		}
 		a.Index.UpdateFork(rec.r.FsConnID, a.now(), rec.apply)
+		if rec.r.Type == "request" {
+			// veredito por requisição na chegada do resumo (publicado se o forwardAuth ainda não o fez)
+			a.Judge.Ingest(rec.r.FsConnID)
+		}
 		accepted++
 	}
 	a.count(metricIngestRecords, float64(accepted))

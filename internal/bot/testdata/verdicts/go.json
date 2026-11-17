@@ -1,0 +1,119 @@
+{
+  "client": "go",
+  "batch": {
+    "records": [
+      {
+        "alpn": "h2",
+        "alpn_offered": [
+          "h2",
+          "http/1.1"
+        ],
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "client_hello": "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",
+        "client_hello_truncated": false,
+        "dst": {
+          "ip": "10.249.0.2",
+          "port": 443
+        },
+        "entry_point": "websecure",
+        "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S11",
+        "h2_prefix": "AAAYBAAAAAAAAAIAAAAAAAQAQAAAAAUAEAAAAAYAoAAAAAAECAAAAAAAQAAAAAAAKwEFAAAAAUGS71ocAJdNKDypXIeleOy466AXgoSHUIOb2at6jcR1p0prWJQYtSWBLg8=",
+        "h2_prefix_truncated": false,
+        "sni": "www.example.com",
+        "src": {
+          "ip": "198.51.100.23",
+          "port": 40001
+        },
+        "tls_version": "1.3",
+        "ts": "2026-11-16T12:00:00.010000000Z",
+        "type": "connection"
+      },
+      {
+        "authority": "www.example.com",
+        "cookie_names": [],
+        "ended": "2026-11-16T12:00:00.060000000Z",
+        "field_names": [
+          "user-agent",
+          "accept-encoding"
+        ],
+        "fields": {
+          "accept": "*/*",
+          "user-agent": "Go-http-client/2.0"
+        },
+        "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S11",
+        "http_version": "2.0",
+        "ja4h": "ge20nn020000_b89ce445e0b3_000000000000_000000000000",
+        "method": "GET",
+        "path": "/",
+        "proto": "h2",
+        "router": "site@docker",
+        "service": "site@docker",
+        "status": 200,
+        "ts": "2026-11-16T12:00:00.050000000Z",
+        "type": "request"
+      }
+    ],
+    "sender": "v3.6.2-fs.1"
+  },
+  "store_connection": {
+    "schema_version": 1,
+    "service": "store",
+    "service_version": "v0.4.0",
+    "ts": "2026-11-16T12:00:00.020000000Z",
+    "payload": {
+      "connection": {
+        "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S11",
+        "dst": {
+          "ip": "172.233.24.85",
+          "port": 443
+        },
+        "ended": null,
+        "family": 4,
+        "ip": {
+          "df": true,
+          "hops": 12,
+          "src_kind": "global",
+          "ttl": 52,
+          "ttl_initial": 64
+        },
+        "l4": "tcp",
+        "probe_id": null,
+        "proto": "tcp",
+        "src": {
+          "ip": "198.51.100.23",
+          "port": 40001
+        },
+        "started": "2026-11-16T12:00:00.000000000Z",
+        "tcp": {
+          "ja4t": "65535_2-1-3-1-1-8-4-0-0_1432_6",
+          "mss_reduction": 0,
+          "mtu_implied": 1500,
+          "os_guess": null,
+          "p0f": null,
+          "rtt_handshake_ms": 12.5,
+          "syn_mss": 1460
+        }
+      },
+      "stage": "updated"
+    }
+  },
+  "verdict": {
+    "class": "bot",
+    "score": 70,
+    "signals": [
+      {
+        "id": "ja4h_library",
+        "kind": "incoherence",
+        "weight": 20,
+        "detail": "ja4h ge20nn020000_b89ce445e0b3 of go, no accept-language"
+      },
+      {
+        "id": "library_client",
+        "kind": "list",
+        "weight": 50,
+        "detail": "ua declares go"
+      }
+    ],
+    "rules_version": "v1.1"
+  }
+}

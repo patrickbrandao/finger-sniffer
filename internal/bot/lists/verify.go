@@ -93,6 +93,26 @@ func (v *Verifier) Verify(ctx context.Context, robot string, ip netip.Addr) (str
 	return result, host
 }
 
+// Cached devolve o resultado em cache da verificação (sem DNS); ok=false quando não há resultado válido no cache
+// ou o robô não tem sufixo publicado. É o caminho do forwardAuth: quem chama dispara Verify em segundo plano.
+func (v *Verifier) Cached(robot string, ip netip.Addr) (result, host string, ok bool) {
+	ip = ip.Unmap().WithZone("")
+	if len(robotSuffixes[robot]) == 0 || !ip.IsValid() {
+		return VerifyUnknown, "", false
+	}
+	now := v.now()
+	v.mu.Lock()
+	e, found := v.cache[verifyKey{robot, ip}]
+	v.mu.Unlock()
+	if !found || now.Sub(e.at) >= verifyTTL {
+		return VerifyUnknown, "", false
+	}
+	return e.result, e.host, true
+}
+
+// HasDNS diz se o robô tem sufixo de DNS reverso publicado (verificável por DNS).
+func HasDNS(robot string) bool { return len(robotSuffixes[robot]) > 0 }
+
 func (v *Verifier) resolve(ctx context.Context, suffixes []string, ip netip.Addr) (string, string) {
 	names, err := v.resolver.LookupAddr(ctx, ip.String())
 	if err != nil {

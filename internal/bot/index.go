@@ -76,6 +76,29 @@ type ForkConn struct {
 	Requests      []ForkRequest
 	// connCost é o que os textos do registro de conexão somaram no interner (forkBytes).
 	connCost int64
+	// Veredito por requisição (spec 018 "Comportamento"): authSeen e reqSeen contam as requisições vistas pelo
+	// forwardAuth e pelo ingest; published, as que já foram ao feed e ao webhook (uma vez cada, o que vier
+	// primeiro). LastVerdict é o JSON do último veredito da conexão e LastClass a classe dele.
+	authSeen    uint32
+	reqSeen     uint32
+	published   uint32
+	LastVerdict []byte
+	LastClass   string
+}
+
+// claim conta uma requisição vista por uma das fontes (forwardAuth ou ingest) e diz se ela ainda não foi publicada;
+// reused diz que a conexão já tinha requisições publicadas antes dela.
+func (f *ForkConn) claim(fromAuth bool) (publish, reused bool) {
+	seen := &f.reqSeen
+	if fromAuth {
+		seen = &f.authSeen
+	}
+	*seen++
+	if *seen <= f.published {
+		return false, f.published > 1
+	}
+	f.published++
+	return true, f.published > 1
 }
 
 // ParseError diz se alguma parte do registro de conexão não pôde ser analisada (View.parse_error).
@@ -153,6 +176,9 @@ type ttlTable[V any] struct {
 	order *list.List
 	byID  map[string]*list.Element
 	bySrc map[srcKey]*list.Element
+	// dstPorts conta as entradas com origem por porta de destino: a consulta só pela origem (sem a porta de
+	// destino, GET /bot/v1/verdict) testa cada porta vista, que são poucas (as entradas do traefik e do espelho).
+	dstPorts map[uint16]int
 	// bytes é a soma dos custos das entradas (contabilidade aproximada, ADR 0057 item 2).
 	bytes int64
 	// seq numera as atualizações, em comum entre as visões do índice: ordena o despejo por bytes entre as duas
@@ -175,7 +201,7 @@ type ttlEntry[V any] struct {
 func newTTLTable[V any](ttl time.Duration, maxEntries int) *ttlTable[V] {
 	return &ttlTable[V]{
 		ttl: ttl, max: maxEntries, order: list.New(), byID: map[string]*list.Element{}, bySrc: map[srcKey]*list.Element{},
-		seq: new(uint64),
+		dstPorts: map[uint16]int{}, seq: new(uint64),
 	}
 }
 
@@ -189,10 +215,12 @@ func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64,
 		if e.hasSrc && (!hasSrc || e.src != src) && t.bySrc[e.src] == el {
 			delete(t.bySrc, e.src)
 		}
+		t.unport(e)
 		t.bytes += cost - e.cost
 		e.src, e.hasSrc, e.touched, e.seq, e.val, e.cost = src, hasSrc, now, *t.seq, val, cost
 		if hasSrc {
 			t.bySrc[src] = el
+			t.dstPorts[src.dstPort]++
 		}
 		t.order.MoveToBack(el)
 		return 0
@@ -202,6 +230,7 @@ func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64,
 	t.byID[id] = el
 	if hasSrc {
 		t.bySrc[src] = el
+		t.dstPorts[src.dstPort]++
 	}
 	for t.order.Len() > t.max {
 		t.remove(t.order.Front())
@@ -218,9 +247,44 @@ func (t *ttlTable[V]) remove(el *list.Element) {
 	if e.hasSrc && t.bySrc[e.src] == el {
 		delete(t.bySrc, e.src)
 	}
+	t.unport(e)
 	if t.onRemove != nil {
 		t.onRemove(e.val)
 	}
+}
+
+// unport desconta a porta de destino da entrada (antes de trocá-la ou removê-la).
+func (t *ttlTable[V]) unport(e *ttlEntry[V]) {
+	if !e.hasSrc {
+		return
+	}
+	if t.dstPorts[e.src.dstPort]--; t.dstPorts[e.src.dstPort] <= 0 {
+		delete(t.dstPorts, e.src.dstPort)
+	}
+}
+
+// getByOrigin devolve a entrada mais recente com a origem dada, em qualquer porta de destino.
+func (t *ttlTable[V]) getByOrigin(ip netip.Addr, port int, now time.Time) (V, bool) {
+	var (
+		best     *ttlEntry[V]
+		zero     V
+		cut      = now.Add(-t.ttl)
+		unmapped = ip.Unmap().WithZone("")
+	)
+	for dst := range t.dstPorts {
+		el, ok := t.bySrc[srcKey{ip: unmapped, port: uint16(port), dstPort: dst}] //nolint:gosec // porta validada
+		if !ok {
+			continue
+		}
+		e := el.Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+		if !e.touched.Before(cut) && (best == nil || e.seq > best.seq) {
+			best = e
+		}
+	}
+	if best == nil {
+		return zero, false
+	}
+	return best.val, true
 }
 
 // oldest devolve o número de atualização da entrada mais antiga (false com a tabela vazia).
@@ -451,6 +515,28 @@ func (ix *Index) ForkBySource(ip netip.Addr, port, dstPort int, now time.Time) (
 	c, ok := ix.fork.getBySrc(newSrcKey(ip, port, dstPort), now)
 	if !ok {
 		return ForkConn{}, false
+	}
+	return *c, true
+}
+
+// ForkByOrigin devolve a conexão do fork mais recente com a origem, em qualquer porta de destino.
+func (ix *Index) ForkByOrigin(ip netip.Addr, port int, now time.Time) (ForkConn, bool) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	c, ok := ix.fork.getByOrigin(ip, port, now)
+	if !ok {
+		return ForkConn{}, false
+	}
+	return *c, true
+}
+
+// StoreByOrigin devolve a conexão do store mais recente com a origem, em qualquer porta de destino.
+func (ix *Index) StoreByOrigin(ip netip.Addr, port int, now time.Time) (StoreConn, bool) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	c, ok := ix.store.getByOrigin(ip, port, now)
+	if !ok {
+		return StoreConn{}, false
 	}
 	return *c, true
 }

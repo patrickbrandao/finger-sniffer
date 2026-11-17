@@ -183,3 +183,27 @@ func TestVerifyCacheCap(t *testing.T) {
 		t.Errorf("cache %d > teto", v.Len())
 	}
 }
+
+// Cached lê só o cache (sem DNS): vazio antes do Verify, o resultado depois, vencido depois de 24 h; robô sem
+// sufixo publicado nunca tem cache.
+func TestVerifyCached(t *testing.T) {
+	r := newResolver()
+	c := &clock{t: time.Unix(1_800_000_000, 0)}
+	v := NewVerifier(r, c.Now)
+	ip := netip.MustParseAddr("::ffff:66.249.66.1")
+	if _, _, ok := v.Cached("googlebot", ip); ok || r.count() != 0 {
+		t.Fatalf("cache antes do Verify: %v, consultas %d", ok, r.count())
+	}
+	v.Verify(context.Background(), "googlebot", ip)
+	res, host, ok := v.Cached("googlebot", netip.MustParseAddr("66.249.66.1"))
+	if !ok || res != VerifyPassed || host != "crawl-66-249-66-1.googlebot.com" || r.count() != 1 {
+		t.Fatalf("cache: %s %q %v, consultas %d", res, host, ok, r.count())
+	}
+	c.Advance(24 * time.Hour)
+	if _, _, ok := v.Cached("googlebot", ip); ok {
+		t.Fatal("cache vencido ainda vale")
+	}
+	if _, _, ok := v.Cached("gptbot", ip); ok || HasDNS("gptbot") || !HasDNS("bingbot") {
+		t.Fatal("robô sem sufixo")
+	}
+}

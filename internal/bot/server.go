@@ -19,6 +19,7 @@ import (
 
 	"github.com/patrickbrandao/finger-sniffer/internal/bot/agg"
 	"github.com/patrickbrandao/finger-sniffer/internal/bot/lists"
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/rules"
 	"github.com/patrickbrandao/finger-sniffer/internal/bot/webhook"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -74,6 +75,7 @@ type Server struct {
 	agg     *agg.Aggregator
 	lists   *lists.Manager
 	hooks   *webhook.Dispatcher
+	judge   *Judge
 }
 
 // New monta o serviço sem abrir portas.
@@ -102,9 +104,10 @@ func New(cfg Config, d Deps) *Server {
 	s.hooks = webhook.New(webhook.Options{Now: d.Now, Count: d.Metrics.Add})
 	s.hub.SetSink(s.publishWebhook)
 	s.feed = NewStoreFeed(s.index, d.Now)
+	s.judge = newJudge(cfg, s.index, s.agg, s.hub, s.lists, d.Metrics, d.Now)
 	s.api = &API{
 		Keys: s.keys, Limiter: s.limiter, Index: s.index, Hub: s.hub, DB: d.DB, OpenAPI: d.OpenAPI,
-		Health: s.Health, Metrics: d.Metrics, Now: d.Now, ViewWait: cfg.ViewWait,
+		Health: s.Health, Metrics: d.Metrics, Now: d.Now, ViewWait: cfg.ViewWait, Judge: s.judge,
 	}
 	return s
 }
@@ -138,11 +141,10 @@ func (s *Server) Status() (string, []string) {
 func (s *Server) Health() Health {
 	st, reasons := s.Status()
 	h := Health{
-		Status: st, Version: s.deps.Version, Reasons: reasons, RulesVersion: RulesVersion, ListsVersion: ListsVersion,
-		Lists: []ListHealth{},
+		Status: st, Version: s.deps.Version, Reasons: reasons, RulesVersion: rules.RulesVersion,
+		ListsVersion: s.judge.ListsVersion(), Lists: []ListHealth{},
 	}
 	if s.lists != nil {
-		h.ListsVersion = s.lists.Version()
 		for _, l := range s.lists.Status(s.deps.Now()) {
 			lh := ListHealth{Name: l.Name, Entries: l.Entries, Stale: l.Stale}
 			if !l.FetchedAt.IsZero() {
@@ -291,6 +293,7 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	stopLoops()
 	wg.Wait()
 	s.hooks.Wait()
+	s.judge.bg.Wait()
 	shCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	for _, srv := range servers {
