@@ -5,7 +5,7 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
-Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-sniffer-bot` implantado no finger-01 com chaves, portas 9002/9003, ingest do traefix e índice da visão do store. Segunda onda: motor de regras v1.1, fingerprints no ingest, listas, agregados, métricas com rótulos, veredito real nas rotas, webhook, teto de bytes do índice, pedidos da CLI ao serviço e `docs/bot.md` na `main`; e2e e carga da F8 a seguir. Contratos: openapi do bot 0.2.0 (ADR 0058) e asyncapi 0.6.2.
+Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-sniffer-bot` implantado no finger-01 com chaves, portas 9002/9003, ingest do traefix e índice da visão do store. Segunda onda: motor de regras v1.1, fingerprints no ingest, listas, agregados, métricas com rótulos, veredito real nas rotas, webhook, teto de bytes do índice, pedidos da CLI ao serviço e `docs/bot.md` na `main`; e2e da F8 do lado do bot na `main` (task 284), regras `v1.3` (ADR 0060, task 295) e carga da F8 a seguir. Contratos: openapi do bot 0.2.0 (ADR 0058) e asyncapi 0.6.2.
 
 ### Adicionado
 - Serviço `finger-sniffer-bot`, primeira onda (spec 018/020): banco em disco com a migration 0001 (`database/sqlite/bot/`), CLI `key create|list|revoke|rotate` e `forget`, API 9002 HTTPS (chave obrigatória) e 9003 HTTP (loopback e rede do traefik) com 401/404/429/403/413 do contrato, ingest do traefik no índice em memória e assinatura de `fs.v1.store.connection`; veredito ainda `unknown` e rotas de veredito em 404 até a segunda onda (task 267).
@@ -38,8 +38,17 @@ Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-
   Chrome/Firefox `human`, headless e Selenium `bot`, GPTBot/DuckDuckBot da lista `good_bot`) (task 289).
 - bot: teto de bytes do índice `FS_BOT_INDEX_MAX_BYTES` (384 MiB, mínimo 16 MiB; ADR 0057 item 2) com contabilidade aproximada por entrada (custos fixos por `unsafe.Sizeof` na classe do alocador, textos do interner contados uma vez, na conexão que os criou) e despejo das conexões mais antigas das duas visões; `bot_conns_evicted_total{reason=count|bytes}`, gauge `bot_index_bytes` e health `index bytes` por 60 s após despejo por bytes. Benchmarks: contabilizado/heap 0,97 (típico, 3,8 KB/conn) e 0,98 (hostil, 46 KB/conn); hostil com o padrão fica em 387 MiB de heap.
 
+- test: e2e da F8 do lado do bot (`TestF8Bot`): veredito por probe dos 6 clientes, traefix simulado com ingest na 9002 e casamento traefix ↔ store em 100 conexões reais ao traefik-app, forwardAuth com `X-Fs-Ja4h` e `block`, erros sem `X-Fs-Verdict`, feed em ≤ 1 s e `forget`; chaves criadas pela CLI e revogadas no fim; casos do traefix real (`TestF8TraefixReal`) escritos e pulando com aviso até a task 273 (task 284).
+- bot: `GET /bot/v1/auth` usa o JA4H de `X-Fs-Ja4h` (traefix) quando bem formado, senão o do ingest; métrica `bot_auth_ja4h_total{source}`; respostas de erro nunca trazem `X-Fs-Verdict` (ADR 0058, task 292).
+- docs/bot.md: forwardAuth do bot (ADR 0058) com `fingerSniffer`, `apiKey` por site, `failOpen` de 4xx sem `X-Fs-Verdict` e `X-Fs-Ja4h`; contrato 0.2.0, regras `v1.2` e limitação da primeira requisição só com traefix sem `X-Fs-Ja4h` (task 293).
+
 ### Alterado
 - infra: desfeito o tratamento de `traefik/` na verificação (ADR 0054: o fork virou o projeto externo traefix): sem passo/job "traefik", `FS_SKIP_TRAEFIK` e exclusões em verify.sh, check-binaries, golangci, lefthook, `make fmt` e `.gitignore`; o `redocly lint` do openapi do bot continua nos contratos (task 272).
+
+- bot: rules `v1.2` — `known_client` compara o JA4T sem o MSS (o grampo de MSS do caminho não tira mais o −20 de Chrome/Firefox); goldens regravados (task 292).
+- infra: CI com os testes do store com `-race` em 4 lotes paralelos (jobs `store-race`, repartição por peso em `scripts/race-weights.txt`) e o job `race-check`, que falha se a união dos lotes não for exatamente a lista do `go test -list` e soma a cobertura; `verify-full` local continua com tudo de uma vez; CI de um PR de ~14–18 min para ~12 min (task 294).
+- infra: `make deploy` não copia mais `/.claude/` (worktrees dos agentes) para o servidor (task 294).
+- store: `TestClockRegistryCap` com 3×`clockMax` relógios em vez de 100 000 (de ~171 s para poucos segundos com `-race`), conferindo também o teto e a saída do grupo LRU (task 294).
 
 ### Corrigido
 - test: `TestF5Fingerprints` liga a remontagem TCP fora de ordem do tshark/ja4; o ClientHello do Chrome cujo primeiro segmento se perde no caminho e é retransmitido deixava as ferramentas sem saída e virava divergência falsa; golden `f5-clienthello-retransmit.pcap` em `TestF5ToolsOutOfOrderClientHello` (task 260).
@@ -51,6 +60,7 @@ Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-
 - O traefik modificado vira o projeto externo traefix (ADR 0054, imagem `tmsoftbrasil/traefix`, substitui a 0048); spec 019 reescrita como "Requisitos do traefix para o finger-sniffer"; papel `implementer-traefik` removido; respostas P1–P3, P7 e P8; ADR 0055 com os ajustes da primeira onda da F8 (`updated` a cada 100 ms, migration 0001 do bot, 400 do forwardAuth, 9003); exemplos do `StoreConnection` no asyncapi (task 271).
 - Segunda onda da F8 (ADR 0056, task 275): ja4db atrás de `FS_BOT_JA4DB_ENABLE=false` até a pendência P4; `forget` e `lists refresh` da CLI chegam ao serviço em execução pela tabela `control_requests` (migration 0002); o índice do bot guarda até 16 requisições HTTP resumidas por conexão do store; métricas com rótulos e histogramas no heartbeat (asyncapi 0.6.1) republicadas pelo store; sinal informativo `ip_crawler_list_unverified` na tabela de pesos; tarefas 276–287 no PLAN.
 - Regras v1.1, teto do índice do bot e ajustes da segunda onda (ADR 0057, task 288): sinais `ua_automation` (70) e `library_client` (50) para que curl, Go, python-requests e o Chrome headless saiam `bot` sem a ja4db, com as classes esperadas nos goldens; GPTBot, OAI-SearchBot e DuckDuckBot `good_bot` pela lista de IP do operador (sem sufixo de DNS reverso); `FS_BOT_INDEX_MAX_BYTES` (384 MiB) com despejo dos mais antigos, `bot_index_bytes`, `conns_evicted_total{reason}` e health `index bytes`; bucket `+Inf` não enviado no heartbeat (asyncapi 0.6.2, documental); `lists_version` real na 282; tarefas 289 e 290.
+- `ja4h_library` sem os campos de contexto e veredito do probe fora do feed (ADR 0060, task 284/295): a regra compara também o `ja4h_ab` recalculado sem `Origin`/`Referer` (rules `v1.3`), para que curl/Go/python-requests saiam `bot` também pelo probe; o veredito do probe é só consultado, fora do feed SSE e do webhook; tarefa 295.
 
 ## [0.4.0] - 2026-11-16
 

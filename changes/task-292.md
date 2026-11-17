@@ -1,2 +1,0 @@
-- bot: `GET /bot/v1/auth` usa o JA4H de `X-Fs-Ja4h` (traefix) quando bem formado, senão o do ingest; métrica `bot_auth_ja4h_total{source}`; respostas de erro nunca trazem `X-Fs-Verdict` (ADR 0058).
-- bot: rules `v1.2` — `known_client` compara o JA4T sem o MSS (o grampo de MSS do caminho não tira mais o −20 de Chrome/Firefox); goldens regravados (task 292).

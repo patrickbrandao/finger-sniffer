@@ -135,7 +135,7 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   site, probe, feed e webhook) a sites próprios atrás do traefik do finger-01 e a clientes externos não comerciais com
   chave emitida pelo operador; o **traefix** (traefik modificado, projeto externo do humano, imagem
   `tmsoftbrasil/traefix`) entrega a visão de aplicação dos sites pelos requisitos da spec 019; agregados de 7 dias com
-  LGPD (ADRs 0047–0057).
+  LGPD (ADRs 0047–0060).
 - **Specs**: 018 (bot), 019 (requisitos do traefix), 020 (API de vereditos); mudanças em 000, 001, 002, 003, 004,
   016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.2.0 (era 0.1.1; ADR 0058), asyncapi 0.6.2 (`fs.v1.store.connection`,
   métricas com rótulos no heartbeat); migrations 0001 e 0002 do bot.
@@ -164,6 +164,8 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     - tester: e2e da F8 do lado do bot — probe, traefix simulado com `TraefikIngestBatch` na 9002 e a origem vista
       pelo store, erros, feed, `forget`; casos do traefix real pulando até a 273 (284, depois de 282 e 283) → carga
       da F8, sozinha no finger-01, com o trecho hostil do índice (285, depois de 281, 284 e 290);
+    - implementer-bot: `ja4h_library` sem `Origin`/`Referer` (rules `v1.3`), goldens do caminho do probe e e2e sem
+      o veredito do probe no feed (295, ADR 0060; antes da 285);
     - docs: `docs/bot.md`, guia de integração e verificação do webhook testada (286, depois de 280–282) → página de
       privacidade (287, bloqueada até P5 e P6).
   - **Traefix** (depende do humano): o humano implementa a spec 019 no projeto traefix e avisa → infra: teste da
