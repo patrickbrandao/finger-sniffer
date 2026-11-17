@@ -39,3 +39,18 @@ func TestDeployDefaultsFinger01(t *testing.T) {
 		t.Errorf("com variáveis:\n got %s\nwant %s", got, want)
 	}
 }
+
+// O rsync do repositório para o servidor não leva os worktrees dos agentes (.claude/, dezenas de GB) nem o que é
+// só local (task 294).
+func TestDeployRsyncExcludesLocalDirs(t *testing.T) {
+	b, err := os.ReadFile("deploy.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{"--exclude='/.claude/'", "--exclude='/.git'", "--exclude='/tasks/'", "--exclude='/tmp/'"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("deploy.sh sem %q no rsync", want)
+		}
+	}
+}

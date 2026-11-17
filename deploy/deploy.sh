@@ -44,7 +44,7 @@ echo "== rsync → $HOST:$STAGING"
 "${SSH[@]}" "mkdir -p '$STAGING'"
 rsync -a --delete -e "ssh -p $PORT -o BatchMode=yes" \
 	--exclude='/.git' --exclude='/tasks/' --exclude='/tmp/' --exclude='/var/' --exclude='/.grill/' \
-	--exclude='/etc/' --exclude='.DS_Store' --exclude='/.env' \
+	--exclude='/etc/' --exclude='.DS_Store' --exclude='/.env' --exclude='/.claude/' \
 	./ "$HOST:$STAGING/"
 
 echo "== instalação remota (com trava)"
