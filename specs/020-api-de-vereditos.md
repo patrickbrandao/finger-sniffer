@@ -39,7 +39,8 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   - `GET /bot/v1/fingerprints/{kind}/{value}` (`kind` = `ja4`|`akamai`|`ja4h`|`ja4t`): contagens dos 7 dias por
     família de UA e classe, e o rótulo na base própria e na ja4db.
   - `GET /bot/v1/stream`: SSE de `VerdictEvent` dos domínios da chave; filtros `class` e `site`; sem replay; fila de
-    1024 por cliente com descarte e evento `stream.dropped`; ping a cada 15 s.
+    1024 por cliente com descarte e evento `stream.dropped`; ping a cada 15 s. Só vereditos por requisição
+    (forwardAuth e ingest); o do probe não é publicado no feed nem no webhook (ADR 0060 item 2).
   - `POST /bot/v1/ingest/traefik`: corpo `TraefikIngestBatch`; 202 com `accepted`/`rejected`; registro inválido
     conta e é ignorado sem rejeitar o lote.
   - `GET /bot/v1/health`, `GET /bot/v1/openapi.yaml`.
@@ -73,3 +74,4 @@ site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `
 - specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md
 - specs/decisions/0056-segunda-onda-da-f8.md
 - specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md
+- specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md
