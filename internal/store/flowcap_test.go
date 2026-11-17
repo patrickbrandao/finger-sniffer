@@ -145,7 +145,9 @@ func TestIngestEvictionDeletesRow(t *testing.T) {
 	}
 }
 
-// TestClockRegistryCap: 100.000 relógios distintos não passam do teto; um relógio recente continua casando.
+// TestClockRegistryCap: 3×clockMax relógios distintos não passam do teto; o teto é atingido e sai o grupo usado
+// há mais tempo (LRU); os recentes continuam casando. 3×clockMax já força 2×clockMax despejos; mais iterações só
+// repetiam o mesmo caminho e levavam ~170 s com -race no CI (task 294).
 func TestClockRegistryCap(t *testing.T) {
 	var r clockRegistry
 	mk := func(i int, ts int64, v uint32) *conn {
@@ -155,15 +157,35 @@ func TestClockRegistryCap(t *testing.T) {
 		c.ana.tsLast = tsSample{t: ts, v: v}
 		return c
 	}
-	for i := range 100_000 {
+	const n = 3 * clockMax
+	for i := range n {
 		// relógios de 1000 Hz com deslocamentos sem relação entre si (passo grande, fora da tolerância)
 		r.assign(mk(i, base+int64(i)*1e6, uint32(i)*7919), true) //nolint:gosec // teste
 		if len(r.entries) > clockMax {
 			t.Fatalf("entries %d", len(r.entries))
 		}
 	}
-	last := 99_999
-	g := r.assign(mk(-1, base+int64(last)*1e6+5e9, uint32(last)*7919+5000), true) //nolint:gosec // teste
+	// a janela cobre ~12 s, longe de clockKeep: o tamanho final vem do teto, não da poda por idade
+	if len(r.entries) != clockMax {
+		t.Fatalf("entries %d, want %d", len(r.entries), clockMax)
+	}
+	last := n - 1
+	now := base + int64(last)*1e6 + 5e9
+	at := func(i int) *string {
+		// o relógio i, 5 s depois do último registro, sem registrar (não mexe no LRU)
+		return r.assign(mk(-1, now, uint32(i)*7919+uint32(int64(last-i)+5000)), false) //nolint:gosec // teste
+	}
+	for _, i := range []int{0, n - clockMax - 1} {
+		if g := at(i); g != nil {
+			t.Fatalf("evicted clock %d still matches: %v", i, *g)
+		}
+	}
+	for _, i := range []int{n - clockMax, last} {
+		if g := at(i); g == nil || *g != "clk-"+fmt.Sprint(i) {
+			t.Fatalf("recent clock %d must still match: %v", i, g)
+		}
+	}
+	g := r.assign(mk(-1, now, uint32(last)*7919+5000), true) //nolint:gosec // teste
 	if g == nil || *g != "clk-"+fmt.Sprint(last) {
 		t.Fatalf("recent clock must still match: %v", g)
 	}
