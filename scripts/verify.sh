@@ -3,6 +3,8 @@
 #
 #   scripts/verify.sh quick [-- <pacotes> [flags do go test]]
 #   scripts/verify.sh full  [--e2e]
+#   scripts/verify.sh race-shard <k> <n> <saída>   (CI: lote k de n dos testes -race de FS_RACE_SPLIT_PKGS)
+#   scripts/verify.sh race-check <n> <diretório>   (CI: união dos lotes = lista de testes; cobertura total)
 #
 # quick: só o que mudou desde `git merge-base HEAD main` (commits, alterações e arquivos novos).
 #        Roda todos os passos e sai com código != 0 se algum falhar.
@@ -17,6 +19,11 @@
 #                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
 #   FS_E2E_TIMEOUT       -timeout do go test no passo e2e (padrão 45m; com FS_E2E_LONG=1 a suíte passa dos
 #                        10 min padrão do go test)
+#   FS_RACE_SPLIT_PKGS   pacotes (padrões do go list) cujos testes -race saem do passo de testes do full e rodam
+#                        em lotes (race-shard) nos jobs paralelos do CI (task 294); vazio (padrão, inclusive no
+#                        full local): tudo de uma vez
+#   FS_RACE_OUT          com FS_RACE_SPLIT_PKGS, diretório onde o full deixa o cover.out (cover-main.out) para o
+#                        race-check somar à cobertura dos lotes
 #
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
@@ -49,6 +56,11 @@ VPS_PORT="${FS_VPS_PORT:-48022}"
 VPS_LABEL="${VPS_SSH#*@}"
 VPS_LABEL="${VPS_LABEL%%.*}"
 E2E_TIMEOUT="${FS_E2E_TIMEOUT:-45m}"
+RACE_SPLIT_PKGS="${FS_RACE_SPLIT_PKGS:-}"
+# Duração medida no CI dos testes lentos dos pacotes em lotes ("<Teste> <segundos>"); só equilibra os lotes:
+# teste ausente pesa RACE_DEFAULT_WEIGHT e nenhum teste fica de fora por causa deste arquivo.
+RACE_WEIGHTS="${FS_RACE_WEIGHTS:-scripts/race-weights.txt}"
+RACE_DEFAULT_WEIGHT=0.15
 
 export PATH="$(go env GOPATH)/bin:$PATH"
 
@@ -504,7 +516,7 @@ verify_quick() {
 # Nível completo
 # ---------------------------------------------------------------------------
 coverage_check() {
-	local out="$1" fail=0 p line lines pkg pct total
+	local out="$1" fail=0 p line lines pkg pct
 	# Por pacote: os pacotes de parsers/fingerprints exigem >= 80% (só os que existem). Cada item vale para o
 	# pacote e para os subpacotes com testes (pkg/fingerprint/ja4plus, pkg/fingerprint/p0f…); pacotes só de
 	# apoio a testes, sem arquivos _test.go, não contam.
@@ -531,27 +543,201 @@ coverage_check() {
 			fi
 		done <<<"$lines"
 	done
-	# Total: >= 60%, sem contar cmd/ (funções main não são testáveis por unidade).
-	grep -v "^mode:" "$WORK/cover.out" | grep -v "^$MODULE/cmd/" >"$WORK/cover.nocmd"
-	if [ -s "$WORK/cover.nocmd" ]; then
-		(head -1 "$WORK/cover.out"; cat "$WORK/cover.nocmd") >"$WORK/cover.filtered"
-		total=$(go tool cover -func="$WORK/cover.filtered" | awk '/^total:/ {gsub("%","",$3); print $3}')
-		echo "cobertura total (sem cmd/): $total%"
-		if awk "BEGIN{exit !($total < $COVER_TOTAL_MIN)}"; then
-			echo "cobertura total abaixo de $COVER_TOTAL_MIN%"
-			fail=1
-		fi
+	# Total: com pacotes em lotes, só no race-check, que soma os perfis de todos os jobs.
+	if [ -n "$RACE_SPLIT_PKGS" ]; then
+		echo "cobertura total: no race-check (perfil deste passo + lotes de $RACE_SPLIT_PKGS)"
+	else
+		coverage_total "$WORK/cover.out" || fail=1
 	fi
 	return $fail
+}
+
+# coverage_total <perfil>...: total >= 60%, sem contar cmd/ (funções main não são testáveis por unidade). Vários
+# perfis (lotes do CI) viram um só: o go tool cover soma os blocos repetidos.
+coverage_total() {
+	local total mode
+	mode=$(head -1 "$1")
+	cat "$@" | grep -v "^mode:" | grep -v "^$MODULE/cmd/" >"$WORK/cover.nocmd"
+	[ -s "$WORK/cover.nocmd" ] || return 0
+	(echo "$mode"; cat "$WORK/cover.nocmd") >"$WORK/cover.filtered"
+	total=$(go tool cover -func="$WORK/cover.filtered" | awk '/^total:/ {gsub("%","",$3); print $3}')
+	echo "cobertura total (sem cmd/): $total%"
+	if [ -z "$total" ] || awk "BEGIN{exit !($total < $COVER_TOTAL_MIN)}"; then
+		echo "cobertura total abaixo de $COVER_TOTAL_MIN%"
+		return 1
+	fi
 }
 
 full_tests() {
 	# Banco isolado: sem FS_TEST_DB, cada teste cria e migra um SQLite novo.
 	unset FS_TEST_DB FS_TEST_DB_TEMPLATE FS_TEST_BOT_DB FS_TEST_BOT_DB_TEMPLATE
-	go test -race -count=1 -covermode=atomic -coverprofile="$WORK/cover.out" ./... | tee "$WORK/test.out"
-	local rc=${PIPESTATUS[0]}
+	local pkgs rc
+	pkgs=$(full_test_pkgs) || return 1
+	# shellcheck disable=SC2086 # lista de pacotes
+	go test -race -count=1 -covermode=atomic -coverprofile="$WORK/cover.out" $pkgs | tee "$WORK/test.out"
+	rc=${PIPESTATUS[0]}
 	[ "$rc" = 0 ] || return "$rc"
+	if [ -n "$RACE_SPLIT_PKGS" ] && [ -n "${FS_RACE_OUT:-}" ]; then
+		mkdir -p "$FS_RACE_OUT" && cp "$WORK/cover.out" "$FS_RACE_OUT/cover-main.out" || return 1
+	fi
 	coverage_check "$WORK/test.out"
+}
+
+# full_test_pkgs: ./... (padrão) ou ./... sem os pacotes de FS_RACE_SPLIT_PKGS, que o CI roda em lotes.
+full_test_pkgs() {
+	local split
+	if [ -z "$RACE_SPLIT_PKGS" ]; then
+		echo ./...
+		return 0
+	fi
+	# shellcheck disable=SC2086 # padrões do go list
+	split=$(go list $RACE_SPLIT_PKGS) || return 1
+	if [ -z "$split" ]; then
+		echo "FS_RACE_SPLIT_PKGS sem pacotes: $RACE_SPLIT_PKGS" >&2
+		return 1
+	fi
+	go list ./... | grep -vxF "$split"
+}
+
+# ---------------------------------------------------------------------------
+# Testes -race em lotes (CI, task 294; spec 017 RF-11)
+# ---------------------------------------------------------------------------
+# Os testes dos pacotes de FS_RACE_SPLIT_PKGS (o store: ~6 min com -race no CI) rodam em <n> jobs paralelos.
+# Cada lote roda com -run os testes de nível superior que lhe cabem; o race-check confere, pelo -json de cada
+# lote, que a união dos testes que rodaram é exatamente a lista do `go test -list` (nenhum fora, nenhum repetido)
+# e soma a cobertura dos lotes à do resto (o mesmo total de antes).
+
+# race_list: "<pacote> <teste>" de cada teste, exemplo e fuzz de nível superior dos pacotes em lotes (o mesmo
+# binário -race dos lotes, já em cache).
+race_list() {
+	local pkg
+	# shellcheck disable=SC2086 # padrões do go list
+	for pkg in $(go list $RACE_SPLIT_PKGS); do
+		if ! go test -race -list '.*' "$pkg" >"$WORK/list.out"; then
+			cat "$WORK/list.out"
+			return 1
+		fi
+		grep -E '^(Test|Example|Fuzz)' "$WORK/list.out" | sed "s|^|$pkg |"
+	done
+}
+
+# race_assign <n>: lê "<pacote> <teste>" e escreve "<lote> <pacote> <teste>" (lotes 1..n). Maior peso primeiro,
+# sempre no lote menos carregado (empate: o de menor número); determinístico para a mesma lista e os mesmos pesos.
+race_assign() {
+	local n="$1" weights=/dev/null
+	[ -f "$RACE_WEIGHTS" ] && weights="$RACE_WEIGHTS"
+	awk -v def="$RACE_DEFAULT_WEIGHT" -v wf="$weights" '
+		BEGIN { while ((getline l < wf) > 0) if (l !~ /^#/ && split(l, a, " ") >= 2) w[a[1]] = a[2] }
+		NF >= 2 { print (($2 in w) ? w[$2] : def), $1, $2 }' |
+		LC_ALL=C sort -k1,1gr -k3,3 -k2,2 |
+		awk -v n="$n" '{
+			best = 1
+			for (i = 2; i <= n; i++) if (load[i] < load[best]) best = i
+			load[best] += $1
+			print best, $2, $3
+		}'
+}
+
+# race_shard <k> <n> <saída>: roda o lote k de n. Grava em <saída>: expected-k.txt (lista completa), ran-k.txt
+# (testes de nível superior com resultado no -json), cover-k.out, test-k.json, times-k.txt e elapsed-k.txt.
+race_shard() {
+	local k="${1:-}" n="${2:-}" out="${3:-}" pkg names rc=0
+	case "$k:$n" in *[!0-9:]* | :* | *:) k=0 ;; esac
+	if [ -z "$out" ] || [ "$k" -lt 1 ] || [ "$k" -gt "$n" ]; then
+		echo "uso: verify.sh race-shard <k> <n> <saída> (1 <= k <= n)" >&2
+		return 2
+	fi
+	if [ -z "$RACE_SPLIT_PKGS" ]; then
+		echo "FS_RACE_SPLIT_PKGS vazio" >&2
+		return 2
+	fi
+	unset FS_TEST_DB FS_TEST_DB_TEMPLATE FS_TEST_BOT_DB FS_TEST_BOT_DB_TEMPLATE
+	mkdir -p "$out"
+	# testes de contrato do store usam o Redocly (no CI, CI=true, a ausência falha o teste); no full, o passo
+	# contratos instala antes dos testes
+	if command -v npm >/dev/null && [ -f "$CONTRACTS_TOOLS_DIR/package-lock.json" ]; then
+		npm_deps "$CONTRACTS_TOOLS_DIR" || return 1
+	fi
+	race_list >"$out/expected-$k.txt" || return 1
+	race_assign "$n" <"$out/expected-$k.txt" | awk -v k="$k" '$1 == k { print $2, $3 }' >"$WORK/mine.txt"
+	echo "lote $k/$n: $(wc -l <"$WORK/mine.txt" | tr -d ' ') de $(wc -l <"$out/expected-$k.txt" | tr -d ' ') testes"
+	: >"$out/test-$k.json"
+	: >"$out/cover-$k.out"
+	for pkg in $(awk '{ print $1 }' "$WORK/mine.txt" | sort -u); do
+		names=$(awk -v p="$pkg" '$1 == p { print $2 }' "$WORK/mine.txt" | paste -sd '|' -)
+		rm -f "$WORK/one.cover"
+		go test -race -count=1 -json -covermode=atomic -coverprofile="$WORK/one.cover" -run "^($names)\$" "$pkg" \
+			>>"$out/test-$k.json" || rc=1
+		[ -s "$WORK/one.cover" ] && cat "$WORK/one.cover" >>"$out/cover-$k.out"
+	done
+	race_report "$out/test-$k.json" "$out/ran-$k.txt" "$out/times-$k.txt" "$out/elapsed-$k.txt"
+	return $rc
+}
+
+# race_report <json> <ran> <times> <elapsed>: resultado de cada teste de nível superior, saída dos que falharam,
+# os mais lentos (para atualizar scripts/race-weights.txt) e o tempo de cada pacote.
+race_report() {
+	jq -r 'select(.Test != null and (.Test | contains("/") | not) and
+		(.Action == "pass" or .Action == "fail" or .Action == "skip")) | "\(.Package) \(.Test)"' "$1" |
+		LC_ALL=C sort >"$2"
+	jq -r 'select(.Test != null and (.Test | contains("/") | not) and (.Action == "pass" or .Action == "fail")) |
+		"\(.Test) \(.Elapsed)"' "$1" | LC_ALL=C sort -k2,2gr >"$3"
+	jq -rs '[.[] | select(.Action == "fail" and .Test != null) | .Test] as $f | .[] |
+		select(.Action == "output" and (.Test == null or (.Test as $t | $f | index($t)))) | .Output' "$1" |
+		grep -vE '^=== (RUN|PAUSE|CONT|NAME)' || true
+	echo "mais lentos (s):"
+	head -15 "$3" | sed 's/^/  /'
+	jq -r 'select(.Test == null and (.Action == "pass" or .Action == "fail")) |
+		"\(.Package) \(.Action) \(.Elapsed)s"' "$1" | tee "$4"
+}
+
+# race_union_check <n> <dir>: as n listas esperadas são iguais e a união dos ran-*.txt é exatamente a lista, sem
+# repetição; imprime os testes que ficaram de fora ou sobraram.
+race_union_check() {
+	local n="$1" dir="$2" k fail=0
+	for k in $(seq 1 "$n"); do
+		if [ ! -s "$dir/expected-$k.txt" ] || [ ! -f "$dir/ran-$k.txt" ]; then
+			echo "lote $k: sem expected-$k.txt ou ran-$k.txt em $dir"
+			return 1
+		fi
+		LC_ALL=C sort "$dir/expected-$k.txt" >"$WORK/exp-$k.txt"
+		if ! cmp -s "$WORK/exp-1.txt" "$WORK/exp-$k.txt"; then
+			echo "lote $k: lista de testes diferente da do lote 1"
+			fail=1
+		fi
+	done
+	for k in $(seq 1 "$n"); do cat "$dir/ran-$k.txt"; done | LC_ALL=C sort >"$WORK/ran-all.txt"
+	LC_ALL=C uniq -d "$WORK/ran-all.txt" | sed 's/^/em mais de um lote: /' >"$WORK/dups"
+	LC_ALL=C uniq "$WORK/ran-all.txt" >"$WORK/ran-uniq.txt"
+	LC_ALL=C comm -23 "$WORK/exp-1.txt" "$WORK/ran-uniq.txt" | sed 's/^/fora de todos os lotes: /' >"$WORK/missing"
+	LC_ALL=C comm -13 "$WORK/exp-1.txt" "$WORK/ran-uniq.txt" | sed 's/^/fora da lista: /' >"$WORK/extra"
+	cat "$WORK/dups" "$WORK/missing" "$WORK/extra"
+	if [ -s "$WORK/dups" ] || [ -s "$WORK/missing" ] || [ -s "$WORK/extra" ]; then
+		fail=1
+	fi
+	echo "lotes: $n; testes na lista: $(wc -l <"$WORK/exp-1.txt" | tr -d ' '); com resultado: $(wc -l <"$WORK/ran-uniq.txt" | tr -d ' ')"
+	return $fail
+}
+
+# race_check <n> <dir>: união dos lotes e cobertura total (cover-main.out do full + cover-*.out dos lotes).
+race_check() {
+	local n="${1:-}" dir="${2:-}" k covers
+	case "$n" in '' | *[!0-9]*) n="" ;; esac
+	if [ -z "$n" ] || [ -z "$dir" ]; then
+		echo "uso: verify.sh race-check <n> <diretório>" >&2
+		return 2
+	fi
+	echo "== verify race-check"
+	run_step "lotes -race: união = lista" race_union_check "$n" "$dir"
+	for k in $(seq 1 "$n"); do
+		[ -f "$dir/elapsed-$k.txt" ] && echo "lote $k: $(cat "$dir/elapsed-$k.txt")"
+	done
+	covers="$dir/cover-main.out"
+	for k in $(seq 1 "$n"); do covers="$covers $dir/cover-$k.out"; done
+	# shellcheck disable=SC2086 # lista de perfis
+	run_step "cobertura total (full + lotes)" coverage_total $covers
+	summary
+	[ "$FAILED" = 0 ]
 }
 
 cpu_count() { getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1; }
@@ -688,6 +874,8 @@ verify_full() {
 	run_step "contratos" contracts_check
 	run_step "examples asyncapi" asyncapi_examples_check
 	run_step "testes -race + cobertura" full_tests
+	# no CI, o store sai deste passo e roda em lotes (race-shard/race-check)
+	[ -z "$RACE_SPLIT_PKGS" ] || STEP_NOTES[$((${#STEP_NOTES[@]} - 1))]="sem $RACE_SPLIT_PKGS (lotes)"
 
 	if has_fuzz; then
 		run_step "fuzz curto ($FUZZ_TIME)" fuzz_all
@@ -723,8 +911,10 @@ case "$MODE" in
 lib) return 0 2>/dev/null || exit 0 ;; # carregado por scripts/verify-test.sh só pelas funções
 quick) verify_quick "$@" ;;
 full) verify_full "$@" ;;
+race-shard) race_shard "$@" ;;
+race-check) race_check "$@" ;;
 *)
-	echo "uso: verify.sh quick|full [...]" >&2
+	echo "uso: verify.sh quick|full|race-shard|race-check [...]" >&2
 	exit 2
 	;;
 esac
