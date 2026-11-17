@@ -112,7 +112,7 @@ func New(cfg Config, d Deps) *Server {
 	}
 	// Contadores da spec 018 RF-12 que só andam com eventos aparecem zerados desde o primeiro heartbeat.
 	for _, k := range []string{
-		metricIngestRecords, metricIngestDropped, metricRateLimited, webhook.MetricDropped,
+		metricIngestRecords, metricIngestDropped, metricRateLimited, webhook.DroppedMetric,
 		metricIngestParseErrors + `{part="client_hello"}`, metricIngestParseErrors + `{part="h2_prefix"}`,
 		metricPurged + `{reason="age"}`, metricPurged + `{reason="size"}`,
 	} {

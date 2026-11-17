@@ -41,13 +41,13 @@ const (
 	signaturePrefix = "sha256="
 )
 
-// MetricDropped conta os eventos descartados pela fila cheia (o serviço a publica zerada desde o início).
-const MetricDropped = "bot_webhook_dropped_total"
+// DroppedMetric conta os eventos descartados pela fila cheia (o serviço a publica zerada desde o início).
+const DroppedMetric = "bot_webhook_dropped_total"
 
 // Métricas (spec 018 RF-12). metricURLRejected conta as chaves cuja URL não é https na carga.
 const (
 	metricSent        = "bot_webhook_sent_total"
-	metricDropped     = MetricDropped
+	metricDropped     = DroppedMetric
 	metricURLRejected = "bot_webhook_url_rejected_total"
 )
 
