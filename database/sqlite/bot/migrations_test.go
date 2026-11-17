@@ -22,7 +22,8 @@ func openDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// TestUpDownUp: a migration aplica, reverte até zero sem sobra e aplica de novo.
+// TestUpDownUp: as migrations (0001 e 0002) aplicam, revertem até zero sem sobra e aplicam de novo; a 0002 sozinha
+// também desce e sobe (só control_requests sai).
 func TestUpDownUp(t *testing.T) {
 	ctx := context.Background()
 	db := openDB(t)
@@ -33,7 +34,7 @@ func TestUpDownUp(t *testing.T) {
 	if _, err := p.Up(ctx); err != nil {
 		t.Fatalf("up: %v", err)
 	}
-	for _, table := range []string{"api_keys", "key_usage_daily", "ip_hourly", "fp_daily", "lists"} {
+	for _, table := range []string{"api_keys", "key_usage_daily", "ip_hourly", "fp_daily", "lists", "control_requests"} {
 		var n int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n); err != nil {
 			t.Fatal(err)
@@ -41,6 +42,21 @@ func TestUpDownUp(t *testing.T) {
 		if n != 1 {
 			t.Errorf("tabela %s ausente", table)
 		}
+	}
+	if _, err := p.DownTo(ctx, 1); err != nil {
+		t.Fatalf("down até 1: %v", err)
+	}
+	for table, want := range map[string]int{"control_requests": 0, "lists": 1} {
+		var n int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != want {
+			t.Errorf("down até 1: tabela %s = %d, quer %d", table, n, want)
+		}
+	}
+	if _, err := p.Up(ctx); err != nil {
+		t.Fatalf("up da 0002: %v", err)
 	}
 	if _, err := p.DownTo(ctx, 0); err != nil {
 		t.Fatalf("down: %v", err)
@@ -80,5 +96,21 @@ func TestConstraints(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO fp_daily (kind, value, day, ua_family) VALUES ('ja3', 'x', 1, 'curl')`); err == nil {
 		t.Error("kind fora da lista aceito")
+	}
+	insCtl := `INSERT INTO control_requests (op, arg, created_at) VALUES (?, ?, ?)`
+	if _, err := db.ExecContext(ctx, insCtl, "forget", "192.0.2.0/24", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, insCtl, "lists_refresh", nil, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, insCtl, "reboot", nil, 1); err == nil {
+		t.Error("op fora da lista aceita")
+	}
+	if _, err := db.ExecContext(ctx, insCtl, "forget", "x", nil); err == nil {
+		t.Error("created_at nulo aceito")
+	}
+	if _, err := db.ExecContext(ctx, insCtl, "forget", "x", "ontem"); err == nil {
+		t.Error("created_at texto aceito (STRICT)")
 	}
 }

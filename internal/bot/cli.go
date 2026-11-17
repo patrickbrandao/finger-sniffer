@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -18,7 +20,7 @@ var ErrUsage = errors.New("bot: usage")
 
 // IsCLI diz se os argumentos são um comando da CLI (spec 018 RF-10) em vez de subir o serviço.
 func IsCLI(args []string) bool {
-	return len(args) > 0 && (args[0] == "key" || args[0] == "forget")
+	return len(args) > 0 && (args[0] == "key" || args[0] == "forget" || args[0] == "lists")
 }
 
 const cliUsage = `usage:
@@ -28,6 +30,7 @@ const cliUsage = `usage:
   finger-sniffer-bot key revoke <id|prefix>
   finger-sniffer-bot key rotate <id|prefix>
   finger-sniffer-bot forget <ip|prefix>
+  finger-sniffer-bot lists refresh [name]
 `
 
 // RunCLI executa um comando da CLI no banco em disco (FS_BOT_DB), com o serviço rodando ou não (WAL).
@@ -41,8 +44,15 @@ func RunCLI(ctx context.Context, args []string, dbPath string, out, errOut io.Wr
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	if args[0] == "forget" {
-		return cliForget(ctx, db, args[1:], out, errOut)
+	switch args[0] {
+	case "forget":
+		return cliForget(ctx, db, args[1:], out, errOut, now)
+	case "lists":
+		if len(args) < 2 || args[1] != "refresh" || len(args) > 3 {
+			_, _ = fmt.Fprint(errOut, cliUsage)
+			return ErrUsage
+		}
+		return cliListsRefresh(ctx, db, args[2:], out, errOut, now)
 	}
 	if len(args) < 2 {
 		_, _ = fmt.Fprint(errOut, cliUsage)
@@ -138,7 +148,9 @@ func cliKeyList(ctx context.Context, db *sql.DB, out io.Writer) error {
 	return tw.Flush()
 }
 
-func cliForget(ctx context.Context, db *sql.DB, args []string, out, errOut io.Writer) error {
+// cliForget apaga o disco (funciona com o serviço parado) e pede ao serviço em execução que apague a memória e o
+// disco de novo (ADR 0056 item 2); espera até 10 s pela resposta.
+func cliForget(ctx context.Context, db *sql.DB, args []string, out, errOut io.Writer, now time.Time) error {
 	if len(args) != 1 {
 		_, _ = fmt.Fprint(errOut, cliUsage)
 		return ErrUsage
@@ -152,5 +164,74 @@ func cliForget(ctx context.Context, db *sql.DB, args []string, out, errOut io.Wr
 		return err
 	}
 	_, _ = fmt.Fprintf(out, "forgot %s: %d aggregate rows deleted\n", p, n)
+	arg := p.String()
+	id, err := insertControl(ctx, db, opForget, &arg, now)
+	if err != nil {
+		return err
+	}
+	raw, done, err := waitControl(ctx, db, id, forgetWait)
+	if err != nil {
+		return err
+	}
+	if !done {
+		// O disco já está limpo; o pedido fica pendente e o serviço o executa quando voltar.
+		_, _ = fmt.Fprintf(out, "service memory: not reached within %s (service not running?); "+
+			"in-memory data expires within 10 min\n", forgetWait)
+		return nil
+	}
+	var r forgetResult
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return fmt.Errorf("bot: forget result: %w", err)
+	}
+	if r.Error != "" {
+		return fmt.Errorf("bot: forget in the service: %s", r.Error)
+	}
+	_, _ = fmt.Fprintf(out, "service memory: reached (%d connections, %d aggregate entries, %d robot checks; "+
+		"%d more rows deleted)\n", r.Index, r.Agg, r.Verify, r.Rows)
+	return nil
+}
+
+// cliListsRefresh pede ao serviço que baixe as listas (todas ou uma) e espera até 120 s; o download, a validação e
+// a troca são do serviço, que tem a rede e as permissões da unit (ADR 0056 item 2).
+func cliListsRefresh(ctx context.Context, db *sql.DB, args []string, out, errOut io.Writer, now time.Time) error {
+	var arg *string
+	if len(args) > 0 {
+		name := args[0]
+		arg = &name
+	}
+	id, err := insertControl(ctx, db, opListsRefresh, arg, now)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(errOut, "waiting for the service (up to %s)...\n", refreshWait)
+	raw, done, err := waitControl(ctx, db, id, refreshWait)
+	if err != nil {
+		return err
+	}
+	if !done {
+		return fmt.Errorf("%w: no answer within %s", errNoService, refreshWait)
+	}
+	var r refreshResult
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		return fmt.Errorf("bot: lists refresh result: %w", err)
+	}
+	if r.Error != "" {
+		return fmt.Errorf("%w: %s", errRefreshFailed, r.Error)
+	}
+	names := make([]string, 0, len(r.Lists))
+	for name := range r.Lists {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	failed := 0
+	for _, name := range names {
+		_, _ = fmt.Fprintf(out, "%s: %s\n", name, r.Lists[name])
+		if r.Lists[name] != "ok" {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%w: %d of %d lists", errRefreshFailed, failed, len(names))
+	}
 	return nil
 }

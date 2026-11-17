@@ -179,6 +179,7 @@ func TestKeyLifecycle(t *testing.T) {
 
 // TestCLI: key create imprime a chave uma vez; list não a mostra; revoke/rotate/forget pela CLI.
 func TestCLI(t *testing.T) {
+	shortWaits(t, 50*time.Millisecond, 50*time.Millisecond)
 	_, path := testDB(t)
 	ctx := context.Background()
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
