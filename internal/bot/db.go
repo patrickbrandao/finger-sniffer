@@ -111,6 +111,11 @@ func Forget(ctx context.Context, db *sql.DB, p netip.Prefix) (int64, error) {
 
 // Purge apaga os agregados mais velhos que retention e o uso diário das chaves mais velho que 90 dias. Devolve as
 // linhas removidas dos agregados (bot_purged_total{reason=age}).
+//
+// Sai toda linha cujo período (hora em ip_hourly, dia em fp_daily) começou antes do corte: o dado mais velho que
+// sobra tem no máximo retention, e com o expurgo a cada purgeInterval (1 h) nada passa de 7 dias e 1 hora (spec 018
+// RF-08, ADR 0052 item 1). O corte pelo índice do período (hour < corte/3600) deixava a hora inteira do corte e
+// mais o intervalo do expurgo (~7 d 2 h; no fp_daily, ~8 dias).
 func Purge(ctx context.Context, db *sql.DB, now time.Time, retention time.Duration) (int64, error) {
 	cut := now.Add(-retention).Unix()
 	var total int64
@@ -118,8 +123,8 @@ func Purge(ctx context.Context, db *sql.DB, now time.Time, retention time.Durati
 		sql string
 		arg int64
 	}{
-		{"DELETE FROM ip_hourly WHERE hour < ?", cut / 3600},
-		{"DELETE FROM fp_daily WHERE day < ?", cut / 86400},
+		{"DELETE FROM ip_hourly WHERE hour < ?", ceilDiv(cut, 3600)},
+		{"DELETE FROM fp_daily WHERE day < ?", ceilDiv(cut, 86400)},
 	} {
 		res, err := db.ExecContext(ctx, q.sql, q.arg)
 		if err != nil {
@@ -193,4 +198,13 @@ func vacuum(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// ceilDiv é a divisão arredondada para cima (a > 0 nos cortes do expurgo; para baixo de zero, trunca como o Go).
+func ceilDiv(a, b int64) int64 {
+	q := a / b
+	if a%b > 0 {
+		q++
+	}
+	return q
 }

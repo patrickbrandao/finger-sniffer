@@ -269,13 +269,15 @@ func TestForgetAndPurge(t *testing.T) {
 		t.Error("prefixo inválido aceito")
 	}
 
-	// Expurgo: a hora de 7 dias atrás fica, a anterior sai.
+	// Expurgo: fica a hora que começou depois do corte (now-7d), sai a que começou antes (inclusive a hora do corte,
+	// que começa às 12:00 de 7 dias atrás com o relógio às 12:30).
 	db.Exec("DELETE FROM ip_hourly") //nolint:errcheck // limpeza do teste
-	keep := (now.Unix() - int64(MaxAggRetention/time.Second)) / 3600
-	ins("192.0.2.1", keep)
-	ins("192.0.2.2", keep-1)
+	cut := now.Unix() - int64(MaxAggRetention/time.Second)
+	ins("192.0.2.1", cut/3600+1)
+	ins("192.0.2.2", cut/3600)
+	day := cut / 86400
 	if _, err := db.Exec("INSERT INTO fp_daily (kind, value, day, ua_family) VALUES ('ja4','a',?,'x'), ('ja4','b',?,'x')",
-		now.Unix()/86400-7, now.Unix()/86400-8); err != nil {
+		day+1, day); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("INSERT INTO key_usage_daily (key_id, day) VALUES ('k', ?), ('k', ?)", now.Unix()/86400-89, now.Unix()/86400-91); err != nil {
@@ -291,10 +293,52 @@ func TestForgetAndPurge(t *testing.T) {
 	if count() != 1 || fp != 1 || usage != 1 {
 		t.Fatalf("ip %d fp %d uso %d", count(), fp, usage)
 	}
-	var oldest int64
-	_ = db.QueryRow("SELECT min(hour) FROM ip_hourly").Scan(&oldest)
-	if age := now.Sub(time.Unix(oldest*3600, 0)); age > MaxAggRetention+time.Hour {
-		t.Errorf("linha com IP de %s", age)
+}
+
+// TestPurgeMaxAge: relógio falso fora de fase com a hora e o dia (expurgo a cada purgeInterval começando em minutos
+// e segundos quaisquer), uma linha por hora e por dia escrita como o flush escreve (período do instante); a idade do
+// dado mais velho de cada linha, medida logo antes de cada expurgo, nunca passa de 7 dias e 1 hora (spec 018 RF-08,
+// ADR 0052 item 1).
+func TestPurgeMaxAge(t *testing.T) {
+	db, _ := testDB(t)
+	ctx := context.Background()
+	limit := MaxAggRetention + time.Hour
+	for _, start := range []time.Time{
+		time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 11, 1, 0, 59, 59, 0, time.UTC),
+		time.Date(2026, 11, 1, 23, 17, 43, 0, time.UTC),
+		time.Date(2026, 11, 1, 12, 30, 1, 0, time.UTC),
+	} {
+		db.Exec("DELETE FROM ip_hourly") //nolint:errcheck // limpeza do teste
+		db.Exec("DELETE FROM fp_daily")  //nolint:errcheck // limpeza do teste
+		var maxIP, maxFP time.Duration
+		// 10 dias de expurgos; antes de cada um, o flush grava a hora e o dia correntes
+		for now := start; now.Before(start.Add(10 * 24 * time.Hour)); now = now.Add(purgeInterval) {
+			h, d := now.Unix()/3600, now.Unix()/86400
+			if _, err := db.Exec("INSERT OR IGNORE INTO ip_hourly (ip, site, hour, requests) VALUES (?, 's', ?, 1)",
+				ipKey(mustAddr("192.0.2.1")), h); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec("INSERT OR IGNORE INTO fp_daily (kind, value, day, ua_family) VALUES ('ja4','a',?,'x')", d); err != nil {
+				t.Fatal(err)
+			}
+			// idade do dado mais velho possível de cada linha: o início do período
+			var oh, od int64
+			_ = db.QueryRow("SELECT min(hour) FROM ip_hourly").Scan(&oh)
+			_ = db.QueryRow("SELECT min(day) FROM fp_daily").Scan(&od)
+			maxIP = max(maxIP, now.Sub(time.Unix(oh*3600, 0)))
+			maxFP = max(maxFP, now.Sub(time.Unix(od*86400, 0)))
+			if _, err := Purge(ctx, db, now, MaxAggRetention); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if maxIP > limit || maxFP > limit {
+			t.Errorf("início %s: idade máxima ip_hourly %s fp_daily %s (limite %s)", start, maxIP, maxFP, limit)
+		}
+		// a janela de 7 dias continua lá: depois de 10 dias, há linhas de quase 7 dias
+		if maxIP < MaxAggRetention-time.Hour {
+			t.Errorf("início %s: ip_hourly expurgado cedo demais (%s)", start, maxIP)
+		}
 	}
 }
 

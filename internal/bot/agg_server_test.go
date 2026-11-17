@@ -53,10 +53,11 @@ func TestAggRetentionServer(t *testing.T) {
 			t.Fatalf("hora %d: IP ainda no cache", h)
 		}
 	}
-	if count("SELECT count(*) FROM ip_hourly") != 0 {
-		t.Fatal("ip_hourly não expurgado")
+	// o dia do fp_daily começou às 00:00 e o relógio às 12:00: depois de 7 dias e 1 hora ele também já saiu
+	if count("SELECT count(*) FROM ip_hourly") != 0 || count("SELECT count(*) FROM fp_daily") != 0 {
+		t.Fatal("ip_hourly ou fp_daily não expurgado")
 	}
-	if got := f.metrics.Get(`bot_purged_total{reason="age"}`); got != 1 {
+	if got := f.metrics.Get(`bot_purged_total{reason="age"}`); got != 2 {
 		t.Fatalf(`bot_purged_total{reason="age"} = %v`, got)
 	}
 	s.updateMetrics()

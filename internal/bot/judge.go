@@ -384,11 +384,14 @@ func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fo
 }
 
 // Ingest avalia a requisição que acabou de chegar pelo ingest do traefix (a última da conexão) e a registra.
-func (j *Judge) Ingest(id string) {
+// allows confere o site final contra a chave do ingest (nil sem chave): defesa em profundidade da conferência do
+// API.ingest, para nenhum veredito, agregado, feed ou webhook sair com o domínio de outra chave (spec 020 RF-03).
+// Devolve false quando o site final não é permitido (nada é registrado).
+func (j *Judge) Ingest(id string, allows func(string) bool) bool {
 	now := j.now()
 	fork, ok := j.index.Fork(id, now)
 	if !ok || len(fork.Requests) == 0 {
-		return
+		return true
 	}
 	req := &fork.Requests[len(fork.Requests)-1]
 	var store *StoreConn
@@ -401,6 +404,9 @@ func (j *Judge) Ingest(id string) {
 	if a := NormalizeSite(req.Authority); a != "" {
 		site = a
 	}
+	if allows != nil && site != "" && !allows(site) {
+		return false
+	}
 	ip := netip.Addr{}
 	if fork.HasSrc {
 		ip = fork.SrcIP
@@ -408,6 +414,7 @@ func (j *Judge) Ingest(id string) {
 	vw := views{ip: ip, site: site, fork: &fork, store: store, http: httpFromFork(req), proto: req.Proto}
 	v, res := j.evaluate(vw, requestSubject(site, ip, fork.SrcPort, fork.DstPort, id, store, req.Method, req.Path))
 	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path}, nil)
+	return true
 }
 
 // connectionVerdict avalia uma conexão sem veredito de requisição guardado (consulta): a do fork com a do store

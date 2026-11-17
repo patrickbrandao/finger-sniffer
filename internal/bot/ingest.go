@@ -27,8 +27,17 @@ const (
 	maxFieldValue    = 512
 )
 
-// sensitiveFields nunca têm o valor guardado, mesmo que o fork os mande (ADR 0052 item 2).
-var sensitiveFields = map[string]bool{"cookie": true, "authorization": true, "proxy-authorization": true, "set-cookie": true}
+// allowedField diz se o valor do campo pode ser guardado: só a lista permitida da spec 019 RF-04 (ADR 0048 item 3,
+// ADR 0052 item 2): User-Agent, Accept, Accept-Language, Accept-Encoding, Sec-CH-UA* e Sec-Fetch-*. O valor de
+// qualquer outro campo que o fork mande é descartado; o nome continua em field_names (ordem e JA4H).
+func allowedField(name string) bool {
+	n := strings.ToLower(name)
+	switch n {
+	case "user-agent", "accept", "accept-language", "accept-encoding":
+		return true
+	}
+	return strings.HasPrefix(n, "sec-ch-ua") || strings.HasPrefix(n, "sec-fetch-")
+}
 
 // TraefikIngestBatch é o corpo de POST /bot/v1/ingest/traefik.
 type TraefikIngestBatch struct {
@@ -182,12 +191,20 @@ func parseRecord(raw json.RawMessage) (parsedRecord, error) {
 	return p, nil
 }
 
-// site devolve o domínio do registro (SNI ou authority).
-func (p *parsedRecord) site() string {
-	if p.r.SNI != nil && *p.r.SNI != "" {
-		return NormalizeSite(*p.r.SNI)
+// sites devolve os domínios que o registro cita (SNI e authority, normalizados, sem os vazios). Com chave, todos
+// precisam ser dela (spec 020 RF-03): o veredito da requisição usa o authority, e conferir só o SNI deixaria uma
+// chave escrever agregados, feed e webhook de outro domínio (ADRs 0051 item 3 e 0052 item 3).
+func (p *parsedRecord) sites() []string {
+	var out []string
+	if p.r.SNI != nil {
+		if s := NormalizeSite(*p.r.SNI); s != "" {
+			out = append(out, s)
+		}
 	}
-	return NormalizeSite(p.r.Authority)
+	if s := NormalizeSite(p.r.Authority); s != "" {
+		out = append(out, s)
+	}
+	return out
 }
 
 // apply incorpora o registro à conexão do fork.
@@ -212,7 +229,7 @@ func (p *parsedRecord) apply(c *ForkConn) {
 		path, _, _ := strings.Cut(r.Path, "?") // nada de query (ADR 0052 item 2)
 		fields := make(map[string]string, len(r.Fields))
 		for k, v := range r.Fields {
-			if !sensitiveFields[strings.ToLower(k)] {
+			if allowedField(k) {
 				fields[k] = v
 			}
 		}
