@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -108,11 +109,20 @@ func (k fakeKnown) Measured(family string, kind FPKind) bool {
 	return false
 }
 
+// ja4tNoMSS tira o MSS do JA4T como lists.JA4TWithoutMSS (o pacote rules não importa lists).
+func ja4tNoMSS(v string) string {
+	p := strings.Split(v, "_")
+	if len(p) != 4 {
+		return v
+	}
+	return p[0] + "_" + p[1] + "_" + p[3]
+}
+
 func (k fakeKnown) Coherent(ja4, akamai, ja4t string) []string {
 	var out []string
 	for _, e := range k.entries {
 		if (ja4 == "" || fieldOf(e, KindJA4) == ja4) && (akamai == "" || fieldOf(e, KindAkamai) == akamai) &&
-			(ja4t == "" || fieldOf(e, KindJA4T) == ja4t) {
+			(ja4t == "" || fieldOf(e, KindJA4T) == "" || ja4tNoMSS(fieldOf(e, KindJA4T)) == ja4tNoMSS(ja4t)) {
 			out = addUnique(out, e.Client)
 		}
 	}

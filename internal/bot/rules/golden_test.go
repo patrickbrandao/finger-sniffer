@@ -110,6 +110,12 @@ func goldenCases(t testing.TB) []goldenCase {
 
 	googleUAChrome := inputFrom(e("chrome", "h2"), ua["chrome"], ipGooglebot)
 
+	// v1.2 (ADR 0058 item 4): o MSS do SYN muda com o caminho (grampo), a janela, as opções e a escala não
+	chromeMSS := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
+	chromeMSS.TCP.JA4T = "65535_2-1-3-1-1-8-4-0-0_1460_6"
+	firefoxWindow := inputFrom(e("firefox", "h2"), ua["firefox"], ipResidential)
+	firefoxWindow.TCP.JA4T = "64240_2-1-3-1-1-8-4-0-0_1430_6"
+
 	return []goldenCase{
 		// as classes da ADR 0057 item 1 (rules v1.1; ja4db desligada, ADR 0056 item 1)
 		{"curl", inputFrom(e("curl", "h2"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
@@ -143,6 +149,9 @@ func goldenCases(t testing.TB) []goldenCase {
 		{"curl_cloud_loop", curlLoop, false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalIPCloud, SignalRateHigh, SignalNoReuse, SignalIntervalRegular, SignalRouteBreadth}},
 		{"tcp_only", tcpOnly, false, ClassUnknown, nil},
 		{"fork_only_no_tcp", forkOnly, false, ClassHuman, []string{SignalKnownClient}},
+		// casos novos da v1.2
+		{"chrome_other_mss", chromeMSS, false, ClassHuman, []string{SignalKnownClient}},
+		{"firefox_other_window", firefoxWindow, false, ClassHuman, nil},
 	}
 }
 

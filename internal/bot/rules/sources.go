@@ -23,7 +23,7 @@ type KnownClients interface {
 	// conclui nada sobre a família).
 	Measured(family string, kind FPKind) bool
 	// Coherent devolve as famílias com uma mesma medida cujos ja4, akamai e ja4t são os dados; valor "" não é
-	// comparado.
+	// comparado, e o ja4t compara sem o campo do MSS (janela, opções e escala; v1.2, ADR 0058 item 4).
 	Coherent(ja4, akamai, ja4t string) []string
 }
 

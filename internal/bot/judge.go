@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,13 +28,26 @@ const (
 	metricViewWait     = "bot_view_wait_total"
 	metricAuthSeconds  = "bot_auth_seconds"
 	metricAuthWaitSecs = "bot_auth_wait_seconds"
+	metricAuthJA4H     = "bot_auth_ja4h_total"
 )
+
+// Origens do JA4H do forwardAuth (rótulo source de bot_auth_ja4h_total, ADR 0058 item 1).
+const (
+	ja4hFromHeader = "header"
+	ja4hFromIngest = "ingest"
+	ja4hNone       = "none"
+)
+
+// ja4hPattern é o JA4H completo aceito em X-Fs-Ja4h (openapi do bot 0.2.0); fora dele o cabeçalho é ignorado.
+var ja4hPattern = regexp.MustCompile(`^[a-z0-9]{12}_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$`)
+
+func authJA4HMetric(source string) string { return metricAuthJA4H + `{source="` + source + `"}` }
 
 // listsVersionNone é o lists_version sem gerenciador de listas (base própria inválida; não acontece com o binário
 // publicado, cuja base é validada no teste).
 const listsVersionNone = "none"
 
-// Judge monta a entrada das regras a partir das duas visões do índice, avalia o veredito v1.1 (ADRs 0049 e 0057)
+// Judge monta a entrada das regras a partir das duas visões do índice, avalia o veredito v1.2 (ADRs 0049, 0057 e 0058)
 // e o entrega uma vez por requisição ao feed, ao webhook e aos agregados.
 type Judge struct {
 	engine    rules.Engine
@@ -77,6 +91,9 @@ func newJudge(cfg Config, ix *Index, ag *agg.Aggregator, hub *Hub, m *lists.Mana
 	}
 	for _, m := range []string{"tcp", "fork"} {
 		metrics.Add(viewWaitMetric(m), 0)
+	}
+	for _, src := range []string{ja4hFromHeader, ja4hFromIngest, ja4hNone} {
+		metrics.Add(authJA4HMetric(src), 0)
 	}
 	return j
 }
@@ -238,16 +255,25 @@ func httpVersion(proto, version string) string {
 }
 
 // httpFromAuth é a requisição vista pelo forwardAuth: o traefik repassa os cabeçalhos do visitante (mas não a
-// ordem deles), então o JA4H vem da última requisição da mesma conexão que o ingest já trouxe, se houver.
-func httpFromAuth(h http.Header, proto string, fork *ForkConn) *rules.HTTP {
-	out := &rules.HTTP{
+// ordem deles), então o bot não calcula o JA4H. Ele vem de X-Fs-Ja4h, calculado pelo traefix, quando bem formado;
+// sem ele, da última requisição da mesma conexão que o ingest já trouxe; sem as duas, nenhum (ADR 0058 item 1).
+// source é a origem do JA4H (rótulo de bot_auth_ja4h_total).
+func httpFromAuth(h http.Header, proto string, fork *ForkConn) (out *rules.HTTP, source string) {
+	out = &rules.HTTP{
 		UserAgent: clip(h.Get("User-Agent"), maxUserAgentBytes), Version: httpVersion(proto, ""),
 		HasAcceptLanguage: len(h.Values("Accept-Language")) > 0,
 	}
-	if fork != nil && len(fork.Requests) > 0 {
-		out.JA4H = fork.Requests[len(fork.Requests)-1].JA4H
+	// um único valor: repetido é tão malformado quanto fora do padrão
+	if v := h.Values("X-Fs-Ja4h"); len(v) == 1 && ja4hPattern.MatchString(v[0]) {
+		out.JA4H = v[0]
+		return out, ja4hFromHeader
 	}
-	return out
+	if fork != nil && len(fork.Requests) > 0 {
+		if out.JA4H = fork.Requests[len(fork.Requests)-1].JA4H; out.JA4H != "" {
+			return out, ja4hFromIngest
+		}
+	}
+	return out, ja4hNone
 }
 
 // httpFromFork é a requisição resumida pelo ingest do traefix (spec 019 RF-04).
@@ -341,7 +367,9 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 
 // Auth avalia a requisição do forwardAuth com as visões que chegaram na espera e a registra (fonte auth).
 func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn) Verdict {
-	vw := views{ip: f.srcIP, site: site, fork: fork, store: store, http: httpFromAuth(h, f.proto, fork), proto: f.proto}
+	req, ja4hSource := httpFromAuth(h, f.proto, fork)
+	j.metrics.Add(authJA4HMetric(ja4hSource), 1)
+	vw := views{ip: f.srcIP, site: site, fork: fork, store: store, http: req, proto: f.proto}
 	v, res := j.evaluate(vw, requestSubject(site, f.srcIP, f.srcPort, f.dstPort, f.fsConnID, store, method, path))
 	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path}, func(c *ForkConn) {
 		// conexão ainda sem registro do traefix: a origem vem dos X-Fs-* (o registro de conexão completa depois). First

@@ -43,7 +43,7 @@ func TestWebhookFromHub(t *testing.T) {
 
 	verdict := func(class, site string) *Verdict {
 		return &Verdict{
-			Class: class, Signals: []Signal{}, RulesVersion: "v1.1", ListsVersion: "x", Subject: Subject{Kind: "request", Site: &site},
+			Class: class, Signals: []Signal{}, RulesVersion: "v1.2", ListsVersion: "x", Subject: Subject{Kind: "request", Site: &site},
 			Ts: "2026-11-16T12:00:00.000000000Z",
 		}
 	}

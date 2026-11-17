@@ -117,6 +117,7 @@ func TestHeartbeatMetricsRF12(t *testing.T) {
 		"bot_auth_wait_seconds_count":   {},
 		"bot_ingest_parse_errors_total": {[]string{"part"}, map[string][]string{"part": {"client_hello", "h2_prefix"}}},
 		"bot_agg_dropped_total":         {},
+		"bot_auth_ja4h_total":           {[]string{"source"}, map[string][]string{"source": {ja4hFromHeader, ja4hFromIngest, ja4hNone}}},
 	}
 	for name, w := range required {
 		got, ok := series[name]
