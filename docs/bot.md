@@ -2,9 +2,9 @@
 
 Derivado das specs [018](../specs/018-bot.md) (serviço bot), [019](../specs/019-requisitos-do-traefix.md)
 (traefix) e [020](../specs/020-api-de-vereditos.md) (API), das ADRs
-[0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0057](../specs/decisions/0057-regras-v1-1-teto-do-indice-e-ajustes-da-segunda-onda.md)
+[0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md)
 e do contrato [cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão
-0.1.1, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
+0.2.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
 
 O serviço `finger-sniffer-bot` junta a visão IP/TCP do espelho (o que o store viu da conexão: SYN, JA4T, p0f, TTL,
 MSS) com a visão de aplicação do **traefix** (o traefik modificado, projeto externo, imagem `tmsoftbrasil/traefix`:
@@ -24,13 +24,15 @@ classe, o score e a lista dos sinais que pesaram.
 
 As duas ficam fora da captura. Na 9003 qualquer origem fora do loopback e de `FS_BOT_INTERNAL_ALLOW` recebe 403
 `forbidden_origin`. Sem chave na 9003, o `site` vale para qualquer domínio e os limites são só os globais; um
-`Authorization` que não seja `Bearer fsk_...` é ignorado ali, porque o forwardAuth repassa os cabeçalhos do
+`Authorization` que não seja `Bearer fsk_...` é ignorado ali, porque um forwardAuth comum repassa os cabeçalhos do
 visitante (um `Basic` do próprio site não pode virar 401; [ADR 0055](../specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md)
-item 5). `Bearer fsk_...` inválida dá 401 nas duas portas.
+item 5). O forwardAuth do bot no traefix (`fingerSniffer: true`, [abaixo](#a-site-atrás-do-traefix-no-finger-01))
+já não manda o `Authorization` nem o `Cookie` do visitante. `Bearer fsk_...` inválida dá 401 nas duas portas.
 
 ## O veredito
 
-Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.1` da ADR 0057):
+Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.2` das ADRs 0057 e
+[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md)):
 
 ```json
 {
@@ -46,7 +48,7 @@ Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), re
                    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6", "p0f_os": "Mac OS X", "ttl_initial": 64,
                    "ua_family": "curl", "ua_os": "other"},
   "crawler": null,
-  "rules_version": "v1.1",
+  "rules_version": "v1.2",
   "lists_version": "91cc382c89a43660",
   "subject": {"kind": "request", "site": "www.example.com", "src": {"ip": "198.51.100.23", "port": 40000},
               "dst_port": 443, "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S10", "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S10",
@@ -72,11 +74,11 @@ mais indício de automação.
 (requisição), `h2`, `h3`, `behavior` (agregados do IP no site) e `parse_error` (bytes do traefix ilegíveis). Um
 `human` exige `tls` e `http`; sem eles, score baixo sai `unknown`.
 
-`rules_version` é a versão das regras (`v1.1`) e `lists_version` um hash das listas em uso (base própria e listas
+`rules_version` é a versão das regras (`v1.2`) e `lists_version` um hash das listas em uso (base própria e listas
 de IP; a ja4db só quando ligada). A mesma entrada com as mesmas duas versões dá sempre o mesmo veredito. Mudança de
 peso ou de regra é nova `rules_version`.
 
-### Sinais (rules v1.1)
+### Sinais (rules v1.2)
 
 Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga da F8).
 
@@ -93,7 +95,7 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
 | `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 que a base própria só viu em bibliotecas |
 | `ja4db_match` | list | 40 | JA4 rotulado como biblioteca ou ferramenta na ja4db (só com `FS_BOT_JA4DB_ENABLE=true`; desligada por padrão) |
-| `known_client` | list | −20 | JA4 + Akamai + JA4T coerentes com um cliente medido na base própria e com o UA |
+| `known_client` | list | −20 | JA4 + Akamai + JA4T sem o MSS (janela, opções e escala) coerentes com um cliente medido na base própria e com o UA; nunca com UA que declara automação |
 | `ip_verified_crawler` | list | — | define `good_bot` (`detail` diz `verified by ip list` quando a lista bastou) |
 | `ip_cloud` | list | 20 | IP em faixa de nuvem ou datacenter |
 | `ip_crawler_list_unverified` | list | 0 | IP numa lista de robô sem chegar a `good_bot` (informativo) |
@@ -109,6 +111,7 @@ do bot:
 | --- | --- | --- | --- |
 | curl, Go `net/http`, python-requests | `ja4h_library`, `library_client` | 70 | `bot` |
 | Chrome, Firefox | `known_client` | 0 | `human` |
+| Selenium/headless com pilha real de Chrome e UA com marcador de automação | `ua_automation` | 70 | `bot` |
 | Chrome headless | `ua_automation` | 70 | `bot` |
 | Googlebot falso (TLS de curl, IP fora da lista) | `ja4h_library`, `ua_claims_crawler` | 80 | `bot` |
 | GPTBot de IP da lista da OpenAI | `ja4h_library`, `ip_verified_crawler` | — | `good_bot` |
@@ -116,13 +119,18 @@ do bot:
 
 ### Limitações conhecidas
 
-- **forwardAuth sem JA4H na primeira requisição de cada conexão.** O traefik repassa ao forwardAuth os cabeçalhos do
-  visitante, mas não a ordem deles, então o JA4H do pedido de auth não pode ser calculado. O bot usa o JA4H da
-  última requisição da mesma conexão que o ingest já trouxe; na primeira não há nenhuma, e `ja4h_library` não
-  aparece. Ex.: curl numa conexão nova sai no forwardAuth com 50 (`library_client`, `suspect`) em vez de 70. O
-  resumo da requisição chega pelo ingest quando a resposta termina; daí em diante a consulta pela conexão
-  (`/bot/v1/verdict/conn/{fs_conn_id}`) devolve o veredito com o JA4H. O feed e o webhook recebem o veredito uma
-  vez por requisição, o primeiro que sair (normalmente o do forwardAuth).
+- **forwardAuth sem JA4H na primeira requisição, só com um traefix sem `X-Fs-Ja4h`.** O traefik repassa ao
+  forwardAuth os cabeçalhos do visitante, mas não a ordem deles, então o bot não calcula o JA4H do pedido de auth.
+  O traefix calcula o JA4H antes dos middlewares e o manda em `X-Fs-Ja4h` (spec 019 RF-06); o bot usa esse valor
+  quando bem formado e, sem ele, o JA4H da última requisição da mesma conexão que o ingest já trouxe. Com um traefix
+  antigo, sem `X-Fs-Ja4h`, a primeira requisição de cada conexão fica sem JA4H e sem `ja4h_library`: curl numa
+  conexão nova sai com 50 (`library_client`, `suspect`) em vez de 70 e passa no modo `block`. A origem do JA4H em
+  cada forwardAuth está em `fs_bot_auth_ja4h_total{source}` ([metrics.md](metrics.md#bot)): `none` crescendo junto
+  com o tráfego indica traefix sem `X-Fs-Ja4h`. O feed e o webhook recebem o veredito uma vez por requisição, o
+  primeiro que sair (normalmente o do forwardAuth).
+- **JA4T medido com o MSS do caminho.** A base própria guarda o JA4T medido inteiro, mas o `known_client` compara
+  sem o campo do MSS: um grampo de MSS no caminho (túnel, PPPoE) não tira o −20 de um navegador real; o MSS
+  reduzido aparece só em `tunnel_mss`.
 - **Automação não declarada de um Chrome real sai `human`.** Selenium sem headless, ou headless com o UA trocado,
   tem TLS, h2 e UA do Chrome: nenhum sinal de incoerência ou de lista dispara. Só os sinais de comportamento
   (`rate_high`, `interval_regular`, `route_breadth`, `no_reuse`) o pegam, quando há tráfego para isso. Desafio em
@@ -167,8 +175,8 @@ webhook secret: 3f9c...
 
 Outros comandos: `key list` (sem segredos), `key revoke <id|prefixo>`, `key rotate <id|prefixo>` (nova chave com o
 mesmo id, domínios, limites e webhook; a antiga para de valer em até 2 s), `forget <ip|prefixo>` (direito do
-titular, [abaixo](#retenção-e-dados-pessoais)) e `lists refresh [nome]` (baixa as listas de novo pelo serviço;
-chega com a task 283).
+titular, [abaixo](#retenção-e-dados-pessoais)) e `lists refresh [nome]` (baixa as listas de novo pelo serviço em
+execução).
 
 **Domínios.** O `site` de cada recurso (SNI ou `Host` visto pelo traefix; no probe, o host de `Origin`/`Referer`)
 tem de casar com um domínio da chave. Fora deles a resposta é 404 `not_found`, igual a recurso inexistente: a chave
@@ -195,7 +203,7 @@ $ curl -s $BOT/bot/v1/health | jq '{status, version, rules_version, lists_versio
 {
   "status": "ok",
   "version": "v0.4.0-22-gd9a4703",
-  "rules_version": "v1.1",
+  "rules_version": "v1.2",
   "lists_version": "91cc382c89a43660",
   "lists": [
     {"name": "known_clients", "entries": 15, "fetched_at": null, "stale": false},
@@ -207,37 +215,44 @@ $ curl -s $BOT/bot/v1/openapi.yaml | head -3
 
 `status` vira `degraded` com `reasons`: `list <nome> stale` (lista sem atualização há mais de 72 h), `db space`
 (banco acima de 90% de `FS_BOT_MAX_BYTES`), `webhook backlog` (fila de webhook cheia por mais de 60 s),
-`store feed silent` (sem `fs.v1.store.connection` por mais de 60 s com o store `ok`; chega com a task 283) e
+`store feed silent` (sem `fs.v1.store.connection` por mais de 60 s com o store `ok`) e
 `index bytes` (despejo do índice por bytes nos últimos 60 s). O mesmo estado aparece em `services.bot` do
 `/api/v1/health` do store.
 
 ### `GET /bot/v1/auth` (forwardAuth)
 
 Chamada pelo traefix, não pelo site. O sujeito é a requisição descrita por `X-Forwarded-Method`,
-`X-Forwarded-Host`, `X-Forwarded-Uri` e pelos `X-Fs-*` que o traefix acrescenta. O bot espera as duas visões até
-`FS_BOT_VIEW_WAIT` (100 ms) e decide com o que tiver.
+`X-Forwarded-Host`, `X-Forwarded-Uri` e pelos `X-Fs-*` que o traefix acrescenta. O JA4H vem de `X-Fs-Ja4h`
+(opcional, calculado pelo traefix com a ordem dos campos recebida; malformado é ignorado) e, sem ele, da última
+requisição da mesma conexão no ingest. O bot espera as duas visões até `FS_BOT_VIEW_WAIT` (100 ms) e decide com o
+que tiver.
 
 ```console
 $ curl -si http://10.249.255.254:9003/bot/v1/auth \
     -H 'X-Forwarded-Method: GET' -H 'X-Forwarded-Host: www.example.com' -H 'X-Forwarded-Uri: /' \
     -H 'X-Fs-Src-Ip: 198.51.100.23' -H 'X-Fs-Src-Port: 40000' -H 'X-Fs-Dst-Port: 443' \
-    -H 'X-Fs-Conn-Id: 01JC0X3K8V2T7Q9F4M6P1R5S10' -H 'X-Fs-Proto: h2' -H 'User-Agent: curl/8.7.1'
+    -H 'X-Fs-Conn-Id: 01JC0X3K8V2T7Q9F4M6P1R5S10' -H 'X-Fs-Proto: h2' \
+    -H 'X-Fs-Ja4h: ge20nn020000_5594a17e7e7e_000000000000_000000000000' -H 'User-Agent: curl/8.7.1'
 HTTP/1.1 200 OK
 Content-Type: application/json
-X-Fs-Score: 50
-X-Fs-Signals: library_client
-X-Fs-Verdict: suspect
+X-Fs-Score: 70
+X-Fs-Signals: ja4h_library,library_client
+X-Fs-Verdict: bot
 
-{"class":"suspect","score":50,...}
+{"class":"bot","score":70,...}
 ```
 
 | Resposta | Quando |
 | --- | --- |
 | 200 | modo `observe` (padrão, e sempre sem chave), ou `block` com classe diferente de `bot`; cabeçalhos `X-Fs-Verdict`, `X-Fs-Score`, `X-Fs-Signals` (ids separados por vírgula, até 1 KiB) e corpo `Verdict` |
-| 403 | chave em modo `block` e `class=bot`; mesmo corpo e cabeçalhos |
-| 400 `missing_fork_headers` | falta algum `X-Fs-*` (o pedido não veio do traefix ou a entrada não é coberta) |
+| 403 | chave em modo `block` e `class=bot`; mesmo corpo e sempre os cabeçalhos `X-Fs-Verdict`, `X-Fs-Score` e `X-Fs-Signals` |
+| 400 `missing_fork_headers` | falta algum `X-Fs-*` obrigatório (o pedido não veio do traefix ou a entrada não é coberta) |
 | 400 `bad_request` | `X-Fs-*` inválido, ou chave cujos domínios não casam com `X-Forwarded-Host` |
-| 401, 429 | chave inválida; limite da chave |
+| 401 `invalid_key`, 403 `forbidden_origin`, 429 `rate_limited` | chave inválida ou revogada; origem fora da rede permitida na 9003; limite da chave |
+
+Nenhuma resposta de erro (400, 401, 403 `forbidden_origin`, 429, 5xx) traz `X-Fs-Verdict`: é o que o traefix usa
+para separar o bloqueio (403 do modo `block`, que volta ao visitante) de uma falha de configuração (fail-open,
+[abaixo](#a-site-atrás-do-traefix-no-finger-01)).
 
 ### `GET /bot/v1/verdict?src_ip=&src_port=&site=`
 
@@ -450,7 +465,7 @@ Os três exemplos são conferidos por `docs/docs_test.go` contra assinaturas ger
 Os sites do humano no finger-01 ficam atrás do container `traefik-app` (80/443). Com o traefix no lugar dele
 (spec 019; a troca começa só observando, task 273), cada conexão das entradas cobertas recebe um `fs_conn_id`, os
 dados vão ao bot pelo ingest na 9003, e cada requisição chega ao backend com `X-Fs-Src-Ip`, `X-Fs-Src-Port`,
-`X-Fs-Dst-Port`, `X-Fs-Conn-Id` e `X-Fs-Proto`. Os `X-Fs-*` que o visitante mandar são apagados antes de qualquer
+`X-Fs-Dst-Port`, `X-Fs-Conn-Id`, `X-Fs-Proto` e `X-Fs-Ja4h`. Os `X-Fs-*` que o visitante mandar são apagados antes de qualquer
 middleware, então o backend pode confiar neles.
 
 Configuração estática do traefix (também por flags `--experimental.fingersniffer.*` ou env
@@ -474,26 +489,50 @@ da bridge, sem chave:
 curl -s "http://10.249.255.254:9003/bot/v1/verdict/conn/$X_FS_CONN_ID?wait=200"
 ```
 
-**Com forwardAuth** (veredito em cada requisição, nos cabeçalhos): o middleware com `failOpen` (opção do traefix),
-por labels do Docker:
+**Com forwardAuth** (veredito em cada requisição, nos cabeçalhos): o middleware `forwardAuth` com as opções do
+traefix para o bot (spec 019 RF-07 e RF-07a), por labels do Docker:
 
 ```yaml
 labels:
   - traefik.http.middlewares.fs-bot.forwardauth.address=http://10.249.255.254:9003/bot/v1/auth
+  - traefik.http.middlewares.fs-bot.forwardauth.fingerSniffer=true
+  - traefik.http.middlewares.fs-bot.forwardauth.apiKey=fsk_...   # opcional na 9003; necessária para block
   - traefik.http.middlewares.fs-bot.forwardauth.failOpen=true
   - traefik.http.middlewares.fs-bot.forwardauth.timeout=200ms
   - traefik.http.middlewares.fs-bot.forwardauth.authResponseHeaders=X-Fs-Verdict,X-Fs-Score,X-Fs-Signals
   - traefik.http.routers.meusite.middlewares=fs-bot
 ```
 
-O backend lê então `X-Fs-Verdict` (`human`, `good_bot`, `bot`, `suspect`, `unknown`), `X-Fs-Score` e
-`X-Fs-Signals`. Com `failOpen`, bot fora do ar, prazo de 200 ms vencido ou 5xx deixam a requisição seguir com
-`X-Fs-Verdict: unavailable`; trate esse valor como "sem veredito", nunca como `human`. Um 4xx do bot (ex.: 400 por
-configuração errada) volta ao visitante, como no traefik upstream.
+| Opção | Padrão | O que faz |
+| --- | --- | --- |
+| `fingerSniffer` | `false` | marca o middleware que fala com o bot; as opções `apiKey` e o fail-open de 4xx só valem com ela |
+| `apiKey` | vazia | chave do site, uma por middleware (cada site com os próprios domínios e modo); vai na requisição de auth como `Authorization: Bearer <apiKey>`. Na 9003 é opcional, mas sem ela o modo é sempre `observe`; na 9002 é obrigatória. A `apiKey` de `experimental.fingerSniffer` é só do ingest e não é herdada |
+| `failOpen` | `false` | falha do bot não derruba o site: a requisição segue ao backend com `X-Fs-Verdict: unavailable` |
+| `timeout` | 200 ms (com `failOpen`) | prazo da requisição de auth |
+| `authResponseHeaders` | — | cabeçalhos do bot copiados para o backend: `X-Fs-Verdict`, `X-Fs-Score`, `X-Fs-Signals` |
 
-Sem chave, o forwardAuth na 9003 está sempre em modo `observe`: nunca bloqueia. O 403 só sai para uma chave em modo
-`block`, e o pedido de auth precisaria levar `Authorization: Bearer fsk_...`; ligar `block` nos sites do humano é
-decisão e ação do humano (spec 019, "Fora de escopo"), não um passo deste guia.
+A requisição de auth leva os `X-Fs-*` (inclusive `X-Fs-Ja4h`, o que dá JA4H já na primeira requisição de cada
+conexão) e a `apiKey`; o `Cookie` e o `Authorization` do visitante nunca vão ao bot (só ao backend). O traefix
+recusa a configuração na carga se a `apiKey` estiver num `address` `http://` que não seja loopback nem IP privado
+(chave em claro), ou se faltar a `apiKey` num `address` público.
+
+O backend lê então `X-Fs-Verdict` (`human`, `good_bot`, `bot`, `suspect`, `unknown`), `X-Fs-Score` e
+`X-Fs-Signals`. Com `failOpen`, o que acontece com cada resposta do bot:
+
+| Resposta do bot | O que o traefix faz | O visitante vê |
+| --- | --- | --- |
+| 200 | copia `authResponseHeaders` e segue ao backend | o site |
+| 403 **com** `X-Fs-Verdict` (modo `block`, `class=bot`) | devolve o 403 do bot | o 403 |
+| 4xx **sem** `X-Fs-Verdict` (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) | segue com `X-Fs-Verdict: unavailable`, conta `fingersniffer_forwardauth_failopen_total{reason="http_4xx"}` e loga no máximo uma linha por minuto com o código e o `error` do corpo | o site |
+| 5xx, erro de rede, prazo vencido | segue com `X-Fs-Verdict: unavailable` (`reason` = `http_5xx`, `network`, `timeout`) | o site |
+
+Uma chave revogada, um domínio fora da chave ou o limite da chave estourado são falhas de quem opera o site, não
+decisões sobre o visitante: o site continua no ar, sem veredito, e o contador `http_4xx` do traefix mostra o problema.
+Trate `unavailable` como "sem veredito", nunca como `human`. Sem `fingerSniffer`, o `failOpen` vale só para rede,
+prazo e 5xx, e qualquer 4xx volta ao visitante como no traefik upstream (seguro para outro servidor de auth).
+
+O 403 sai só para uma chave em modo `block` (`key create --mode block`) posta em `apiKey`; ligar `block` nos sites do
+humano é decisão e ação do humano (spec 019, "Fora de escopo"), não um passo deste guia.
 
 ### b) Site externo, por probe
 
@@ -543,8 +582,28 @@ curl -s -H "Authorization: Bearer $KEY" \
 ```
 
 O espelho não vê os pacotes desse site: o veredito tem só TLS, h2 e HTTP (`view.tcp=false`). Registros de sites
-fora da chave são recusados no ingest. Não aponte o forwardAuth desse traefix para a 9002: lá a chave é obrigatória,
-o pedido de auth não a leva, e o 401 voltaria ao visitante (4xx não é fail-open).
+fora da chave são recusados no ingest.
+
+Para ter o veredito em cada requisição, o forwardAuth desse traefix aponta para a 9002 com a chave em `apiKey` (a
+mesma do ingest ou outra, desde que os domínios cubram o site; a do ingest não é herdada):
+
+```yaml
+http:
+  middlewares:
+    fs-bot:
+      forwardAuth:
+        address: https://finger-01.badblock.net.br:9002/bot/v1/auth
+        fingerSniffer: true
+        apiKey: fsk_...
+        failOpen: true
+        timeout: 200ms
+        authResponseHeaders: [X-Fs-Verdict, X-Fs-Score, X-Fs-Signals]
+```
+
+Na 9002 a `apiKey` é obrigatória (o traefix recusa a carga sem ela). Com `fingerSniffer` e `failOpen`, um 401 de
+chave revogada ou um 429 de limite seguem ao backend com `X-Fs-Verdict: unavailable` (`http_4xx`) e não chegam ao
+visitante; só o 403 do modo `block` volta a ele. O prazo de 200 ms inclui a ida e volta pela internet até o
+finger-01: meça antes de ligar `block`.
 
 ## Retenção e dados pessoais
 
@@ -565,14 +624,14 @@ cookie nem de `Authorization`; caminhos entram nos agregados só como contagem (
 dia). Finalidade: segurança e prevenção de abuso dos sites; os agregados não são cedidos fora das chaves com domínio
 autorizado.
 
-`finger-sniffer-bot forget <ip|prefixo>` apaga os agregados daquele IP ou prefixo no disco. Com a task 283, o
-pedido chega também ao serviço em execução, que apaga a memória (índice, vereditos, acumuladores, caches) e o disco
-de novo; até lá a memória expira sozinha em 10 min.
+`finger-sniffer-bot forget <ip|prefixo>` apaga os agregados daquele IP ou prefixo no disco e grava o pedido para
+o serviço em execução, que em até 2 s apaga a memória (índice, vereditos, acumuladores, caches) e o disco de novo; a
+CLI espera até 10 s pela confirmação.
 
 O tráfego que chega ao finger-01, inclusive o dos sites atrás do traefik, continua visível na API aberta do store
 por cerca de 10 min ([README](README.md)); a API do bot não muda isso.
 
 ## Métricas
 
-As métricas `fs_bot_*` (vereditos por classe e origem, latência do forwardAuth, ingest, índice, listas, webhook,
-chaves, banco) estão em [metrics.md](metrics.md#bot).
+As métricas `fs_bot_*` (vereditos por classe e origem, latência do forwardAuth e origem do JA4H em
+`fs_bot_auth_ja4h_total{source}`, ingest, índice, listas, webhook, chaves, banco) estão em [metrics.md](metrics.md#bot).
