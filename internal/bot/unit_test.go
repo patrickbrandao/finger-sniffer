@@ -340,7 +340,7 @@ func TestDailyQuota(t *testing.T) {
 func TestIndex(t *testing.T) {
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	evicted := 0
-	ix := NewIndex(10*time.Minute, 2, func(n int) { evicted += n })
+	ix := NewIndex(10*time.Minute, 2, 0, func(_ string, n int) { evicted += n })
 	conn := func(id string, port int) *StoreConn {
 		return &StoreConn{ConnID: id, SrcIP: mustAddr("::ffff:198.51.100.7"), SrcPort: port, DstPort: 443, Started: now}
 	}
