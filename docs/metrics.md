@@ -14,7 +14,7 @@ scrape_configs:
 
 ## Métricas dos serviços (heartbeat)
 
-Os serviços (capture, web, raw, dns e o próprio store) mandam um heartbeat a cada 5 s com seus contadores; o store
+Os serviços (capture, web, raw, dns, bot e o próprio store) mandam um heartbeat a cada 5 s com seus contadores; o store
 os republica como `fs_<métrica>{service="<svc>"}`, com o valor do último heartbeat recebido. Nomes terminados em
 `_total` são contadores; os demais, gauges.
 
@@ -46,6 +46,7 @@ com a série ausente, e não `== 0` nem comparação com o valor anterior:
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total` (detalhes [abaixo](#raw)) |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
 | store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total`, `fs_store_packet_spills_total` (detalhes [abaixo](#store-heartbeat)) |
+| bot | `fs_bot_verdicts_total{class,source}`, `fs_bot_auth_seconds`, `fs_bot_auth_wait_seconds`, `fs_bot_view_wait_total{missing}`, `fs_bot_ingest_*`, `fs_bot_conns_evicted_total{reason}`, `fs_bot_index_bytes`, `fs_bot_list_*{list}`, `fs_bot_webhook_*`, `fs_bot_keys_active`, `fs_bot_rate_limited_total`, `fs_bot_purged_total{reason}`, `fs_bot_db_bytes`, `fs_bot_agg_dropped_total`, `fs_bot_store_feed_messages_total` (detalhes [abaixo](#bot)) |
 | todos que publicam no NATS | `fs_published_events_total`, `fs_dropped_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (detalhes [abaixo](#produtor-nats)) |
 | host (pelo store) | `fs_host_syncookies_sent` |
 
@@ -118,6 +119,49 @@ aparecem no primeiro uso.
 | `fs_dns_formerr_total` | consultas ilegíveis (cabeçalho legível, corpo não) respondidas com FORMERR |
 | `fs_dns_dropped_total` | mensagens sem resposta (menos de 12 bytes ou com QR=1, que já é resposta) e conexões TCP recusadas com as 256 em uso |
 | `fs_dns_rate_limited_total` | consultas UDP acima do RRL, respondidas com TC=1 sem dados para o resolvedor repetir em TCP; o TCP fica fora do RRL (ADR 0035) |
+
+### bot
+
+O bot ([bot.md](bot.md), spec 018 RF-12) usa as chaves com rótulos da ADR 0056 item 4. Os histogramas vão como as
+séries cumulativas `nome_bucket{le="..."}`, `nome_sum` e `nome_count`, só com os limites finitos (1, 2, 5, 10, 20,
+50, 100 e 200 ms): o bot **não** manda `le="+Inf"`, que o store monta de `nome_count` (ADR 0057 item 3). Os
+contadores de veredito, de espera da visão e os histogramas existem com 0 desde a partida; os demais aparecem no
+primeiro uso ou no primeiro ciclo do heartbeat.
+
+| Métrica | Tipo | Conteúdo |
+| --- | --- | --- |
+| `fs_bot_verdicts_total{class,source}` | contador | vereditos servidos; `class` = `human`, `good_bot`, `bot`, `suspect`, `unknown`; `source` = `auth` (forwardAuth), `query` (consultas por origem ou por `fs_conn_id`) ou `probe` |
+| `fs_bot_auth_seconds` | histograma | duração do forwardAuth inteiro, com a espera da visão (RNF-01: p95 ≤ 10 ms e p99 ≤ 50 ms sem a espera) |
+| `fs_bot_auth_wait_seconds` | histograma | só a espera da visão no forwardAuth (até `FS_BOT_VIEW_WAIT`, 100 ms), para medir o RNF-01 descontando-a |
+| `fs_bot_view_wait_total{missing}` | contador | forwardAuth que terminou a espera sem uma das visões: `missing` = `tcp` (conexão do store não casada) ou `fork` (registro do traefix ainda não chegou) |
+| `fs_bot_ingest_records_total` | contador | registros do traefix aceitos pelo ingest |
+| `fs_bot_ingest_dropped_total` | contador | registros recusados no ingest (inválidos ou, com chave, de site fora dela), sem rejeitar o lote |
+| `fs_bot_ingest_parse_errors_total{part}` | contador | bytes ilegíveis num registro aceito, `part` = `client_hello` ou `h2_prefix` (a visão sai com `parse_error`) |
+| `fs_bot_store_feed_messages_total` | contador | mensagens `fs.v1.store.connection` recebidas do store |
+| `fs_bot_conns_evicted_total{reason}` | contador | conexões despejadas do índice antes do TTL: `reason` = `count` (`FS_BOT_MAX_CONNS`, 100 000) ou `bytes` (`FS_BOT_INDEX_MAX_BYTES`, 384 MiB); o vencimento normal pelo TTL não conta |
+| `fs_bot_index_bytes` | gauge | bytes contabilizados do índice (aproximação de ±25% do heap, ADR 0057 item 2); despejo por bytes nos últimos 60 s deixa o health `degraded` com `index bytes` |
+| `fs_bot_list_entries{list}` | gauge | entradas de cada lista (`known_clients`, `googlebot`, `bingbot`, `aws`, ...; `ja4db` só com `FS_BOT_JA4DB_ENABLE=true`) |
+| `fs_bot_list_age_seconds{list}` | gauge | idade da última atualização boa de cada lista baixada (sem nenhuma, desde a partida); acima de 72 h o health fica `degraded` com `list <nome> stale` |
+| `fs_bot_webhook_sent_total{code}` | contador | tentativas de entrega do webhook, `code` = status HTTP da resposta (`200`, `500`, ...) ou `error` (erro de rede ou prazo de 5 s); cada nova tentativa conta de novo |
+| `fs_bot_webhook_dropped_total` | contador | eventos de webhook descartados: fila de 1000 da chave cheia, ou eventos ainda na fila de uma chave revogada ou do serviço parando |
+| `fs_bot_webhook_url_rejected_total` | contador | chaves com `webhook_url` que não é `https` com host, recusadas na carga das chaves (uma vez por URL) |
+| `fs_bot_keys_active` | gauge | chaves não revogadas |
+| `fs_bot_rate_limited_total` | contador | respostas 429 por limite de chave |
+| `fs_bot_purged_total{reason}` | contador | linhas de agregado expurgadas: `reason` = `age` (7 dias) ou `size` (banco acima de `FS_BOT_MAX_BYTES`, 2 GiB) |
+| `fs_bot_db_bytes` | gauge | tamanho do banco do bot |
+| `fs_bot_agg_dropped_total` | contador | observações descartadas pelo teto de entradas dos agregados em memória |
+
+```promql
+# p95 do forwardAuth inteiro e p95 só da espera da visão
+histogram_quantile(0.95, sum by (le) (rate(fs_bot_auth_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(fs_bot_auth_wait_seconds_bucket[5m])))
+
+# fração de vereditos bot por origem
+sum by (source) (rate(fs_bot_verdicts_total{class="bot"}[5m])) / sum by (source) (rate(fs_bot_verdicts_total[5m]))
+
+# índice despejando por bytes, webhook perdendo eventos
+increase(fs_bot_conns_evicted_total{reason="bytes"}[5m]) > 0 or increase(fs_bot_webhook_dropped_total[5m]) > 0
+```
 
 ### store (heartbeat)
 
