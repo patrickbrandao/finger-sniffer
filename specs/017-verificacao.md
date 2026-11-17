@@ -41,7 +41,9 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 - RF-10: para na primeira falha.
 - RF-11: CI (GitHub Actions) roda `verify-full` sem `--e2e` e sem `linux_priv` em todo PR e na `main`. Toda action
   dos workflows é fixada pelo SHA de 40 caracteres do commit da release, com a tag em comentário (nunca tag nem
-  branch, que são mutáveis).
+  branch, que são mutáveis). Depois de um rebase limpo sem arquivos nem pacotes dependentes em comum, o merge pode
+  usar o CI verde do commit anterior ao rebase (spec 002 "Git e PR", ADR 0059); o tempo do CI é mantido baixo
+  dividindo os pacotes lentos (testes do store com `-race`) em lotes paralelos sem perder cobertura (task 294).
 
 ### Níveis de teste
 - RF-12: unidade com golden files: pcaps da FoxIO (portados do `ja4pcap`) e capturas próprias de curl, Go, Chrome e

@@ -1,1 +1,0 @@
-- bot: webhook de vereditos por chave (spec 020 RF-06, ADR 0051 item 5): fila de 1000 com descarte contado, filtro por classe e domínio, `POST` assinado `X-Fs-Signature` (HMAC-SHA256 de `ts.corpo`), prazo de 5 s, novas tentativas em 1 s/5 s/30 s em 5xx ou erro de rede, só `https://`; health `webhook backlog` com a fila cheia por > 60 s.

@@ -5,7 +5,7 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
-Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-sniffer-bot` implantado no finger-01 com chaves, portas 9002/9003, ingest do traefix e índice da visão do store. Segunda onda em andamento: motor de regras, fingerprints no ingest, listas, agregados e métricas com rótulos na `main`; vereditos ainda `unknown` nas rotas até a task 282. Contratos: openapi do bot 0.1.1 e asyncapi 0.6.2.
+Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-sniffer-bot` implantado no finger-01 com chaves, portas 9002/9003, ingest do traefix e índice da visão do store. Segunda onda: motor de regras v1.1, fingerprints no ingest, listas, agregados, métricas com rótulos, veredito real nas rotas, webhook, teto de bytes do índice, pedidos da CLI ao serviço e `docs/bot.md` na `main`; e2e e carga da F8 a seguir. Contratos: openapi do bot 0.2.0 (ADR 0058) e asyncapi 0.6.2.
 
 ### Adicionado
 - Serviço `finger-sniffer-bot`, primeira onda (spec 018/020): banco em disco com a migration 0001 (`database/sqlite/bot/`), CLI `key create|list|revoke|rotate` e `forget`, API 9002 HTTPS (chave obrigatória) e 9003 HTTP (loopback e rede do traefik) com 401/404/429/403/413 do contrato, ingest do traefik no índice em memória e assinatura de `fs.v1.store.connection`; veredito ainda `unknown` e rotas de veredito em 404 até a segunda onda (task 267).
@@ -20,6 +20,23 @@ Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-
 - bot: agregados `ip_hourly`/`fp_daily` acumulados em memória (`internal/bot/agg`, caminhos só como SHA-256 truncado com sal do dia, IPs de fingerprint por esboço KMV) e gravados a cada `FS_BOT_FLUSH_INTERVAL` numa transação, com teto de entradas e `bot_agg_dropped_total`; cache de comportamento por IP + site de 24 h sem disco (`Query`, p99 < 1 ms) e `Forget` por prefixo na memória (task 279).
 - bot: teto `FS_BOT_MAX_BYTES` expurga as horas mais antigas (`bot_purged_total{reason="size"}`; o de idade passa a `reason="age"`), com `incremental_vacuum` e checkpoint do WAL depois do expurgo (task 279).
 - store: o `/metrics` republica chaves do heartbeat com rótulos (`nome{r="v"}`) como `fs_<nome>{service,<rótulos>}`, junta `_bucket`/`_sum`/`_count` num histograma e conta chaves malformadas, em conflito ou além de 512 em `fs_store_heartbeat_metrics_invalid_total{service}` (ADR 0056 item 4).
+- bot: webhook de vereditos por chave (spec 020 RF-06, ADR 0051 item 5): fila de 1000 com descarte contado, filtro por classe e domínio, `POST` assinado `X-Fs-Signature` (HMAC-SHA256 de `ts.corpo`), prazo de 5 s, novas tentativas em 1 s/5 s/30 s em 5xx ou erro de rede, só `https://`; health `webhook backlog` com a fila cheia por > 60 s.
+- bot: veredito real (rules v1.1) nas rotas — forwardAuth (`X-Fs-*`, 403 em `block` para `bot`), consulta pela origem e pelo `fs_conn_id` com `wait`, probe pelas conexões do store (domínio por `Origin`/`Referer`), `/ip` com listas e robô verificado e `/fingerprints` com o rótulo da base própria; `rules_version`/`lists_version` reais.
+- bot: veredito por requisição no forwardAuth ou no ingest (o que vier primeiro), publicado uma vez no feed, no webhook e nos agregados; verificação de robô só por cache, com DNS em segundo plano.
+- bot: métricas `bot_verdicts_total{class,source}`, `bot_auth_seconds` e `bot_auth_wait_seconds` (histogramas sem `+Inf`) e `bot_view_wait_total{missing}`; goldens ponta a ponta dos 7 clientes da ADR 0057.
+- bot: `forget <ip|prefixo>` alcança a memória do serviço em execução (índice, vereditos, agregados, cache de
+  comportamento e de verificação de robô) e `lists refresh [nome]` baixa pelo serviço, pela tabela
+  `control_requests` (migration 0002 do bot, ciclo de 2 s, concluídos apagados em 24 h; ADR 0056 item 2).
+- bot: health `store feed silent` (store `ok` pelo heartbeat e > 60 s sem `fs.v1.store.connection`) e conferência
+  das métricas da spec 018 RF-12 no heartbeat, com os contadores zerados desde o início.
+- docs: `docs/bot.md` com o veredito (classes, sinais v1.1, `view`, versões), chaves, cada rota do bot com `curl`,
+  erros, feed, webhook com verificação da assinatura em Go, Python e `openssl` testada contra `internal/bot/webhook`,
+  guia de integração (traefix no finger-01, probe, traefix externo), limitações, retenção; métricas `fs_bot_*` em
+  `docs/metrics.md` (task 286).
+- bot: regras v1.1 do veredito (ADR 0057): sinais `ua_automation` (70) e `library_client` (50), prova por lista
+  para robôs da OpenAI e do DuckDuckGo (`verified by ip list`, sem DNS) e goldens regravados (curl/Go/python `bot`,
+  Chrome/Firefox `human`, headless e Selenium `bot`, GPTBot/DuckDuckBot da lista `good_bot`) (task 289).
+- bot: teto de bytes do índice `FS_BOT_INDEX_MAX_BYTES` (384 MiB, mínimo 16 MiB; ADR 0057 item 2) com contabilidade aproximada por entrada (custos fixos por `unsafe.Sizeof` na classe do alocador, textos do interner contados uma vez, na conexão que os criou) e despejo das conexões mais antigas das duas visões; `bot_conns_evicted_total{reason=count|bytes}`, gauge `bot_index_bytes` e health `index bytes` por 60 s após despejo por bytes. Benchmarks: contabilizado/heap 0,97 (típico, 3,8 KB/conn) e 0,98 (hostil, 46 KB/conn); hostil com o padrão fica em 387 MiB de heap.
 
 ### Alterado
 - infra: desfeito o tratamento de `traefik/` na verificação (ADR 0054: o fork virou o projeto externo traefix): sem passo/job "traefik", `FS_SKIP_TRAEFIK` e exclusões em verify.sh, check-binaries, golangci, lefthook, `make fmt` e `.gitignore`; o `redocly lint` do openapi do bot continua nos contratos (task 272).

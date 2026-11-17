@@ -50,13 +50,24 @@ Regras de propriedade:
   verde, sem esperar o reviewer; a revisão passa a ser a auditoria do conjunto pelo reviewer antes da release e
   a revisão do PR de release (ADR 0023).
 - Conflito: quem chegou depois faz rebase na `main`. Conflito em contrato ou spec: escala ao architect.
+- **CI depois de rebase** (ADR 0059): rebase sem conflito, em que o que entrou na `main` desde o commit testado não
+  toca os mesmos arquivos nem pacotes dependentes (nos dois sentidos) dos do PR, pode mergear com o CI verde do
+  commit anterior ao rebase (todos os checks `pass`, citado no PR). Conflito, arquivo ou pacote dependente em comum,
+  contrato, migration, `go.mod`/`go.sum`, `Makefile`, `scripts/` ou `.github/` em qualquer dos lados: o CI roda de
+  novo e o merge espera todos os checks `pass`.
+- **Paralelismo por pacote** (ADR 0059): no máximo 3 tarefas em paralelo no mesmo pacote ou serviço
+  (`internal/<svc>`, `pkg/<pacote>`); tarefas que tocam o mesmo arquivo compartilhado (ex.: `internal/bot/server.go`,
+  `api.go`) vão em série, declaradas em `depende-de` por quem cria a onda.
 - **CHANGELOG por fragmentos**: o GitHub ignora `merge=union` e marca como conflitante todo PR que mexe no
   `CHANGELOG.md` depois de outro merge. Por isso a entrega **não edita o `CHANGELOG.md`**: escreve o resumo em
   `changes/task-NNN.md` (um arquivo por tarefa, sem conflito). O architect junta os fragmentos na seção certa do
   `CHANGELOG.md` e apaga os arquivos no fim de cada fase (no máximo no PR que cria as tarefas da fase seguinte) e
   antes de cada release.
-- Deploy concorrente: `make deploy` pega uma trava remota (`flock /run/finger-sniffer/deploy.lock`); após cada
-  merge a `main` é reimplantada.
+- Deploy concorrente: `make deploy` pega uma trava remota (`flock /run/finger-sniffer/deploy.lock`).
+- **Deploy por onda** (ADR 0059): em modo autônomo, o `make deploy` completo e o smoke (health com os serviços `ok`
+  e `versions_match`) são feitos uma vez por onda, a partir da `main` com os merges da onda, pelo orquestrador ou pela
+  última tarefa da onda; a tarefa que precisa medir algo no servidor (e2e, carga, smoke de comportamento novo)
+  implanta antes de medir. Fora do modo autônomo, a `main` é reimplantada após cada merge.
 
 ## Fluxo das tarefas (`./tasks/`, fora do Git)
 1. Problemas encontrados por inspeção viram uma nova tarefa (próximo `nnn` livre, template em AGENTS/INDEX).
@@ -74,7 +85,8 @@ Uma tarefa está concluída quando todos os itens forem verdadeiros:
 - lint, formatter e checagem de tipos limpos;
 - a spec e os contratos estão atualizados, se mudaram (pelo architect);
 - a documentação em `./docs/` está atualizada, quando aplicável;
-- quando muda comportamento em runtime: `make deploy` no finger-01 e smoke test ok;
+- quando muda comportamento em runtime: `make deploy` no finger-01 e smoke test ok (em modo autônomo, uma vez por
+  onda; ADR 0059);
 - o resumo compactado da entrega (1–3 linhas, no estilo do `CHANGELOG.md`) está em `changes/task-NNN.md`;
 - o arquivo da tarefa foi removido.
 
@@ -101,5 +113,6 @@ não recebe nenhuma ação.
 ## Decisões relacionadas
 - specs/decisions/0014-organizacao-agentes.md
 - specs/decisions/0013-verificacao-dois-niveis.md
+- specs/decisions/0059-deploy-por-onda-ci-reaproveitado-e-paralelismo.md
 - specs/decisions/0054-traefix-projeto-externo.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md

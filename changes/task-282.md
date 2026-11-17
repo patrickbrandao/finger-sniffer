@@ -1,3 +1,0 @@
-- bot: veredito real (rules v1.1) nas rotas — forwardAuth (`X-Fs-*`, 403 em `block` para `bot`), consulta pela origem e pelo `fs_conn_id` com `wait`, probe pelas conexões do store (domínio por `Origin`/`Referer`), `/ip` com listas e robô verificado e `/fingerprints` com o rótulo da base própria; `rules_version`/`lists_version` reais.
-- bot: veredito por requisição no forwardAuth ou no ingest (o que vier primeiro), publicado uma vez no feed, no webhook e nos agregados; verificação de robô só por cache, com DNS em segundo plano.
-- bot: métricas `bot_verdicts_total{class,source}`, `bot_auth_seconds` e `bot_auth_wait_seconds` (histogramas sem `+Inf`) e `bot_view_wait_total{missing}`; goldens ponta a ponta dos 7 clientes da ADR 0057.
