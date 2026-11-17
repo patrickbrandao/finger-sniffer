@@ -958,12 +958,10 @@ func TestF8Bot(t *testing.T) {
 				if !slices.Contains(ja4s, deref(v.Fingerprints.JA4)) {
 					t.Errorf("ja4 do veredito %q fora dos do espelho %v", deref(v.Fingerprints.JA4), ja4s)
 				}
-				// o veredito por probe é calculado na consulta (spec 018 "Comportamento"); o feed só leva os
-				// vereditos por requisição (forwardAuth e ingest), então aqui se mede se ele aparece
-				if lat, fv := feed.wait(done, 2*time.Second, func(v *botVerdict) bool { return deref(v.Subject.ProbeID) == id }); fv == nil {
-					t.Logf("AVISO: veredito do probe %s não chegou ao feed (o bot publica só os vereditos por requisição do traefix; task 284 item 4 pede os do probe também)", id)
-				} else {
-					t.Logf("feed: veredito do probe %s em %v", id, lat.Round(time.Millisecond))
+				// o veredito por probe é calculado na consulta e fica fora do feed e do webhook (ADR 0060 item 2):
+				// nenhum VerdictEvent do probe pode chegar ao feed na janela de 2 s
+				if lat, fv := feed.wait(done, 2*time.Second, func(v *botVerdict) bool { return deref(v.Subject.ProbeID) == id }); fv != nil {
+					t.Errorf("veredito do probe %s chegou ao feed em %v (ADR 0060 item 2: o probe não vai ao feed)", id, lat.Round(time.Millisecond))
 				}
 			})
 		}

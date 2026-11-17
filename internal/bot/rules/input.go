@@ -8,7 +8,7 @@ package rules
 import "net/netip"
 
 // RulesVersion é a versão das regras (ADR 0049 item 6: mudança de regra muda a versão e regrava os goldens).
-const RulesVersion = "v1.2"
+const RulesVersion = "v1.3"
 
 // Input é o que as regras leem. Cada parte é opcional (nil quando a visão não tinha aquela camada).
 type Input struct {
@@ -57,7 +57,8 @@ type HTTP struct {
 	// JA4H completo ou só as partes a e b; a regra usa as partes a e b.
 	JA4H string
 	// FieldOrder são os nomes de campo na ordem recebida. A v1 compara a ordem pela parte b do JA4H (hash dessa
-	// ordem), que é o que a base própria guarda.
+	// ordem), que é o que a base própria guarda; a v1.3 recalcula as partes a e b sem Origin e Referer a partir
+	// dela (ADR 0060 item 1). Vazio quando a visão não traz a ordem (forwardAuth, resumo antigo).
 	FieldOrder        []string
 	HasAcceptLanguage bool
 }

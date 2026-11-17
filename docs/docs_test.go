@@ -919,8 +919,8 @@ func TestBotDoc(t *testing.T) {
 		"spec 019", "ingestURL: https://finger-01.badblock.net.br:9002", ".finger-west-01.badblock.net.br:8443/p/",
 		"mas não a ordem deles", "Automação não declarada de um Chrome real sai `human`", "Uso não comercial",
 		"7 dias e 1 hora", "`observe`", "`block`", "key create", "forget",
-		// forwardAuth do bot (ADR 0058): contrato 0.2.0, regras v1.2, X-Fs-Ja4h, chave por middleware e fail-open de 4xx
-		"versão\n0.2.0", "`v1.2`", "X-Fs-Ja4h", "fingerSniffer=true", "fingerSniffer: true", "apiKey=fsk_",
+		// forwardAuth do bot (ADR 0058): contrato 0.2.0, regras v1.3 (ADR 0060), X-Fs-Ja4h, chave por middleware e fail-open de 4xx
+		"versão\n0.2.0", "`v1.3`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook", "X-Fs-Ja4h", "fingerSniffer=true", "fingerSniffer: true", "apiKey=fsk_",
 		"address: https://finger-01.badblock.net.br:9002/bot/v1/auth", "reason=\"http_4xx\"",
 		"4xx **sem** `X-Fs-Verdict`", "403 **com** `X-Fs-Verdict`", "o `Cookie` e o `Authorization` do visitante nunca vão ao bot",
 		"só com um traefix sem `X-Fs-Ja4h`", "`fs_bot_auth_ja4h_total{source}`", "JA4T sem o MSS",

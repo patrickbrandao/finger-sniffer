@@ -15,7 +15,7 @@ import (
 // Goldens de veredito ponta a ponta (task 282): um lote TraefikIngestBatch de exemplo (registro de conexão com o
 // ClientHello cru e o prefixo h2, e o resumo da requisição) e a StoreConnection de exemplo da mesma conexão (visão
 // IP/TCP do espelho) dão o veredito esperado pela consulta e pelo forwardAuth. As classes e os sinais são os da
-// tabela da ADR 0057 item 1 (rules v1.2, ja4db desligada, IP residencial, sem comportamento).
+// tabela da ADR 0057 item 1 (rules v1.3, ja4db desligada, IP residencial, sem comportamento).
 //
 // Os arquivos em testdata/verdicts são regravados com FS_BOT_UPDATE_GOLDEN=1 (ADR 0049 item 6: mudança de regra
 // regrava os goldens no mesmo PR); a tabela abaixo é a referência que não muda com eles.
@@ -254,7 +254,7 @@ func TestVerdictGoldens(t *testing.T) {
 			if !v.View.TCP || !v.View.TLS || !v.View.HTTP || v.Subject.ConnID == nil || *v.Subject.ConnID != connID {
 				t.Errorf("visão ou casamento: %+v %+v", v.View, v.Subject)
 			}
-			if v.RulesVersion != "v1.2" || v.ListsVersion == "" || v.ListsVersion == listsVersionNone {
+			if v.RulesVersion != "v1.3" || v.ListsVersion == "" || v.ListsVersion == listsVersionNone {
 				t.Errorf("versões %q %q", v.RulesVersion, v.ListsVersion)
 			}
 			g := loadVerdictGolden(t, i, c, &v)

@@ -341,7 +341,7 @@ func TestSignalTable(t *testing.T) {
 	if _, ok := SignalWeight("nope"); ok {
 		t.Fatal("id desconhecido com peso")
 	}
-	if RulesVersion != "v1.2" {
+	if RulesVersion != "v1.3" {
 		t.Fatalf("RulesVersion %q", RulesVersion)
 	}
 }

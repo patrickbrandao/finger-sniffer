@@ -273,14 +273,14 @@ func TestForwardAuth(t *testing.T) {
 
 	f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, validBatch())
 	f.putStore()
-	// Veredito real (rules v1.2): o UA do cliente Go do teste é de biblioteca; o JA4H do lote não está na base.
+	// Veredito real (rules v1.3): o UA do cliente Go do teste é de biblioteca; o JA4H do lote não está na base.
 	c, h, b := f.do(f.internal, "GET", "/bot/v1/auth", "", forkHeadersFor(), "")
 	if c != 200 || h.Get("X-Fs-Verdict") != ClassSuspect || h.Get("X-Fs-Score") != "50" || h.Get("X-Fs-Signals") != "library_client" {
 		t.Fatalf("%d %v %s", c, h, b)
 	}
 	v = Verdict{}
 	_ = json.Unmarshal(b, &v)
-	if v.RulesVersion != "v1.2" || v.ListsVersion == "" || v.ListsVersion == "none" {
+	if v.RulesVersion != "v1.3" || v.ListsVersion == "" || v.ListsVersion == "none" {
 		t.Errorf("versões: %q %q", v.RulesVersion, v.ListsVersion)
 	}
 	if !v.View.TCP || !v.View.TLS || !v.View.HTTP || !v.View.H2 || v.Subject.ConnID == nil || *v.Subject.ConnID != testStoreConnID {

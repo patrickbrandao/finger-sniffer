@@ -31,8 +31,8 @@ já não manda o `Authorization` nem o `Cookie` do visitante. `Bearer fsk_...` i
 
 ## O veredito
 
-Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.2` das ADRs 0057 e
-[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md)):
+Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.3` das ADRs 0057,
+[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md) e [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md)):
 
 ```json
 {
@@ -48,7 +48,7 @@ Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), re
                    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6", "p0f_os": "Mac OS X", "ttl_initial": 64,
                    "ua_family": "curl", "ua_os": "other"},
   "crawler": null,
-  "rules_version": "v1.2",
+  "rules_version": "v1.3",
   "lists_version": "91cc382c89a43660",
   "subject": {"kind": "request", "site": "www.example.com", "src": {"ip": "198.51.100.23", "port": 40000},
               "dst_port": 443, "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S10", "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S10",
@@ -74,11 +74,11 @@ mais indício de automação.
 (requisição), `h2`, `h3`, `behavior` (agregados do IP no site) e `parse_error` (bytes do traefix ilegíveis). Um
 `human` exige `tls` e `http`; sem eles, score baixo sai `unknown`.
 
-`rules_version` é a versão das regras (`v1.2`) e `lists_version` um hash das listas em uso (base própria e listas
+`rules_version` é a versão das regras (`v1.3`) e `lists_version` um hash das listas em uso (base própria e listas
 de IP; a ja4db só quando ligada). A mesma entrada com as mesmas duas versões dá sempre o mesmo veredito. Mudança de
 peso ou de regra é nova `rules_version`.
 
-### Sinais (rules v1.2)
+### Sinais (rules v1.3)
 
 Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga da F8).
 
@@ -89,7 +89,7 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `ua_h2_mismatch` | incoherence | 30 | UA de navegador e Akamai (SETTINGS e ordem das pseudo-headers do h2) fora da família, ou HTTP/1.1 com ALPN sem `h2` |
 | `ua_os_tcp_mismatch` | incoherence | 25 | SO do UA incompatível com o p0f ou o TTL inicial (ex.: Windows com TTL 64) |
 | `ua_alpn_mismatch` | incoherence | 15 | ALPN oferecido incompatível com a família (ex.: navegador sem `h2`) |
-| `ja4h_library` | incoherence | 20 | JA4H sem `Accept-Language` e com ordem de campos de biblioteca |
+| `ja4h_library` | incoherence | 20 | JA4H sem `Accept-Language` e com ordem de campos de biblioteca; compara também o JA4H sem `Origin` e `Referer`, para o probe (ADR 0060) |
 | `tunnel_mss` | incoherence | 5 | MSS reduzido ou `mtu_implied` < 1500: túnel ou VPN no caminho (só informativo) |
 | `ua_claims_crawler` | incoherence | 60 | UA de robô conhecido vindo de IP fora da lista dele, ou com DNS reverso/direto falho |
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
@@ -203,7 +203,7 @@ $ curl -s $BOT/bot/v1/health | jq '{status, version, rules_version, lists_versio
 {
   "status": "ok",
   "version": "v0.4.0-22-gd9a4703",
-  "rules_version": "v1.2",
+  "rules_version": "v1.3",
   "lists_version": "91cc382c89a43660",
   "lists": [
     {"name": "known_clients", "entries": 15, "fetched_at": null, "stale": false},
@@ -333,7 +333,8 @@ $ curl -s -H "Authorization: Bearer $KEY" "$BOT/bot/v1/fingerprints/ja4/t13d1517
 
 Vereditos dos domínios da chave em tempo real, um por requisição. Filtros `class` (classes separadas por vírgula) e
 `site`. Sem replay; fila de 1024 eventos por cliente, com descarte e um evento `stream.dropped` com a contagem; ping
-(`: ping`) a cada 15 s; até 64 clientes (acima, 503).
+(`: ping`) a cada 15 s; até 64 clientes (acima, 503). O veredito por probe não vai ao feed nem ao webhook: consulte
+`GET /bot/v1/probes/{id}/verdict` (ADR 0060).
 
 ```console
 $ curl -sN -H "Authorization: Bearer $KEY" "$BOT/bot/v1/stream?class=bot,suspect"
