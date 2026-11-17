@@ -737,12 +737,11 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 	accepted, rejected := 0, 0
 	for _, raw := range batch.Records {
 		rec, err := parseRecord(raw)
-		// Com chave, só entram registros de sites dela; sem site conhecido, o registro entra (a conexão ainda pode
-		// trazer o SNI depois, e a consulta confere o domínio de novo).
-		if err == nil && p.key != nil {
-			if s := rec.site(); s != "" && !p.allows(s) {
-				err = errBadRecord
-			}
+		// Com chave, só entram registros de sites dela: SNI e authority do registro e o domínio que a conexão já
+		// tem no índice precisam todos ser da chave (spec 020 RF-03). Sem site conhecido, o registro entra (a
+		// conexão ainda pode trazer o SNI depois, e o Judge e a consulta conferem o domínio de novo).
+		if err == nil && p.key != nil && !a.ingestAllowed(p, &rec) {
+			err = errBadRecord
 		}
 		if err != nil {
 			rejected++
@@ -754,13 +753,31 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		a.Index.UpdateFork(rec.r.FsConnID, a.now(), rec.apply)
 		if rec.r.Type == "request" {
 			// veredito por requisição na chegada do resumo (publicado se o forwardAuth ainda não o fez)
-			a.Judge.Ingest(rec.r.FsConnID)
+			if !a.Judge.Ingest(rec.r.FsConnID, p.allows) {
+				rejected++
+				continue
+			}
 		}
 		accepted++
 	}
 	a.count(metricIngestRecords, float64(accepted))
 	a.count(metricIngestDropped, float64(rejected))
 	writeJSON(w, http.StatusAccepted, map[string]int{"accepted": accepted, "rejected": rejected})
+}
+
+// ingestAllowed confere os domínios do registro e o da conexão já indexada contra os da chave.
+func (a *API) ingestAllowed(p principal, rec *parsedRecord) bool {
+	for _, s := range rec.sites() {
+		if !p.allows(s) {
+			return false
+		}
+	}
+	if c, ok := a.Index.Fork(rec.r.FsConnID, a.now()); ok {
+		if s := c.Site(); s != "" && !p.allows(s) {
+			return false
+		}
+	}
+	return true
 }
 
 // listenerAddrs combina cada IP com a porta.
