@@ -1,16 +1,7 @@
 package bot
 
-import (
-	"time"
-
-	"github.com/patrickbrandao/finger-sniffer/pkg/event"
-)
-
-// Versões das regras e das listas nesta entrega: sem sinais nem listas ainda (segunda onda, ADRs 0049 e 0050).
-const (
-	RulesVersion = "none"
-	ListsVersion = "none"
-)
+// Versões no veredito (ADR 0057 item 4): rules_version é rules.RulesVersion e lists_version o hash das listas
+// ativas (lists.Manager.Version), nunca "none" com o serviço no ar.
 
 // Classes do veredito (ADR 0049 item 3).
 const (
@@ -89,15 +80,6 @@ type VerdictEvent struct {
 	Ts      string   `json:"ts"`
 	Verdict *Verdict `json:"verdict,omitempty"`
 	Dropped int      `json:"dropped,omitempty"`
-}
-
-// unknownVerdict monta o veredito desta entrega: sem regras, a classe é sempre `unknown` com score 0; `view` diz
-// o que já havia das duas visões.
-func unknownVerdict(subject Subject, view View, now time.Time) Verdict {
-	return Verdict{
-		Class: ClassUnknown, Score: 0, Signals: []Signal{}, View: view, RulesVersion: RulesVersion,
-		ListsVersion: ListsVersion, Subject: subject, Ts: event.FormatTime(now),
-	}
 }
 
 func ptr[T any](v T) *T { return &v }

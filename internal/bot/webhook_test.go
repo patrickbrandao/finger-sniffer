@@ -42,9 +42,10 @@ func TestWebhookFromHub(t *testing.T) {
 	f.srv.syncWebhooks(ctx)
 
 	verdict := func(class, site string) *Verdict {
-		v := unknownVerdict(Subject{Kind: "request", Site: &site}, View{}, f.clock.Now())
-		v.Class = class
-		return &v
+		return &Verdict{
+			Class: class, Signals: []Signal{}, RulesVersion: "v1.1", ListsVersion: "x", Subject: Subject{Kind: "request", Site: &site},
+			Ts: "2026-11-16T12:00:00.000000000Z",
+		}
 	}
 	f.srv.hub.Publish(verdict(ClassHuman, "www.example.com"))
 	f.srv.hub.Publish(verdict(ClassBot, "other.org"))

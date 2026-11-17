@@ -1,0 +1,122 @@
+{
+  "client": "firefox",
+  "batch": {
+    "records": [
+      {
+        "alpn": "h2",
+        "alpn_offered": [
+          "h2",
+          "http/1.1"
+        ],
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "client_hello": "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",
+        "client_hello_truncated": false,
+        "dst": {
+          "ip": "10.249.0.2",
+          "port": 443
+        },
+        "entry_point": "websecure",
+        "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S14",
+        "h2_prefix": "AAAYBAAAAAAAAAEAAQAAAAIAAAAAAAQAAgAAAAUAAEAAAAAECAAAAAAAAL8AAQABJwElAAAAAwAAAAApggSBY0GS71ocAJdNKDypXIeleOy466AXh3q+0H9mooGw2uBT+tAyGqSdE/2pkqSWhTQMimrcp+KBAuFv7Us73Atvrg/tTEUnU7AgBAAIAqYTWFlP5YC2+uBTsEl8pYnTTR9DrroMQaTHqY8zppo/35po+h110GINJj1MeaaPvtABd/6+WPn77QAXe1GcrStd2/VafvtABd/6LUtw3ffaAC730Wr77QAXd1CSm9mr+lJCy0DSX6Ujs+lPaEyfQJK2uawchVjVIKS2wq1he1pUJR+BD0CKQUi0pUknWkKhP4aQ5LaS1J9AikFItKVJJ1qTyF+GqH3NMNJfQIpBSLSlSSdZBkl/g6j1F0CGrsMewyfXhbYAfShvQIJJf4ZNgzUFsR8=",
+        "h2_prefix_truncated": false,
+        "sni": "www.example.com",
+        "src": {
+          "ip": "198.51.100.23",
+          "port": 40004
+        },
+        "tls_version": "1.3",
+        "ts": "2026-11-16T12:00:00.010000000Z",
+        "type": "connection"
+      },
+      {
+        "authority": "www.example.com",
+        "cookie_names": [],
+        "ended": "2026-11-16T12:00:00.060000000Z",
+        "field_names": [
+          "user-agent",
+          "accept",
+          "accept-language",
+          "accept-encoding",
+          "upgrade-insecure-requests",
+          "sec-fetch-dest",
+          "sec-fetch-mode",
+          "sec-fetch-site",
+          "sec-fetch-user",
+          "priority"
+        ],
+        "fields": {
+          "accept": "*/*",
+          "accept-language": "pt-BR,pt;q=0.9",
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0"
+        },
+        "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S14",
+        "http_version": "2.0",
+        "ja4h": "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000",
+        "method": "GET",
+        "path": "/",
+        "proto": "h2",
+        "router": "site@docker",
+        "service": "site@docker",
+        "status": 200,
+        "ts": "2026-11-16T12:00:00.050000000Z",
+        "type": "request"
+      }
+    ],
+    "sender": "v3.6.2-fs.1"
+  },
+  "store_connection": {
+    "schema_version": 1,
+    "service": "store",
+    "service_version": "v0.4.0",
+    "ts": "2026-11-16T12:00:00.020000000Z",
+    "payload": {
+      "connection": {
+        "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S14",
+        "dst": {
+          "ip": "172.233.24.85",
+          "port": 443
+        },
+        "ended": null,
+        "family": 4,
+        "ip": {
+          "df": true,
+          "hops": 12,
+          "src_kind": "global",
+          "ttl": 52,
+          "ttl_initial": 64
+        },
+        "l4": "tcp",
+        "probe_id": null,
+        "proto": "tcp",
+        "src": {
+          "ip": "198.51.100.23",
+          "port": 40004
+        },
+        "started": "2026-11-16T12:00:00.000000000Z",
+        "tcp": {
+          "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6",
+          "mss_reduction": 0,
+          "mtu_implied": 1500,
+          "os_guess": "Mac OS X",
+          "p0f": null,
+          "rtt_handshake_ms": 12.5,
+          "syn_mss": 1460
+        }
+      },
+      "stage": "updated"
+    }
+  },
+  "verdict": {
+    "class": "human",
+    "score": 0,
+    "signals": [
+      {
+        "id": "known_client",
+        "kind": "list",
+        "weight": -20,
+        "detail": "coherent with measured firefox"
+      }
+    ],
+    "rules_version": "v1.1"
+  }
+}

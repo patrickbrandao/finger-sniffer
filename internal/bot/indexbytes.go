@@ -109,7 +109,9 @@ func storeBytes(c *StoreConn) int64 {
 // forkBytes é o custo de uma conexão do fork no índice: a estrutura, o vetor de requisições e o que cada parte
 // (registro de conexão, TLS, h2, requisições) somou ao ser montada.
 func forkBytes(c *ForkConn) int64 {
-	n := forkEntryBytes + strBytes(len(c.FsConnID)) + c.connCost + allocBytes(uintptr(len(c.Requests))*forkReqSize)
+	// LastClass é uma das constantes de classe (sem alocação); o JSON do veredito conta pela capacidade.
+	n := forkEntryBytes + strBytes(len(c.FsConnID)) + c.connCost + allocBytes(uintptr(len(c.Requests))*forkReqSize) +
+		allocBytes(cap(c.LastVerdict))
 	if c.TLS != nil {
 		n += c.TLS.cost
 	}

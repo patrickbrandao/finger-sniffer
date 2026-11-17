@@ -243,8 +243,8 @@ func TestInternalForeignAuthorization(t *testing.T) {
 	}
 }
 
-// TestForwardAuth: 400 sem os X-Fs-*; com as duas visões, 200 unknown com view.tcp e o conn_id do store; sem a
-// visão do store, responde depois da espera com view.tcp=false.
+// TestForwardAuth: 400 sem os X-Fs-*; com as duas visões, 200 com o veredito real, view.tcp e o conn_id do store;
+// sem a visão do store, responde depois da espera com view.tcp=false.
 func TestForwardAuth(t *testing.T) {
 	f := newFixture(t)
 	c, _, b := f.do(f.internal, "GET", "/bot/v1/auth", "", map[string]string{"X-Fs-Src-Ip": "1.2.3.4"}, "")
@@ -273,12 +273,16 @@ func TestForwardAuth(t *testing.T) {
 
 	f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, validBatch())
 	f.putStore()
+	// Veredito real (rules v1.1): o UA do cliente Go do teste é de biblioteca; o JA4H do lote não está na base.
 	c, h, b := f.do(f.internal, "GET", "/bot/v1/auth", "", forkHeadersFor(), "")
-	if c != 200 || h.Get("X-Fs-Verdict") != "unknown" || h.Get("X-Fs-Score") != "0" {
+	if c != 200 || h.Get("X-Fs-Verdict") != ClassSuspect || h.Get("X-Fs-Score") != "50" || h.Get("X-Fs-Signals") != "library_client" {
 		t.Fatalf("%d %v %s", c, h, b)
 	}
 	v = Verdict{}
 	_ = json.Unmarshal(b, &v)
+	if v.RulesVersion != "v1.1" || v.ListsVersion == "" || v.ListsVersion == "none" {
+		t.Errorf("versões: %q %q", v.RulesVersion, v.ListsVersion)
+	}
 	if !v.View.TCP || !v.View.TLS || !v.View.HTTP || !v.View.H2 || v.Subject.ConnID == nil || *v.Subject.ConnID != testStoreConnID {
 		t.Errorf("com as duas visões: %+v", v)
 	}
