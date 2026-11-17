@@ -5,7 +5,9 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
-Fase F8 (detecção de bots oferecida por API). Primeira onda: serviço `finger-sniffer-bot` implantado no finger-01 com chaves, portas 9002/9003, ingest do traefix e índice da visão do store. Segunda onda: motor de regras v1.1, fingerprints no ingest, listas, agregados, métricas com rótulos, veredito real nas rotas, webhook, teto de bytes do índice, pedidos da CLI ao serviço e `docs/bot.md` na `main`; e2e da F8 do lado do bot (task 284), regras `v1.3` (ADR 0060, task 295) e carga da F8 (task 285, metas atendidas com a recuperação do health da ADR 0061) na `main`; faltam o traefix no finger-01 (task 273) e as pendências P4–P6. Contratos: openapi do bot 0.2.0 (ADR 0058) e asyncapi 0.6.2.
+## [0.5.0] - 2026-11-17
+
+Fase F8: detecção de bots oferecida por API. Serviço `finger-sniffer-bot` (sexto serviço, 9002 HTTPS com chave e 9003 HTTP) com veredito por regras `v1.3`, listas, agregados de 7 dias, forwardAuth, consulta, probe, feed e webhook; e2e da F8 do lado do bot (tasks 284 e 295) e carga da F8 a 200 forwardAuth/s junto da oficial 400/100 (task 285, ADR 0061) no finger-01. Lançada sem o traefix (decisão do humano): a visão de aplicação dos sites pelo traefix real (task 273) e a página de privacidade (task 287, pendências P4–P6) ficam para depois. Contratos: openapi do bot 0.2.0 (ADR 0058), asyncapi 0.6.2; store sem mudança de contrato (openapi 0.6.1).
 
 ### Adicionado
 - Serviço `finger-sniffer-bot`, primeira onda (spec 018/020): banco em disco com a migration 0001 (`database/sqlite/bot/`), CLI `key create|list|revoke|rotate` e `forget`, API 9002 HTTPS (chave obrigatória) e 9003 HTTP (loopback e rede do traefik) com 401/404/429/403/413 do contrato, ingest do traefik no índice em memória e assinatura de `fs.v1.store.connection`; veredito ainda `unknown` e rotas de veredito em 404 até a segunda onda (task 267).
