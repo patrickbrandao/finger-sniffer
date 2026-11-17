@@ -122,7 +122,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// Nenhuma resposta de erro leva os X-Fs-* do veredito, nem os postos antes do erro: o traefix separa por
+// X-Fs-Verdict o bloqueio (403 do modo block) da falha de configuração ou de limite (fail-open de 4xx, ADR 0058
+// item 3).
 func writeError(w http.ResponseWriter, status int, code, detail string) {
+	for _, k := range []string{"X-Fs-Verdict", "X-Fs-Score", "X-Fs-Signals"} {
+		w.Header().Del(k)
+	}
 	writeJSON(w, status, errorBody{Error: code, Detail: detail})
 }
 
@@ -317,7 +323,7 @@ func cutPath(uri string) string {
 }
 
 // forwardAuth é o GET /bot/v1/auth (spec 020 RF-05): espera as duas visões até FS_BOT_VIEW_WAIT, avalia o
-// veredito v1.1 da requisição e responde 200 (ou 403 em modo block para `bot`) com os X-Fs-* e o Verdict. A
+// veredito v1.2 da requisição e responde 200 (ou 403 em modo block para `bot`) com os X-Fs-* e o Verdict. A
 // verificação de robô nunca segura a resposta (cache ou desconhecido, com a verificação em segundo plano).
 func (a *API) forwardAuth(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()

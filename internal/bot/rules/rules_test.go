@@ -320,7 +320,7 @@ func TestOSTCPMismatch(t *testing.T) {
 
 func TestSignalTable(t *testing.T) {
 	if len(signalTable) != 19 {
-		t.Fatalf("%d sinais; a spec 018 (rules v1.1) tem 19", len(signalTable))
+		t.Fatalf("%d sinais; a spec 018 (rules v1.2) tem 19", len(signalTable))
 	}
 	// os dois sinais da v1.1 entram logo antes de ja4db_match, com o tipo e o peso da ADR 0057 item 1
 	pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalJA4DBMatch })
@@ -341,8 +341,35 @@ func TestSignalTable(t *testing.T) {
 	if _, ok := SignalWeight("nope"); ok {
 		t.Fatal("id desconhecido com peso")
 	}
-	if RulesVersion != "v1.1" {
+	if RulesVersion != "v1.2" {
 		t.Fatalf("RulesVersion %q", RulesVersion)
+	}
+}
+
+// TestAutomationNeverKnownClient: ADR 0058 item 5 (task 292) — UA de navegador com qualquer marcador de
+// ua_automation nunca recebe known_client, mesmo com a pilha medida do Chrome/Firefox (e o JA4T com outro MSS, que
+// na v1.2 casa a base); fica `bot` pelo ua_automation. O mesmo UA sem marcador recebe.
+func TestAutomationNeverKnownClient(t *testing.T) {
+	base := loadKnownClients(t)
+	en := goldenEngine(t, false)
+	for _, client := range []string{"chrome", "firefox"} {
+		for _, proto := range []string{"h1", "h2", "h3"} {
+			in := inputFrom(base.entry(t, client, proto), goldenUA[client], ipResidential)
+			if in.TCP != nil {
+				p := strings.Split(in.TCP.JA4T, "_")
+				in.TCP.JA4T = p[0] + "_" + p[1] + "_1380_" + p[3]
+			}
+			if got := en.Evaluate(in); !hasSignal(got, SignalKnownClient) {
+				t.Fatalf("%s %s sem marcador: sem known_client (%v)", client, proto, signalIDs(got))
+			}
+			for _, m := range automationMarkers {
+				in.HTTP.UserAgent = goldenUA[client] + " " + m + "/1.0"
+				got := en.Evaluate(in)
+				if hasSignal(got, SignalKnownClient) || !hasSignal(got, SignalUAAutomation) || got.Class != ClassBot {
+					t.Errorf("%s %s com %q: %s %v", client, proto, m, got.Class, signalIDs(got))
+				}
+			}
+		}
 	}
 }
 

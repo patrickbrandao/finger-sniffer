@@ -90,6 +90,50 @@ func TestKnownClientsCoherent(t *testing.T) {
 	}
 }
 
+// JA4T sem MSS (rules v1.2, ADR 0058 item 4): igual menos o MSS casa a base; janela, opções ou escala diferentes não.
+func TestKnownClientsCoherentJA4TWithoutMSS(t *testing.T) {
+	k, err := LoadKnownClients()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range k.Measured {
+		if m.JA4T == nil || (m.Client != "chrome" && m.Client != "firefox") {
+			continue
+		}
+		p := strings.Split(*m.JA4T, "_")
+		if len(p) != 4 {
+			t.Fatalf("JA4T medido fora do formato: %q", *m.JA4T)
+		}
+		o := Observed{JA4: m.JA4}
+		if m.Akamai != nil {
+			o.Akamai = *m.Akamai
+		}
+		for _, tc := range []struct {
+			ja4t string
+			want bool
+		}{
+			{*m.JA4T, true},
+			{p[0] + "_" + p[1] + "_1460_" + p[3], true},        // MSS cheio (sem grampo no caminho)
+			{p[0] + "_" + p[1] + "_1380_" + p[3], true},        // MSS mais grampeado
+			{"64240_" + p[1] + "_" + p[2] + "_" + p[3], false}, // outra janela
+			{p[0] + "_2-4-8-1-3_" + p[2] + "_" + p[3], false},  // outras opções
+			{p[0] + "_" + p[1] + "_" + p[2] + "_7", false},     // outra escala
+			{"1_2_3", false}, // fora do formato
+		} {
+			o.JA4T = tc.ja4t
+			if _, ok := k.Coherent(m.Client, o); ok != tc.want {
+				t.Errorf("%s %s: Coherent(JA4T %q) = %v, quer %v", m.Client, m.Proto, tc.ja4t, ok, tc.want)
+			}
+		}
+	}
+	if got := JA4TWithoutMSS("65535_2-1-3-1-1-8-4-0-0_1432_6"); got != "65535_2-1-3-1-1-8-4-0-0_6" {
+		t.Errorf("JA4TWithoutMSS = %q", got)
+	}
+	if got := JA4TWithoutMSS("x_y"); got != "x_y" {
+		t.Errorf("fora do formato: %q", got)
+	}
+}
+
 // Formato errado da base própria é rejeitado.
 func TestParseKnownClientsInvalid(t *testing.T) {
 	good := `{"client":"curl","client_version":"8","os":"linux","proto":"h1","ja4":"t13d3012h1_1d37bd780c83_581742d1f3c4","ja4_r":"x","akamai":null,"ja4h_ab":null,"ja4t":null,"p0f_os":null,"ttl_initial":64,"alpn":["http/1.1"],"measured_at":"2026-11-16T17:18:37Z","commit":"abc"}`

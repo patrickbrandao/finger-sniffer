@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -169,7 +170,9 @@ type Observed struct {
 }
 
 // Coherent devolve a primeira medida da família cujas impressões presentes batem todas com as observadas (JA4
-// obrigatório; Akamai, JA4H a+b e JA4T só quando os dois lados têm o valor). Sem medida coerente: ok=false.
+// obrigatório; Akamai, JA4H a+b e JA4T só quando os dois lados têm o valor). O JA4T compara sem o campo do MSS
+// (janela, opções e escala; rules v1.2, ADR 0058 item 4): o grampo de MSS no caminho não muda o cliente, e o MSS
+// reduzido é do sinal tunnel_mss. Sem medida coerente: ok=false.
 func (k *KnownClients) Coherent(client string, o Observed) (KnownClient, bool) {
 	for _, i := range k.byJA4[o.JA4] {
 		m := k.Measured[i]
@@ -182,10 +185,20 @@ func (k *KnownClients) Coherent(client string, o Observed) (KnownClient, bool) {
 		if o.JA4HAB != "" && m.JA4HAB != nil && *m.JA4HAB != o.JA4HAB {
 			continue
 		}
-		if o.JA4T != "" && m.JA4T != nil && *m.JA4T != o.JA4T {
+		if o.JA4T != "" && m.JA4T != nil && JA4TWithoutMSS(*m.JA4T) != JA4TWithoutMSS(o.JA4T) {
 			continue
 		}
 		return m, true
 	}
 	return KnownClient{}, false
+}
+
+// JA4TWithoutMSS tira o campo do MSS (o terceiro) do JA4T `janela_opções_mss_escala`, deixando
+// `janela_opções_escala`. Valor fora desse formato volta inteiro (só casa consigo mesmo).
+func JA4TWithoutMSS(ja4t string) string {
+	p := strings.Split(ja4t, "_")
+	if len(p) != 4 {
+		return ja4t
+	}
+	return p[0] + "_" + p[1] + "_" + p[3]
 }

@@ -114,6 +114,6 @@
         "detail": "ua googlebot, ip not in google list"
       }
     ],
-    "rules_version": "v1.1"
+    "rules_version": "v1.2"
   }
 }

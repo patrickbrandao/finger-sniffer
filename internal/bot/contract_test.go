@@ -184,6 +184,21 @@ func TestContractResponses(t *testing.T) {
 	if h.Get("X-Fs-Verdict") == "" || h.Get("X-Fs-Score") == "" {
 		t.Errorf("cabeçalhos do forwardAuth: %v", h)
 	}
+	// X-Fs-Ja4h (openapi 0.2.0, ADR 0058 item 1): primeira requisição de um curl, 200 sem chave e 403 em block.
+	ja4hHdr := curlAuthHeaders()
+	ja4hHdr["X-Fs-Conn-Id"], ja4hHdr["X-Fs-Src-Port"] = "01JC0X3K8V2T7Q9F4M6P1R5S99", "51299"
+	ja4hHdr["X-Fs-Ja4h"] = ja4hCurl
+	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", "", ja4hHdr, "")
+	expect(200, c, refVerdict, b)
+	if h.Get("X-Fs-Verdict") != ClassBot {
+		t.Errorf("X-Fs-Ja4h: %v", h)
+	}
+	_, blk := f.createKey(KeyOptions{Name: "blk0", Domains: []string{"www.example.com"}, Mode: ModeBlock})
+	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", blk, ja4hHdr, "")
+	expect(403, c, refVerdict, b)
+	if h.Get("X-Fs-Verdict") != ClassBot || h.Get("X-Fs-Signals") != "ja4h_library,library_client" {
+		t.Errorf("X-Fs-Ja4h em block: %v", h)
+	}
 	// Vereditos reais das rotas de consulta (task 282): pelo id do fork, pela origem, por probe e o 403 do block.
 	c, _, b = f.do(f.internal, "GET", "/bot/v1/verdict/conn/"+testForkConnID, "", nil, "")
 	expect(200, c, refVerdict, b)

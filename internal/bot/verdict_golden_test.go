@@ -15,7 +15,7 @@ import (
 // Goldens de veredito ponta a ponta (task 282): um lote TraefikIngestBatch de exemplo (registro de conexão com o
 // ClientHello cru e o prefixo h2, e o resumo da requisição) e a StoreConnection de exemplo da mesma conexão (visão
 // IP/TCP do espelho) dão o veredito esperado pela consulta e pelo forwardAuth. As classes e os sinais são os da
-// tabela da ADR 0057 item 1 (rules v1.1, ja4db desligada, IP residencial, sem comportamento).
+// tabela da ADR 0057 item 1 (rules v1.2, ja4db desligada, IP residencial, sem comportamento).
 //
 // Os arquivos em testdata/verdicts são regravados com FS_BOT_UPDATE_GOLDEN=1 (ADR 0049 item 6: mudança de regra
 // regrava os goldens no mesmo PR); a tabela abaixo é a referência que não muda com eles.
@@ -45,6 +45,9 @@ const (
 	uaGooglebot = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 	ja4tChrome  = "65535_2-1-3-1-1-8-4-0-0_1432_6"
 	ja4tMac     = "65535_2-1-3-1-1-8-4-0-0_1430_6"
+	// ja4tFull é o SYN do Mac sem o grampo de MSS do caminho até o finger-01 (MSS 1460): a base mediu 1432/1430,
+	// e na v1.2 o known_client compara sem o MSS (ADR 0058 item 4)
+	ja4tFull = "65535_2-1-3-1-1-8-4-0-0_1460_6"
 )
 
 var chromeFields = []string{
@@ -79,12 +82,12 @@ var verdictCases = []verdictCase{
 	},
 	{
 		name: "chrome", ua: uaChrome, tls: "chrome.bin", h2: "chrome.prefix", acceptLang: true, fieldNames: chromeFields,
-		ja4h: "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000", ja4t: ja4tChrome, osGuess: "Mac OS X",
+		ja4h: "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000", ja4t: ja4tFull, osGuess: "Mac OS X",
 		wantClass: ClassHuman, wantScore: 0, wantSignals: []string{"known_client"},
 	},
 	{
 		name: "firefox", ua: uaFirefox, tls: "firefox.bin", h2: "firefox.prefix", acceptLang: true, fieldNames: firefoxFields,
-		ja4h: "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000", ja4t: ja4tMac, osGuess: "Mac OS X",
+		ja4h: "ge20nn10ptbr_d353d425b0bb_000000000000_000000000000", ja4t: ja4tFull, osGuess: "Mac OS X",
 		wantClass: ClassHuman, wantScore: 0, wantSignals: []string{"known_client"},
 	},
 	{
@@ -251,7 +254,7 @@ func TestVerdictGoldens(t *testing.T) {
 			if !v.View.TCP || !v.View.TLS || !v.View.HTTP || v.Subject.ConnID == nil || *v.Subject.ConnID != connID {
 				t.Errorf("visão ou casamento: %+v %+v", v.View, v.Subject)
 			}
-			if v.RulesVersion != "v1.1" || v.ListsVersion == "" || v.ListsVersion == listsVersionNone {
+			if v.RulesVersion != "v1.2" || v.ListsVersion == "" || v.ListsVersion == listsVersionNone {
 				t.Errorf("versões %q %q", v.RulesVersion, v.ListsVersion)
 			}
 			g := loadVerdictGolden(t, i, c, &v)
