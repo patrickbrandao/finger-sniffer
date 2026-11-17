@@ -1,9 +1,9 @@
 # Duração (s) no CI dos testes lentos de FS_RACE_SPLIT_PKGS com -race (task 294): "<Teste> <segundos>".
 # Só equilibra os lotes (race_assign em scripts/verify.sh); teste ausente pesa RACE_DEFAULT_WEIGHT. Atualize
 # com os times-<k>.txt dos artefatos race-shard-* do CI quando os lotes ficarem desequilibrados.
-TestClockRegistryCap 170.8
 TestProbeLargeMemory 34.6
 TestRetentionDoesNotStallIngest 8.5
+TestClockRegistryCap 6.0
 TestFlowTableCapHalfOpen 5.5
 TestLiveClientByteCap 4.9
 TestRetentionVacuumAfterShrink 4.5
