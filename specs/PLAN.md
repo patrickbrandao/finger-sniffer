@@ -181,7 +181,7 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   respondidas ou registradas no PR de release; tag `v0.5.0`. Se o traefix não estiver no finger-01 na hora da
   release, o architect escala ao humano (esperar ou lançar sem a visão do traefix).
 - **Saída (2026-11-17)**: atendido do lado do bot; **lançada sem o traefix por decisão do humano** (escalonamento
-  previsto no critério). Tasks 260–262, 267–272, 274–286 e 288–295 na `main` (PRs #236–#270). e2e da F8 (`TestF8Bot`, tasks
+  previsto no critério). Tasks 260–262, 267–272, 274–286 e 288–295 e 298 na `main` (PRs #236–#272). e2e da F8 (`TestF8Bot`, tasks
   284 e 295, PRs #265, #267 e #270) contra o finger-01: pelo probe curl, Go e python-requests `bot` 75 e o Googlebot
   falso `bot` 85 (`ja4h_library` normalizado, ADR 0060, + `tunnel_mss` do caminho; goldens sem o caminho 70/80),
   Chrome e Firefox `human` 0; traefix simulado (`TraefikIngestBatch` na 9002) com as classes esperadas nos 6 clientes
@@ -192,7 +192,7 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   metas da ADR 0046 no espelho com o bot assinando (backlog máx 0,07 s, `stream_lost`/`db_full` Δ 0, feed global p99
   327 ms), CPU do store igual com e sem o bot; trecho hostil com o índice no teto de 384 MiB, sem OOM (`anon` 733 MiB),
   forwardAuth p99 44,8 ms e health de volta a `ok` em 7 min 23 s, dentro da meta da ADR 0061 (`FS_BOT_CONN_TTL` +
-  60 s). Expurgo de 7 dias com relógio falso em `TestForgetAndPurge` (`internal/bot`). Release `v0.5.0` (task 297).
+  60 s). Expurgo de 7 dias com relógio falso em `TestForgetAndPurge` (`internal/bot`). Auditoria do reviewer: o bloqueante (uma chave escrevia em site de outra pelo ingest) e os ajustes de retenção ≤ 7 d 1 h e campos por lista permitida corrigidos na task 298 (PR #272); `forget` sem limpar a fila do webhook (task 299) e `control_requests` na privacidade do `docs/bot.md` (task 300, adendo da ADR 0052 já feito) ficam para depois, não bloqueantes. Release `v0.5.0` (task 297).
   **Pendente na release**:
   - task 273 (traefix real no finger-01, router de teste e casos `TestF8TraefixReal`): bloqueada até o aviso do
     humano; o critério "pelo router de teste do traefix" fica para quando ela sair;
