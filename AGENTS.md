@@ -41,6 +41,9 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
   os fragmentos no CHANGELOG no fim de cada fase (specs/002, "Git e PR").
 - Ao concluir, atenda a Definition of Done (specs/002), remova o arquivo da tarefa e faça o commit da entrega
   citando o ID, por exemplo `feat(web): parser HTTP/1 (task 012)`.
+- Modo autônomo (ADR 0059): deploy completo e smoke uma vez por onda (tarefa que mede no servidor implanta antes);
+  CI verde do commit anterior vale depois de rebase limpo sem arquivos/pacotes dependentes em comum; no máximo 3
+  tarefas em paralelo por pacote, e as que tocam o mesmo arquivo compartilhado em série.
 
 ## Regras de código
 - Endpoints, funções, variáveis, chaves JSON, subjects NATS e nomes de arquivos de código em **inglês**.

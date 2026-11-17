@@ -137,7 +137,7 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   `tmsoftbrasil/traefix`) entrega a visão de aplicação dos sites pelos requisitos da spec 019; agregados de 7 dias com
   LGPD (ADRs 0047–0057).
 - **Specs**: 018 (bot), 019 (requisitos do traefix), 020 (API de vereditos); mudanças em 000, 001, 002, 003, 004,
-  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.1.1, asyncapi 0.6.2 (`fs.v1.store.connection`,
+  016, 017. Contratos: `cmd/finger-sniffer-bot/openapi.yaml` 0.2.0 (era 0.1.1; ADR 0058), asyncapi 0.6.2 (`fs.v1.store.connection`,
   métricas com rótulos no heartbeat); migrations 0001 e 0002 do bot.
 - **Dependências**: F7 (tag `v0.4.0`). Nenhuma dependência nova no módulo do espelho. O traefix é do humano (ADR
   0054): o calendário dele não é deste plano, e a integração é por contrato.

@@ -6,7 +6,7 @@ Depende de: 018, 019
 ## Contexto
 O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, fora da captura (ADRs 0047 e 0051):
 9002 HTTPS pública com chave e 9003 HTTP interna para o traefik do finger-01. Contrato:
-[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.1.1).
+[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.2.0).
 
 ## Requisitos
 - RF-01: 9002 em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6` com TLS de `FS_CERT_DIR` (`pkg/certs`, A e B por SNI, recarga a
@@ -23,9 +23,11 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   segundos; global: 200 conexões na 9002, 64 clientes SSE, corpo do ingest até 4 MiB por lote → 413.
 - RF-05: rotas (detalhe no openapi):
   - `GET /bot/v1/auth` (forwardAuth): sujeito = requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`,
-    `X-Forwarded-Uri` e `X-Fs-*` (spec 019 RF-06); espera a visão até `FS_BOT_VIEW_WAIT`; 200 com `X-Fs-Verdict`,
+    `X-Forwarded-Uri` e `X-Fs-*` (spec 019 RF-06), com o JA4H de `X-Fs-Ja4h` quando bem formado e, sem ele, o da
+    última requisição da conexão no ingest (ADR 0058 item 1); espera a visão até `FS_BOT_VIEW_WAIT`; 200 com `X-Fs-Verdict`,
     `X-Fs-Score`, `X-Fs-Signals` (ids separados por vírgula, até 1 KiB) e corpo `Verdict`; 403 com o mesmo corpo
-    quando a chave/site está em modo `block` e `class=bot`. Sem os `X-Fs-*` do traefix → 400 `missing_fork_headers`;
+    e os mesmos `X-Fs-*` quando a chave está em modo `block` e `class=bot`; nenhuma resposta de erro traz
+    `X-Fs-Verdict` (é o que o traefix usa para o fail-open de 4xx, spec 019 RF-07a; ADR 0058 item 3). Sem os `X-Fs-*` do traefix → 400 `missing_fork_headers`;
     com chave cujos domínios não casam com `X-Forwarded-Host` → 400 `bad_request` (erro de configuração do
     operador, ADR 0055 item 6).
   - `GET /bot/v1/verdict?src_ip=&src_port=&site=` e `GET /bot/v1/verdict/conn/{fs_conn_id}`: o último veredito da
@@ -70,3 +72,4 @@ site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `
 - specs/decisions/0054-traefix-projeto-externo.md
 - specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md
 - specs/decisions/0056-segunda-onda-da-f8.md
+- specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md
