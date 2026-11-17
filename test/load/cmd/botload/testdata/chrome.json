@@ -1,0 +1,125 @@
+{
+  "client": "chrome",
+  "batch": {
+    "records": [
+      {
+        "alpn": "h2",
+        "alpn_offered": [
+          "h2",
+          "http/1.1"
+        ],
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "client_hello": "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",
+        "client_hello_truncated": false,
+        "dst": {
+          "ip": "10.249.0.2",
+          "port": 443
+        },
+        "entry_point": "websecure",
+        "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S13",
+        "h2_prefix": "AAAYBAAAAAAAAAEAAQAAAAIAAAAAAAQAYAAAAAYABAAAAAAECAAAAAAAAO8AAQAB7QElAAAAAYAAAAD/gkGS71ocAJdNKDypXIeleOy466AXh4RAh0FIsSda0f+3/nSdNyFa7YOqT+fvvB/L38/Sn83p7D0mtp/n77wfyFtz+fpT+cRzzUFUvT2HpL/P33g/kLbn80CLQUixJ1rRrUnjNQUCPzBAjUFIsSda0a1dA0ynsp8HIm1hY09TIkCStrmsHIVY1SCktsKtYXtaVCUfATF63tB/ZqKBsNrgU/rQMhqknRP9qZKkloU0DIpq3KfigQRBbid/tSGuugvIseYyWG2XV2XFP6zY9+jP9KUG6lUxFJ1P/amMo5KCoRensPSVgLbi4FwLgU3DlHYZhtl1dlxT7El8pYnTTR9DrroMQaTHqY8zppo/35po+h110GINJj1MeaaPvtABd/6NSOYrHTzR9GpHMVgfc0v0akcxWPBY6/o1I5isDrqm+vlj5++0AF3vodddBiDSY9TCDTVFkWL5JOOqYv33gjZ++0AF3UCKQUi0pUknWQZJf4Oo9RdAikFItKVJJ1qTyF+GqH3NMNJfQIpBSLSlSSda1BbPAj8xQIpBSLSlSSdaQqE/hpDktpLUn1CSm9mr+lJCy0DSX6Ujs+lPaEyfUZytK13b9Vp++0AF3/otS3Dd99oALvfRavvtABd3QIauwx7DJ9eFtgB9KG8=",
+        "h2_prefix_truncated": false,
+        "sni": "www.example.com",
+        "src": {
+          "ip": "198.51.100.23",
+          "port": 40003
+        },
+        "tls_version": "1.3",
+        "ts": "2026-11-16T12:00:00.010000000Z",
+        "type": "connection"
+      },
+      {
+        "authority": "www.example.com",
+        "cookie_names": [],
+        "ended": "2026-11-16T12:00:00.060000000Z",
+        "field_names": [
+          "sec-ch-ua",
+          "sec-ch-ua-mobile",
+          "sec-ch-ua-platform",
+          "upgrade-insecure-requests",
+          "user-agent",
+          "accept",
+          "sec-fetch-site",
+          "sec-fetch-mode",
+          "sec-fetch-user",
+          "sec-fetch-dest",
+          "accept-encoding",
+          "accept-language",
+          "priority"
+        ],
+        "fields": {
+          "accept": "*/*",
+          "accept-language": "pt-BR,pt;q=0.9",
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+        },
+        "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S13",
+        "http_version": "2.0",
+        "ja4h": "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+        "method": "GET",
+        "path": "/",
+        "proto": "h2",
+        "router": "site@docker",
+        "service": "site@docker",
+        "status": 200,
+        "ts": "2026-11-16T12:00:00.050000000Z",
+        "type": "request"
+      }
+    ],
+    "sender": "v3.6.2-fs.1"
+  },
+  "store_connection": {
+    "schema_version": 1,
+    "service": "store",
+    "service_version": "v0.4.0",
+    "ts": "2026-11-16T12:00:00.020000000Z",
+    "payload": {
+      "connection": {
+        "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S13",
+        "dst": {
+          "ip": "172.233.24.85",
+          "port": 443
+        },
+        "ended": null,
+        "family": 4,
+        "ip": {
+          "df": true,
+          "hops": 12,
+          "src_kind": "global",
+          "ttl": 52,
+          "ttl_initial": 64
+        },
+        "l4": "tcp",
+        "probe_id": null,
+        "proto": "tcp",
+        "src": {
+          "ip": "198.51.100.23",
+          "port": 40003
+        },
+        "started": "2026-11-16T12:00:00.000000000Z",
+        "tcp": {
+          "ja4t": "65535_2-1-3-1-1-8-4-0-0_1460_6",
+          "mss_reduction": 0,
+          "mtu_implied": 1500,
+          "os_guess": "Mac OS X",
+          "p0f": null,
+          "rtt_handshake_ms": 12.5,
+          "syn_mss": 1460
+        }
+      },
+      "stage": "updated"
+    }
+  },
+  "verdict": {
+    "class": "human",
+    "score": 0,
+    "signals": [
+      {
+        "id": "known_client",
+        "kind": "list",
+        "weight": -20,
+        "detail": "coherent with measured chrome"
+      }
+    ],
+    "rules_version": "v1.2"
+  }
+}

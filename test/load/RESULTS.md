@@ -1,4 +1,4 @@
-# Carga de 10 min — metas RNF (tasks 068 e 120, spec 017 RF-13, ADR 0022/0024/0025/0026/0030)
+# Carga de 10 min — metas RNF (tasks 068, 120 e 285, spec 017 RF-13 e RF-17, ADR 0022/0024/0025/0026/0030/0046)
 
 > **Servidor anterior (vps602).** Todas as rodadas abaixo foram medidas na vps602 (1 vCPU, 967 MiB, `eth0`,
 > cgroups em `system.slice`) e ficam como registro. Desde a ADR 0038/0039 os scripts (`run.sh`, `budget.sh`,
@@ -16,6 +16,171 @@ anterior (`official-50j`) também teve `degraded` = 0 e passou em todas as metas
 cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `official-50i` (`90c86d8`, limites
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
+
+## finger-01, F8 (task 285; spec 018 RNF-01/RNF-02, spec 017 RF-17, ADRs 0055 item 2, 0057 item 2 e 0058)
+
+**Resultado.** Bot (`v0.4.0-26-g8a4ca69`, regras `v1.2`, `versions_match`) com o forwardAuth a 200 requisições/s
+junto da carga oficial 400/100: **todas as metas do bot passaram** (forwardAuth p95 0,62 ms / p99 1,62 ms no
+cliente, consulta p95 0,31 ms, veredito no feed em no máximo 86 ms, `bot_auth_ja4h_total{source="header"}` igual às
+318 217 requisições, sem espera da RF-04, sem OOM), e **todas as metas da ADR 0046 do lado do espelho passaram com
+o bot assinando** (backlog máx 0,07 s, `stream_lost` Δ 0, `db_full` Δ 0, `memory.events` do store 0/0, feed global
+p99 327 ms e 0 `stream.dropped` lido de dentro do finger-01). O custo de CPU do store com o bot assinando ficou
+abaixo da resolução da medida (45,3 → 44,0% de um núcleo). No trecho hostil o teto do índice segurou
+(`bot_index_bytes` máx 384,00 MiB, 29 243 despejos por bytes, bot em 733 MiB de `anon` sem OOM) e o forwardAuth
+manteve as metas na janela (p99 44,8 ms), mas **uma meta falhou: o health não voltou a `ok` 60 s depois do trecho
+hostil** (ficou `degraded` com `index bytes` por 7 min 23 s; ver abaixo). Reportado ao architect (escalonamento 5 da
+spec 002), sem mudar limites nem regras.
+
+**Gerador limitado (Mac).** O enlace do Mac estava em ~9 Mbit/s nos dois sentidos durante toda a tarefa (30 MB do
+finger-01 em 26,7 s; 10 MB do speed.cloudflare.com em 8,8 s; o finger-01 baixa 50 MB em 0,33 s). As conexões da
+carga passaram (100 novas/s entregues, 0 erros no cliente na janela oficial), mas os dois feeds do `loadgen`
+(`/ws` e `/sse`) e a amostragem da API não cabem no enlace: o store descarta para o cliente lento (`stream.dropped`)
+e o atraso medido no Mac sobe a 5–9 s. Como na ADR 0046, essas metas estão separadas abaixo como **falhas do
+cliente**, com a medida do espelho ao lado: um container no finger-01 (`botload feed`) lê o mesmo feed global do
+store pela 9001 sem passar pelo enlace do Mac.
+
+### Preparo e método
+
+- Servidor só para a carga (`/tmp/fs-load-running` segurado pelo vigia lateral `f8-side.sh` de 05:15 a 06:28 UTC);
+  bot em `MemoryMax=1G`, `GOMEMLIMIT=768MiB`, `CPUQuota=200%`, `FS_BOT_INDEX_MAX_BYTES=402653184`, `FS_BOT_VIEW_WAIT=100ms`.
+- Gerador do bot: `test/load/cmd/botload` (build tag `load`), binário estático importado como imagem
+  `fs-load-f8:285` (`docker import`, sem download) e rodado em containers temporários `fs-load-f8-<nome>` na rede
+  `network_public` (bridge `br-net-public`, origem 10.249.0.0/16 como o traefik), `--cpus 1`, `--memory 1g`, pelo
+  `test/load/f8-remote.sh`. O `traefik-app` não foi tocado; os containers e a imagem foram removidos no fim.
+- Chaves de teste (`load-f8-<nome>`, domínios `fs-load.example,*.hostile.fs-load.example`, `--rate 5000 --burst
+  10000 --daily 100000000`) criadas pela CLI do bot no servidor; o segredo fica só numa variável do shell remoto e
+  entra no container pela entrada padrão (nunca em argumento, arquivo ou log). As três chaves (smoke, auth, hostil)
+  foram revogadas no fim (`key list` mostra `revoked_at` 06:28:39).
+- `botload auth` (traefix simulado): lê `connection.opened` das portas 8080 e 8443 do feed do store (as conexões
+  reais da carga oficial), manda o `TraefikIngestBatch` da conexão (ClientHello e prefixo h2 de Chrome e curl dos
+  goldens do bot, origem e destino da conexão real) em lotes de 50 ms e só depois do 202 passa a mandar
+  `GET /bot/v1/auth` na 9003 com os `X-Fs-*`, `X-Fs-Ja4h`, `Authorization: Bearer` da chave e os cabeçalhos do
+  visitante (sem `Cookie`), a 200/s em passo uniforme, revezando as conexões ativas (até 16 requisições e 30 s por
+  conexão); depois de cada 200 manda o `type=request` no ingest; 20 consultas/s `GET /bot/v1/verdict` pela origem;
+  lê o feed SSE do bot (`site=fs-load.example`) e mede o atraso envio do forwardAuth → veredito no feed.
+- `botload hostile`: lotes de 40 conexões × 17 registros (~3,4 MB, abaixo de 1 024 registros e 4 MiB) com SNI,
+  entry point, ALPN, cifra, caminho de 256 bytes, UA de 512 bytes, seis campos de 512 bytes, nomes de campo e de
+  cookie, JA4H, router e service únicos, origem em 198.18.0.0/15.
+- `botload feed`: feed global do store (`/api/v1/stream`, sem filtros) lido no finger-01; atraso `ts` → chegada.
+- `loadmon` ganhou a linha do bot (CPU, memória, `nr_throttled`, `memory.events`); o `summary.md` mostra o bot na
+  tabela de CPU/RAM e a linha "RNF-02 (018)".
+
+| Rodada (UTC) | Perfil | Bot | Papel |
+| --- | --- | --- | --- |
+| smoke 05:09:07–05:10:37 | 200/50, 1m30s | auth 50/s, 45 s | conferência do gerador (não entra nas metas) |
+| [`cpu-f8-off`](results/cpu-f8-off/) 05:16:11–05:19:41 | 400/100, 3m30s | parado | item 3 |
+| [`cpu-f8-on`](results/cpu-f8-on/) 05:27:16–05:30:46 | 400/100, 3m30s | no ar, sem forwardAuth | item 3 |
+| prefill-f8 05:39:10–05:48:18 | 400/100, 9 min | auth 200/s | pré-aquecimento (relatório do loadgen interrompido na conferência, que pelo enlace do Mac levaria ~20 min) |
+| [`official-f8`](results/official-f8/) 05:51:59–06:01:59 (medida 05:52:59–06:01:59) | 400/100, 10 min | auth 200/s | **janela oficial da F8** |
+| [`hostile-f8`](results/hostile-f8/) 06:12:22–06:18:22 | 400/100, 6 min | auth 200/s + hostil 06:13:47–06:15:49 | item 4 |
+
+Os brutos do bot estão em [`results/f8-bot`](results/f8-bot/): `report-<janela>.md` (saída do `botload report`
+por janela, com as contas do heartbeat entre as duas coletas do health mais próximas), `bot_index.csv`
+(`bot_index_bytes` e despejos a cada 5 s), `bot_health.jsonl.gz`, `cgroup_side.txt.gz`, `store_metrics_side.txt.gz`
+e os logs dos containers. As amostras cruas (`samples.csv`, 30 MB; `feed_samples.csv`, 49 MB) ficaram fora do Git.
+
+```sh
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags load -o tmp/load/botload ./test/load/cmd/botload
+scp -P 48022 tmp/load/botload test/load/f8-remote.sh test/load/f8-side.sh root@finger-01.tmsoft.com.br:/tmp/fs-load-f8/
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh image && (setsid ./f8-side.sh &)'
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh start-nokey feed-main feed -duration 60m && ./f8-remote.sh start auth auth -duration 60m -rate 200 -query-rate 20'
+OUT=tmp/load/raw/official-f8 test/load/run.sh -commit v0.4.0-26-g8a4ca69 -rate 100 -max-active 400   # depois do prefill de 9 min
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh start hostile hostile -duration 2m -rate 80'
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh cleanup'   # containers, chaves e imagem
+go run -tags load ./test/load/cmd/botload report -dir <out-auth> -from <início> -to <fim> -health-before hb.json -health-after ha.json
+```
+
+### Metas do bot (itens 1, 2 e 4)
+
+forwardAuth no cliente = tempo do `GET /bot/v1/auth` medido no container (inclui a ida e volta na bridge); no
+servidor, fração de `bot_auth_seconds` abaixo do limite (buckets do heartbeat por diferença). A espera da RF-04
+não entrou em nenhuma requisição: `bot_view_wait_total` Δ 0 (`fork` e `tcp`), `bot_auth_wait_seconds` todo no
+primeiro bucket (≤ 1 ms; soma 5,7 s para 318 217 requisições, 18 µs em média) e `view.tcp=true` em 318 217 de
+318 217 respostas, então `bot_auth_seconds` − `bot_auth_wait_seconds` ≈ `bot_auth_seconds`.
+
+| Meta | Oficial (05:52:59–06:01:59) | Trecho hostil (06:13:47–06:15:49) | Resultado |
+| --- | --- | --- | --- |
+| forwardAuth p95 ≤ 10 ms | cliente 0,62 ms (n = 108 000, 0 erro); servidor 99,995% ≤ 10 ms | cliente 1,84 ms (n = 24 400, 0 erro); servidor 99,59% ≤ 10 ms | ok |
+| forwardAuth p99 ≤ 50 ms | cliente 1,62 ms (máx 84 ms); servidor 99,998% ≤ 50 ms | cliente 44,84 ms (máx 86 ms); servidor 99,90% ≤ 50 ms | ok |
+| `bot_auth_ja4h_total{source="header"}` = requisições | 318 217 = 318 217 forwardAuth 200 de 05:39:09 a 06:21:40 (`ingest` 0, `none` 0) | (incluído) | ok |
+| consulta `GET /bot/v1/verdict` p95 ≤ 50 ms | 0,31 ms (n = 10 873, 0 erro; máx 43 ms) | 0,38 ms (n = 2 461; máx 78 ms) | ok |
+| veredito no feed ≤ 1 s depois da primeira requisição | primeira requisição p99 1,27 ms, máx 80 ms (26 439); todas máx 86 ms; 0 sem veredito, 0 `stream.dropped` | primeira p99 39,9 ms, máx 74 ms | ok |
+| bot sem OOM, dentro de `MemoryMax=1G`/`GOMEMLIMIT=768MiB` | `anon` máx 537 MiB, `memory.current` 542 MiB; `memory.events` max/oom_kill Δ 0/0 | `anon` máx 733 MiB, `memory.current` 786 MiB (1 s, `hostile-f8`); Δ 0/0 | ok |
+| bot dentro de `CPUQuota=200%` | média 42,3%, p95 61,2%, máx 73,6% de um núcleo (`nr_throttled` +146, informativo) | média 60,2%, p95 103%, máx 145% (`nr_throttled` +240) | ok |
+| `bot_index_bytes` ≤ `FS_BOT_INDEX_MAX_BYTES` | máx 237,1 MiB (06:02:11) | máx 402 652 485 bytes (384,00 MiB) contra 402 653 184 | ok |
+| `bot_conns_evicted_total{reason="bytes"}` | Δ 0 no prefill e na janela oficial (`count` 0) | Δ 27 173 na janela, 29 243 no total | ok |
+| health `degraded` com `index bytes` durante | `ok` | `degraded` `["index bytes"]` desde 06:14:42 | ok |
+| health `ok` 60 s depois | — | **`ok` só às 06:23:12, 7 min 23 s depois do fim do trecho** | **falhou** |
+
+**Por que o health não voltou em 60 s.** O índice fica no teto enquanto as conexões hostis vivem (TTL 10 min). Com
+ele cheio, cada conexão nova do store (a carga oficial até 06:18:22, depois o fim dela e o tráfego da internet) entra
+despejando a mais antiga por bytes e renova os 60 s do `index bytes` (RF-11): despejos por bytes Δ ~1 970 de
+06:15:53 a 06:18:21, mais 87 depois disso; o último perto de 06:22:13, e o `ok` veio 60 s depois. O bot
+segue a regra da RF-11 como escrita; quem não fecha é a meta da tarefa ("`ok` 60 s depois") com o TTL de 10 min:
+depois de tráfego hostil, o health só volta quando o índice cai abaixo do teto (o despejo é pelas mais antigas, que
+são as legítimas de antes do trecho; as hostis vão saindo depois), o que leva até o TTL. Decisão do architect
+(manter a meta e mudar o critério do health, ou ajustar a meta). Com o índice no teto depois do trecho, o
+forwardAuth seguiu dentro das metas (06:15:49–06:18:22: p95 0,74 ms, p99 39,2 ms, máx 191 ms no cliente;
+servidor 99,39% ≤ 10 ms e 99,81% ≤ 50 ms), mas com cauda maior que antes do trecho (06:12:30–06:13:47: p99 0,77 ms,
+máx 3,9 ms): o bot passa a trabalhar perto do `GOMEMLIMIT` (`anon` 733 MiB) e o GC pesa.
+
+Detalhe do trecho hostil: 9 560 conexões únicas a 80/s (162 520 registros aceitos, 0 recusados, 239 lotes, ingest
+p50 93 ms / p99 241 ms, 0 erro). A taxa planejada era 50/s; como o índice tinha caído a 25 MiB no intervalo entre
+a janela oficial e esta rodada (a conferência do `loadgen` levou 10 min pelo enlace do Mac e o TTL esvaziou o
+índice), a taxa subiu para 80/s para passar do teto dentro dos 2 min (passou aos ~55 s, às 06:14:42). Por 10 s,
+o forwardAuth chegou a p95 28,9 ms / p99 63,5 ms (06:15:19–06:15:39, no log do container); na janela de 2 min as
+metas valem.
+
+### CPU do store com e sem o bot (item 3, ADR 0055 item 2)
+
+Duas rodadas iguais de 3m30s a 400/100 (3 min medidos), com o feed global lido no finger-01 nas duas:
+
+| Unit (% de um núcleo, média / p95 / máx) | bot parado (`cpu-f8-off`) | bot no ar (`cpu-f8-on`) | Δ média |
+| --- | --- | --- | --- |
+| store | 45,3 / 52,1 / 57,3 | 44,0 / 48,5 / 54,9 | −1,3 |
+| nats | 15,3 / 18,0 / 21,8 | 15,2 / 17,9 / 19,8 | −0,1 |
+| bot | — | 27,8 / 30,3 / 31,9 | +27,8 |
+| fatia | 111,7 / 124,1 / 139,5 | 134,4 / 142,7 / 146,6 | +22,7 |
+
+A 100 conexões/s, a diferença do store por conexão é −0,13 ms de CPU, dentro do ruído entre rodadas (o store
+publica `fs.v1.store.connection` com ou sem assinante; o NATS core descarta sem assinante quase de graça e a
+entrega a um assinante local não aparece na CPU do nats). Referência do benchmark da ADR 0055: 0,75 ms/conexão para
+publicar, já incluído nas duas rodadas. O bot sozinho custa ~2,8 ms de CPU por conexão do store (27,8% a 100/s),
+sem forwardAuth. Nas duas rodadas o lado do espelho ficou igual: `ingest_lag` p95 142 ms, `record_ready{close}` p95
+156 / 155 ms, feed global no finger-01 p99 327 / 327 ms e 0 `stream.dropped`.
+
+### Metas da ADR 0046 com o bot assinando (janela `official-f8`)
+
+| Meta | Medido no Mac (`summary.md`) | Medido no espelho | Resultado |
+| --- | --- | --- | --- |
+| feed p99 ws / sse < 1 s | 7 934 / 8 193 ms | feed global no finger-01 p99 327 ms, máx 587 ms (421 289 eventos); `live_delay` p50 220 ms | ok no espelho; **falhou (cliente)** |
+| `stream.dropped` 0 | 907 / 1 693 avisos | 0 no feed lido no finger-01 | ok no espelho; **falhou (cliente)** |
+| API p95 < 100 ms | 511 / 510 ms no cliente, 0 erro | servidor p95 1,0 / 1,0 ms | ok no espelho; **falhou (cliente)** |
+| registro p95 ≤ 500 ms | TCP 7 166, QUIC 7 291 ms (pelo feed do Mac) | `record_ready{close}` p95 156 ms, `{quic_close}` 166 ms; `ingest_lag` p95 142 ms | ok no espelho; **falhou (cliente)** |
+| probes sem registro 0 | 30 798 de 59 991 (sem `connection.closed` nos feeds do Mac; a consulta pela API correu atrás do expurgo de 10 min) | `fs_store_connections_total` Δ igual ao gerado por tipo: h1 9 000 → `http1.1` 9 001, h1tls 9 000 → 9 000, h2 11 996 → 11 996, h3 11 995 → 11 995, raw 18 000 → 18 073 (excedente = alheio) | ok no espelho; **falhou (cliente)** |
+| `degraded` 0 | 0 | — | ok |
+| conexões com erro no cliente 0 | 0 de 59 991 | — | ok |
+| conexões puladas pelo teto do gerador 0 | 9 | — | **falhou (cliente)** |
+| `dropped_events_total` 0, `kernel_drops` 0 | 0, 0 | — | ok |
+| `flows_dropped` sem crescer | Δ 0 (`evicted` e `table_full`) | — | ok |
+| `nr_throttled` sem crescer (units do espelho) | 0 em todas | — | ok |
+| `anon` < `MemoryMax` (MiB) | capture 11/512, web 41/768, raw 21/256, dns 5/256, store 179/6 144, nats 307/1 024, bot 537/1 024, fatia 1 099/10 240 | — | ok |
+| `memory.events` do store max / oom_kill Δ 0 | 0 / 0 | — | ok |
+| `fs_store_db_full_total` Δ 0 | 0 (prefill → fim da rodada hostil) | — | ok |
+| maior frame ≤ 1514 | 1514, `offload_suspect` 0 | — | ok |
+| expurgo depois de 10 min | 20 primeiros 404; a conferência "~9 min presentes" não achou probes nessa idade (rodou 10 min depois do fim, pela demora da conferência no enlace do Mac) | `purged_total{age}` +33 401 na janela, `size`/`space` 0; banco máx 2 366 MiB | ok no espelho; conferência de ~9 min não executável |
+| `stream_lost` Δ 0 | — | 0 de 05:39 a 06:28 | ok |
+| health do store sem `ingest backlog`/`stream lost` | 0 amostras fora de `ok` na janela | backlog máx 0,07 s na janela (0,18 s de 05:39 a 06:28), pendentes máx 23 | ok |
+
+Sem meta: CPU do store 45,0 / 48,9 / 56,1% (F7 sem bot: 50,6 / 58,2 / 64,2%), web 39,0%, nats 15,6%, bot 42,3%,
+fatia 151,2 / 172,0 / 187,2%; host 183% de um núcleo (11,4% dos 16 vCPU). O expurgo na janela (62/s) ficou abaixo
+das ~100/s criadas porque o prefill acabou 3,5 min antes da janela (a conferência do `loadgen` dele foi
+interrompida para emendar), e o banco ainda estava subindo para o regime.
+
+**Observação.** Na rodada `cpu-f8-on`, 1 probe h3 de 21 000 (`ldbbld9yvemwr7cr`, sem erro no cliente) não tinha
+registro na API no fim da rodada, e `fs_store_connections_total{proto="quic/h3"}` subiu 4 199 para 4 200 geradas
+(na `cpu-f8-off`, 4 198 para 4 200, com o probe achado; na janela oficial, 11 995 = 11 995). Fica anotado como
+possível perda de um QUIC pelo caminho IPv6 do Mac; não foi investigado nesta tarefa.
 
 ## finger-01, ADRs 0039, 0042 e 0043
 

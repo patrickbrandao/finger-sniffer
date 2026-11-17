@@ -29,8 +29,8 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/test/load/loadstat"
 )
 
-// units monitoradas (5 serviços + NATS).
-var units = []string{"capture", "web", "raw", "dns", "store", "nats"}
+// units monitoradas (5 serviços + NATS e, desde a F8, o bot; task 285).
+var units = []string{"capture", "web", "raw", "dns", "store", "nats", "bot"}
 
 func main() {
 	if len(os.Args) < 2 {

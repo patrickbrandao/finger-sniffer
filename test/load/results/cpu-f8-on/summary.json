@@ -1,0 +1,751 @@
+{
+ "commit": "v0.4.0-26-g8a4ca69",
+ "date": "2026-11-17T05:27:16Z",
+ "profile": "100 novas/s, até 400 simultâneas (máx. visto 397), vida 3.8s, 3 trocas, 3m30s com 30s de aquecimento descartado, mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac; 21000 abertas, 0 puladas",
+ "checks": [
+  {
+   "goal": "RNF-02",
+   "metric": "atraso do feed /ws (p99)",
+   "target": "\u003c 1000 ms",
+   "value": "p50 4527 / p95 7456 / p99 8553 / máx 9070 ms (n=44079)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-02*",
+   "metric": "atraso do feed /ws sem o connection.updated do raw.session (ts = accept), p99",
+   "target": "\u003c 1000 ms",
+   "value": "p50 4528 / p95 7454 / p99 8555 / máx 9070 ms (n=41520)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-02",
+   "metric": "stream.dropped /ws",
+   "target": "0",
+   "value": "569 avisos, 111284 eventos",
+   "pass": false
+  },
+  {
+   "goal": "RNF-02",
+   "metric": "atraso do feed /sse (p99)",
+   "target": "\u003c 1000 ms",
+   "value": "p50 4840 / p95 7415 / p99 8638 / máx 9799 ms (n=42813)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-02*",
+   "metric": "atraso do feed /sse sem o connection.updated do raw.session (ts = accept), p99",
+   "target": "\u003c 1000 ms",
+   "value": "p50 4842 / p95 7416 / p99 8638 / máx 9799 ms (n=40304)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-02",
+   "metric": "stream.dropped /sse",
+   "target": "0",
+   "value": "604 avisos, 111098 eventos",
+   "pass": false
+  },
+  {
+   "goal": "RNF-03",
+   "metric": "GET /connections/{id} no cliente (p95)",
+   "target": "\u003c 100 ms",
+   "value": "p50 102.8 / p95 502.1 / p99 808.9 / máx 1248.5 ms (n=539)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-03",
+   "metric": "GET /probes/{id} no cliente (p95)",
+   "target": "\u003c 100 ms",
+   "value": "p50 107.0 / p95 461.4 / p99 787.4 / máx 1390.3 ms (n=539)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-03",
+   "metric": "erros na amostragem da API",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-04",
+   "metric": "TCP: fim no cliente → connection.closed (p95)",
+   "target": "≤ 500 ms",
+   "value": "p50 4676 / p95 7483 / p99 8600 / máx 9102 ms (n=6707)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-04",
+   "metric": "QUIC: CONNECTION_CLOSE no cliente → connection.closed (p95)",
+   "target": "≤ 500 ms",
+   "value": "p50 4713 / p95 7397 / p99 8656 / máx 9072 ms (n=1594)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "probes sem registro",
+   "target": "0",
+   "value": "1 de 21000 (feed ws 5553, sse 5433, só API 11510)",
+   "pass": false
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "registros degraded da carga",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "conexões com erro no cliente",
+   "target": "0",
+   "value": "0 de 21000",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "conexões puladas pelo teto do gerador",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "dropped_events_total (todos os serviços, Δ)",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "kernel_drops do capture (Δ)",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "health: serviços fora de ok (amostras)",
+   "target": "0",
+   "value": "0",
+   "pass": true
+  },
+  {
+   "goal": "—",
+   "metric": "versão estável durante a medição (versions_match)",
+   "target": "1 versão",
+   "value": "v0.4.0-26-g8a4ca69",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "RAM por unit: anon máx (memory.current máx) / MemoryMax, MiB",
+   "target": "anon \u003c MemoryMax",
+   "value": "capture 11 (12)/512, web 41 (44)/768, raw 19 (21)/256, dns 4 (5)/256, store 169 (1036)/6144, nats 307 (310)/1024, bot 122 (124)/1024, slice 673 (1610)/10240",
+   "pass": true
+  },
+  {
+   "goal": "ADR 0045",
+   "metric": "memory.events do store: max / oom_kill (Δ na medição)",
+   "target": "0 / 0",
+   "value": "0 / 0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "cpu.stat nr_throttled por unit (Δ na medição)",
+   "target": "0 em todas",
+   "value": "capture 0, web 0, raw 0, dns 0, store 0, nats 0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-02 (018)",
+   "metric": "bot: nr_throttled / memory.events max / oom_kill (Δ na medição)",
+   "target": "— / 0 / 0",
+   "value": "0 / 0 / 0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-01",
+   "metric": "CPU do host (média / p95 / máx)",
+   "target": "informativo",
+   "value": "9.2 / 10.4 / 11.2 % do host (steal médio 0.0); 148 / 167 / 180 % de um núcleo (16 vCPU)",
+   "pass": true
+  },
+  {
+   "goal": "—",
+   "metric": "conntrack -S (Δ antes → depois: drop, insert_failed, early_drop, error)",
+   "target": "informativo",
+   "value": "drop 0, insert_failed 0, early_drop 0, error 0",
+   "pass": true
+  },
+  {
+   "goal": "RNF-05",
+   "metric": "idade (pelo início) do registro mais antigo durante a carga",
+   "target": "informativo",
+   "value": "737 s (retenção 600 s)",
+   "pass": true
+  },
+  {
+   "goal": "RNF-05",
+   "metric": "expurgo depois da retenção",
+   "target": "20 primeiros 404; ~9 min ainda 200",
+   "value": "antigos: 0 sumiram, 0 ficaram; ~9 min: 0 presentes, 0 sumiram",
+   "pass": false
+  },
+  {
+   "goal": "RNF-07",
+   "metric": "maior frame capturado (capture_max_frame_bytes)",
+   "target": "≤ 1514",
+   "value": "1514",
+   "pass": true
+  },
+  {
+   "goal": "RNF-07",
+   "metric": "offload_suspect (Δ capture, registros amostrados)",
+   "target": "0",
+   "value": "0 / 0 de 539",
+   "pass": true
+  }
+ ],
+ "usage": {
+  "bot": {
+   "cpu_mean_pct": 27.78212830891697,
+   "cpu_p95_pct": 30.282644410068233,
+   "cpu_max_pct": 31.890751973045138,
+   "mem_max_mib": 124.01953125,
+   "anon_max_mib": 122.3984375,
+   "memory_max_mib": 1024,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "capture": {
+   "cpu_mean_pct": 3.4263487913980883,
+   "cpu_p95_pct": 3.7412540910904473,
+   "cpu_max_pct": 3.9474197878493342,
+   "mem_max_mib": 11.6796875,
+   "anon_max_mib": 10.62109375,
+   "memory_max_mib": 512,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "dns": {
+   "cpu_mean_pct": 0.0706912267248496,
+   "cpu_p95_pct": 0.08266123188224722,
+   "cpu_max_pct": 0.09273663096923285,
+   "mem_max_mib": 4.6796875,
+   "anon_max_mib": 4.109375,
+   "memory_max_mib": 256,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "nats": {
+   "cpu_mean_pct": 15.152298518189731,
+   "cpu_p95_pct": 17.937162773718978,
+   "cpu_max_pct": 19.757494867351554,
+   "mem_max_mib": 310.35546875,
+   "anon_max_mib": 307.40234375,
+   "memory_max_mib": 1024,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "raw": {
+   "cpu_mean_pct": 5.52178322191004,
+   "cpu_p95_pct": 6.293061232648085,
+   "cpu_max_pct": 9.465804783969142,
+   "mem_max_mib": 21.12109375,
+   "anon_max_mib": 19.44140625,
+   "memory_max_mib": 256,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "slice": {
+   "cpu_mean_pct": 134.44283955482246,
+   "cpu_p95_pct": 142.71060894662048,
+   "cpu_max_pct": 146.62238958302302,
+   "mem_max_mib": 1609.67578125,
+   "anon_max_mib": 672.56640625,
+   "memory_max_mib": 10240,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 906.44140625,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "store": {
+   "cpu_mean_pct": 44.04569490400948,
+   "cpu_p95_pct": 48.465113303417645,
+   "cpu_max_pct": 54.856170661953826,
+   "mem_max_mib": 1035.609375,
+   "anon_max_mib": 169.0625,
+   "memory_max_mib": 6144,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 866.4453125,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  },
+  "web": {
+   "cpu_mean_pct": 38.443874837576395,
+   "cpu_p95_pct": 40.61521085090008,
+   "cpu_max_pct": 42.67514712929071,
+   "mem_max_mib": 43.73828125,
+   "anon_max_mib": 40.64453125,
+   "memory_max_mib": 768,
+   "nr_throttled_delta": 0,
+   "shmem_max_mib": 0,
+   "memory_events_max_delta": 0,
+   "oom_kill_delta": 0,
+   "memory_max_source": "cgroup"
+  }
+ },
+ "decomposition_ms": {
+  "api GET /api/v1/connections/{conn_id} (servidor)": [
+   0.5008319467554077,
+   0.9515806988352745,
+   0.9916472545757073
+  ],
+  "api GET /api/v1/probes/{id} (servidor)": [
+   0.5084459459459459,
+   0.9660472972972973,
+   1.3961144013576137
+  ],
+  "cliente /ws (ts → chegada)": [
+   4527.475969,
+   7456.475933,
+   8553.381867
+  ],
+  "ingest_lag (ts → commit)": [
+   58.71055892262901,
+   141.5614204764179,
+   157.50926853822733
+  ],
+  "live_delay (ts → envio ao cliente)": [
+   368.1581464632917,
+   7289.237390662441,
+   9457.847478132497
+  ],
+  "record_ready{close} (fim → gravado)": [
+   72.23842634479655,
+   155.36925444461522,
+   270.9285984529723
+  ],
+  "record_ready{idle} (fim → gravado)": [
+   10000.00000000001,
+   10000.00000000001,
+   10000.00000000001
+  ],
+  "record_ready{quic_close} (fim → gravado)": [
+   122.68926373657676,
+   224.7195629848612,
+   297.9261254104427
+  ]
+ },
+ "health_deltas": {
+  "capture_kernel_drops_total": 0,
+  "capture_kernel_packets_total": 630203,
+  "capture_queue_freezes_total": 0,
+  "capture_truncated_total": 0,
+  "dropped_events_total/bot": 0,
+  "dropped_events_total/capture": 0,
+  "dropped_events_total/dns": 0,
+  "dropped_events_total/raw": 0,
+  "dropped_events_total/store": 0,
+  "dropped_events_total/web": 0,
+  "fs_store_connections_degraded_total": 0,
+  "fs_store_live_dropped_total": 290008,
+  "store_late_packets_total": 7227,
+  "store_stray_total": 184
+ },
+ "all_pass": false,
+ "generator": {
+  "conns": {
+   "h1": {
+    "launched": 3150,
+    "ok": 3150,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "http1.1": 1238
+    }
+   },
+   "h1tls": {
+    "launched": 3150,
+    "ok": 3150,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "tls/http1.1": 1514
+    }
+   },
+   "h2": {
+    "launched": 4200,
+    "ok": 4200,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "tls/h2": 2100
+    }
+   },
+   "h3": {
+    "launched": 4200,
+    "ok": 4200,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "quic/h3": 1789
+    }
+   },
+   "raw-banner": {
+    "launched": 2520,
+    "ok": 2520,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "raw": 1167
+    }
+   },
+   "raw-echo": {
+    "launched": 2100,
+    "ok": 2100,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "raw": 859
+    }
+   },
+   "raw-sink": {
+    "launched": 1680,
+    "ok": 1680,
+    "errors": {},
+    "degraded": 0,
+    "proto": {
+     "raw": 822
+    }
+   }
+  },
+  "feed_delay_ms": {
+   "sse": {
+    "n": 42813,
+    "mean": 5046.917035556597,
+    "p50": 4839.822424,
+    "p95": 7414.804329,
+    "p99": 8638.125131,
+    "max": 9798.855729
+   },
+   "sse/@fact": {
+    "n": 40304,
+    "mean": 5048.591527297011,
+    "p50": 4841.703582,
+    "p95": 7415.534815,
+    "p99": 8637.641867,
+    "max": 9798.855729
+   },
+   "sse/connection.closed": {
+    "n": 4349,
+    "mean": 5110.409898471604,
+    "p50": 4898.954559,
+    "p95": 7500.183051,
+    "p99": 8586.324472,
+    "max": 9674.210005
+   },
+   "sse/connection.opened": {
+    "n": 5919,
+    "mean": 5032.784372985794,
+    "p50": 4819.328399,
+    "p95": 7408.804606,
+    "p99": 8632.561533,
+    "max": 9674.223026
+   },
+   "sse/connection.updated": {
+    "n": 20572,
+    "mean": 5056.779423191163,
+    "p50": 4858.394276,
+    "p95": 7416.270254,
+    "p99": 8671.600678,
+    "max": 9798.855729
+   },
+   "sse/connection.updated/http1.1": {
+    "n": 2766,
+    "mean": 5017.88956669993,
+    "p50": 4804.936127,
+    "p95": 7387.700073,
+    "p99": 8717.959449,
+    "max": 9743.755839
+   },
+   "sse/connection.updated/quic/h3": {
+    "n": 5514,
+    "mean": 5070.076994260244,
+    "p50": 4868.096765,
+    "p95": 7419.8896,
+    "p99": 8631.571816,
+    "max": 9798.855729
+   },
+   "sse/connection.updated/raw": {
+    "n": 2509,
+    "mean": 5020.018384657621,
+    "p50": 4820.450072,
+    "p95": 7408.059315,
+    "p99": 8741.663952,
+    "max": 9740.314108
+   },
+   "sse/connection.updated/tls": {
+    "n": 2374,
+    "mean": 5055.425170595619,
+    "p50": 4835.695034,
+    "p95": 7450.536205,
+    "p99": 8724.167831,
+    "max": 9663.590731
+   },
+   "sse/connection.updated/tls/h2": {
+    "n": 4560,
+    "mean": 5070.160785731588,
+    "p50": 4897.189477,
+    "p95": 7384.446943,
+    "p99": 8688.340246,
+    "max": 9735.537939
+   },
+   "sse/connection.updated/tls/http1.1": {
+    "n": 2849,
+    "mean": 5080.884710779218,
+    "p50": 4895.583025,
+    "p95": 7423.787175,
+    "p99": 8654.647425,
+    "max": 9760.763682
+   },
+   "sse/http.request": {
+    "n": 11929,
+    "mean": 5012.9889109584865,
+    "p50": 4796.633502,
+    "p95": 7386.681882,
+    "p99": 8601.152678,
+    "max": 9477.087279
+   },
+   "sse/packet.stray": {
+    "n": 44,
+    "mean": 5259.65178218182,
+    "p50": 4816.983989,
+    "p95": 7244.765013,
+    "p99": 9553.262006,
+    "max": 9553.262006
+   },
+   "ws": {
+    "n": 44079,
+    "mean": 4838.036245808983,
+    "p50": 4527.475969,
+    "p95": 7456.475933,
+    "p99": 8553.381867,
+    "max": 9070.333116
+   },
+   "ws/@fact": {
+    "n": 41520,
+    "mean": 4839.431109206171,
+    "p50": 4528.300025,
+    "p95": 7454.383085,
+    "p99": 8554.516322,
+    "max": 9070.333116
+   },
+   "ws/connection.closed": {
+    "n": 4571,
+    "mean": 4866.197703084651,
+    "p50": 4596.138307,
+    "p95": 7446.76275,
+    "p99": 8629.453252,
+    "max": 8921.995429
+   },
+   "ws/connection.opened": {
+    "n": 6002,
+    "mean": 4830.101509355217,
+    "p50": 4521.068271,
+    "p95": 7426.425766,
+    "p99": 8534.722373,
+    "max": 8906.586581
+   },
+   "ws/connection.updated": {
+    "n": 21121,
+    "mean": 4849.991370456143,
+    "p50": 4534.890715,
+    "p95": 7494.569182,
+    "p99": 8557.460611,
+    "max": 9070.333116
+   },
+   "ws/connection.updated/http1.1": {
+    "n": 2857,
+    "mean": 4825.319534009453,
+    "p50": 4520.695759,
+    "p95": 7406.27236,
+    "p99": 8489.470776,
+    "max": 8885.860497
+   },
+   "ws/connection.updated/quic/h3": {
+    "n": 5688,
+    "mean": 4872.203845788148,
+    "p50": 4548.698336,
+    "p95": 7516.741589,
+    "p99": 8582.692679,
+    "max": 9054.187324
+   },
+   "ws/connection.updated/raw": {
+    "n": 2554,
+    "mean": 4815.288308433034,
+    "p50": 4506.039734,
+    "p95": 7482.652571,
+    "p99": 8544.410797,
+    "max": 8975.472773
+   },
+   "ws/connection.updated/tls": {
+    "n": 2418,
+    "mean": 4780.044504760545,
+    "p50": 4460.369505,
+    "p95": 7414.995486,
+    "p99": 8543.96561,
+    "max": 8891.672095
+   },
+   "ws/connection.updated/tls/h2": {
+    "n": 4621,
+    "mean": 4873.370850921223,
+    "p50": 4553.314438,
+    "p95": 7501.995319,
+    "p99": 8567.493544,
+    "max": 9070.333116
+   },
+   "ws/connection.updated/tls/http1.1": {
+    "n": 2978,
+    "mean": 4881.470789961378,
+    "p50": 4592.357542,
+    "p95": 7508.948176,
+    "p99": 8562.517762,
+    "max": 8898.763255
+   },
+   "ws/connection.updated/tls/raw": {
+    "n": 5,
+    "mean": 4874.737007199999,
+    "p50": 4897.335244,
+    "p95": 4898.420218,
+    "p99": 4898.420218,
+    "max": 4898.420218
+   },
+   "ws/http.request": {
+    "n": 12334,
+    "mean": 4810.7990546018345,
+    "p50": 4497.272673,
+    "p95": 7403.518258,
+    "p99": 8520.014551,
+    "max": 8906.052522
+   },
+   "ws/packet.stray": {
+    "n": 51,
+    "mean": 4883.871454901959,
+    "p50": 4842.763424,
+    "p95": 6936.464838,
+    "p99": 7702.715972,
+    "max": 7702.715972
+   }
+  },
+  "feed_dropped": {
+   "sse": [
+    604,
+    111098
+   ],
+   "ws": [
+    569,
+    111284
+   ]
+  },
+  "feed_errors": {
+   "sse": null,
+   "ws": null
+  },
+  "record_ms": {
+   "quic": {
+    "n": 1594,
+    "mean": 4782.746575282311,
+    "p50": 4713.259,
+    "p95": 7397.298,
+    "p99": 8656.052,
+    "max": 9072.354
+   },
+   "tcp": {
+    "n": 6707,
+    "mean": 4814.9078480691705,
+    "p50": 4675.858,
+    "p95": 7483.168,
+    "p99": 8600.404,
+    "max": 9101.822
+   }
+  },
+  "record_end_ms": {
+   "quic": {
+    "n": 1594,
+    "mean": 4771.550340961728,
+    "p50": 4700.177733,
+    "p95": 7385.183474,
+    "p99": 8644.382068,
+    "max": 9061.89266
+   },
+   "tcp": {
+    "n": 6707,
+    "mean": 4799.494151334421,
+    "p50": 4653.364746,
+    "p95": 7446.76275,
+    "p99": 8586.324472,
+    "max": 9091.376203
+   }
+  },
+  "api_ms": {
+   "GET /connections/{id}": {
+    "n": 539,
+    "mean": 153.51962708719853,
+    "p50": 102.787,
+    "p95": 502.134,
+    "p99": 808.873,
+    "max": 1248.473
+   },
+   "GET /probes/{id}": {
+    "n": 539,
+    "mean": 154.99959183673465,
+    "p50": 107.018,
+    "p95": 461.388,
+    "p99": 787.419,
+    "max": 1390.292
+   }
+  },
+  "api_errors": {},
+  "api_checks": {
+   "connections_checked": 539
+  },
+  "coverage": {
+   "probes": 21000,
+   "seen_ws": 5553,
+   "seen_sse": 5433,
+   "seen_api_only": 11510,
+   "missing": 1,
+   "missing_ids": [
+    "ldbbld9yvemwr7cr h3"
+   ],
+   "degraded": 0
+  },
+  "retention": {
+   "done": false,
+   "old_gone": 0,
+   "old_still": 0,
+   "recent_present": 0,
+   "recent_gone": 0,
+   "notes": null
+  }
+ }
+}
