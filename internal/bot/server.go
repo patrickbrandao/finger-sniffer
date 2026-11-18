@@ -127,8 +127,9 @@ func New(cfg Config, d Deps) *Server {
 	s.judge = newJudge(cfg, s.index, s.agg, s.hub, s.lists, d.Metrics, d.Now)
 	s.api = &API{
 		Keys: s.keys, Limiter: s.limiter, Index: s.index, Hub: s.hub, DB: d.DB, OpenAPI: d.OpenAPI,
-		Health: s.Health, Metrics: d.Metrics, Now: d.Now, ViewWait: cfg.ViewWait, Judge: s.judge,
+		Health: s.Health, Metrics: d.Metrics, Now: d.Now, ViewWait: cfg.ViewWait, Judge: s.judge, Log: d.Log,
 	}
+	s.judge.p0f.log = d.Log // linhas do ingest do traefix no log do serviço (task 302)
 	return s
 }
 

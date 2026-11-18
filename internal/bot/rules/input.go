@@ -42,6 +42,10 @@ type TLS struct {
 	JA4R string
 	// ALPN oferecido no ClientHello, na ordem.
 	ALPN []string
+	// ALPNUnknown diz que o ALPN oferecido não é conhecido (visão TLS só dos cabeçalhos do forwardAuth, sem
+	// X-Traefix-Alpn, ADR 0062 item 4): as regras que olham o ALPN não avaliam (nunca disparam por falta do dado).
+	// Omitido do JSON quando falso: as entradas golden das regras não mudam.
+	ALPNUnknown bool `json:",omitempty"`
 }
 
 // H2 é o prefixo h2 visto.
