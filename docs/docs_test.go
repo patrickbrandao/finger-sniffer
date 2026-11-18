@@ -915,18 +915,45 @@ func TestBotDoc(t *testing.T) {
 		"`invalid_key`", "`rate_limited`", "`not_found`", "`bad_request`", "`missing_fork_headers`",
 		"`payload_too_large`", "`forbidden_origin`", "`internal`", "Retry-After",
 		"X-Fs-Signature", "X-Fs-Timestamp", "X-Fs-Key-Prefix", "1 s, 5 s e 30 s", "4xx não repete",
-		"10.249.255.254:9003", "failOpen", "authResponseHeaders", "X-Fs-Verdict: unavailable", "tmsoftbrasil/traefix",
-		"spec 019", "ingestURL: https://finger-01.badblock.net.br:9002", ".finger-west-01.badblock.net.br:8443/p/",
+		"10.249.255.254:9003", "failOpen", "authResponseHeaders", "X-Traefix-Verdict: unavailable", "tmsoftbrasil/traefix",
+		"spec 019", "url: https://finger-01.badblock.net.br:9002/bot/v1/ingest/traefik", ".finger-west-01.badblock.net.br:8443/p/",
 		"mas não a ordem deles", "Automação não declarada de um Chrome real sai `human`", "Uso não comercial",
 		"7 dias e 1 hora", "`observe`", "`block`", "key create", "forget",
-		// forwardAuth do bot (ADR 0058): contrato 0.2.0, regras v1.3 (ADR 0060), X-Fs-Ja4h, chave por middleware e fail-open de 4xx
-		"versão\n0.2.0", "`v1.3`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook", "X-Fs-Ja4h", "fingerSniffer=true", "fingerSniffer: true", "apiKey=fsk_",
-		"address: https://finger-01.badblock.net.br:9002/bot/v1/auth", "reason=\"http_4xx\"",
-		"4xx **sem** `X-Fs-Verdict`", "403 **com** `X-Fs-Verdict`", "o `Cookie` e o `Authorization` do visitante nunca vão ao bot",
-		"só com um traefix sem `X-Fs-Ja4h`", "`fs_bot_auth_ja4h_total{source}`", "JA4T sem o MSS",
+		// forwardAuth do bot (ADRs 0058, 0062 e 0063): contrato 0.4.0, regras v1.3 (ADR 0060), perfil da spec 019
+		// com X-Traefix-*, fail-open de 4xx, visão TCP, latest e o processo de andar juntos, licença FoxIO
+		"versão\n0.4.0", "`v1.3`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook",
+		"X-Traefix-Ja4h", "X-Traefix-Ja4t", "X-Traefix-Alpn", "X-Traefix-Conn-Id",
+		"**Os backends leem só `X-Traefix-*`, nunca `X-Fs-*`.**", "fingerprint:\n      tcp: true", "rawBytes: true",
+		"timeout: 200ms", "authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]", "**nunca vazio**",
+		"requestHeaders:\n          Authorization: \"Bearer fsk_...\"", "denyRequiresResponseHeader: X-Traefix-Verdict",
+		"header: { name: X-Traefix-Verdict, value: unavailable }",
+		"address: https://finger-01.badblock.net.br:9002/bot/v1/auth", "traefik_forwardauth_failopen_total{reason=\"http_4xx\"}",
+		"4xx **sem** `X-Traefix-Verdict`", "403 **com** `X-Traefix-Verdict`", "o `Cookie` e o `Authorization` do visitante\nnunca vão ao bot",
+		"`fs_bot_auth_ja4h_total{source}`", "`fs_bot_auth_fingerprint_total{kind,source}`",
+		"`fs_bot_ingest_fingerprint_mismatch_total{kind}`", "`traefik_fingerprint_export_dropped_total{entrypoint,reason}`",
+		"JA4T sem o MSS", "`traefix.fingerprint/v1`", "`TraefikIngestBatch`", "`traefix.fingerprint/v2`",
+		"`tmsoftbrasil/traefix:latest`", "**andam juntos**", "`PT-nn`", "LicenseRef-FoxIO-1.1", "### Visão TCP do traefix",
 	} {
 		if !strings.Contains(doc, w) {
 			t.Errorf("bot.md sem %q", w)
+		}
+	}
+	// configuração antiga do traefix (antes das ADRs 0062 e 0063): não pode voltar a nenhum doc de docs/
+	files, _ := filepath.Glob("*.md")
+	sub, _ := filepath.Glob("*/*.md")
+	for _, f := range append(files, sub...) {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range []string{
+			"experimental.fingerSniffer", "fingerSniffer:", "fingerSniffer=", "forwardAuth.fingerSniffer",
+			"forwardauth.fingerSniffer", "apiKey", "headerPrefix: X-Fs-", "ingestURL", "fingersniffer_",
+			"X-Fs-Verdict: unavailable",
+		} {
+			if strings.Contains(string(data), w) {
+				t.Errorf("%s ainda cita a configuração antiga do traefix: %q", f, w)
+			}
 		}
 	}
 }
