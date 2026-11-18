@@ -138,6 +138,8 @@ primeiro uso ou no primeiro ciclo do heartbeat.
 | `fs_bot_ingest_records_total` | contador | registros do traefix aceitos pelo ingest |
 | `fs_bot_ingest_dropped_total` | contador | registros recusados no ingest (inválidos ou, com chave, de site fora dela), sem rejeitar o lote |
 | `fs_bot_ingest_parse_errors_total{part}` | contador | bytes ilegíveis num registro aceito, `part` = `client_hello` ou `h2_prefix` (a visão sai com `parse_error`) |
+| `fs_bot_ingest_ignored_total{type}` | contador | registros de tipo desconhecido num lote `traefix.fingerprint/v1`, ignorados sem contar como recusados (ADR 0063 item 2) |
+| `fs_bot_ingest_fingerprint_mismatch_total{kind}` | contador | fingerprint pronta do traefix diferente da calculada pelo bot dos bytes crus (ou JA4T do traefix diferente do store), `kind` = `ja3`, `ja3n`, `ja4`, `ja4r`, `ja4o`, `akamai` ou `ja4t` (ADRs 0062 e 0063) |
 | `fs_bot_store_feed_messages_total` | contador | mensagens `fs.v1.store.connection` recebidas do store |
 | `fs_bot_conns_evicted_total{reason}` | contador | conexões despejadas do índice antes do TTL: `reason` = `count` (`FS_BOT_MAX_CONNS`, 100 000) ou `bytes` (`FS_BOT_INDEX_MAX_BYTES`, 384 MiB); o vencimento normal pelo TTL não conta |
 | `fs_bot_index_bytes` | gauge | bytes contabilizados do índice (aproximação de ±25% do heap, ADR 0057 item 2); despejo por bytes nos últimos 60 s deixa o health `degraded` com `index bytes` |
