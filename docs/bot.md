@@ -2,18 +2,23 @@
 
 Derivado das specs [018](../specs/018-bot.md) (serviço bot), [019](../specs/019-requisitos-do-traefix.md)
 (traefix) e [020](../specs/020-api-de-vereditos.md) (API), das ADRs
-[0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md)
+[0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md)
 e do contrato [cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão
-0.2.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
+0.4.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
 
 O serviço `finger-sniffer-bot` junta a visão IP/TCP do espelho (o que o store viu da conexão: SYN, JA4T, p0f, TTL,
-MSS) com a visão de aplicação do **traefix** (o traefik modificado, projeto externo, imagem `tmsoftbrasil/traefix`:
-ClientHello cru, prefixo do h2, resumo de cada requisição), avalia sinais e devolve um **veredito explicável**: a
-classe, o score e a lista dos sinais que pesaram.
+MSS) com a visão de aplicação do **traefix** (o traefik modificado, projeto externo do humano, imagem
+`tmsoftbrasil/traefix`: ClientHello cru, prefixo do h2, SYN salvo, resumo de cada requisição), avalia sinais e
+devolve um **veredito explicável**: a classe, o score e a lista dos sinais que pesaram. O traefix é usado **como
+está** ([ADR 0062](../specs/decisions/0062-traefix-consumido-como-esta.md)): os recursos e formatos são dele,
+documentados no projeto traefix; aqui fica só o perfil de configuração usado com o bot ([abaixo](#guia-de-integração)).
 
 > **Uso não comercial** ([ADR 0053](../specs/decisions/0053-uso-nao-comercial-e-licencas.md)). A API e as chaves são
 > oferecidas sem cobrança e só para uso não comercial (campo `info.x-terms` do contrato). O JA4 é BSD-3-Clause; JA4H e
-> JA4T seguem a FoxIO License 1.1: uso comercial por terceiros exige licença da FoxIO e é responsabilidade deles.
+> JA4T seguem a FoxIO License 1.1: uso comercial por terceiros exige licença da FoxIO e é responsabilidade deles. Vale
+> também para o traefix, que calcula JA4H e JA4T e os põe em `X-Traefix-Ja4h` e `X-Traefix-Ja4t`: a imagem declara
+> `MIT AND Apache-2.0 AND LicenseRef-FoxIO-1.1` no rótulo OCI `licenses` e traz o `NOTICE` em
+> `/usr/share/licenses/traefix/`. O `p0f.fp` (LGPL) é lido pelo bot em tempo de execução, sem ser embutido.
 
 ## Portas
 
@@ -26,8 +31,9 @@ As duas ficam fora da captura. Na 9003 qualquer origem fora do loopback e de `FS
 `forbidden_origin`. Sem chave na 9003, o `site` vale para qualquer domínio e os limites são só os globais; um
 `Authorization` que não seja `Bearer fsk_...` é ignorado ali, porque um forwardAuth comum repassa os cabeçalhos do
 visitante (um `Basic` do próprio site não pode virar 401; [ADR 0055](../specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md)
-item 5). O forwardAuth do bot no traefix (`fingerSniffer: true`, [abaixo](#a-site-atrás-do-traefix-no-finger-01))
-já não manda o `Authorization` nem o `Cookie` do visitante. `Bearer fsk_...` inválida dá 401 nas duas portas.
+item 5). O forwardAuth do perfil ([abaixo](#a-site-atrás-do-traefix-no-finger-01)) já não manda o `Authorization`
+nem o `Cookie` do visitante, porque `authRequestHeaders` lista só os campos que o bot usa. `Bearer fsk_...` inválida
+dá 401 nas duas portas.
 
 ## O veredito
 
@@ -119,15 +125,18 @@ do bot:
 
 ### Limitações conhecidas
 
-- **forwardAuth sem JA4H na primeira requisição, só com um traefix sem `X-Fs-Ja4h`.** O traefik repassa ao
-  forwardAuth os cabeçalhos do visitante, mas não a ordem deles, então o bot não calcula o JA4H do pedido de auth.
-  O traefix calcula o JA4H antes dos middlewares e o manda em `X-Fs-Ja4h` (spec 019 RF-06); o bot usa esse valor
-  quando bem formado e, sem ele, o JA4H da última requisição da mesma conexão que o ingest já trouxe. Com um traefix
-  antigo, sem `X-Fs-Ja4h`, a primeira requisição de cada conexão fica sem JA4H e sem `ja4h_library`: curl numa
-  conexão nova sai com 50 (`library_client`, `suspect`) em vez de 70 e passa no modo `block`. A origem do JA4H em
-  cada forwardAuth está em `fs_bot_auth_ja4h_total{source}` ([metrics.md](metrics.md#bot)): `none` crescendo junto
-  com o tráfego indica traefix sem `X-Fs-Ja4h`. O feed e o webhook recebem o veredito uma vez por requisição, o
-  primeiro que sair (normalmente o do forwardAuth).
+- **A primeira requisição de cada conexão é julgada pelos cabeçalhos do traefix.** O traefix manda o registro de
+  conexão no lote junto com a primeira requisição, e o lote sai a cada 100 ms: no forwardAuth dessa requisição o
+  registro quase nunca chegou. O traefik repassa à auth os cabeçalhos do visitante, mas não a ordem deles, então o
+  bot usa o que o traefix calculou antes dos middlewares: `X-Traefix-Ja4h`, `X-Traefix-Ja4`, `X-Traefix-Ja3`,
+  `X-Traefix-H2`, `X-Traefix-Alpn` e `X-Traefix-Ja4t` (spec 019 RF-08). Sem `X-Traefix-Ja4h` vale o JA4H da última
+  requisição da mesma conexão que o ingest já trouxe; sem nenhum dos dois, a requisição fica sem `ja4h_library`
+  (curl numa conexão nova sairia com 50, `suspect`, em vez de 70). A origem de cada parte está em
+  `fs_bot_auth_ja4h_total{source}` e `fs_bot_auth_fingerprint_total{kind,source}` ([metrics.md](metrics.md#bot)):
+  `none` crescendo junto com o tráfego indica um traefix que não manda os cabeçalhos. O feed e o webhook recebem o
+  veredito uma vez por requisição, o primeiro que sair (normalmente o do forwardAuth).
+- **h3 sem JA4H e sem TCP.** Com `http3HeaderOrder` desligado (perfil atual, até a medida de custo da task 273), a
+  requisição h3 não tem `X-Traefix-Ja4h`; e h3 nunca tem visão TCP do traefix.
 - **JA4T medido com o MSS do caminho.** A base própria guarda o JA4T medido inteiro, mas o `known_client` compara
   sem o campo do MSS: um grampo de MSS no caminho (túnel, PPPoE) não tira o −20 de um navegador real; o MSS
   reduzido aparece só em `tunnel_mss`.
@@ -135,8 +144,9 @@ do bot:
   tem TLS, h2 e UA do Chrome: nenhum sinal de incoerência ou de lista dispara. Só os sinais de comportamento
   (`rate_high`, `interval_regular`, `route_breadth`, `no_reuse`) o pegam, quando há tráfego para isso. Desafio em
   JavaScript e CAPTCHA estão fora de escopo (spec 018).
-- **Cliente externo com o traefix** (caso c [abaixo](#c-site-externo-com-a-imagem-pública-do-traefix)) não tem a
-  visão IP/TCP: `view.tcp` é sempre `false` e os sinais de TCP (`ua_os_tcp_mismatch`, `tunnel_mss`) não aparecem.
+- **Cliente externo com o traefix** (caso c [abaixo](#c-site-externo-com-a-imagem-pública-do-traefix)): o espelho
+  não vê os pacotes dele. A visão TCP vem só do `fingerprint.tcp` do traefix ([abaixo](#visão-tcp-do-traefix)); sem
+  ela, `view.tcp` é `false` e os sinais de TCP (`ua_os_tcp_mismatch`, `tunnel_mss`) não aparecem.
 - UA fora das tabelas de família tende a `unknown` ou a sinais só de lista.
 
 ## Chaves
@@ -222,41 +232,56 @@ $ curl -s $BOT/bot/v1/openapi.yaml | head -3
 ### `GET /bot/v1/auth` (forwardAuth)
 
 Chamada pelo traefix, não pelo site. O sujeito é a requisição descrita por `X-Forwarded-Method`,
-`X-Forwarded-Host`, `X-Forwarded-Uri` e pelos `X-Fs-*` que o traefix acrescenta. O JA4H vem de `X-Fs-Ja4h`
-(opcional, calculado pelo traefix com a ordem dos campos recebida; malformado é ignorado) e, sem ele, da última
-requisição da mesma conexão no ingest. O bot espera as duas visões até `FS_BOT_VIEW_WAIT` (100 ms) e decide com o
-que tiver.
+`X-Forwarded-Host`, `X-Forwarded-Uri` e pelos `X-Traefix-*` que o traefix acrescenta: `Src-Ip`, `Src-Port`,
+`Dst-Port`, `Conn-Id` e `Proto` obrigatórios; `Ja4h`, `Ja4`, `Ja3`, `H2`, `Alpn` e `Ja4t` opcionais (malformado ou
+repetido é ignorado). De onde vem cada visão:
+
+| Visão | Ordem de preferência |
+| --- | --- |
+| JA4H | `X-Traefix-Ja4h`; senão a última requisição da conexão no ingest |
+| TLS e h2 | registro de conexão do ingest, se já chegou; senão `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn` (sem `-Alpn`, `ua_alpn_mismatch` não avalia) |
+| TCP | conexão casada no store (espelho); senão o `tcp` do registro do traefix; senão só o JA4T de `X-Traefix-Ja4t` |
+
+Na 9003 o bot espera até `FS_BOT_VIEW_WAIT` (100 ms) pelas visões que faltam (com `X-Traefix-Ja4`, só pela do
+store); na 9002 não espera o store, que nunca vê a conexão de um site externo.
+
+Os `X-Fs-*` antigos (`X-Fs-Src-Ip`, ..., `X-Fs-Ja4h`) são **obsoletos**: só valem quando não veio `X-Traefix-Conn-Id`
+e nunca se misturam com os `X-Traefix-*` ([ADR 0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md)
+item 1). Saem numa `/bot/v2`.
 
 ```console
 $ curl -si http://10.249.255.254:9003/bot/v1/auth \
     -H 'X-Forwarded-Method: GET' -H 'X-Forwarded-Host: www.example.com' -H 'X-Forwarded-Uri: /' \
-    -H 'X-Fs-Src-Ip: 198.51.100.23' -H 'X-Fs-Src-Port: 40000' -H 'X-Fs-Dst-Port: 443' \
-    -H 'X-Fs-Conn-Id: 01JC0X3K8V2T7Q9F4M6P1R5S10' -H 'X-Fs-Proto: h2' \
-    -H 'X-Fs-Ja4h: ge20nn020000_5594a17e7e7e_000000000000_000000000000' -H 'User-Agent: curl/8.7.1'
+    -H 'X-Traefix-Src-Ip: 198.51.100.23' -H 'X-Traefix-Src-Port: 40000' -H 'X-Traefix-Dst-Port: 443' \
+    -H 'X-Traefix-Conn-Id: 01JC0X3K8V2T7Q9F4M6P1R5S10' -H 'X-Traefix-Proto: h2' \
+    -H 'X-Traefix-Ja4h: ge20nn020000_5594a17e7e7e_000000000000_000000000000' -H 'User-Agent: curl/8.7.1'
 HTTP/1.1 200 OK
 Content-Type: application/json
 X-Fs-Score: 70
 X-Fs-Signals: ja4h_library,library_client
 X-Fs-Verdict: bot
+X-Traefix-Score: 70
+X-Traefix-Signals: ja4h_library,library_client
+X-Traefix-Verdict: bot
 
 {"class":"bot","score":70,...}
 ```
 
 | Resposta | Quando |
 | --- | --- |
-| 200 | modo `observe` (padrão, e sempre sem chave), ou `block` com classe diferente de `bot`; cabeçalhos `X-Fs-Verdict`, `X-Fs-Score`, `X-Fs-Signals` (ids separados por vírgula, até 1 KiB) e corpo `Verdict` |
-| 403 | chave em modo `block` e `class=bot`; mesmo corpo e sempre os cabeçalhos `X-Fs-Verdict`, `X-Fs-Score` e `X-Fs-Signals` |
-| 400 `missing_fork_headers` | falta algum `X-Fs-*` obrigatório (o pedido não veio do traefix ou a entrada não é coberta) |
-| 400 `bad_request` | `X-Fs-*` inválido, ou chave cujos domínios não casam com `X-Forwarded-Host` |
+| 200 | modo `observe` (padrão, e sempre sem chave), ou `block` com classe diferente de `bot`; cabeçalhos `X-Traefix-Verdict`, `X-Traefix-Score`, `X-Traefix-Signals` (ids separados por vírgula, até 1 KiB), os `X-Fs-*` equivalentes (obsoletos) e corpo `Verdict` |
+| 403 | chave em modo `block` e `class=bot`; mesmo corpo e sempre os cabeçalhos `X-Traefix-Verdict`, `X-Traefix-Score` e `X-Traefix-Signals` (e os `X-Fs-*` equivalentes) |
+| 400 `missing_fork_headers` | falta algum `X-Traefix-*` obrigatório (o pedido não veio do traefix ou a entrada não tem o bloco `fingerprint`) |
+| 400 `bad_request` | `X-Traefix-*` obrigatório inválido, ou chave cujos domínios não casam com `X-Forwarded-Host` |
 | 401 `invalid_key`, 403 `forbidden_origin`, 429 `rate_limited` | chave inválida ou revogada; origem fora da rede permitida na 9003; limite da chave |
 
-Nenhuma resposta de erro (400, 401, 403 `forbidden_origin`, 429, 5xx) traz `X-Fs-Verdict`: é o que o traefix usa
+Nenhuma resposta de erro (400, 401, 403 `forbidden_origin`, 429, 5xx) traz `X-Traefix-Verdict` nem `X-Fs-Verdict`: é o que o traefix usa
 para separar o bloqueio (403 do modo `block`, que volta ao visitante) de uma falha de configuração (fail-open,
 [abaixo](#a-site-atrás-do-traefix-no-finger-01)).
 
 ### `GET /bot/v1/verdict?src_ip=&src_port=&site=`
 
-Consulta pelo backend do site com a origem da conexão (os `X-Fs-Src-Ip` e `X-Fs-Src-Port` que o traefix acrescenta,
+Consulta pelo backend do site com a origem da conexão (os `X-Traefix-Src-Ip` e `X-Traefix-Src-Port` que o traefix acrescenta,
 ou o IP e a porta de origem vistos por quem recebe a conexão direto). Devolve o último veredito da conexão (o da
 última requisição dela). `wait=<ms>` (0–1000) espera a visão que falta.
 
@@ -274,7 +299,7 @@ $ curl -s -H "Authorization: Bearer $KEY" \
 
 ### `GET /bot/v1/verdict/conn/{fs_conn_id}`
 
-O mesmo, pelo id da conexão no traefix (`X-Fs-Conn-Id`, ULID de 26 caracteres). É a consulta mais direta para o
+O mesmo, pelo id da conexão no traefix (`X-Traefix-Conn-Id`, ULID de 26 caracteres). É a consulta mais direta para o
 backend atrás do traefix.
 
 ```console
@@ -349,15 +374,29 @@ data: {"kind":"stream.dropped","ts":"2026-11-16T12:00:31.000000000Z","dropped":1
 
 ### `POST /bot/v1/ingest/traefik`
 
-Envio em lote do traefix (`TraefikIngestBatch`, spec 019 RF-05): registros `type=connection` (ClientHello cru e
-prefixo do h2 em base64, SNI, ALPN) e `type=request` (resumo de cada requisição, sem valores de cookie,
-`Authorization`, query nem corpo). Responde 202 com `accepted` e `rejected`; registro inválido (ou, com chave, de
-site fora dela) é contado e ignorado sem rejeitar o lote. Lote acima de 4 MiB: 413. Não é chamado à mão; o traefix
-faz isso.
+Envio em lote do traefix, assíncrono (nunca atrasa nem falha uma requisição). Dois esquemas na mesma rota,
+escolhidos pelo campo `schema` do lote ([ADR 0062](../specs/decisions/0062-traefix-consumido-como-esta.md) item 2):
+
+| `schema` | Formato |
+| --- | --- |
+| `traefix.fingerprint/v1` | `TraefixFingerprintBatch`, o lote do traefix atual (registros `connection` e `request` em camelCase; tradução da cópia do esquema publicado pelo traefix, [`traefix-fingerprint-v1.schema.json`](../cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json)) |
+| ausente | `TraefikIngestBatch`, o formato anterior, mantido em `/bot/v1` para o simulador do e2e, a carga e clientes antigos |
+| outro valor | 400 `bad_request`, o lote inteiro |
+
+O registro `connection` traz o ClientHello e o prefixo do h2 (e o SYN, com `tcp`) em base64 quando `rawBytes` está
+ligado, além das fingerprints prontas; o `request` traz o resumo de cada requisição, sem valores de cookie,
+`Authorization`, query nem corpo. Com os bytes crus, vale a fingerprint calculada pelo bot (a base própria foi medida
+com esse código), e a divergência com a pronta conta em `fs_bot_ingest_fingerprint_mismatch_total{kind}`; sem eles,
+valem as prontas. Campos e tipos de registro desconhecidos são ignorados (`fs_bot_ingest_ignored_total{type}`), sem
+rejeitar o lote.
+
+Responde 202 com `accepted` e `rejected`; registro inválido (ou, com chave, de site fora dela) é contado e ignorado
+sem rejeitar o lote. Lote acima de 4 MiB: 413. Não é chamado à mão; o traefix faz isso.
 
 ```console
 $ curl -s -X POST http://10.249.255.254:9003/bot/v1/ingest/traefik -H 'Content-Type: application/json' \
-    -d '{"sender":"v3.6.2-traefix.1","records":[]}'
+    -d '{"schema":"traefix.fingerprint/v1","sender":"traefix/fork-point-218-g9f480d2e7",
+         "entryPoint":"websecure","sentAt":"2026-11-18T12:00:00.000000000Z","records":[]}'
 {"accepted":0,"rejected":0}
 ```
 
@@ -371,14 +410,15 @@ Corpo `{"error": "<código>", "detail": "..."}`:
 | `rate_limited` | 429 | balde ou cota diária da chave; `Retry-After` em segundos |
 | `not_found` | 404 | desconhecido, expirado (10 min) ou fora dos domínios da chave (indistinguíveis) |
 | `bad_request` | 400 | parâmetro inválido; no forwardAuth, também site fora da chave |
-| `missing_fork_headers` | 400 | forwardAuth sem os `X-Fs-*` do traefix |
+| `missing_fork_headers` | 400 | forwardAuth sem os `X-Traefix-*` do traefix |
 | `payload_too_large` | 413 | lote do ingest acima de 4 MiB |
 | `forbidden_origin` | 403 | origem fora das redes permitidas na 9003 |
 | `internal` | 500, 503 | falha interna; 503 com mais de 64 clientes no feed |
 
 ## Webhook
 
-Opcional por chave (`--webhook-url`, só `https`). Para cada veredito das classes escolhidas (padrão `bot` e
+Opcional por chave (`--webhook-url`, só `https`). Os cabeçalhos do webhook continuam `X-Fs-*`: não passam pelo
+traefix. Para cada veredito das classes escolhidas (padrão `bot` e
 `suspect`) de um site da chave, o bot faz um `POST` com o corpo `VerdictEvent` (o mesmo `data` do feed):
 
 ```http
@@ -461,79 +501,112 @@ Os três exemplos são conferidos por `docs/docs_test.go` contra assinaturas ger
 
 ## Guia de integração
 
+O perfil de configuração abaixo é o da [spec 019](../specs/019-requisitos-do-traefix.md) (RF-03 e RF-04). As opções
+são do traefix (`entryPoints.<nome>.fingerprint` e o `failOpen` do `forwardAuth`), documentadas no próprio projeto;
+aqui só o que o bot espera delas.
+
 ### a) Site atrás do traefix no finger-01
 
 Os sites do humano no finger-01 ficam atrás do container `traefik-app` (80/443). Com o traefix no lugar dele
-(spec 019; a troca começa só observando, task 273), cada conexão das entradas cobertas recebe um `fs_conn_id`, os
-dados vão ao bot pelo ingest na 9003, e cada requisição chega ao backend com `X-Fs-Src-Ip`, `X-Fs-Src-Port`,
-`X-Fs-Dst-Port`, `X-Fs-Conn-Id`, `X-Fs-Proto` e `X-Fs-Ja4h`. Os `X-Fs-*` que o visitante mandar são apagados antes de qualquer
-middleware, então o backend pode confiar neles.
+(a troca começa só observando, tasks 273 e 306), cada conexão das entradas cobertas (as que têm o bloco
+`fingerprint`) recebe um `connId`, os dados vão ao bot pelo ingest na 9003, e cada requisição chega ao backend com
+`X-Traefix-Src-Ip`, `X-Traefix-Src-Port`, `X-Traefix-Dst-Port`, `X-Traefix-Conn-Id`, `X-Traefix-Proto`
+(`h1`|`h2`|`h3`), `X-Traefix-Ja4h`, `X-Traefix-Ja3`, `X-Traefix-Ja4`, `X-Traefix-H2` (só em h2), `X-Traefix-Alpn`
+(só com TLS) e `X-Traefix-Ja4t` (com `tcp`).
 
-Configuração estática do traefix (também por flags `--experimental.fingersniffer.*` ou env
-`TRAEFIK_EXPERIMENTAL_FINGERSNIFFER_*`):
+**Os backends leem só `X-Traefix-*`, nunca `X-Fs-*`.** O traefix remove do cliente, antes de qualquer middleware,
+todo cabeçalho com o prefixo dele (`X-Traefix-`, em qualquer caixa e também com `_` no lugar de `-`), e só esse
+prefixo: um `X-Fs-Verdict` ou `X-Fs-Src-Ip` que chega ao backend pode ter sido forjado pelo visitante
+([ADR 0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md) item 1). Por isso o perfil
+não usa `headerPrefix` e fica no prefixo padrão.
+
+Configuração estática do traefix (por entrada; também por flags `--entrypoints.websecure.fingerprint.*` ou env
+`TRAEFIK_ENTRYPOINTS_WEBSECURE_FINGERPRINT_*`):
 
 ```yaml
-experimental:
-  fingerSniffer:
-    ingestURL: http://10.249.255.254:9003/bot/v1/ingest/traefik
-    entryPoints: [websecure]
-    # padrões: queueSize 4096, queueMaxBytes 16777216, batchSize 64, flushInterval 100ms, sendTimeout 2s
+entryPoints:
+  websecure:
+    address: ":443"
+    http3: {}
+    fingerprint:
+      tcp: true                  # visão TCP pelo SYN salvo (só Linux)
+      export:
+        url: http://10.249.255.254:9003/bot/v1/ingest/traefik
+        # headers:
+        #   Authorization: "Bearer fsk_..."   # opcional na 9003
+        rawBytes: true           # ClientHello, prefixo h2 e SYN crus: o bot calcula como o espelho
+        # padrões do traefix, iguais aos usados pelo bot:
+        # fields: [User-Agent, Accept, Accept-Language, Accept-Encoding, "Sec-CH-UA*", "Sec-Fetch-*"]
+        # queueSize: 4096, queueMaxBytes: 16777216, batchSize: 64, flushInterval: 100ms, sendTimeout: 2s
+      # http3HeaderOrder: false  # desligado até a medida de custo da task 273
 ```
 
 `10.249.255.254` é o IP do host na bridge `br-net-public` do traefik (`FS_BOT_INTERNAL_LISTEN=10.249.255.254/16`).
-O envio é assíncrono: o bot fora do ar nunca atrasa nem derruba uma requisição; o traefix só conta o descarte.
+O envio é assíncrono, uma tentativa por lote: o bot fora do ar nunca atrasa nem derruba uma requisição; o traefix só
+conta o descarte (`traefik_fingerprint_export_dropped_total`). `allowSensitiveFields` nunca é ligado.
 
-**Só observando** (sem forwardAuth): o backend já recebe os `X-Fs-*` e consulta o veredito quando quiser, de dentro
-da bridge, sem chave:
+**Só observando** (sem forwardAuth): o backend já recebe os `X-Traefix-*` e consulta o veredito quando quiser, de
+dentro da bridge, sem chave:
 
 ```sh
-curl -s "http://10.249.255.254:9003/bot/v1/verdict/conn/$X_FS_CONN_ID?wait=200"
+curl -s "http://10.249.255.254:9003/bot/v1/verdict/conn/$X_TRAEFIX_CONN_ID?wait=200"
 ```
 
-**Com forwardAuth** (veredito em cada requisição, nos cabeçalhos): o middleware `forwardAuth` com as opções do
-traefix para o bot (spec 019 RF-07 e RF-07a), por labels do Docker:
+**Com forwardAuth** (veredito em cada requisição, nos cabeçalhos), configuração dinâmica:
 
 ```yaml
-labels:
-  - traefik.http.middlewares.fs-bot.forwardauth.address=http://10.249.255.254:9003/bot/v1/auth
-  - traefik.http.middlewares.fs-bot.forwardauth.fingerSniffer=true
-  - traefik.http.middlewares.fs-bot.forwardauth.apiKey=fsk_...   # opcional na 9003; necessária para block
-  - traefik.http.middlewares.fs-bot.forwardauth.failOpen=true
-  - traefik.http.middlewares.fs-bot.forwardauth.timeout=200ms
-  - traefik.http.middlewares.fs-bot.forwardauth.authResponseHeaders=X-Fs-Verdict,X-Fs-Score,X-Fs-Signals
-  - traefik.http.routers.meusite.middlewares=fs-bot
+http:
+  middlewares:
+    bot:
+      forwardAuth:
+        address: http://10.249.255.254:9003/bot/v1/auth
+        timeout: 200ms                   # obrigatório: o padrão do traefix é 30 s
+        authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]   # nunca vazio
+        requestHeaders:
+          Authorization: "Bearer fsk_..."  # chave do site; para block, uma chave --mode block
+        authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
+        failOpen:
+          denyRequiresResponseHeader: X-Traefix-Verdict
+          header: { name: X-Traefix-Verdict, value: unavailable }
+  routers:
+    meusite:
+      middlewares: [bot]
 ```
 
-| Opção | Padrão | O que faz |
-| --- | --- | --- |
-| `fingerSniffer` | `false` | marca o middleware que fala com o bot; as opções `apiKey` e o fail-open de 4xx só valem com ela |
-| `apiKey` | vazia | chave do site, uma por middleware (cada site com os próprios domínios e modo); vai na requisição de auth como `Authorization: Bearer <apiKey>`. Na 9003 é opcional, mas sem ela o modo é sempre `observe`; na 9002 é obrigatória. A `apiKey` de `experimental.fingerSniffer` é só do ingest e não é herdada |
-| `failOpen` | `false` | falha do bot não derruba o site: a requisição segue ao backend com `X-Fs-Verdict: unavailable` |
-| `timeout` | 200 ms (com `failOpen`) | prazo da requisição de auth |
-| `authResponseHeaders` | — | cabeçalhos do bot copiados para o backend: `X-Fs-Verdict`, `X-Fs-Score`, `X-Fs-Signals` |
+Por labels do Docker, as mesmas opções em `traefik.http.middlewares.bot.forwardauth.*` (sintaxe na documentação do
+traefix, `forwardauth-failopen.md`) e `traefik.http.routers.meusite.middlewares=bot`.
 
-A requisição de auth leva os `X-Fs-*` (inclusive `X-Fs-Ja4h`, o que dá JA4H já na primeira requisição de cada
-conexão) e a `apiKey`; o `Cookie` e o `Authorization` do visitante nunca vão ao bot (só ao backend). O traefix
-recusa a configuração na carga se a `apiKey` estiver num `address` `http://` que não seja loopback nem IP privado
-(chave em claro), ou se faltar a `apiKey` num `address` público.
+| Opção | O que o bot espera |
+| --- | --- |
+| `timeout` | 200 ms; sem ele vale o padrão de 30 s do traefix e um bot lento seguraria o site |
+| `authRequestHeaders` | só os campos do visitante que o bot usa; **nunca vazio**: vazio mandaria o `Cookie` e o `Authorization` do visitante à auth. Os `X-Traefix-*` vão à auth sempre |
+| `requestHeaders.Authorization` | a chave, uma por middleware (cada site com os próprios domínios e modo). Na 9003 é opcional, mas sem ela o modo é sempre `observe`; na 9002 é obrigatória. O traefix recusa a carga com chave vazia (ou só `Bearer `) e com a chave num `http://` público |
+| `authResponseHeaders` | os três cabeçalhos do veredito copiados para o backend |
+| `failOpen.denyRequiresResponseHeader` | só uma negação que traz `X-Traefix-Verdict` volta ao visitante; qualquer outra falha segue ao backend |
+| `failOpen.header` | o cabeçalho posto pelo traefix quando não há veredito: `X-Traefix-Verdict: unavailable` |
 
-O backend lê então `X-Fs-Verdict` (`human`, `good_bot`, `bot`, `suspect`, `unknown`), `X-Fs-Score` e
-`X-Fs-Signals`. Com `failOpen`, o que acontece com cada resposta do bot:
+Os cabeçalhos do visitante na auth são só os de `authRequestHeaders`: o `Cookie` e o `Authorization` do visitante
+nunca vão ao bot (só ao backend). Os `X-Traefix-*` do fingerprint dão ao bot o JA4H, o TLS, o h2, o ALPN e o JA4T
+já na primeira requisição de cada conexão.
+
+O backend lê então `X-Traefix-Verdict` (`human`, `good_bot`, `bot`, `suspect`, `unknown` ou `unavailable`),
+`X-Traefix-Score` e `X-Traefix-Signals`. O que acontece com cada resposta do bot:
 
 | Resposta do bot | O que o traefix faz | O visitante vê |
 | --- | --- | --- |
 | 200 | copia `authResponseHeaders` e segue ao backend | o site |
-| 403 **com** `X-Fs-Verdict` (modo `block`, `class=bot`) | devolve o 403 do bot | o 403 |
-| 4xx **sem** `X-Fs-Verdict` (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) | segue com `X-Fs-Verdict: unavailable`, conta `fingersniffer_forwardauth_failopen_total{reason="http_4xx"}` e loga no máximo uma linha por minuto com o código e o `error` do corpo | o site |
-| 5xx, erro de rede, prazo vencido | segue com `X-Fs-Verdict: unavailable` (`reason` = `http_5xx`, `network`, `timeout`) | o site |
+| 403 **com** `X-Traefix-Verdict` (modo `block`, `class=bot`) | devolve o 403 do bot | o 403 |
+| 4xx **sem** `X-Traefix-Verdict` (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) | segue com `X-Traefix-Verdict: unavailable`, conta `traefik_forwardauth_failopen_total{reason="http_4xx"}` e loga no máximo uma linha por minuto por middleware | o site |
+| 5xx, erro de rede, prazo vencido | segue com `X-Traefix-Verdict: unavailable` (`reason` = `http_5xx`, `network`, `timeout`) | o site |
 
 Uma chave revogada, um domínio fora da chave ou o limite da chave estourado são falhas de quem opera o site, não
 decisões sobre o visitante: o site continua no ar, sem veredito, e o contador `http_4xx` do traefix mostra o problema.
-Trate `unavailable` como "sem veredito", nunca como `human`. Sem `fingerSniffer`, o `failOpen` vale só para rede,
-prazo e 5xx, e qualquer 4xx volta ao visitante como no traefik upstream (seguro para outro servidor de auth).
+Trate `unavailable` como "sem veredito", nunca como `human`. Sem `failOpen`, o forwardAuth se comporta como no
+traefik upstream (qualquer falha volta ao visitante), o que serve para outro servidor de auth, não para o bot.
 
-O 403 sai só para uma chave em modo `block` (`key create --mode block`) posta em `apiKey`; ligar `block` nos sites do
-humano é decisão e ação do humano (spec 019, "Fora de escopo"), não um passo deste guia.
+O 403 sai só para uma chave em modo `block` (`key create --mode block`) posta em `requestHeaders.Authorization`;
+ligar forwardAuth ou `block` nos sites do humano é decisão e ação do humano (spec 019, "Fora de escopo"), não um
+passo deste guia.
 
 ### b) Site externo, por probe
 
@@ -564,47 +637,111 @@ navegador coerente, mas não vê requisições feitas direto ao site por quem n�
 
 ### c) Site externo com a imagem pública do traefix
 
-Um site que roda o próprio traefik pode usar a imagem `tmsoftbrasil/traefix` e mandar a visão de aplicação à 9002
-com uma chave cujos domínios cubram os sites dele:
+Um site que roda o próprio traefik pode usar a imagem `tmsoftbrasil/traefix:latest` e mandar a visão de aplicação à
+9002 com uma chave cujos domínios cubram os sites dele. O perfil é o mesmo do caso a, com a 9002 e a chave
+obrigatória:
 
 ```yaml
-experimental:
-  fingerSniffer:
-    ingestURL: https://finger-01.badblock.net.br:9002/bot/v1/ingest/traefik
-    apiKey: fsk_...
-    entryPoints: [websecure]
+entryPoints:
+  websecure:
+    address: ":443"
+    fingerprint:
+      tcp: true                  # recomendado: é a única visão TCP desse site
+      export:
+        url: https://finger-01.badblock.net.br:9002/bot/v1/ingest/traefik
+        headers:
+          Authorization: "Bearer fsk_..."
+        rawBytes: true           # recomendado: sem o SYN cru não há palpite de SO
 ```
 
-O backend consulta pelo `X-Fs-Conn-Id` que o traefix dele acrescenta:
+O backend consulta pelo `X-Traefix-Conn-Id` que o traefix dele acrescenta:
 
 ```sh
 curl -s -H "Authorization: Bearer $KEY" \
-  "https://finger-01.badblock.net.br:9002/bot/v1/verdict/conn/$X_FS_CONN_ID?wait=500"
+  "https://finger-01.badblock.net.br:9002/bot/v1/verdict/conn/$X_TRAEFIX_CONN_ID?wait=500"
 ```
 
-O espelho não vê os pacotes desse site: o veredito tem só TLS, h2 e HTTP (`view.tcp=false`). Registros de sites
-fora da chave são recusados no ingest.
+Registros de sites fora da chave são recusados no ingest. O espelho não vê os pacotes desse site: o veredito tem
+TLS, h2 e HTTP do traefix e, com `tcp: true`, a visão TCP dele ([abaixo](#visão-tcp-do-traefix)).
 
-Para ter o veredito em cada requisição, o forwardAuth desse traefix aponta para a 9002 com a chave em `apiKey` (a
-mesma do ingest ou outra, desde que os domínios cubram o site; a do ingest não é herdada):
+Para ter o veredito em cada requisição, o forwardAuth desse traefix aponta para a 9002 com a chave em
+`requestHeaders.Authorization` (a mesma do ingest ou outra, desde que os domínios cubram o site):
 
 ```yaml
 http:
   middlewares:
-    fs-bot:
+    bot:
       forwardAuth:
         address: https://finger-01.badblock.net.br:9002/bot/v1/auth
-        fingerSniffer: true
-        apiKey: fsk_...
-        failOpen: true
         timeout: 200ms
-        authResponseHeaders: [X-Fs-Verdict, X-Fs-Score, X-Fs-Signals]
+        authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]
+        requestHeaders:
+          Authorization: "Bearer fsk_..."
+        authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
+        failOpen:
+          denyRequiresResponseHeader: X-Traefix-Verdict
+          header: { name: X-Traefix-Verdict, value: unavailable }
 ```
 
-Na 9002 a `apiKey` é obrigatória (o traefix recusa a carga sem ela). Com `fingerSniffer` e `failOpen`, um 401 de
-chave revogada ou um 429 de limite seguem ao backend com `X-Fs-Verdict: unavailable` (`http_4xx`) e não chegam ao
-visitante; só o 403 do modo `block` volta a ele. O prazo de 200 ms inclui a ida e volta pela internet até o
-finger-01: meça antes de ligar `block`.
+Na 9002 a chave é obrigatória. Com o `failOpen`, um 401 de chave revogada ou um 429 de limite seguem ao backend com
+`X-Traefix-Verdict: unavailable` (`http_4xx`) e não chegam ao visitante; só o 403 do modo `block` volta a ele. Na
+9002 o bot não espera o store. O prazo de 200 ms inclui a ida e volta pela internet até o finger-01: meça antes de
+ligar `block`.
+
+### Visão TCP do traefix
+
+Com `fingerprint.tcp: true` (só Linux), o traefix guarda o SYN de cada conexão e manda no registro de conexão o
+`tcp.ja4t`, o `tcp.p0f` (`raw_sig` do p0f v3), o TTL recebido, o RTT e, com `rawBytes`, o SYN cru; o JA4T vai
+também em `X-Traefix-Ja4t`. O bot tira daí o JA4T, o TTL inicial, o MSS e seus derivados (como o store, spec 013) e
+o palpite de SO do p0f pelo SYN cru, com o mesmo `p0f.fp` do store (`FS_BOT_P0F_DB`). Isso alimenta
+`ua_os_tcp_mismatch`, `tunnel_mss` e `known_client` ([ADR 0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md)
+item 5).
+
+- No finger-01 a visão do **store** vence quando a conexão casa (o espelho vê todos os pacotes); a do traefix fica
+  como reserva e conferência, e um JA4T diferente conta em `fs_bot_ingest_fingerprint_mismatch_total{kind="ja4t"}`.
+- Para site externo é a única visão TCP: `view.tcp` passa a `true`.
+- Só o JA4T do cabeçalho (registro de conexão ainda não chegou): JA4T e MSS, sem TTL nem SO.
+- Descartada quando `src.ip` do registro é loopback, link-local ou privado: o SYN é de um proxy local (ex.:
+  `docker-proxy`), não do cliente. Atrás de LB ou CDN o SYN é o do LB.
+- Não funciona com `proxyProtocol` na entrada, nem em h3, nem com SYN cookies.
+
+### Imagem, versão e o processo de andar juntos
+
+O traefix e o finger-sniffer **andam juntos** ([ADR 0062](../specs/decisions/0062-traefix-consumido-como-esta.md)
+itens 7 e 8, decisão do humano):
+
+- Roda-se sempre `tmsoftbrasil/traefix:latest`, no container de teste e no `traefik-app`, sem fixar tag nem digest.
+  A atualização da `latest` no finger-01 é do humano. Cada teste, e2e ou troca registra o digest e o `sender` vistos
+  (`traefix/fork-point-<n>-g<sha>`, também em `traefik version`), para diagnóstico.
+- Toda necessidade nova do finger-sniffer que dependa do traefix entra na seção "Pedidos ao traefix" da
+  [spec 019](../specs/019-requisitos-do-traefix.md) como um pedido `PT-nn` (estado `pedido` ou `entregue`), pelo
+  architect, e é avisada ao humano, que a implementa na `latest`.
+- O bot trata cada pedido como opcional até ele aparecer no dado (campo, cabeçalho, métrica): nunca falha sem ele, e
+  ignora campos e tipos de registro desconhecidos.
+- Mudança incompatível no lote ou nos cabeçalhos só com `schema` novo (`traefix.fingerprint/v2`, ...), combinado
+  antes (PT-01); campo, tipo de registro, cabeçalho ou valor novo mantém `v1`. O bot passa a aceitar o esquema novo
+  antes de o traefix publicá-lo.
+- Como a `latest` muda sem aviso a este repositório, `rejected`, `fs_bot_ingest_parse_errors_total` ou
+  `fs_bot_ingest_fingerprint_mismatch_total` subindo junto com um `sender` novo é regressão do traefix, reportada ao
+  humano.
+
+### Métricas do traefix
+
+Qualquer backend de métricas do traefik as expõe; são as que importam para a integração (spec 019 RF-10):
+
+| Métrica | O que mostra |
+| --- | --- |
+| `traefik_fingerprint_export_records_total{entrypoint,type}` | registros enviados ao bot |
+| `traefik_fingerprint_export_dropped_total{entrypoint,reason}` | descartes: `queue_full`, `send_error`, `http_4xx`, `http_5xx`, `too_large` |
+| `traefik_fingerprint_export_batches_total{entrypoint,code}` | lotes por código de resposta (`error` sem resposta) |
+| `traefik_fingerprint_export_queue_records{entrypoint}` | registros na fila |
+| `traefik_fingerprint_export_send_seconds{entrypoint}` | duração do envio de cada lote |
+| `traefik_fingerprint_capture_truncated_total{entrypoint,part}` | capturas truncadas: `client_hello`, `h2_prefix`, `headers` |
+| `traefik_forwardauth_failopen_total{middleware,reason}` | fail-open do forwardAuth: `timeout`, `network`, `http_5xx`, `http_4xx` |
+
+Do lado do bot, `fs_bot_auth_fingerprint_total{kind,source}` e `fs_bot_ingest_fingerprint_mismatch_total{kind}`
+mostram de onde veio cada visão e se as fingerprints prontas do traefix batem com as calculadas
+([metrics.md](metrics.md#bot)).
 
 ## Retenção e dados pessoais
 
@@ -634,5 +771,7 @@ por cerca de 10 min ([README](README.md)); a API do bot não muda isso.
 
 ## Métricas
 
-As métricas `fs_bot_*` (vereditos por classe e origem, latência do forwardAuth e origem do JA4H em
-`fs_bot_auth_ja4h_total{source}`, ingest, índice, listas, webhook, chaves, banco) estão em [metrics.md](metrics.md#bot).
+As métricas `fs_bot_*` (vereditos por classe e origem, latência do forwardAuth, origem do JA4H em
+`fs_bot_auth_ja4h_total{source}` e de cada visão em `fs_bot_auth_fingerprint_total{kind,source}`, ingest com
+`fs_bot_ingest_fingerprint_mismatch_total{kind}`, índice, listas, webhook, chaves, banco) estão em
+[metrics.md](metrics.md#bot); as do traefix, [acima](#métricas-do-traefix).
