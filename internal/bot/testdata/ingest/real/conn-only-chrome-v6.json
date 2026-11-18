@@ -1,0 +1,47 @@
+{
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "entryPoint": "fstest",
+  "sentAt": "2026-11-18T12:59:56.44039325Z",
+  "records": [
+    {
+      "type": "connection",
+      "connId": "01M7QBW4J9WRSDSTP9508JCTWM",
+      "time": "2026-11-18T12:59:56.361458519Z",
+      "entryPoint": "fstest",
+      "src": {
+        "ip": "2001:db8:4400::5db6",
+        "port": 58489
+      },
+      "dst": {
+        "ip": "2804:231c:e500:cafe::86",
+        "port": 18443
+      },
+      "tls": {
+        "sni": "finger-01.badblock.net.br",
+        "alpnOffered": [
+          "h2",
+          "http/1.1"
+        ],
+        "alpn": "h2",
+        "version": "TLS 1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "93bf9a33636058ab18cb203b612d0b66",
+        "ja3String": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,5-35-65037-16-11-10-43-45-51764-18-65281-27-0-51-23-13-17613,4588-29-23-24,0",
+        "ja3n": "bd4930bd9b000ee684830e44bab76fdf",
+        "ja3nString": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17613-51764-65037-65281,4588-29-23-24,0",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "ja4r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+        "ja4o": "t13d1517h2_acb858a92679_6c6f6a748ba6",
+        "clientHello": "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"
+      },
+      "tcp": {
+        "ja4t": "65535_2-1-3-1-1-8-4-0-0_1432_6",
+        "p0f": "6:53+11:0:1432:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:ecn,flow:0",
+        "ttl": 53,
+        "rttMicros": 19044,
+        "syn": "YAgDAAAsBjUgAQ24RAAAAAAAAAAAAF22KAQjHOUAyv4AAAAAAAAAhuR5SAvxrP7mAAAAALDC//9UYAAAAgQFmAEDAwYBAQgKzzIqlwAAAAAEAgAA"
+      }
+    }
+  ]
+}
