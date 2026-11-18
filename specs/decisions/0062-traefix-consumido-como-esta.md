@@ -1,6 +1,6 @@
 # 0062 — traefix consumido como está: esquema `traefix.fingerprint/v1`, fingerprints prontas no forwardAuth e perfil de configuração
 
-Status: aceita
+Status: aceita (prefixo `X-Fs-` do item 5 e visão TLS sem ALPN do item 4 substituídos pela 0063)
 Data: 2026-11-18
 
 ## Contexto

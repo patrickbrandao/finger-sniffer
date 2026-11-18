@@ -178,14 +178,16 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     (`fork-point-213-g5c011b2f3`) com formatos próprios; a spec 019 vira "Integração com o traefix" e o openapi do
     bot vai a 0.3.0 (aditivo). Frentes:
     - implementer-bot: ingest `traefix.fingerprint/v1` com ClientHello do QUIC e fingerprints prontas como reserva
-      (302) → forwardAuth com `X-Fs-Ja4`/`X-Fs-Ja3`/`X-Fs-H2` e espera só do store (303; em série pelo
-      `api.go`);
+      e visão TCP do traefix (302) → forwardAuth com `X-Traefix-*`, ALPN, JA4T e espera só do store (303; em série
+      pelo `api.go`);
     - tester: e2e simulado e carga com o esquema novo (304, depois de 302 e 303);
     - docs: `docs/bot.md` e guia de integração com o perfil da spec 019 (305, depois de 302 e 303);
     - infra + tester: traefix (`latest`, digest e `sender` registrados) num container à parte no finger-01,
       router de teste, medida de CPU,
       lotes reais em `testdata` e casos `TestF8TraefixReal` (273, depois de 302–304, com deploy do bot antes);
     - infra: troca do `traefik-app` para a `latest`, só observando (306, depois da 273).
+    Segunda entrega do traefix (`fork-point-218`, ADR 0063): `X-Traefix-*`, visão TCP, ALPN, prontas completas,
+    esquema publicado; pedidos PT-01 a PT-09 entregues, PT-10 pedido.
     Decisão do humano (P9, 2026-11-18): sempre `traefix:latest` e os dois projetos andam juntos; necessidades novas
     viram pedidos `PT-nn` na spec 019.
     Critério: os da spec 019; release `v0.5.1` depois da 273 (a 306 não bloqueia a release).

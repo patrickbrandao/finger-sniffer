@@ -108,15 +108,15 @@ repetidas do mesmo cliente.
 ### Fase F8 (ADRs 0047 e 0054)
 - RF-14: o traefix é externo (ADR 0054): não há código dele neste repositório nem passo próprio no verify ou no CI.
   Do lado de cá, o lado do bot é testado com lotes de exemplo dos dois esquemas (`traefix.fingerprint/v1` e
-  `TraefikIngestBatch`), lotes reais gravados do traefix (spec 019 RF-12) e requisições de forwardAuth com os `X-Fs-*`
-  simulados (inclusive `X-Fs-Ja4`/`X-Fs-H2`); os testes do traefix são os do projeto dele.
+  `TraefikIngestBatch`), lotes reais gravados do traefix (spec 019 RF-12) e requisições de forwardAuth com os
+  `X-Traefix-*` simulados (inclusive `-Ja4`, `-H2`, `-Alpn`, `-Ja4t`) e um caso com os `X-Fs-*` antigos; os testes do traefix são os do projeto dele.
 - RF-15: contratos: o passo valida também `cmd/finger-sniffer-bot/openapi.yaml` (Redocly) e o teste de contrato
   do bot confere as respostas das rotas contra ele.
 - RF-16: banco-modelo do bot (`database/sqlite/bot/`) como o do store (RF-06), com hash próprio.
 - RF-17: e2e da F8 (`--e2e`, depois do deploy do bot e do traefix no finger-01, task 273): veredito de curl, Go,
   python-requests, Chrome, Firefox e um Googlebot falso, pelo router de teste do traefix (forwardAuth em `observe` e
   consulta) e por probe; o traefix simulado manda `traefix.fingerprint/v1`; JA4/Akamai do traefix iguais aos do web
-  (`bot_ingest_fingerprint_mismatch_total` Δ 0); casamento traefix ↔ store ≥ 99%; fail-open com o bot parado; `X-Fs-*` forjado não chega ao
+  (`bot_ingest_fingerprint_mismatch_total` Δ 0); casamento traefix ↔ store ≥ 99%; fail-open com o bot parado; `X-Traefix-*` forjado não chega ao
   backend. Sem o traefix no finger-01, os casos dele pulam com aviso e os de probe e consulta rodam. Carga da F8: forwardAuth a 200
   requisições/s por 10 min com a carga oficial 400/100 do espelho ao mesmo tempo (RNF da spec 018).
 

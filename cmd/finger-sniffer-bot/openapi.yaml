@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.3.0
+  version: 0.4.0
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -74,40 +74,64 @@ paths:
       summary: forwardAuth do traefik
       description: |
         Avalia a requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri` e pelos
-        `X-Fs-*` que o traefix acrescenta (spec 019 RF-05). Espera a visão até `FS_BOT_VIEW_WAIT` (100 ms). No modo
-        `observe` responde sempre 200; no modo `block`, 403 para `class=bot`. 400 `missing_fork_headers` sem os
-        `X-Fs-*`; 400 `bad_request` com chave cujos domínios não casam com `X-Forwarded-Host` (erro de configuração
-        do operador, ADR 0055). O JA4H vem de `X-Fs-Ja4h` quando bem formado e, sem ele, da última requisição da
-        conexão no ingest (ADR 0058). A visão TLS e h2 vem do registro de conexão do ingest e, antes dele, de
-        `X-Fs-Ja4`, `X-Fs-Ja3` e `X-Fs-H2` (sem ALPN oferecido); com eles, a espera só aguarda o store (ADR 0062
-        item 4). O 403 do modo `block` traz sempre os `X-Fs-*` do veredito; nenhuma resposta de
-        erro traz `X-Fs-Verdict` (o traefix usa isso no fail-open de 4xx, spec 019 RF-04).
+        `X-Traefix-*` que o traefix acrescenta (spec 019 RF-05 e RF-08). Os `X-Fs-*` antigos (obsoletos) só valem
+        quando `X-Traefix-Conn-Id` não veio, e nunca se misturam com os `X-Traefix-*` (ADR 0063 item 1). Origem
+        obrigatória: `Src-Ip`, `Src-Port`, `Dst-Port`, `Conn-Id` e `Proto` de um dos dois conjuntos; sem eles, 400
+        `missing_fork_headers`. Na 9003 espera a visão até `FS_BOT_VIEW_WAIT` (100 ms; com `X-Traefix-Ja4`, só a do
+        store); na 9002 não espera o store (ADR 0063 item 7). No modo `observe` responde sempre 200; no modo
+        `block`, 403 para `class=bot`. 400 `bad_request` com chave cujos domínios não casam com `X-Forwarded-Host`
+        (erro de configuração do operador, ADR 0055). O JA4H vem de `X-Traefix-Ja4h` quando bem formado e, sem ele,
+        da última requisição da conexão no ingest (ADR 0058). A visão TLS e h2 vem do registro de conexão do ingest
+        e, antes dele, de `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn`; a TCP, do store, senão do registro do traefix,
+        senão de `X-Traefix-Ja4t` (ADRs 0062 e 0063). Cabeçalho malformado ou repetido é ignorado. O 200 e o 403
+        do modo `block` trazem `X-Traefix-Verdict`, `-Score`, `-Signals` e os `X-Fs-*` equivalentes (obsoletos);
+        nenhuma resposta de erro traz `X-Traefix-Verdict` nem `X-Fs-Verdict` (o traefix usa isso no fail-open de
+        4xx, spec 019 RF-04).
       parameters:
-        - { name: X-Fs-Src-Ip, in: header, required: true, schema: { type: string } }
-        - { name: X-Fs-Src-Port, in: header, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
-        - { name: X-Fs-Dst-Port, in: header, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
-        - { name: X-Fs-Conn-Id, in: header, required: true, schema: { $ref: "#/components/schemas/ULID" } }
-        - { name: X-Fs-Proto, in: header, required: true, schema: { type: string, enum: [h1, h2, h3] } }
-        - name: X-Fs-Ja4h
+        - { name: X-Traefix-Src-Ip, in: header, required: false, schema: { type: string } }
+        - { name: X-Traefix-Src-Port, in: header, required: false, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: X-Traefix-Dst-Port, in: header, required: false, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: X-Traefix-Conn-Id, in: header, required: false, schema: { $ref: "#/components/schemas/ULID" } }
+        - { name: X-Traefix-Proto, in: header, required: false, schema: { type: string, enum: [h1, h2, h3] } }
+        - name: X-Traefix-Ja4h
           in: header
           required: false
-          description: JA4H completo da requisição calculado pelo traefix (spec 019 RF-05); malformado é ignorado.
+          description: JA4H completo da requisição calculado pelo traefix (spec 019 RF-05).
           schema: { type: string, pattern: "^[a-z0-9]{12}_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$" }
-        - name: X-Fs-Ja4
+        - name: X-Traefix-Ja4
           in: header
           required: false
-          description: JA4 (FoxIO) do ClientHello calculado pelo traefix, `t` em TCP e `q` em QUIC (ADR 0062); malformado ou repetido é ignorado.
+          description: JA4 (FoxIO) do ClientHello calculado pelo traefix, `t` em TCP e `q` em QUIC (ADR 0062).
           schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
-        - name: X-Fs-Ja3
+        - name: X-Traefix-Ja3
           in: header
           required: false
-          description: MD5 do JA3 calculado pelo traefix (ADR 0062); malformado ou repetido é ignorado.
+          description: MD5 do JA3 calculado pelo traefix (ADR 0062).
           schema: { type: string, pattern: "^[0-9a-f]{32}$" }
-        - name: X-Fs-H2
+        - name: X-Traefix-H2
           in: header
           required: false
-          description: Akamai h2 calculado pelo traefix, só em h2, no formato do web do espelho (ADR 0062); malformado ou repetido é ignorado.
+          description: Akamai h2 calculado pelo traefix, só em h2, no formato do web do espelho (ADR 0062).
           schema: { type: string, maxLength: 512 }
+        - name: X-Traefix-Alpn
+          in: header
+          required: false
+          description: ALPN oferecido no ClientHello, na ordem do cliente, separado por vírgula, com `%XX` fora do ASCII visível e para `,` e `%`; até 16 valores (ADR 0063 item 6).
+          schema: { type: string, maxLength: 1024 }
+        - name: X-Traefix-Ja4t
+          in: header
+          required: false
+          description: JA4T do SYN do cliente, com `fingerprint.tcp` no traefix (ADR 0063 item 5).
+          schema: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]{2,}$" }
+        - { name: X-Fs-Src-Ip, in: header, required: false, deprecated: true, schema: { type: string } }
+        - { name: X-Fs-Src-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: X-Fs-Dst-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
+        - { name: X-Fs-Conn-Id, in: header, required: false, deprecated: true, schema: { $ref: "#/components/schemas/ULID" } }
+        - { name: X-Fs-Proto, in: header, required: false, deprecated: true, schema: { type: string, enum: [h1, h2, h3] } }
+        - { name: X-Fs-Ja4h, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[a-z0-9]{12}_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$" } }
+        - { name: X-Fs-Ja4, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" } }
+        - { name: X-Fs-Ja3, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[0-9a-f]{32}$" } }
+        - { name: X-Fs-H2, in: header, required: false, deprecated: true, schema: { type: string, maxLength: 512 } }
         - { name: X-Forwarded-Host, in: header, schema: { type: string } }
         - { name: X-Forwarded-Uri, in: header, schema: { type: string } }
         - { name: X-Forwarded-Method, in: header, schema: { type: string } }
@@ -115,9 +139,12 @@ paths:
         "200":
           description: Requisição liberada (com o veredito nos cabeçalhos para `authResponseHeaders`).
           headers:
-            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdict" }
-            X-Fs-Score: { $ref: "#/components/headers/XFsScore" }
-            X-Fs-Signals: { $ref: "#/components/headers/XFsSignals" }
+            X-Traefix-Verdict: { $ref: "#/components/headers/XFsVerdict" }
+            X-Traefix-Score: { $ref: "#/components/headers/XFsScore" }
+            X-Traefix-Signals: { $ref: "#/components/headers/XFsSignals" }
+            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdictDeprecated" }
+            X-Fs-Score: { $ref: "#/components/headers/XFsScoreDeprecated" }
+            X-Fs-Signals: { $ref: "#/components/headers/XFsSignalsDeprecated" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Verdict" }
@@ -126,9 +153,12 @@ paths:
         "403":
           description: Modo `block` e `class=bot`.
           headers:
-            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdict" }
-            X-Fs-Score: { $ref: "#/components/headers/XFsScore" }
-            X-Fs-Signals: { $ref: "#/components/headers/XFsSignals" }
+            X-Traefix-Verdict: { $ref: "#/components/headers/XFsVerdict" }
+            X-Traefix-Score: { $ref: "#/components/headers/XFsScore" }
+            X-Traefix-Signals: { $ref: "#/components/headers/XFsSignals" }
+            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdictDeprecated" }
+            X-Fs-Score: { $ref: "#/components/headers/XFsScoreDeprecated" }
+            X-Fs-Signals: { $ref: "#/components/headers/XFsSignalsDeprecated" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Verdict" }
@@ -254,7 +284,7 @@ paths:
       summary: Envio em lote do traefix (spec 019 RF-06 e RF-07)
       description: |
         Dois esquemas, escolhidos pelo campo `schema` do lote (ADR 0062 item 2): `traefix.fingerprint/v1`
-        (`TraefixFingerprintBatch`, o formato do traefix) ou ausente (`TraefikIngestBatch`, formato anterior mantido
+        (`TraefixFingerprintBatch`, cópia do esquema do traefix) ou ausente (`TraefikIngestBatch`, formato anterior mantido
         em `/bot/v1`). Outro valor de `schema` → 400 `bad_request`.
       requestBody:
         required: true
@@ -328,6 +358,18 @@ components:
       schema: { type: integer, minimum: 0, maximum: 100 }
     XFsSignals:
       description: Ids dos sinais presentes, separados por vírgula (até 1 KiB).
+      schema: { type: string }
+    XFsVerdictDeprecated:
+      description: Igual a `X-Traefix-Verdict` (obsoleto, sai na `/bot/v2`; ADR 0063 item 1).
+      deprecated: true
+      schema: { type: string, enum: [human, good_bot, bot, suspect, unknown] }
+    XFsScoreDeprecated:
+      description: Igual a `X-Traefix-Score` (obsoleto, ADR 0063 item 1).
+      deprecated: true
+      schema: { type: integer, minimum: 0, maximum: 100 }
+    XFsSignalsDeprecated:
+      description: Igual a `X-Traefix-Signals` (obsoleto, ADR 0063 item 1).
+      deprecated: true
       schema: { type: string }
   parameters:
     Wait:
@@ -566,30 +608,45 @@ components:
         service: { type: [string, "null"] }
     TraefixFingerprintBatch:
       type: object
-      required: [schema, records]
+      required: [schema, sender, entryPoint, sentAt, records]
       description: |
-        Lote `traefix.fingerprint/v1`, formato do projeto traefix (spec 019 RF-06, ADR 0062). Campos sem valor são
-        omitidos; datas em RFC 3339 UTC com nanossegundos; bytes em base64. Campos desconhecidos são ignorados (o
-        formato é do traefix).
+        Lote `traefix.fingerprint/v1`, formato do projeto traefix. Tradução em componentes de
+        `traefix-fingerprint-v1.schema.json` do traefix no commit `9f480d2e7` (`fork-point-218`), copiado em
+        `cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json`; um teste do bot valida os lotes de exemplo
+        contra as duas formas (ADR 0063 item 3). O bot ignora campos e tipos de registro desconhecidos e lê só o da
+        spec 019 RF-07; aceita também registros que este esquema declararia incompletos, desde que tenham o que lê.
       properties:
         schema: { type: string, const: traefix.fingerprint/v1 }
-        sender: { type: string, description: "`traefix/<versão de traefik version>`." }
-        entryPoint: { type: string, description: Vale para os registros sem `entryPoint`. }
+        sender: { type: string, pattern: "^traefix/", description: "`traefix/fork-point-<n>-g<sha>`." }
+        entryPoint: { type: string }
         sentAt: { $ref: "#/components/schemas/Timestamp" }
         records:
           type: array
           maxItems: 1024
           items:
-            oneOf:
+            anyOf:
               - { $ref: "#/components/schemas/TraefixConnectionRecord" }
               - { $ref: "#/components/schemas/TraefixRequestRecord" }
+              - { $ref: "#/components/schemas/TraefixUnknownRecord" }
+    TraefixUnknownRecord:
+      type: object
+      required: [type]
+      description: Tipo de registro acrescentado depois, ignorado pelo bot (`bot_ingest_ignored_total{type}`).
+      properties:
+        type: { type: string, not: { enum: [connection, request] } }
+    TraefixJA4:
+      type: string
+      pattern: "^[tqd][0-9a-z?]{2}[di][0-9]{4}.{2}_[0-9a-f]{12}_[0-9a-f]{12}$"
+    TraefixMD5:
+      type: string
+      pattern: "^[0-9a-f]{32}$"
     TraefixConnectionRecord:
       type: object
-      required: [type, connId, time]
+      required: [type, connId, time, entryPoint, src, dst]
       description: |
-        Uma vez por conexão, na primeira requisição ou no fechamento sem requisição. Com `tls.clientHello` e
-        `http2.prefix` o bot calcula as fingerprints; sem eles usa `tls.ja4`, `tls.ja3` e `http2.akamai` (ADR 0062
-        item 3).
+        Uma vez por conexão, na primeira requisição ou no fechamento sem requisição. Com `tls.clientHello`,
+        `http2.prefix` e `tcp.syn` (`rawBytes`) o bot calcula as fingerprints; sem eles usa as prontas (ADRs 0062
+        item 3 e 0063 itens 4 e 5).
       properties:
         type: { type: string, const: connection }
         connId: { $ref: "#/components/schemas/ULID" }
@@ -606,58 +663,74 @@ components:
             alpn: { type: string }
             version: { type: string, description: "Nome IANA, ex.: `TLS 1.3`." }
             cipher: { type: string, description: Nome IANA. }
+            ja3: { $ref: "#/components/schemas/TraefixMD5" }
+            ja3String: { type: string, pattern: "^[0-9]+,[0-9-]*,[0-9-]*,[0-9-]*,[0-9-]*$" }
+            ja3n: { $ref: "#/components/schemas/TraefixMD5" }
+            ja3nString: { type: string, pattern: "^[0-9]+,[0-9-]*,[0-9-]*,[0-9-]*,[0-9-]*$" }
+            ja4: { $ref: "#/components/schemas/TraefixJA4" }
+            ja4r: { type: string, pattern: "^[tqd][0-9a-z?]{2}[di][0-9]{4}.{2}_" }
+            ja4o: { $ref: "#/components/schemas/TraefixJA4" }
             clientHello:
               type: string
               contentEncoding: base64
               description: Com `rawBytes`; registros TLS em TCP, mensagem de handshake pura em QUIC.
             clientHelloTruncated: { type: boolean }
-            ja3: { type: string, description: MD5 do JA3. }
-            ja3String: { type: string }
-            ja4: { type: string }
-            quicTransportParameters:
-              type: array
-              description: IDs na ordem do cliente (QUIC, com `rawBytes`); aceito sem uso nas regras.
-              items: { type: integer, minimum: 0 }
+            quicTransportParameters: { type: array, items: { type: integer, minimum: 0 } }
         http2:
           type: object
           properties:
-            prefix: { $ref: "#/components/schemas/Base64" }
+            akamai: { type: string, pattern: "^[^|]*\\|[^|]*\\|[^|]*\\|[^|]*$" }
+            headersPriority: { type: string, pattern: "^[0-9]+:[01]:[0-9]+:[0-9]+$" }
+            prefix: { type: string, contentEncoding: base64 }
             prefixTruncated: { type: boolean }
-            akamai: { type: string }
         http3:
           type: object
-          description: Com `http3HeaderOrder`; aceito sem uso nas regras.
           properties:
-            settings: {}
+            settings: { type: string }
+        tcp:
+          type: object
+          required: [ttl]
+          description: Com `fingerprint.tcp` (só Linux; ADR 0063 item 5).
+          properties:
+            ja4t: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]{2,}$" }
+            p0f:
+              type: string
+              description: "`raw_sig` do p0f v3 (sem palpite de SO)."
+              pattern: "^[46]:[0-9]+\\+[0-9?]+:[0-9]+:[0-9*]+:[^:]*,[0-9]+:[^:]*:[^:]*:[0+]$"
+            ttl: { type: integer, minimum: 0, maximum: 255 }
+            rttMicros: { type: integer, minimum: 0 }
+            syn:
+              type: string
+              contentEncoding: base64
+              description: SYN cru desde o cabeçalho IP (com `rawBytes`).
     TraefixRequestRecord:
       type: object
-      required: [type, connId, start]
+      required: [type, start, end, entryPoint, proto, method, path, httpVersion, status]
       description: Uma por requisição, no fim da resposta.
       properties:
         type: { type: string, const: request }
         connId: { $ref: "#/components/schemas/ULID" }
         start: { $ref: "#/components/schemas/Timestamp" }
         end: { $ref: "#/components/schemas/Timestamp" }
+        entryPoint: { type: string }
         proto: { type: string, enum: [h1, h2, h3] }
         method: { type: string }
         authority: { type: string }
         path: { type: string, maxLength: 256, description: Sem query. }
-        httpVersion: { type: string, description: "Ex.: `HTTP/1.1`." }
+        httpVersion: { type: string }
         fieldNames: { type: array, items: { type: string } }
         fields:
           type: array
-          description: |
-            Na ordem recebida, só os campos de `export.fields`; o bot guarda o primeiro valor de cada nome da lista
-            permitida (ADR 0062 item 2).
+          description: Na ordem recebida; o bot guarda o primeiro valor de cada nome da lista permitida.
           items:
             type: object
             required: [name, value]
             properties:
               name: { type: string }
-              value: { type: string, maxLength: 512 }
+              value: { type: string }
         cookieNames: { type: array, items: { type: string } }
-        ja4h: { type: string }
-        status: { type: integer, minimum: 0, description: "`0` quando a conexão foi assumida (ex.: WebSocket)." }
+        ja4h: { type: string, pattern: "^.{2}[0-9]{2}[cn][rn][0-9]{2}.+_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$" }
+        headersTruncated: { type: boolean }
+        status: { type: integer, minimum: 0, maximum: 999, description: "`0` quando a conexão foi assumida." }
         router: { type: string }
         service: { type: string }
-        headersTruncated: { type: boolean }

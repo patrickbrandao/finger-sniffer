@@ -87,7 +87,7 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 | NATS local | barramento | produtores guardam 30 s / 16 MiB e reenviam; depois descartam e contam `dropped_events` |
 | Store fora do ar | — | JetStream retém 60 s / 128 MiB em memória (ADRs 0016 e 0039); consumidor durável retoma |
 | ja4db (FoxIO) e listas de IP de robôs/nuvens | sinais de lista do bot (ADR 0050) | mantém a cópia anterior; health do bot `degraded` após 72 h |
-| Bot fora do ar | vereditos | forwardAuth do traefix em fail-open (`X-Fs-Verdict: unavailable`); o espelho segue sem mudança |
+| Bot fora do ar | vereditos | forwardAuth do traefix em fail-open (`X-Traefix-Verdict: unavailable`); o espelho segue sem mudança |
 | Receptores de webhook | entrega de vereditos | 3 novas tentativas, fila de 1000 por chave com descarte contado |
 
 ## Barramento (NATS)
@@ -158,7 +158,7 @@ NATS oficial fixado (ADR 0003).
 | Dependências vulneráveis | govulncheck no verify-full e CI | CI |
 | Dados de terceiros expostos (inclusive visitantes dos sites atrás do traefik, ADR 0038) | aceito (ADR 0007); retenção curta; proposta de ocultar o tráfego dos sites na API aberta à espera do humano (ADR 0052 item 6) | — |
 | Chave de API vazada ou abusada | só o SHA-256 no banco, chave mostrada uma vez, domínios por chave, balde e cota diária, `revoke`/`rotate` na CLI (ADR 0051) | testes de 401/404/429 |
-| Cabeçalhos `X-Fs-*` forjados pelo cliente | o traefix remove todo `X-Fs-*` de entrada antes dos middlewares (spec 019 RF-05); a 9003 só aceita loopback e a rede do traefik (spec 020 RF-01) | aceite do traefix, teste de origem do bot e e2e da F8 |
+| Cabeçalhos `X-Traefix-*` forjados pelo cliente | o traefix remove todo `X-Traefix-*` de entrada antes dos middlewares (spec 019 RF-05); o bot ignora `X-Fs-*` quando vêm os `X-Traefix-*` (ADR 0063); a 9003 só aceita loopback e a rede do traefik (spec 020 RF-01) | aceite do traefix, teste de origem do bot e e2e da F8 |
 | Agregados com dados pessoais retidos além do prazo | expurgo de hora em hora, teto de 7 dias, `forget` na CLI, minimização (ADR 0052) | teste com relógio falso |
 | Listas externas envenenadas ou vazias | validação de formato e tamanho, queda > 50% não substitui, só HTTPS (ADR 0050) | teste das listas |
 
