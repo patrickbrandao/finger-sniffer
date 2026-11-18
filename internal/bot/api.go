@@ -379,9 +379,13 @@ func parseForkHeaders(h http.Header) (forkHeaders, string, string) {
 }
 
 // decodeALPNHeader lê X-Traefix-Alpn: valores por vírgula, na ordem do cliente, com %XX fora do ASCII visível e
-// para `,` e `%` (ADR 0063 item 6); até 16 valores de até 255 bytes. Fora disso, ok é false (cabeçalho ausente).
+// para `,` e `%` (ADR 0063 item 6); até 16 valores de até 255 bytes. Presente e vazio é o ClientHello sem ALPN
+// (lista vazia conhecida, pedido PT-15 ao traefix). Fora disso, ok é false (cabeçalho ausente).
 func decodeALPNHeader(s string) ([]string, bool) {
-	if s == "" || len(s) > maxALPNHeader {
+	if s == "" {
+		return []string{}, true
+	}
+	if len(s) > maxALPNHeader {
 		return nil, false
 	}
 	parts := strings.Split(s, ",")

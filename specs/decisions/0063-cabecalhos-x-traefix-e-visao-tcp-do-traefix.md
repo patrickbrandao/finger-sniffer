@@ -1,6 +1,6 @@
 # 0063 — Cabeçalhos `X-Traefix-*`, visão TCP do traefix, ALPN no forwardAuth e esquema publicado pelo traefix
 
-Status: aceita
+Status: aceita (adendo de 2026-11-18: auditoria da v0.5.1)
 Data: 2026-11-18
 
 ## Contexto
@@ -109,3 +109,15 @@ A ADR 0054 item 3 só deixa mudar `/bot/v1` de forma aditiva; a ADR 0062 item 5 
   `headersPriority`, tipo de registro desconhecido).
 - Specs 001, 016, 017, 018, 019 e 020 ajustadas; tasks 302–305 e 273 revistas; `FS_BOT_P0F_DB` no `.env.example` delegado à
   302 (a unit do bot já lê `/finger-sniffer/etc` com `ProtectSystem=strict`; spec 016 RF-14).
+
+## Adendo (2026-11-18, auditoria da v0.5.1, task 307)
+Achados do reviewer na auditoria da v0.5.1 (sem bloqueante):
+1. **JA4T do cabeçalho com origem privada**: o descarte do item 5 vale também para `X-Traefix-Ja4t`; com
+   `X-Traefix-Src-Ip` loopback, link-local ou privado o JA4T do cabeçalho é ignorado (`tcp/none`), como no ingest.
+2. **`X-Traefix-Alpn` presente e vazio** = ClientHello com TLS e sem ALPN: lista vazia conhecida, e as regras de ALPN
+   avaliam; ausente continua desconhecido (item 6). A codificação da lista vazia vira o pedido PT-15 ao traefix.
+3. **Rótulos de `bot_auth_fingerprint_total`**: `kind` = `tls`|`h2`|`tcp`, `source` = `ingest`|`store`|`header`|`none`
+   (o `store` é a visão do espelho em conexão direta ou casada); spec 018 RF-12 corrigida.
+4. **ClientHello presente e ilegível** (ou cortado acima de 16 KiB) continua com `parse_error`, sem usar as prontas
+   (ADR 0062 item 3 mantida): caso raro, e o forwardAuth já tem `X-Traefix-Ja4`.
+5. **Fuzz dos parsers novos** (`parseTraefixRecord`, SYN, Akamai pronto, `X-Traefix-Alpn`): task 308.

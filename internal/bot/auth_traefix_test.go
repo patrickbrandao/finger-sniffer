@@ -89,6 +89,30 @@ func TestAuthTraefixHeaderFingerprints(t *testing.T) {
 			}
 		}
 	})
+	t.Run("empty alpn header", func(t *testing.T) {
+		f := newFixture(t)
+		// presente e vazio: ClientHello sem ALPN (lista vazia conhecida), as regras de ALPN avaliam
+		h := traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T4A", 50050, "h1", uaChrome)
+		h["X-Traefix-Ja4"], h["X-Traefix-Alpn"] = chrome.JA4, ""
+		if _, _, v, b := f.authVerdict("internal", "", h); !slices.Contains(ids(v), "ua_alpn_mismatch") {
+			t.Fatalf("X-Traefix-Alpn vazio sem ua_alpn_mismatch: %s", b)
+		}
+	})
+	t.Run("ja4t header from private origin", func(t *testing.T) {
+		f := newFixture(t)
+		// SYN de proxy local (ex.: docker-proxy): o JA4T do cabeçalho é descartado como no ingest (ADR 0063 item 5)
+		h := traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T4B", 50051, "h2", uaChrome)
+		h["X-Traefix-Src-Ip"] = "172.17.0.1"
+		h["X-Traefix-Ja4"], h["X-Traefix-H2"], h["X-Traefix-Alpn"] = chrome.JA4, chromeH2, "h2,http/1.1"
+		h["X-Traefix-Ja4t"] = ja4tFull
+		_, _, v, b := f.authVerdict("internal", "", h)
+		if v.View.TCP || v.Fingerprints.JA4T != nil {
+			t.Fatalf("JA4T do cabeçalho com origem privada usado: %s", b)
+		}
+		if n := f.metrics.Get(authFPMetric("tcp", fpNone)); n != 1 {
+			t.Errorf("tcp/none = %v", n)
+		}
+	})
 	t.Run("ja4t header", func(t *testing.T) {
 		f := newFixture(t)
 		h := traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T43", 50043, "h2", uaChrome)
@@ -294,7 +318,7 @@ func TestAuthTraefixWait(t *testing.T) {
 // TestDecodeALPNHeader: X-Traefix-Alpn com %XX, até 16 valores de até 255 bytes.
 func TestDecodeALPNHeader(t *testing.T) {
 	for in, want := range map[string][]string{
-		"h2,http/1.1": {"h2", "http/1.1"}, "%2C%25,h3": {",%", "h3"}, "a%C3%A9": {"aé"},
+		"h2,http/1.1": {"h2", "http/1.1"}, "%2C%25,h3": {",%", "h3"}, "a%C3%A9": {"aé"}, "": {},
 	} {
 		if got, ok := decodeALPNHeader(in); !ok || !slices.Equal(got, want) {
 			t.Errorf("%q: %v %v", in, got, ok)
@@ -304,7 +328,7 @@ func TestDecodeALPNHeader(t *testing.T) {
 	for i := range long {
 		long[i] = 'a'
 	}
-	for _, bad := range []string{"", "h2,,h3", "%zz", string(long), "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17"} {
+	for _, bad := range []string{"h2,,h3", "%zz", string(long), "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17"} {
 		if _, ok := decodeALPNHeader(bad); ok {
 			t.Errorf("%q aceito", bad)
 		}
