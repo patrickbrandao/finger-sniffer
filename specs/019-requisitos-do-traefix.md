@@ -1,4 +1,4 @@
-# 019 — Requisitos do traefix para o finger-sniffer
+# 019 — Integração com o traefix
 
 Status: aprovada
 Depende de: 001, 018, 020
@@ -8,168 +8,171 @@ O finger-sniffer é um espelho de análise de conexões; na fase F8 o serviço `
 vereditos de bot (humano, robô bom, robô, suspeito) a partir de como a conexão e as requisições chegaram: TLS
 (ClientHello → JA3/JA4), HTTP/2 (SETTINGS, ordem de pseudo-headers → Akamai), cabeçalhos (JA4H), TCP (JA4T, p0f) e
 comportamento. Os sites atrás de um traefik terminam o TLS no traefik: o espelho vê os pacotes, mas não o ClientHello
-nem o HTTP. O **traefix** é o traefik modificado, projeto externo mantido pelo humano (imagem
-`tmsoftbrasil/traefix`, ADR 0054), que copia esses dados para o bot e marca as requisições encaminhadas para o
-backend consultar o veredito.
+nem o HTTP. O **traefix** é o traefik modificado, projeto externo mantido pelo humano (`patrickbrandao/traefix`,
+imagem `tmsoftbrasil/traefix`, ADR 0054), que exporta esses dados e marca as requisições encaminhadas.
 
-Esta spec é a lista autossuficiente do que o traefix precisa oferecer. O contrato de dados é o
-[`cmd/finger-sniffer-bot/openapi.yaml`](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, `TraefikIngestBatch`,
-`TraefikRecord`, `GET /bot/v1/auth`). O cálculo de JA3/JA4/Akamai fica no bot; o traefix só copia bytes, exceto o
-JA4H (RF-04 e RF-06).
+O traefix é **consumido como está** (ADR 0062): os recursos e os formatos são do projeto traefix, documentados nele
+(`docs/content/reference/install-configuration/entrypoints-fingerprint.md` e
+`docs/content/reference/routing-configuration/http/middlewares/forwardauth-failopen.md`). Esta spec diz como o
+finger-sniffer usa a entrega: o perfil de configuração, o que o bot lê de cada parte, as divergências aceitas e os
+critérios de aceite. Versão de referência: `fork-point-213-g5c011b2f3` (`master` em `5c011b2f3`, sobre
+`v3.8.0-rc.3`), entregue em 2026-11-18.
 
-Termos: **entrada coberta** = entrada (`entryPoint`) listada em `experimental.fingerSniffer.entryPoints`; **bot** =
-o servidor de `ingestURL` e do forwardAuth.
+Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; **bot** = o servidor de
+`export.url` e do forwardAuth.
 
 ## Requisitos
-- RF-01: **base e compatibilidade**: traefik v3 numa tag estável do upstream, mesmo binário `traefik`, mesmas
-  opções, mesmas portas. Sem `experimental.fingerSniffer` e sem `failOpen` no `forwardAuth`, o comportamento é
-  idêntico ao do upstream (os testes do upstream dos pacotes tocados passam sem mudança). Tudo o que segue vale só
-  nas entradas cobertas, e nunca muda os bytes que o traefik lê ou escreve.
-- RF-02: **identificação da conexão**: cada conexão aceita numa entrada coberta recebe `fs_conn_id` (ULID, 26
-  caracteres Crockford base32) e `ts` do accept (RFC 3339 UTC com nanossegundos); `src` e `dst` (`ip`, `port`) são o
-  `RemoteAddr`/`LocalAddr` do socket (com o DNAT do Docker sem userland-proxy, a origem é a do cliente; com PROXY
-  protocol na entrada, a origem informada por ele); `entry_point` = nome da entrada. IPv4 em forma pontuada (não
-  mapeado em IPv6).
-- RF-03: **captura por conexão** (um registro `type=connection` por conexão, enviado quando o handshake TLS termina
-  e, no h2, quando o primeiro `HEADERS` termina, ou no fechamento, o que vier primeiro):
-  - TLS: `client_hello` = bytes crus do cliente desde o primeiro registro de handshake até o fim da mensagem
-    ClientHello, inclusive cabeçalhos de registro TLS e ClientHello fragmentado em vários registros ou leituras (até
-    16 KiB; acima, envia o prefixo e `client_hello_truncated=true`); `sni`, `alpn_offered` (na ordem do cliente),
-    `alpn` negociado, `tls_version` e `cipher` negociados (nomes IANA, ex.: `TLS 1.3`, `TLS_AES_128_GCM_SHA256`);
-  - h2: `h2_prefix` = bytes do cliente depois do prefácio (`PRI * HTTP/2.0...`) até o fim do primeiro frame `HEADERS`
-    (com os `CONTINUATION`), inclusive `SETTINGS`, `WINDOW_UPDATE` e `PRIORITY` anteriores, decifrados (até 16 KiB;
-    acima, prefixo e `h2_prefix_truncated=true`); h2c (sem TLS) também;
-  - a cópia é feita sobre os bytes já lidos pelo traefik (envoltório do `net.Conn`), para de copiar ao atingir o
-    limite ou o fim do que interessa e libera o buffer logo depois.
-- RF-04: **resumo por requisição** (um registro `type=request` por requisição, quando a resposta termina):
-  `fs_conn_id` da conexão, `ts` de início, `ended` de fim, `proto` (`h1`|`h2`|`h3`), `method`, `authority`, `path`
-  sem query (até 256 bytes), `http_version`, `field_names` (nomes dos campos na ordem recebida, como vieram, sem
-  pseudo-headers), `fields` com valores **só** de `User-Agent`, `Accept`, `Accept-Language`, `Accept-Encoding`,
-  `Sec-CH-UA*` e `Sec-Fetch-*` (até 512 bytes cada), `cookie_names` na ordem, `ja4h` completo (FoxIO, calculado no
-  traefix com os valores dos cookies, que nunca saem dele), `status`, `router` e `service` do traefik. Nunca enviar
-  valores de `Cookie`, `Authorization`, query nem corpo.
-- RF-05: **envio ao bot**: `POST` de `TraefikIngestBatch` (JSON, `Content-Type: application/json`) em `ingestURL`,
-  com `Authorization: Bearer <apiKey>` quando `apiKey` estiver definida e `sender` = versão do traefix (RF-09);
-  lote a cada 100 ms ou 64 registros, o que vier primeiro (no máximo 1024 registros e 4 MiB por lote); o registro de
-  conexão vai antes dos de requisição dela sempre que possível. Fila limitada por `queueSize` (4096 registros) e por
-  `queueMaxBytes` (16 MiB); fila cheia descarta o registro novo; prazo de 2 s por envio, uma tentativa só (erro de
-  rede, 4xx ou 5xx descartam o lote e contam). O envio é assíncrono: **nunca** atrasa nem falha uma requisição.
-- RF-06: **cabeçalhos ao backend** nas entradas cobertas: `X-Fs-Src-Ip`, `X-Fs-Src-Port`, `X-Fs-Dst-Port`,
-  `X-Fs-Conn-Id`, `X-Fs-Proto` (valores da RF-02/RF-04) e `X-Fs-Ja4h` (o JA4H completo da requisição, o mesmo
-  `ja4h` da RF-04, calculado antes dos middlewares com a ordem dos campos recebida; ADR 0058). Todo campo `X-Fs-*` vindo do cliente (qualquer caixa) é
-  removido antes dos middlewares, inclusive antes do forwardAuth, para o cliente não forjar origem nem veredito.
-- RF-07: **forwardAuth com fail-open**: opções novas `failOpen` (bool, padrão `false` = upstream) e `timeout`
-  (duração, padrão 200 ms com `failOpen`) no middleware `forwardAuth`. Os `X-Fs-*` da RF-06 (inclusive `X-Fs-Ja4h`)
-  vão também na requisição de auth. Com `failOpen`, erro de rede, prazo vencido ou 5xx do servidor de auth deixam a
-  requisição seguir ao backend com `X-Fs-Verdict: unavailable`; 2xx e 4xx seguem a regra do upstream (2xx libera e
-  copia `authResponseHeaders`; 4xx volta ao cliente), salvo no forwardAuth do bot (RF-07a).
-- RF-07a: **forwardAuth do bot** (ADR 0058): opção nova `fingerSniffer` (bool, padrão `false`) no `forwardAuth`.
-  Só com `fingerSniffer: true`:
-  - `apiKey` (string, por middleware; vazia = sem chave): a requisição de auth leva `Authorization: Bearer <apiKey>`;
-    `experimental.fingerSniffer.apiKey` é só do ingest e nunca é herdada;
-  - o `Cookie` e o `Authorization` do visitante nunca vão na requisição de auth (só ao backend, como no upstream);
-  - com `failOpen`, 4xx **sem** `X-Fs-Verdict` na resposta (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) é
-    erro de configuração ou limite do operador: segue ao backend com `X-Fs-Verdict: unavailable`, conta em
-    `fingersniffer_forwardauth_failopen_total{reason="http_4xx"}` e loga no máximo uma linha por minuto com o código
-    e o campo `error` do corpo JSON; só 4xx **com** `X-Fs-Verdict` (o 403 do modo `block`) volta ao cliente;
-  - a carga falha com mensagem clara se `apiKey` estiver definida num `address` `http://` cujo host não seja
-    loopback nem IP privado (chave em claro), ou vazia num `address` cujo host não seja loopback nem IP privado
-    (servidor público sem chave).
-  Sem `fingerSniffer`, `failOpen` vale só para rede, prazo e 5xx (seguro para outro servidor de auth).
-- RF-08: **configuração**, desligada por padrão, nas três formas do traefik (arquivo, flags `--experimental.
-  fingersniffer.*`, env `TRAEFIK_EXPERIMENTAL_FINGERSNIFFER_*`):
+- RF-01: **base e compatibilidade**: traefik v3, mesmo binário `traefik`, mesmas opções e portas; sem o bloco
+  `fingerprint` e sem `failOpen` no `forwardAuth`, comportamento do upstream. A entrega atual sai do `master` sobre
+  `v3.8.0-rc.3` (sem tag estável): aceita para o container de teste; para o `traefik-app` dos sites do humano,
+  pendência P9 (ADR 0062 item 8).
+- RF-02: **identificação da conexão**: `connId` (ULID de 26 caracteres) e `time` do accept (RFC 3339 UTC com
+  nanossegundos) por conexão; `src`/`dst` (`ip`, `port`) do socket ou do PROXY protocol (com o DNAT do Docker sem
+  userland-proxy, a origem é a do cliente); IPv4 em forma pontuada; o `connId` se mantém na migração de caminho do
+  QUIC. O bot casa com o store por `src`, porta de destino pública e início a menos de 5 s (spec 018 RF-04).
+- RF-03: **perfil de configuração estática** (por entrada coberta; flags `--entrypoints.<nome>.fingerprint.*` e env
+  `TRAEFIK_ENTRYPOINTS_<NOME>_FINGERPRINT_*` equivalentes):
   ```yaml
-  experimental:
-    fingerSniffer:
-      ingestURL: http://10.249.255.254:9003/bot/v1/ingest/traefik   # obrigatório para ligar
-      apiKey: ""               # obrigatório fora do finger-01 (9002)
-      entryPoints: [websecure] # entradas cobertas
-      queueSize: 4096
-      queueMaxBytes: 16777216  # 16 MiB
-      batchSize: 64
-      flushInterval: 100ms
-      sendTimeout: 2s
+  entryPoints:
+    websecure:
+      address: ":443"
+      http3: {}
+      fingerprint:
+        headerPrefix: X-Fs-        # obrigatório: nomes X-Fs-* da spec 020 (o padrão do traefix é X-Traefix-)
+        export:
+          url: http://10.249.255.254:9003/bot/v1/ingest/traefik   # site externo: https://finger-01.badblock.net.br:9002/...
+          headers:
+            Authorization: "Bearer fsk_..."  # opcional na 9003 (sem ela o modo é observe), obrigatória na 9002
+          rawBytes: true           # ClientHello e prefixo h2 crus: o bot calcula como o web do espelho
+          # padrões do traefix, iguais aos usados pelo bot:
+          # fields: [User-Agent, Accept, Accept-Language, Accept-Encoding, "Sec-CH-UA*", "Sec-Fetch-*"]
+          # queueSize: 4096, queueMaxBytes: 16777216, batchSize: 64, flushInterval: 100ms, sendTimeout: 2s
+        # http3HeaderOrder: false  # desligado até a medida de custo da task 273 (ADR 0062 item 5)
   ```
-  Dinâmica (middleware): `forwardAuth: { address: http://10.249.255.254:9003/bot/v1/auth, fingerSniffer: true,
-  apiKey: "fsk_...", failOpen: true, timeout: 200ms, authResponseHeaders: [X-Fs-Verdict, X-Fs-Score,
-  X-Fs-Signals] }` (na 9003 a `apiKey` é opcional, mas sem ela o modo é sempre `observe`; na 9002 é obrigatória). Configuração inválida (URL sem esquema,
-  entrada inexistente) falha na carga com mensagem clara, como as opções do upstream. No finger-01,
-  `10.249.255.254` é o IP do host na bridge `br-net-public` do traefik (`FS_BOT_INTERNAL_LISTEN=10.249.255.254/16`,
-  origens aceitas `10.249.0.0/16`, task 269).
-- RF-09: **imagem e versão**: `tmsoftbrasil/traefix` no Docker Hub, `linux/amd64` (outras arquiteturas opcionais),
-  binário estático, rótulos OCI `source`, `version`, `revision` e `licenses=MIT`; tags imutáveis por versão
-  `<tag-upstream>-traefix.<n>` (ex.: `v3.6.2-traefix.1`, nunca reescritas) além de `latest`; `traefik version` e o
-  `sender` do lote mostram a mesma versão. MIT e `NOTICE` com as mudanças, como o upstream.
-- RF-10: **métricas e logs** (no provedor de métricas do traefik, ex.: Prometheus):
-  `fingersniffer_ingest_records_total{type}`, `fingersniffer_ingest_dropped_total{reason}` (`queue_full`,
-  `send_error`, `http_4xx`, `http_5xx`, `too_large`), `fingersniffer_ingest_batches_total{code}`,
-  `fingersniffer_ingest_queue_records`, `fingersniffer_ingest_send_seconds` (histograma),
-  `fingersniffer_capture_truncated_total{part}` (`client_hello`, `h2_prefix`),
-  `fingersniffer_forwardauth_failopen_total{reason}` (`timeout`, `network`, `http_5xx`, `http_4xx`). Descarte gera no máximo uma
-  linha de log por minuto, com a contagem.
-- RF-11: **custo**: com tudo ligado, ≤ 5% de CPU a mais que o upstream no mesmo teste de TLS + h2 (benchmark do
-  traefix); memória extra por conexão ≤ 32 KiB enquanto captura e ~0 depois; fila dentro de `queueMaxBytes`;
-  forwardAuth com `failOpen` não acrescenta mais que o `timeout` no pior caso.
-- RF-12: **testes de aceite no traefix** (no CI do projeto traefix):
-  - unidade: ClientHello fragmentado em vários registros e em leituras de 1 byte, ClientHello > 16 KiB (truncado),
-    h2 com `CONTINUATION`, h2c, limites, conexão fechada antes do fim do handshake;
-  - envio: lote por tempo e por tamanho, fila cheia (descarta e conta), bot fora do ar e lento (prazo), 413/429/5xx do
-    bot, requisição nunca atrasada (latência igual com o bot fora);
-  - remoção de `X-Fs-*` do cliente (inclusive caixa misturada) e presença dos `X-Fs-*` no backend e na auth;
-    `X-Fs-Ja4h` igual ao `ja4h` do registro `type=request` da mesma requisição;
-  - fail-open: timeout, erro de rede e 5xx seguem com `X-Fs-Verdict: unavailable`; 4xx volta ao cliente; sem
-    `failOpen`, comportamento do upstream; com `fingerSniffer`: `Authorization: Bearer <apiKey>` na auth, sem
-    `Cookie` nem `Authorization` do visitante, 401/403/429 sem `X-Fs-Verdict` seguem com `unavailable` e contam
-    `http_4xx`, 403 com `X-Fs-Verdict` volta ao cliente, `apiKey` em `http://` público ou vazia em host público
-    falham na carga;
-  - contrato: cada lote gerado valida contra `TraefikIngestBatch` do openapi do bot (cópia do arquivo no teste);
-    `ja4h` igual ao da implementação de referência da FoxIO para os mesmos cabeçalhos;
-  - sem configuração: testes do upstream dos pacotes tocados passam;
-  - benchmark da RF-11.
-- RF-13: **segunda onda** (não bloqueia a primeira entrega; campos novos entram no contrato antes, de forma aditiva):
-  h3/QUIC — `client_hello` do Initial decifrado (CRYPTO frames do ClientHello do QUIC), transport parameters e os
-  primeiros frames dos streams de controle (`SETTINGS` do h3), `X-Fs-Proto: h3`, e o `fs_conn_id` mantido na migração
-  de caminho da conexão QUIC.
+  `allowSensitiveFields` nunca é ligado. No finger-01, `10.249.255.254` é o IP do host na bridge `br-net-public` do
+  traefik (`FS_BOT_INTERNAL_LISTEN=10.249.255.254/16`, origens aceitas `10.249.0.0/16`, task 269).
+- RF-04: **forwardAuth do bot** (middleware dinâmico):
+  ```yaml
+  http:
+    middlewares:
+      bot:
+        forwardAuth:
+          address: http://10.249.255.254:9003/bot/v1/auth
+          timeout: 200ms                   # obrigatório: o padrão do traefix é 30 s
+          authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]   # nunca vazio
+          requestHeaders:
+            Authorization: "Bearer fsk_..."  # chave da auth (modo block exige chave --mode block)
+          authResponseHeaders: [X-Fs-Verdict, X-Fs-Score, X-Fs-Signals]
+          failOpen:
+            denyRequiresResponseHeader: X-Fs-Verdict
+            header: { name: X-Fs-Verdict, value: unavailable }
+  ```
+  Comportamento esperado (o mesmo da ADR 0058): rede, prazo vencido e 5xx seguem ao backend com
+  `X-Fs-Verdict: unavailable`; 4xx sem `X-Fs-Verdict` (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) segue com
+  `unavailable`; só o 403 do modo `block`, que traz `X-Fs-Verdict`, volta ao cliente; `Cookie` e `Authorization` do
+  visitante não vão à auth (fora de `authRequestHeaders`); os `X-Fs-*` do fingerprint vão à auth sempre; os
+  `X-Fs-Verdict`/`X-Fs-Score` forjados pelo cliente não chegam ao backend; `requestHeaders` num `http://` público
+  falha na carga (use IP privado ou https). A recusa de chave vazia em host público não existe no traefix e é
+  aceita: o bot responde 401 e o fail-open de 4xx segue (ADR 0062 item 8).
+- RF-05: **cabeçalhos ao backend e à auth** (com `headerPrefix: X-Fs-`): `X-Fs-Src-Ip`, `X-Fs-Src-Port`,
+  `X-Fs-Dst-Port`, `X-Fs-Conn-Id`, `X-Fs-Proto` (`h1`|`h2`|`h3`), `X-Fs-Ja4h` (JA4H FoxIO com a ordem e a caixa
+  recebidas), `X-Fs-Ja3` (MD5 do JA3), `X-Fs-Ja4` (`t…` em TCP, `q…` em QUIC) e `X-Fs-H2` (Akamai, só em h2). Todo
+  cabeçalho do cliente com o prefixo, em qualquer caixa e também com `_` no lugar de `-`, é removido antes de
+  qualquer middleware. Em h3 sem `http3HeaderOrder`, sem `X-Fs-Ja4h`.
+- RF-06: **lote do ingest**: `POST` de `traefix.fingerprint/v1` (`schema`, `sender` = `traefix/<versão>`,
+  `entryPoint`, `sentAt`, `records`), JSON, uma tentativa por lote, assíncrono (nunca atrasa nem falha uma
+  requisição). Registros:
+  - `type: connection`, enviado na primeira requisição da conexão ou no fechamento sem requisição (inclusive
+    handshake interrompido): `connId`, `time`, `entryPoint`, `src`, `dst`, `proto`, `tls` (`sni`, `alpnOffered`,
+    `alpn`, `version`, `cipher` em nomes IANA, `clientHello` com `rawBytes` — com registros TLS em TCP, mensagem de
+    handshake pura em QUIC —, `clientHelloTruncated`, `ja3`, `ja3String`, `ja4`, `quicTransportParameters`),
+    `http2` (`prefix` com `rawBytes`, `prefixTruncated`, `akamai`), `http3` (`settings`, com `http3HeaderOrder`);
+  - `type: request`, no fim da resposta: `connId`, `start`, `end`, `proto`, `method`, `authority`, `path` (sem query,
+    até 256 bytes), `httpVersion`, `fieldNames`, `fields` (lista `{name, value}` na ordem recebida, valor até
+    512 bytes, só os de `fields`), `cookieNames`, `ja4h`, `status` (`0` com a conexão assumida), `router`,
+    `service`, `headersTruncated`;
+  - campos sem valor são omitidos; bytes em base64; nunca valores de `Cookie`, `Authorization`,
+    `Proxy-Authorization`, `Set-Cookie`, query nem corpo.
+- RF-07: **leitura do lote pelo bot** (ADR 0062 itens 2 e 3; spec 020 RF-04): esquema escolhido pelo campo `schema`
+  (`traefix.fingerprint/v1`; ausente = `TraefikIngestBatch`, formato anterior mantido em `/bot/v1`; outro valor →
+  400); fingerprints calculadas pelo bot a partir dos bytes crus quando vêm (ClientHello do QUIC como mensagem pura,
+  JA4 `q`), as prontas do traefix (`tls.ja4`, `tls.ja3`, `http2.akamai`) só sem os bytes; divergência entre as duas
+  conta em `bot_ingest_fingerprint_mismatch_total{kind}`; dos `fields`, o primeiro valor de cada nome permitido;
+  `quicTransportParameters`, `http3.settings` e `headersTruncated` aceitos sem uso nas regras.
+- RF-08: **leitura do forwardAuth pelo bot** (ADR 0058 item 1 e ADR 0062 item 4): JA4H de `X-Fs-Ja4h`; visão TLS e
+  h2 do registro de conexão do ingest quando já chegou, senão de `X-Fs-Ja4`/`X-Fs-Ja3`/`X-Fs-H2`; a visão vinda do
+  cabeçalho não tem ALPN oferecido e não avalia `ua_alpn_mismatch`; com eles presentes a espera de
+  `FS_BOT_VIEW_WAIT` só aguarda o store.
+- RF-09: **imagem e versão**: `tmsoftbrasil/traefix` (Docker Hub), tags `fork-point-<n>-g<sha>` e `latest`. O teste
+  e a troca no finger-01 fixam o **digest** `@sha256:` da imagem testada, anotado com a tag de origem; nunca
+  `latest`. Rótulos OCI `version`/`revision`/`licenses` e `NOTICE` são recomendação ao projeto traefix, sem
+  bloqueio (ADR 0054 item 10).
+- RF-10: **métricas do traefix** (qualquer backend de métricas do traefik), usadas nos critérios e nos docs:
+  `traefik_fingerprint_export_records_total{entrypoint,type}`,
+  `traefik_fingerprint_export_dropped_total{entrypoint,reason}` (`queue_full`, `send_error`, `http_4xx`,
+  `http_5xx`, `too_large`), `traefik_fingerprint_export_batches_total{entrypoint,code}` (`error` sem resposta),
+  `traefik_fingerprint_export_queue_records{entrypoint}`, `traefik_fingerprint_export_send_seconds{entrypoint}`,
+  `traefik_fingerprint_capture_truncated_total{entrypoint,part}` (`client_hello`, `h2_prefix`, `headers`),
+  `traefik_forwardauth_failopen_total{middleware,reason}` (`timeout`, `network`, `http_5xx`, `http_4xx`; no máximo
+  uma linha de log por minuto por middleware).
+- RF-11: **custo**: a meta de ≤ 5% de CPU a mais que o upstream não foi atingida no benchmark do traefix (+14% em
+  TLS + h2 e +31% em TLS + h1 num Apple M2, cliente e servidor na mesma máquina). A task 273 mede no finger-01, com
+  carga externa, a CPU do traefix com `rawBytes` ligado e desligado e com `http3HeaderOrder`; o resultado vai ao
+  humano com a P9 antes da troca do `traefik-app`. Memória extra e fila dentro de `queueMaxBytes` como no traefix.
+- RF-12: **contrato**: o traefix não testa contra o openapi do bot; o lado de cá valida `traefix.fingerprint/v1`
+  com lotes de exemplo (`internal/bot/testdata`) e com lotes reais gravados do traefix pela task 273.
+- RF-13: **h3**: entregue pelo traefix (`X-Fs-Proto: h3`, JA4 `q`, ClientHello do Initial, transport parameters,
+  `SETTINGS` e JA4H com `http3HeaderOrder`); o bot usa JA4 `q` e JA4H; transport parameters e `SETTINGS` do h3 ficam
+  para uma regra futura.
 
 ## Comportamento esperado do lado do finger-sniffer
-- O bot casa o registro de conexão do traefix com a conexão vista pelo espelho pela origem (`src`), porta de destino
-  pública e início a menos de 5 s (spec 018 RF-04); por isso `src` e `dst.port` têm de ser os do cliente e da entrada.
-- No finger-01, `ingestURL` e o forwardAuth usam a 9003 (HTTP, só loopback e a rede do traefik, chave opcional; o
-  modo `block` exige a `apiKey` de uma chave `--mode block`); um site externo usa
-  `https://finger-01.badblock.net.br:9002` com chave em `apiKey` do ingest e do forwardAuth (ADR 0054 item 7, caso b).
-- No forwardAuth, a primeira requisição de cada conexão tem JA4H só pelo `X-Fs-Ja4h`; sem ele, o bot usa o JA4H da
-  última requisição da conexão no ingest (ADR 0058 item 1).
+- No finger-01, `export.url` e o forwardAuth usam a 9003 (HTTP, só loopback e a rede do traefik, chave opcional; o
+  modo `block` exige a chave de uma chave `--mode block`); um site externo usa
+  `https://finger-01.badblock.net.br:9002` com chave em `export.headers.Authorization` e em
+  `requestHeaders.Authorization` (ADR 0054 item 7, caso b).
+- Na primeira requisição de cada conexão, o registro de conexão ainda não chegou (sai com a requisição e espera o
+  lote); o veredito do forwardAuth usa os `X-Fs-Ja4`/`X-Fs-H2`/`X-Fs-Ja4h` da própria requisição.
 - O 403 do modo `block` traz sempre `X-Fs-Verdict`; nenhuma resposta de erro do bot traz `X-Fs-Verdict` (spec 020).
-- No finger-01 o traefix entra primeiro só observando: ingest e `X-Fs-*` ligados, sem forwardAuth nos sites do
-  humano (ADR 0054 item 9, task 273).
+- No finger-01 o traefix entra primeiro num container de teste à parte e no router de teste; a troca do
+  `traefik-app` é só observando (ingest e `X-Fs-*` ligados, sem forwardAuth nos sites do humano; ADR 0054 item 9) e
+  espera a P9.
 
 ## Interfaces e contratos
-- `POST /bot/v1/ingest/traefik` (`TraefikIngestBatch`/`TraefikRecord`) e `GET /bot/v1/auth`
-  (`cmd/finger-sniffer-bot/openapi.yaml`, spec 020). Mudança só aditiva em `/bot/v1` (ADR 0054 item 3).
-- Cabeçalhos `X-Fs-Src-Ip`, `X-Fs-Src-Port`, `X-Fs-Dst-Port`, `X-Fs-Conn-Id`, `X-Fs-Proto`, `X-Fs-Ja4h` (traefix → backend e auth); `Authorization: Bearer <apiKey>` (traefix
-  → bot, só no forwardAuth do bot);
-  `X-Fs-Verdict`, `X-Fs-Score`, `X-Fs-Signals` (bot → traefix → backend, por `authResponseHeaders`;
+- `POST /bot/v1/ingest/traefik` (`TraefixFingerprintBatch` e `TraefikIngestBatch`) e `GET /bot/v1/auth`
+  (`cmd/finger-sniffer-bot/openapi.yaml` 0.3.0, spec 020). Mudança só aditiva em `/bot/v1` (ADR 0054 item 3); uma
+  mudança de formato do lado do traefix é fato novo e vira ADR aqui.
+- Cabeçalhos da RF-05 (traefix → backend e auth); `Authorization: Bearer <chave>` (traefix → bot, no export e no
+  forwardAuth); `X-Fs-Verdict`, `X-Fs-Score`, `X-Fs-Signals` (bot → traefix → backend, por `authResponseHeaders`;
   `X-Fs-Verdict: unavailable` posto pelo traefix em fail-open).
 
 ## Critérios de aceite (do lado do finger-sniffer)
-- [ ] Com o traefix num container de teste no finger-01, `curl`, Go e Chrome por um router de teste geram no bot
-      conexões com JA4/Akamai iguais aos que o web do espelho calcula para o mesmo cliente, e casamento com o store
-      (spec 018 RF-04) em ≥ 99% (e2e da F8, spec 017 RF-17).
-- [ ] Bot parado: o site de teste continua respondendo (fail-open) e o traefix conta os descartes.
-- [ ] `X-Fs-Src-Ip` e `X-Fs-Ja4h` forjados pelo cliente não chegam ao backend nem ao bot.
-- [ ] Um `curl` puro na primeira requisição de uma conexão sai `bot` pelo forwardAuth (com `X-Fs-Ja4h`) e, com chave
-      `--mode block`, recebe 403; chave revogada não derruba o site (fail-open `http_4xx`).
-- [ ] Troca do `traefik-app` em modo só observação sem mudança de resposta nos sites do humano (task 273).
+- [ ] Com o traefix (digest fixado) num container de teste no finger-01, `curl`, Go e Chrome por um router de teste
+      geram no bot conexões com JA4/Akamai iguais aos que o web do espelho calcula para o mesmo cliente,
+      `bot_ingest_fingerprint_mismatch_total` Δ 0 e casamento com o store (spec 018 RF-04) em ≥ 99% (e2e da F8,
+      spec 017 RF-17).
+- [ ] Lotes reais do traefix (TCP h1, h2 e QUIC h3) gravados em `testdata` e aceitos pelo teste de contrato do bot,
+      com `rejected` 0 e `bot_ingest_parse_errors_total` Δ 0.
+- [ ] Bot parado: o site de teste continua respondendo (fail-open) e `traefik_fingerprint_export_dropped_total` e
+      `traefik_forwardauth_failopen_total` sobem.
+- [ ] `X-Fs-Src-Ip`, `X-Fs-Ja4` e `X-Fs-Ja4h` forjados pelo cliente não chegam ao backend nem ao bot.
+- [ ] Um `curl` puro na primeira requisição de uma conexão sai `bot` pelo forwardAuth com
+      `bot_auth_fingerprint_total{kind="tls",source="header"}` subindo e, com chave `--mode block`, recebe 403; chave
+      revogada não derruba o site (fail-open `http_4xx`).
+- [ ] CPU do traefix medida no finger-01 (RF-11) e registrada no PR da task 273.
+- [ ] Troca do `traefik-app` em modo só observação sem mudança de resposta nos sites do humano (task 306, depois da
+      P9).
 
 ## Fora de escopo
-- Plugins Yaegi; middleware de bloqueio próprio (o bloqueio é a resposta 403 do forwardAuth em modo `block`).
-- Código, CI, imagem e atualização do upstream do traefix: são do projeto traefix (ADR 0054).
+- Código, CI, imagem, documentação e atualização do upstream do traefix: são do projeto traefix (ADR 0054).
+- Matchers `JA3()`/`JA4()`/`JA4H()`, middleware `fingerprintList`, WAF Coraza, campos `Fingerprint*` no access log e
+  atributos de trace do traefix: disponíveis para o humano nos sites, sem uso pelo bot.
 - Ligar forwardAuth ou modo `block` nos sites do humano: ação do humano.
 
 ## Decisões relacionadas
+- specs/decisions/0062-traefix-consumido-como-esta.md
 - specs/decisions/0054-traefix-projeto-externo.md
 - specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md
-- specs/decisions/0048-fork-do-traefik.md (substituída em parte pela 0054)
+- specs/decisions/0048-fork-do-traefik.md (substituída)
 - specs/decisions/0047-fase-de-bots-servico-bot.md
 - specs/decisions/0051-api-de-vereditos-e-chaves.md
 - specs/decisions/0053-uso-nao-comercial-e-licencas.md

@@ -158,7 +158,7 @@ NATS oficial fixado (ADR 0003).
 | Dependências vulneráveis | govulncheck no verify-full e CI | CI |
 | Dados de terceiros expostos (inclusive visitantes dos sites atrás do traefik, ADR 0038) | aceito (ADR 0007); retenção curta; proposta de ocultar o tráfego dos sites na API aberta à espera do humano (ADR 0052 item 6) | — |
 | Chave de API vazada ou abusada | só o SHA-256 no banco, chave mostrada uma vez, domínios por chave, balde e cota diária, `revoke`/`rotate` na CLI (ADR 0051) | testes de 401/404/429 |
-| Cabeçalhos `X-Fs-*` forjados pelo cliente | o traefix remove todo `X-Fs-*` de entrada antes dos middlewares (spec 019 RF-06); a 9003 só aceita loopback e a rede do traefik (spec 020 RF-01) | aceite do traefix, teste de origem do bot e e2e da F8 |
+| Cabeçalhos `X-Fs-*` forjados pelo cliente | o traefix remove todo `X-Fs-*` de entrada antes dos middlewares (spec 019 RF-05); a 9003 só aceita loopback e a rede do traefik (spec 020 RF-01) | aceite do traefix, teste de origem do bot e e2e da F8 |
 | Agregados com dados pessoais retidos além do prazo | expurgo de hora em hora, teto de 7 dias, `forget` na CLI, minimização (ADR 0052) | teste com relógio falso |
 | Listas externas envenenadas ou vazias | validação de formato e tamanho, queda > 50% não substitui, só HTTPS (ADR 0050) | teste das listas |
 

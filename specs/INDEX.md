@@ -23,7 +23,7 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [016-infra-e-deploy.md](016-infra-e-deploy.md) | Infra, rede e deploy | finger-01, offloads, sysctls, units/hardening, limites e fatia, NATS, layout, `make deploy`, traefik do host | 001 | aprovada |
 | [017-verificacao.md](017-verificacao.md) | Verificação e testes | verify quick/full, níveis de teste, matriz e2e, carga | 002, 016 | aprovada |
 | [018-bot.md](018-bot.md) | Serviço bot | veredito e sinais, listas (base própria, ja4db, IPs), agregados de 7 dias, LGPD, CLI de chaves, banco em disco | 001, 004, 008, 010, 013, 019, 020 | aprovada (pendências P4–P6) |
-| [019-requisitos-do-traefix.md](019-requisitos-do-traefix.md) | Requisitos do traefix para o finger-sniffer | o que o traefix (traefik modificado, projeto externo, ADR 0054) oferece: captura TLS/h2, resumo e JA4H, ingest em lote, `X-Fs-*`, forwardAuth fail-open, configuração, métricas, custo, imagem, testes de aceite, h3 na segunda onda | 001, 018, 020 | aprovada |
+| [019-requisitos-do-traefix.md](019-requisitos-do-traefix.md) | Integração com o traefix | o traefix (traefik modificado, projeto externo, consumido como está; ADRs 0054 e 0062): perfil de configuração, `X-Fs-*`, lote `traefix.fingerprint/v1`, leitura pelo bot, forwardAuth fail-open, imagem por digest, métricas, custo, divergências aceitas, critérios de aceite | 001, 018, 020 | aprovada |
 | [020-api-de-vereditos.md](020-api-de-vereditos.md) | API de vereditos | 9002/9003, chaves, domínios, limites, forwardAuth, consulta, probe, feed, webhook | 018, 019 | aprovada |
 | [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F8, paralelismo, critérios de saída | todas | aprovada |
 

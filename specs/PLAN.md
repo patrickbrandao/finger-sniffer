@@ -174,6 +174,18 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     imagem num container à parte, troca do `traefik-app` em modo só observação e aceite (273, bloqueada até o aviso).
     Ligar forwardAuth ou `block` nos sites é ação do humano. h3 no traefix: segunda entrega do traefix (spec 019
     RF-13).
+  - **Traefix como está (depois da v0.5.0, ADR 0062)**: o humano avisou em 2026-11-18 que o traefix saiu
+    (`fork-point-213-g5c011b2f3`) com formatos próprios; a spec 019 vira "Integração com o traefix" e o openapi do
+    bot vai a 0.3.0 (aditivo). Frentes:
+    - implementer-bot: ingest `traefix.fingerprint/v1` com ClientHello do QUIC e fingerprints prontas como reserva
+      (302) → forwardAuth com `X-Fs-Ja4`/`X-Fs-Ja3`/`X-Fs-H2` e espera só do store (303; em série pelo
+      `api.go`);
+    - tester: e2e simulado e carga com o esquema novo (304, depois de 302 e 303);
+    - docs: `docs/bot.md` e guia de integração com o perfil da spec 019 (305, depois de 302 e 303);
+    - infra + tester: traefix (digest fixado) num container à parte no finger-01, router de teste, medida de CPU,
+      lotes reais em `testdata` e casos `TestF8TraefixReal` (273, depois de 302–304, com deploy do bot antes);
+    - infra: troca do `traefik-app` só observando (306, depois da 273 e da P9).
+    Critério: os da spec 019; release `v0.5.1` depois da 273 (a 306 não bloqueia a release).
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
   Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
   store ≥ 99%; fail-open); carga da F8 com forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga
@@ -194,8 +206,9 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   forwardAuth p99 44,8 ms e health de volta a `ok` em 7 min 23 s, dentro da meta da ADR 0061 (`FS_BOT_CONN_TTL` +
   60 s). Expurgo de 7 dias com relógio falso em `TestForgetAndPurge` (`internal/bot`). Auditoria do reviewer: o bloqueante (uma chave escrevia em site de outra pelo ingest) e os ajustes de retenção ≤ 7 d 1 h e campos por lista permitida corrigidos na task 298 (PR #272); `forget` sem limpar a fila do webhook (task 299) e `control_requests` na privacidade do `docs/bot.md` (task 300, adendo da ADR 0052 já feito) ficam para depois, não bloqueantes. Release `v0.5.0` (task 297).
   **Pendente na release**:
-  - task 273 (traefix real no finger-01, router de teste e casos `TestF8TraefixReal`): bloqueada até o aviso do
-    humano; o critério "pelo router de teste do traefix" fica para quando ela sair;
+  - task 273 (traefix real no finger-01, router de teste e casos `TestF8TraefixReal`): o aviso do humano veio em
+    2026-11-18 (ADR 0062); refeita com o perfil novo, depois das 302–304; o critério "pelo router de teste do
+    traefix" fica para quando ela sair;
   - P4 (termos da ja4db; `FS_BOT_JA4DB_ENABLE=false`), P5 (base legal, LGPD) e P6 (controlador, encarregado e canal
     do titular): sem resposta, registradas no PR de release; task 287 (página de privacidade) bloqueada até P5 e P6;
   - task 296 (probe h3 sem registro, 1 em 21 000 na carga da F8), prioridade baixa;
@@ -207,3 +220,5 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
 - **Pendências para o humano** (detalhe na spec 018): P4 termos da ja4db; P5 base legal (LGPD); P6 controlador,
   encarregado e canal do titular. Respondidas em 2026-11-16 (ADR 0054): P1 e P2 (traefix externo), P3 (os dois
   casos de clientes externos), P7 (tráfego dos sites segue visível), P8 (troca só observando, task 273).
+  Aberta em 2026-11-18 (ADR 0062 item 8): P9 — o `traefik-app` dos sites pode rodar o traefix sobre
+  `v3.8.0-rc.3` e com o custo de CPU medido na task 273, ou espera uma versão do traefix sobre tag estável.

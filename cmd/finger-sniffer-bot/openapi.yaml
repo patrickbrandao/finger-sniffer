@@ -1,13 +1,13 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.2.0
+  version: 0.3.0
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
     (HTTP, só loopback e a rede do traefik do finger-01, chave opcional; `Authorization` que não seja
     `Bearer fsk_...` é ignorado ali, porque o forwardAuth repassa os cabeçalhos do visitante), portas fora da captura.
-    O traefik modificado é o traefix, projeto externo (spec 019, ADR 0054).
+    O traefik modificado é o traefix, projeto externo consumido como está (spec 019, ADRs 0054 e 0062).
 
     Chave: `Authorization: Bearer fsk_<52 caracteres base32>`, emitida pelo operador com a CLI
     `finger-sniffer-bot key create` (sem cadastro). Cada chave tem domínios autorizados: recurso de um site fora
@@ -74,12 +74,14 @@ paths:
       summary: forwardAuth do traefik
       description: |
         Avalia a requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri` e pelos
-        `X-Fs-*` que o traefix acrescenta (spec 019 RF-06). Espera a visão até `FS_BOT_VIEW_WAIT` (100 ms). No modo
+        `X-Fs-*` que o traefix acrescenta (spec 019 RF-05). Espera a visão até `FS_BOT_VIEW_WAIT` (100 ms). No modo
         `observe` responde sempre 200; no modo `block`, 403 para `class=bot`. 400 `missing_fork_headers` sem os
         `X-Fs-*`; 400 `bad_request` com chave cujos domínios não casam com `X-Forwarded-Host` (erro de configuração
         do operador, ADR 0055). O JA4H vem de `X-Fs-Ja4h` quando bem formado e, sem ele, da última requisição da
-        conexão no ingest (ADR 0058). O 403 do modo `block` traz sempre os `X-Fs-*` do veredito; nenhuma resposta de
-        erro traz `X-Fs-Verdict` (o traefix usa isso no fail-open de 4xx, spec 019 RF-07a).
+        conexão no ingest (ADR 0058). A visão TLS e h2 vem do registro de conexão do ingest e, antes dele, de
+        `X-Fs-Ja4`, `X-Fs-Ja3` e `X-Fs-H2` (sem ALPN oferecido); com eles, a espera só aguarda o store (ADR 0062
+        item 4). O 403 do modo `block` traz sempre os `X-Fs-*` do veredito; nenhuma resposta de
+        erro traz `X-Fs-Verdict` (o traefix usa isso no fail-open de 4xx, spec 019 RF-04).
       parameters:
         - { name: X-Fs-Src-Ip, in: header, required: true, schema: { type: string } }
         - { name: X-Fs-Src-Port, in: header, required: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
@@ -89,8 +91,23 @@ paths:
         - name: X-Fs-Ja4h
           in: header
           required: false
-          description: JA4H completo da requisição calculado pelo traefix (spec 019 RF-06); malformado é ignorado.
+          description: JA4H completo da requisição calculado pelo traefix (spec 019 RF-05); malformado é ignorado.
           schema: { type: string, pattern: "^[a-z0-9]{12}_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$" }
+        - name: X-Fs-Ja4
+          in: header
+          required: false
+          description: JA4 (FoxIO) do ClientHello calculado pelo traefix, `t` em TCP e `q` em QUIC (ADR 0062); malformado ou repetido é ignorado.
+          schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
+        - name: X-Fs-Ja3
+          in: header
+          required: false
+          description: MD5 do JA3 calculado pelo traefix (ADR 0062); malformado ou repetido é ignorado.
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+        - name: X-Fs-H2
+          in: header
+          required: false
+          description: Akamai h2 calculado pelo traefix, só em h2, no formato do web do espelho (ADR 0062); malformado ou repetido é ignorado.
+          schema: { type: string, maxLength: 512 }
         - { name: X-Forwarded-Host, in: header, schema: { type: string } }
         - { name: X-Forwarded-Uri, in: header, schema: { type: string } }
         - { name: X-Forwarded-Method, in: header, schema: { type: string } }
@@ -234,12 +251,19 @@ paths:
     post:
       tags: [ingest]
       operationId: ingestTraefik
-      summary: Envio em lote do traefix (spec 019 RF-05)
+      summary: Envio em lote do traefix (spec 019 RF-06 e RF-07)
+      description: |
+        Dois esquemas, escolhidos pelo campo `schema` do lote (ADR 0062 item 2): `traefix.fingerprint/v1`
+        (`TraefixFingerprintBatch`, o formato do traefix) ou ausente (`TraefikIngestBatch`, formato anterior mantido
+        em `/bot/v1`). Outro valor de `schema` → 400 `bad_request`.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/TraefikIngestBatch" }
+            schema:
+              anyOf:
+                - { $ref: "#/components/schemas/TraefixFingerprintBatch" }
+                - { $ref: "#/components/schemas/TraefikIngestBatch" }
       responses:
         "202":
           description: Lote recebido; registros inválidos contados e ignorados.
@@ -495,8 +519,9 @@ components:
     TraefikIngestBatch:
       type: object
       required: [records]
+      description: Formato anterior do lote, sem o campo `schema`, mantido em `/bot/v1` (ADR 0062 item 2).
       properties:
-        sender: { type: string, description: "Versão do traefix (`<tag-upstream>-traefix.<n>`, spec 019 RF-09)." }
+        sender: { type: string, description: "Versão do remetente (formato anterior; o traefix manda `TraefixFingerprintBatch`)." }
         records:
           type: array
           maxItems: 1024
@@ -539,3 +564,100 @@ components:
         ended: { type: [string, "null"], format: date-time }
         router: { type: [string, "null"] }
         service: { type: [string, "null"] }
+    TraefixFingerprintBatch:
+      type: object
+      required: [schema, records]
+      description: |
+        Lote `traefix.fingerprint/v1`, formato do projeto traefix (spec 019 RF-06, ADR 0062). Campos sem valor são
+        omitidos; datas em RFC 3339 UTC com nanossegundos; bytes em base64. Campos desconhecidos são ignorados (o
+        formato é do traefix).
+      properties:
+        schema: { type: string, const: traefix.fingerprint/v1 }
+        sender: { type: string, description: "`traefix/<versão de traefik version>`." }
+        entryPoint: { type: string, description: Vale para os registros sem `entryPoint`. }
+        sentAt: { $ref: "#/components/schemas/Timestamp" }
+        records:
+          type: array
+          maxItems: 1024
+          items:
+            oneOf:
+              - { $ref: "#/components/schemas/TraefixConnectionRecord" }
+              - { $ref: "#/components/schemas/TraefixRequestRecord" }
+    TraefixConnectionRecord:
+      type: object
+      required: [type, connId, time]
+      description: |
+        Uma vez por conexão, na primeira requisição ou no fechamento sem requisição. Com `tls.clientHello` e
+        `http2.prefix` o bot calcula as fingerprints; sem eles usa `tls.ja4`, `tls.ja3` e `http2.akamai` (ADR 0062
+        item 3).
+      properties:
+        type: { type: string, const: connection }
+        connId: { $ref: "#/components/schemas/ULID" }
+        time: { $ref: "#/components/schemas/Timestamp" }
+        entryPoint: { type: string }
+        src: { $ref: "#/components/schemas/Endpoint" }
+        dst: { $ref: "#/components/schemas/Endpoint" }
+        proto: { type: string, enum: [h1, h2, h3] }
+        tls:
+          type: object
+          properties:
+            sni: { type: string }
+            alpnOffered: { type: array, items: { type: string } }
+            alpn: { type: string }
+            version: { type: string, description: "Nome IANA, ex.: `TLS 1.3`." }
+            cipher: { type: string, description: Nome IANA. }
+            clientHello:
+              type: string
+              contentEncoding: base64
+              description: Com `rawBytes`; registros TLS em TCP, mensagem de handshake pura em QUIC.
+            clientHelloTruncated: { type: boolean }
+            ja3: { type: string, description: MD5 do JA3. }
+            ja3String: { type: string }
+            ja4: { type: string }
+            quicTransportParameters:
+              type: array
+              description: IDs na ordem do cliente (QUIC, com `rawBytes`); aceito sem uso nas regras.
+              items: { type: integer, minimum: 0 }
+        http2:
+          type: object
+          properties:
+            prefix: { $ref: "#/components/schemas/Base64" }
+            prefixTruncated: { type: boolean }
+            akamai: { type: string }
+        http3:
+          type: object
+          description: Com `http3HeaderOrder`; aceito sem uso nas regras.
+          properties:
+            settings: {}
+    TraefixRequestRecord:
+      type: object
+      required: [type, connId, start]
+      description: Uma por requisição, no fim da resposta.
+      properties:
+        type: { type: string, const: request }
+        connId: { $ref: "#/components/schemas/ULID" }
+        start: { $ref: "#/components/schemas/Timestamp" }
+        end: { $ref: "#/components/schemas/Timestamp" }
+        proto: { type: string, enum: [h1, h2, h3] }
+        method: { type: string }
+        authority: { type: string }
+        path: { type: string, maxLength: 256, description: Sem query. }
+        httpVersion: { type: string, description: "Ex.: `HTTP/1.1`." }
+        fieldNames: { type: array, items: { type: string } }
+        fields:
+          type: array
+          description: |
+            Na ordem recebida, só os campos de `export.fields`; o bot guarda o primeiro valor de cada nome da lista
+            permitida (ADR 0062 item 2).
+          items:
+            type: object
+            required: [name, value]
+            properties:
+              name: { type: string }
+              value: { type: string, maxLength: 512 }
+        cookieNames: { type: array, items: { type: string } }
+        ja4h: { type: string }
+        status: { type: integer, minimum: 0, description: "`0` quando a conexão foi assumida (ex.: WebSocket)." }
+        router: { type: string }
+        service: { type: string }
+        headersTruncated: { type: boolean }

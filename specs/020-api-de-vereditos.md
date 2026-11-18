@@ -23,11 +23,12 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   segundos; global: 200 conexões na 9002, 64 clientes SSE, corpo do ingest até 4 MiB por lote → 413.
 - RF-05: rotas (detalhe no openapi):
   - `GET /bot/v1/auth` (forwardAuth): sujeito = requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`,
-    `X-Forwarded-Uri` e `X-Fs-*` (spec 019 RF-06), com o JA4H de `X-Fs-Ja4h` quando bem formado e, sem ele, o da
-    última requisição da conexão no ingest (ADR 0058 item 1); espera a visão até `FS_BOT_VIEW_WAIT`; 200 com `X-Fs-Verdict`,
+    `X-Forwarded-Uri` e `X-Fs-*` (spec 019 RF-05), com o JA4H de `X-Fs-Ja4h` quando bem formado e, sem ele, o da
+    última requisição da conexão no ingest (ADR 0058 item 1); visão TLS e h2 do registro de conexão do ingest e,
+    antes dele, de `X-Fs-Ja4`, `X-Fs-Ja3` e `X-Fs-H2` bem formados (sem ALPN oferecido; ADR 0062 item 4); espera a visão até `FS_BOT_VIEW_WAIT`; 200 com `X-Fs-Verdict`,
     `X-Fs-Score`, `X-Fs-Signals` (ids separados por vírgula, até 1 KiB) e corpo `Verdict`; 403 com o mesmo corpo
     e os mesmos `X-Fs-*` quando a chave está em modo `block` e `class=bot`; nenhuma resposta de erro traz
-    `X-Fs-Verdict` (é o que o traefix usa para o fail-open de 4xx, spec 019 RF-07a; ADR 0058 item 3). Sem os `X-Fs-*` do traefix → 400 `missing_fork_headers`;
+    `X-Fs-Verdict` (é o que o traefix usa para o fail-open de 4xx, spec 019 RF-04; ADR 0058 item 3). Sem os `X-Fs-*` do traefix → 400 `missing_fork_headers`;
     com chave cujos domínios não casam com `X-Forwarded-Host` → 400 `bad_request` (erro de configuração do
     operador, ADR 0055 item 6).
   - `GET /bot/v1/verdict?src_ip=&src_port=&site=` e `GET /bot/v1/verdict/conn/{fs_conn_id}`: o último veredito da
@@ -41,8 +42,9 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   - `GET /bot/v1/stream`: SSE de `VerdictEvent` dos domínios da chave; filtros `class` e `site`; sem replay; fila de
     1024 por cliente com descarte e evento `stream.dropped`; ping a cada 15 s. Só vereditos por requisição
     (forwardAuth e ingest); o do probe não é publicado no feed nem no webhook (ADR 0060 item 2).
-  - `POST /bot/v1/ingest/traefik`: corpo `TraefikIngestBatch`; 202 com `accepted`/`rejected`; registro inválido
-    conta e é ignorado sem rejeitar o lote.
+  - `POST /bot/v1/ingest/traefik`: corpo `TraefixFingerprintBatch` (`schema: traefix.fingerprint/v1`, o formato do
+    traefix) ou `TraefikIngestBatch` (sem `schema`); outro `schema` → 400 `bad_request` (ADR 0062 item 2); 202 com
+    `accepted`/`rejected`; registro inválido conta e é ignorado sem rejeitar o lote.
   - `GET /bot/v1/health`, `GET /bot/v1/openapi.yaml`.
 - RF-06: webhook (ADR 0051 item 5): corpo `VerdictEvent`, cabeçalhos `X-Fs-Signature`, `X-Fs-Timestamp`,
   `X-Fs-Key-Prefix`; prazo de 5 s; novas tentativas 1 s, 5 s, 30 s; fila de 1000 por chave.

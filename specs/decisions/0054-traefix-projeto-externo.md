@@ -1,6 +1,6 @@
 # 0054 — traefix: o traefik modificado é um projeto externo; respostas às pendências P1–P3, P7 e P8 da F8
 
-Status: aceita
+Status: aceita (item 2 e, quanto à tag, o item 4 substituídos pela 0062: o traefix é consumido como está)
 Data: 2026-11-16
 
 ## Contexto

@@ -93,8 +93,9 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   https://finger-01.badblock.net.br:9002/bot/v1/health` 200. O deploy nunca apaga `var/bot`.
 - RF-15: traefix (ADR 0054): o deploy do espelho não instala nem reinicia o traefik; a troca da imagem do
   `traefik-app` pela do traefix é tarefa própria (task 273), depois do aviso do humano: teste num container à parte,
-  tag imutável ou digest fixado (nunca `latest`), configuração estática `experimental.fingerSniffer` com `ingestURL`
-  na 9003, nenhum forwardAuth nos routers dos sites (só num router de teste, `observe` e `failOpen`) e volta à imagem
+  digest `@sha256:` fixado e anotado com a tag de origem (nunca `latest`; ADR 0062 item 7), configuração estática
+  `entryPoints.<nome>.fingerprint` do perfil da spec 019 RF-03 com `export.url` na 9003, troca do `traefik-app` só
+  depois da P9 (ADR 0062 item 8), nenhum forwardAuth nos routers dos sites (só num router de teste, `observe` e `failOpen`) e volta à imagem
   anterior se algum site mudar de resposta.
 
 ## Interfaces e contratos
