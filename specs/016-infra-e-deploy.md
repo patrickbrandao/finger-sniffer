@@ -87,14 +87,16 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 
 - RF-14: serviço bot (F8, ADR 0047): unit `finger-sniffer-bot.service` no target e na fatia, depois do store,
   `MemoryMax=1G`, `GOMEMLIMIT=768MiB`, `CPUQuota=200%`, `MemorySwapMax=0`, `GODEBUG=disablethp=1`, sem capabilities;
-  `ReadWritePaths` com `/finger-sniffer/var/bot` (no disco, **fora** do tmpfs do store); `FS_CAPTURE_EXCLUDE_PORTS`
+  `ReadWritePaths` com `/finger-sniffer/var/bot` (no disco, **fora** do tmpfs do store); leitura do
+  `/finger-sniffer/etc/p0f.fp` (`FS_BOT_P0F_DB`, ADR 0063 item 5); `FS_CAPTURE_EXCLUDE_PORTS`
   com 9002 e 9003; `FS_BOT_INTERNAL_LISTEN` = IP do host na bridge `br-net-public` do traefik, descoberto e fixado
   pelo infra; `make build`/`make deploy` com 6 binários e `SVC=bot`; o smoke exige o bot `ok` e `GET
   https://finger-01.badblock.net.br:9002/bot/v1/health` 200. O deploy nunca apaga `var/bot`.
 - RF-15: traefix (ADR 0054): o deploy do espelho não instala nem reinicia o traefik; a troca da imagem do
   `traefik-app` pela do traefix é tarefa própria (task 273), depois do aviso do humano: teste num container à parte,
-  tag imutável ou digest fixado (nunca `latest`), configuração estática `experimental.fingerSniffer` com `ingestURL`
-  na 9003, nenhum forwardAuth nos routers dos sites (só num router de teste, `observe` e `failOpen`) e volta à imagem
+  sempre `tmsoftbrasil/traefix:latest` com o digest e o `sender` registrados (ADR 0062 item 7), configuração estática
+  `entryPoints.<nome>.fingerprint` do perfil da spec 019 RF-03 com `export.url` na 9003, troca do `traefik-app` depois
+  da task 273 (task 306), nenhum forwardAuth nos routers dos sites (só num router de teste, `observe` e `failOpen`) e volta à imagem
   anterior se algum site mudar de resposta.
 
 ## Interfaces e contratos

@@ -23,11 +23,16 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   segundos; global: 200 conexões na 9002, 64 clientes SSE, corpo do ingest até 4 MiB por lote → 413.
 - RF-05: rotas (detalhe no openapi):
   - `GET /bot/v1/auth` (forwardAuth): sujeito = requisição descrita por `X-Forwarded-Method`, `X-Forwarded-Host`,
-    `X-Forwarded-Uri` e `X-Fs-*` (spec 019 RF-06), com o JA4H de `X-Fs-Ja4h` quando bem formado e, sem ele, o da
-    última requisição da conexão no ingest (ADR 0058 item 1); espera a visão até `FS_BOT_VIEW_WAIT`; 200 com `X-Fs-Verdict`,
-    `X-Fs-Score`, `X-Fs-Signals` (ids separados por vírgula, até 1 KiB) e corpo `Verdict`; 403 com o mesmo corpo
-    e os mesmos `X-Fs-*` quando a chave está em modo `block` e `class=bot`; nenhuma resposta de erro traz
-    `X-Fs-Verdict` (é o que o traefix usa para o fail-open de 4xx, spec 019 RF-07a; ADR 0058 item 3). Sem os `X-Fs-*` do traefix → 400 `missing_fork_headers`;
+    `X-Forwarded-Uri` e `X-Traefix-*` (spec 019 RF-05 e RF-08; os `X-Fs-*` antigos só sem `X-Traefix-Conn-Id`,
+    nunca misturados, ADR 0063 item 1), com o JA4H de `X-Traefix-Ja4h` quando bem formado e, sem ele, o da última
+    requisição da conexão no ingest (ADR 0058 item 1); visão TLS e h2 do registro de conexão do ingest e, antes
+    dele, de `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn` bem formados (ADR 0062 item 4, ADR 0063 item 6); visão TCP do
+    store, senão do registro do traefix, senão de `X-Traefix-Ja4t` (ADR 0063 item 5); espera a visão até
+    `FS_BOT_VIEW_WAIT` só na 9003 (ADR 0063 item 7); 200 com `X-Traefix-Verdict`, `X-Traefix-Score`,
+    `X-Traefix-Signals` (ids separados por vírgula, até 1 KiB), os `X-Fs-*` equivalentes (obsoletos) e corpo
+    `Verdict`; 403 com o mesmo corpo e os mesmos cabeçalhos quando a chave está em modo `block` e `class=bot`;
+    nenhuma resposta de erro traz `X-Traefix-Verdict` nem `X-Fs-Verdict` (é o que o traefix usa para o fail-open de
+    4xx, spec 019 RF-04; ADR 0058 item 3). Sem os cabeçalhos de origem do traefix → 400 `missing_fork_headers`;
     com chave cujos domínios não casam com `X-Forwarded-Host` → 400 `bad_request` (erro de configuração do
     operador, ADR 0055 item 6).
   - `GET /bot/v1/verdict?src_ip=&src_port=&site=` e `GET /bot/v1/verdict/conn/{fs_conn_id}`: o último veredito da
@@ -41,8 +46,9 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   - `GET /bot/v1/stream`: SSE de `VerdictEvent` dos domínios da chave; filtros `class` e `site`; sem replay; fila de
     1024 por cliente com descarte e evento `stream.dropped`; ping a cada 15 s. Só vereditos por requisição
     (forwardAuth e ingest); o do probe não é publicado no feed nem no webhook (ADR 0060 item 2).
-  - `POST /bot/v1/ingest/traefik`: corpo `TraefikIngestBatch`; 202 com `accepted`/`rejected`; registro inválido
-    conta e é ignorado sem rejeitar o lote.
+  - `POST /bot/v1/ingest/traefik`: corpo `TraefixFingerprintBatch` (`schema: traefix.fingerprint/v1`, o formato do
+    traefix) ou `TraefikIngestBatch` (sem `schema`); outro `schema` → 400 `bad_request` (ADR 0062 item 2); 202 com
+    `accepted`/`rejected`; registro inválido conta e é ignorado sem rejeitar o lote.
   - `GET /bot/v1/health`, `GET /bot/v1/openapi.yaml`.
 - RF-06: webhook (ADR 0051 item 5): corpo `VerdictEvent`, cabeçalhos `X-Fs-Signature`, `X-Fs-Timestamp`,
   `X-Fs-Key-Prefix`; prazo de 5 s; novas tentativas 1 s, 5 s, 30 s; fila de 1000 por chave.
@@ -54,7 +60,8 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
 ## Critérios de aceite
 - [ ] Teste de contrato: respostas de cada rota validadas contra o openapi do bot (`redocly lint` limpo).
 - [ ] 401/404/429 conforme RF-02–RF-04, inclusive domínio fora da chave indistinguível de recurso inexistente.
-- [ ] forwardAuth com o traefix (spec 019) dá 200 com os `X-Fs-*` e, em `block`, 403 para um cliente `bot`.
+- [ ] forwardAuth com o traefix (spec 019) dá 200 com os `X-Traefix-*` (e os `X-Fs-*` obsoletos) e, em `block`, 403 para um
+      cliente `bot`.
 - [ ] Webhook assinado verificável pelo exemplo do `docs/`; nova tentativa em 5xx; fila cheia conta descarte.
 
 ## Fora de escopo

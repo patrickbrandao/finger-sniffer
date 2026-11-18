@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/patrickbrandao/traefix/docs/content/reference/install-configuration/traefix-fingerprint-v1.schema.json",
+  "title": "Traefix fingerprint batch",
+  "description": "Batch of connection and request records that a Traefix entry point exports with its fingerprint.export option. A receiving service must ignore the fields and record types it doesn't know: new ones keep the traefix.fingerprint/v1 schema.",
+  "type": "object",
+  "required": ["schema", "sender", "entryPoint", "sentAt", "records"],
+  "properties": {
+    "schema": { "const": "traefix.fingerprint/v1" },
+    "sender": {
+      "type": "string",
+      "pattern": "^traefix/",
+      "description": "traefix/ followed by the version shown by traefik version, for example traefix/fork-point-215-g1a2b3c4d5."
+    },
+    "entryPoint": { "type": "string" },
+    "sentAt": { "$ref": "#/$defs/time" },
+    "records": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "anyOf": [
+          { "$ref": "#/$defs/connection" },
+          { "$ref": "#/$defs/request" },
+          {
+            "description": "A record type added later, which a receiving service ignores.",
+            "type": "object",
+            "required": ["type"],
+            "properties": { "type": { "type": "string", "not": { "enum": ["connection", "request"] } } }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "time": { "type": "string", "format": "date-time" },
+    "connId": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+    "proto": { "enum": ["h1", "h2", "h3"] },
+    "base64": { "type": "string", "contentEncoding": "base64" },
+    "md5": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "ja4": { "type": "string", "pattern": "^[tqd][0-9a-z?]{2}[di][0-9]{4}.{2}_[0-9a-f]{12}_[0-9a-f]{12}$" },
+    "addr": {
+      "type": "object",
+      "required": ["ip", "port"],
+      "properties": {
+        "ip": { "type": "string" },
+        "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "connection": {
+      "type": "object",
+      "required": ["type", "connId", "time", "entryPoint", "src", "dst"],
+      "properties": {
+        "type": { "const": "connection" },
+        "connId": { "$ref": "#/$defs/connId" },
+        "time": { "$ref": "#/$defs/time" },
+        "entryPoint": { "type": "string" },
+        "src": { "$ref": "#/$defs/addr" },
+        "dst": { "$ref": "#/$defs/addr" },
+        "proto": { "$ref": "#/$defs/proto" },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "sni": { "type": "string" },
+            "alpnOffered": { "type": "array", "items": { "type": "string" } },
+            "alpn": { "type": "string" },
+            "version": { "type": "string" },
+            "cipher": { "type": "string" },
+            "ja3": { "$ref": "#/$defs/md5" },
+            "ja3String": { "type": "string", "pattern": "^[0-9]+,[0-9-]*,[0-9-]*,[0-9-]*,[0-9-]*$" },
+            "ja3n": { "$ref": "#/$defs/md5" },
+            "ja3nString": { "type": "string", "pattern": "^[0-9]+,[0-9-]*,[0-9-]*,[0-9-]*,[0-9-]*$" },
+            "ja4": { "$ref": "#/$defs/ja4" },
+            "ja4r": { "type": "string", "pattern": "^[tqd][0-9a-z?]{2}[di][0-9]{4}.{2}_" },
+            "ja4o": { "$ref": "#/$defs/ja4" },
+            "clientHello": { "$ref": "#/$defs/base64" },
+            "clientHelloTruncated": { "type": "boolean" },
+            "quicTransportParameters": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+          }
+        },
+        "http2": {
+          "type": "object",
+          "properties": {
+            "akamai": { "type": "string", "pattern": "^[^|]*\\|[^|]*\\|[^|]*\\|[^|]*$" },
+            "headersPriority": { "type": "string", "pattern": "^[0-9]+:[01]:[0-9]+:[0-9]+$" },
+            "prefix": { "$ref": "#/$defs/base64" },
+            "prefixTruncated": { "type": "boolean" }
+          }
+        },
+        "http3": {
+          "type": "object",
+          "properties": {
+            "settings": { "type": "string" }
+          }
+        },
+        "tcp": {
+          "type": "object",
+          "required": ["ttl"],
+          "properties": {
+            "ja4t": { "type": "string", "pattern": "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]{2,}$" },
+            "p0f": { "type": "string", "pattern": "^[46]:[0-9]+\\+[0-9?]+:[0-9]+:[0-9*]+:[^:]*,[0-9]+:[^:]*:[^:]*:[0+]$" },
+            "ttl": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "rttMicros": { "type": "integer", "minimum": 0 },
+            "syn": { "$ref": "#/$defs/base64" }
+          }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": ["type", "start", "end", "entryPoint", "proto", "method", "path", "httpVersion", "status"],
+      "properties": {
+        "type": { "const": "request" },
+        "connId": { "$ref": "#/$defs/connId" },
+        "start": { "$ref": "#/$defs/time" },
+        "end": { "$ref": "#/$defs/time" },
+        "entryPoint": { "type": "string" },
+        "proto": { "$ref": "#/$defs/proto" },
+        "method": { "type": "string" },
+        "authority": { "type": "string" },
+        "path": { "type": "string", "maxLength": 256 },
+        "httpVersion": { "type": "string" },
+        "fieldNames": { "type": "array", "items": { "type": "string" } },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "value"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "type": "string" }
+            }
+          }
+        },
+        "cookieNames": { "type": "array", "items": { "type": "string" } },
+        "ja4h": { "type": "string", "pattern": "^.{2}[0-9]{2}[cn][rn][0-9]{2}.+_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$" },
+        "headersTruncated": { "type": "boolean" },
+        "status": { "type": "integer", "minimum": 0, "maximum": 999 },
+        "router": { "type": "string" },
+        "service": { "type": "string" }
+      }
+    }
+  }
+}
