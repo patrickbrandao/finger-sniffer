@@ -20,7 +20,8 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-// Limites do contrato do ingest (openapi TraefikIngestBatch/TraefikRecord; internal/bot/ingest.go).
+// Limites do contrato do ingest (openapi TraefixFingerprintBatch, os mesmos do TraefikIngestBatch; ADR 0062 item 2;
+// internal/bot/ingest.go).
 const (
 	maxBatchRecords = 1024
 	maxBatchBytes   = 4 << 20
@@ -31,59 +32,88 @@ const (
 	hostileFields   = 6 // campos longos além do User-Agent
 )
 
-const alnum = "abcdefghijklmnopqrstuvwxyz0123456789"
+const (
+	alnum  = "abcdefghijklmnopqrstuvwxyz0123456789"
+	digits = "0123456789"
+)
 
-func randStr(rng *rand.Rand, n int) string {
+func randFrom(rng *rand.Rand, set string, n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = alnum[rng.IntN(len(alnum))]
+		b[i] = set[rng.IntN(len(set))]
 	}
 	return string(b)
 }
 
-func randHex(rng *rand.Rand, n int) string {
-	const hx = "0123456789abcdef"
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = hx[rng.IntN(16)]
+func randStr(rng *rand.Rand, n int) string { return randFrom(rng, alnum, n) }
+
+func randHex(rng *rand.Rand, n int) string { return randFrom(rng, "0123456789abcdef", n) }
+
+// hostileFieldName é um nome de campo único da lista padrão de fields do traefix (Sec-CH-UA* e Sec-Fetch-*): só
+// esses chegam com valor ao bot (spec 019 RF-06), e o valor longo e único é o que pesa no índice.
+func hostileFieldName(rng *rand.Rand, i int) string {
+	if i%2 == 0 {
+		return "sec-ch-ua-" + randStr(rng, 24)
 	}
-	return string(b)
+	return "sec-fetch-" + randStr(rng, 24)
 }
 
-// hostileConn monta os 1 + 16 registros de uma conexão com valores únicos: SNI, entry point, ALPN, cifra,
-// caminho de 256 bytes, UA de 512 bytes, seis campos de 512 bytes, nomes de campo e de cookie, JA4H, router e
-// service, tudo novo (o interner do bot não compartilha nada; ADR 0057 item 2). A origem é da faixa de testes de
-// desempenho 198.18.0.0/15 (RFC 2544), sem conexão do store para casar.
+// hostileJA4H é um JA4H único no formato do esquema do traefix (`^.{2}[0-9]{2}[cn][rn][0-9]{2}.+_…`) e do
+// X-Traefix-Ja4h do bot (12 caracteres [a-z0-9] na parte a).
+func hostileJA4H(rng *rand.Rand) string {
+	return "ge20nn" + randFrom(rng, digits, 2) + randStr(rng, 4) + "_" + randHex(rng, 12) + "_" + randHex(rng, 12) + "_" + randHex(rng, 12)
+}
+
+// hostileTCP é uma visão TCP do traefix com JA4T e raw_sig do p0f únicos (sem o SYN cru: sem palpite de SO, como
+// um traefix com rawBytes e SYN cookies); o TTL e o RTT variam.
+func hostileTCP(rng *rand.Rand) map[string]any {
+	win := 1024 + rng.IntN(64000)
+	return map[string]any{
+		"ja4t":      fmt.Sprintf("%d_2-4-8-1-3_%d_%d", win, 1200+rng.IntN(260), 10+rng.IntN(5)), // escala com dois dígitos (esquema do traefix)
+		"p0f":       fmt.Sprintf("4:%d+0:0:1460:%d,7:mss,sok,ts,nop,ws:df,id+:0", 40+rng.IntN(24), win),
+		"ttl":       40 + rng.IntN(24),
+		"rttMicros": rng.IntN(500000),
+	}
+}
+
+// hostileConn monta os 1 + 16 registros traefix.fingerprint/v1 de uma conexão com valores únicos: SNI, entry
+// point, ALPN, cifra, visão TCP, caminho de 256 bytes, UA de 512 bytes, seis campos de 512 bytes, nomes de campo e
+// de cookie, JA4H, router e service, tudo novo (o interner do bot não compartilha nada; ADR 0057 item 2). A origem
+// é da faixa de testes de desempenho 198.18.0.0/15 (RFC 2544), sem conexão do store para casar (e fora das faixas
+// privadas, então a visão TCP do traefix fica no índice).
 func hostileConn(rng *rand.Rand, tpl *template, suffix string, now time.Time) []map[string]any {
 	id := ulid.Make().String()
 	sni := randStr(rng, 24) + "." + suffix
 	src := map[string]any{"ip": fmt.Sprintf("198.%d.%d.%d", 18+rng.IntN(2), rng.IntN(256), 1+rng.IntN(254)), "port": 1024 + rng.IntN(64000)}
 	dst := map[string]any{"ip": "10.249.0.2", "port": 443}
-	conn := clone(tpl.conn)
-	conn["fs_conn_id"], conn["ts"], conn["src"], conn["dst"], conn["sni"] = id, ts(now), src, dst, sni
-	conn["entry_point"] = "ep-" + randStr(rng, 60)
-	conn["alpn_offered"] = []string{randStr(rng, 32), randStr(rng, 32), randStr(rng, 32), randStr(rng, 32)}
-	conn["alpn"], conn["cipher"] = randStr(rng, 32), "TLS_"+randStr(rng, 60)
+	conn, tls := withTLS(tpl.conn)
+	conn["connId"], conn["time"], conn["src"], conn["dst"] = id, ts(now), src, dst
+	conn["entryPoint"] = "ep-" + randStr(rng, 60)
+	conn["tcp"] = hostileTCP(rng)
+	tls["sni"] = sni
+	tls["alpnOffered"] = []string{randStr(rng, 32), randStr(rng, 32), randStr(rng, 32), randStr(rng, 32)}
+	tls["alpn"], tls["cipher"] = randStr(rng, 32), "TLS_"+randStr(rng, 60)
 	out := []map[string]any{conn}
 	for i := range hostileReqs {
 		names := make([]string, 0, 12)
-		fields := map[string]any{"user-agent": "Mozilla/5.0 " + randStr(rng, hostileUALen-12)}
+		fields := []map[string]any{{"name": "user-agent", "value": "Mozilla/5.0 " + randStr(rng, hostileUALen-12)}}
 		names = append(names, "user-agent")
-		for range hostileFields {
-			n := "x-" + randStr(rng, 30)
+		for j := range hostileFields {
+			n := hostileFieldName(rng, j)
 			names = append(names, n)
-			fields[n] = randStr(rng, maxFieldValue)
+			fields = append(fields, map[string]any{"name": n, "value": randStr(rng, maxFieldValue)})
 		}
 		for range 5 {
 			names = append(names, "x-"+randStr(rng, 30))
 		}
 		t := now.Add(time.Duration(i) * time.Millisecond)
 		rq := clone(tpl.req)
-		rq["fs_conn_id"], rq["ts"], rq["ended"] = id, ts(t), ts(t.Add(time.Millisecond))
+		rq["connId"], rq["start"], rq["end"] = id, ts(t), ts(t.Add(time.Millisecond))
+		rq["entryPoint"] = conn["entryPoint"]
 		rq["authority"], rq["path"] = sni, "/"+randStr(rng, maxPathBytes-1)
-		rq["field_names"], rq["fields"] = names, fields
-		rq["cookie_names"] = []string{randStr(rng, 24), randStr(rng, 24), randStr(rng, 24), randStr(rng, 24)}
-		rq["ja4h"] = "ge20nn" + randStr(rng, 6) + "_" + randHex(rng, 12) + "_" + randHex(rng, 12) + "_" + randHex(rng, 12)
+		rq["fieldNames"], rq["fields"] = names, fields
+		rq["cookieNames"] = []string{randStr(rng, 24), randStr(rng, 24), randStr(rng, 24), randStr(rng, 24)}
+		rq["ja4h"] = hostileJA4H(rng)
 		rq["router"], rq["service"] = "r-"+randStr(rng, 60), "s-"+randStr(rng, 60)
 		rq["method"] = "GET"
 		out = append(out, rq)
