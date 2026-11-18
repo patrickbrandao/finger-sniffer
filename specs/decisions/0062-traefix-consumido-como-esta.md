@@ -1,6 +1,6 @@
 # 0062 — traefix consumido como está: esquema `traefix.fingerprint/v1`, fingerprints prontas no forwardAuth e perfil de configuração
 
-Status: aceita (itens 7 e 8 dependem da pendência P9 do humano)
+Status: aceita
 Data: 2026-11-18
 
 ## Contexto
@@ -39,6 +39,11 @@ Fatos do código do bot (v0.5.0) que pesam na decisão:
   medida por eles.
 
 A ADR 0054 item 3 só deixa mudar `/bot/v1` de forma aditiva.
+
+**Decisão do humano** (2026-11-18, resposta à P9 aberta na primeira versão desta ADR, nas palavras dele): "Rodar
+traefix:latest sempre, todas as necessidades desse projeto serão implementadas em paralelo no traefix:latest e
+devemos sempre andar juntos." Isso responde à base RC e ao custo de CPU no `traefik-app` e substitui a fixação por
+digest proposta antes.
 
 ## Decisão
 1. **O finger-sniffer consome o traefix como está** (substitui o item 2 da ADR 0054 e, no item 3, a ideia de que o
@@ -94,24 +99,33 @@ A ADR 0054 item 3 só deixa mudar `/bot/v1` de forma aditiva.
    `Cookie` e o `Authorization` do visitante à auth), chave em `requestHeaders.Authorization`,
    `authResponseHeaders: [X-Fs-Verdict, X-Fs-Score, X-Fs-Signals]` e
    `failOpen: { denyRequiresResponseHeader: X-Fs-Verdict, header: { name: X-Fs-Verdict, value: unavailable } }`.
-   `http3HeaderOrder` fica desligado até a medida do item 8 (sem ele, a requisição h3 não tem JA4H e o bot usa o da
+   `http3HeaderOrder` fica desligado até a medida do item 9 (sem ele, a requisição h3 não tem JA4H e o bot usa o da
    última requisição do ingest, ou nenhum).
 6. **Métricas do traefix**: valem os nomes `traefik_fingerprint_export_*`, `traefik_fingerprint_capture_truncated_total`
    e `traefik_forwardauth_failopen_total` nos critérios, no e2e e nos docs, no lugar de `fingersniffer_*`.
-7. **Imagem** (substitui o item 4 da ADR 0054 quanto à tag): o teste e a troca fixam o **digest** `@sha256:` da
-   imagem testada, anotado com a tag `fork-point-<n>-g<sha>` de onde veio (as tags `fork-point` não têm garantia de
-   imutabilidade). Nunca `latest`.
-8. **Divergências aceitas e pendência P9** (RF da versão anterior da spec 019):
+7. **Imagem: sempre `tmsoftbrasil/traefix:latest`** (decisão do humano; substitui o item 4 da ADR 0054 quanto à
+   tag): o container de teste e o `traefik-app` usam `latest`, sem fixar tag nem digest. Cada teste, e2e ou troca
+   registra o digest e o `sender` que viu (diagnóstico e caminho de volta, não fixação). A atualização da `latest`
+   no finger-01 é do humano (como hoje com a imagem do `traefik-app`).
+8. **Andar juntos** (decisão do humano): o traefix evolui junto com o finger-sniffer.
+   - Toda necessidade nova do finger-sniffer que dependa do traefix entra na spec 019, seção "Pedidos ao traefix"
+     (id `PT-nn`, estado `pedido`|`entregue`), pelo architect, e é avisada ao humano, que a implementa na `latest`.
+   - O bot trata cada pedido como opcional até ele aparecer no dado (campo, cabeçalho, métrica): nunca falha sem
+     ele, e campo desconhecido do traefix é ignorado.
+   - Mudança incompatível no lote ou nos cabeçalhos só com `schema` novo (`traefix.fingerprint/v2`, …) combinado
+     antes: o bot passa a aceitar o novo esquema antes de o traefix publicá-lo (pedido PT-01).
+   - Como a `latest` muda sem aviso prévio a este repositório, o e2e da F8 pelo router de teste (spec 017 RF-17)
+     registra o `sender`; `rejected`, `parse_errors` ou `fingerprint_mismatch` subindo com um `sender` novo é
+     regressão do traefix, reportada ao humano.
+9. **Divergências aceitas** (RF da versão anterior da spec 019):
    - RF-12 (contrato): o lado de cá valida o esquema com lotes de exemplo e, quando a task 273 rodar, com lotes
      reais do traefix gravados em `testdata` (o teste de contrato do lado do traefix não existe);
    - RF-07a (chave vazia em host público): aceita sem mudança; o bot responde 401 e o fail-open de 4xx segue;
    - RF-09 (rótulos OCI, `NOTICE`): recomendação ao projeto traefix, sem bloqueio (ADR 0054 item 10);
-   - **P9 (humano)**: base `v3.8.0-rc.3` (RF-01) e custo de CPU acima de 5% (RF-11) no `traefik-app`, que atende os
-     sites do humano. O teste num container à parte e o e2e pelo router de teste não dependem da P9 e medem o custo
-     no finger-01 (CPU do traefix com `rawBytes` ligado e desligado e com `http3HeaderOrder`); a **troca do
-     `traefik-app`** espera a resposta do humano: aceitar o RC e o custo medido, ou esperar uma versão do traefix
-     sobre a tag estável.
-9. **Momento do registro de conexão**: aceito como o traefix faz. O casamento da spec 018 RF-04 (origem, porta de
+   - RF-01 (base em tag estável): aceita pela decisão do humano; o traefix segue a base que a `latest` tiver;
+   - RF-11 (custo ≤ 5%): aceita pela decisão do humano; a task 273 mede a CPU no finger-01 (`rawBytes` ligado e
+     desligado, `http3HeaderOrder`) como registro e para escolher `rawBytes`/`http3HeaderOrder`, sem bloquear a troca.
+10. **Momento do registro de conexão**: aceito como o traefix faz. O casamento da spec 018 RF-04 (origem, porta de
    destino pública e início a menos de 5 s, pelo `time` do accept) não muda; o item 4 cobre a primeira requisição.
 
 ## Alternativas consideradas
@@ -122,7 +136,9 @@ A ADR 0054 item 3 só deixa mudar `/bot/v1` de forma aditiva.
 - Rota nova (`/bot/v1/ingest/traefix`) — funciona, mas obriga a mudar `export.url` conforme a versão; o campo
   `schema` já distingue os formatos.
 - Usar só as fingerprints prontas e desligar `rawBytes` — economiza CPU no traefix, mas perde JA3N, JA4_r, JA4_o e o
-  `parse_error`, e a base própria passaria a depender de outro código; fica como plano B se a medida do item 8 pedir.
+  `parse_error`, e a base própria passaria a depender de outro código; fica como plano B se a medida do item 9 pedir.
+- Fixar tag ou digest no finger-01 (proposta da primeira versão desta ADR, como a ADR 0054 item 4) — reprodutível,
+  mas contrária à decisão do humano de andar juntos com a `latest`.
 - Aumentar `FS_BOT_VIEW_WAIT` para cobrir o lote do traefix — piora o forwardAuth de todas as requisições; os
   cabeçalhos resolvem sem espera.
 
@@ -132,5 +148,7 @@ A ADR 0054 item 3 só deixa mudar `/bot/v1` de forma aditiva.
 - Spec 019 reescrita (integração); specs 016 RF-15, 017 RF-14/RF-17, 018 (métricas) e 020 RF-02/RF-04 ajustadas.
 - Tarefas: 302 (ingest `traefix.fingerprint/v1` e QUIC), 303 (forwardAuth com as fingerprints dos cabeçalhos), 304
   (e2e simulado e carga com o esquema novo), 305 (docs), 273 refeita (teste à parte, medida de custo, lotes reais e
-  e2e pelo router de teste) e 306 (troca do `traefik-app`, bloqueada até a P9).
+  e2e pelo router de teste) e 306 (troca do `traefik-app` para a `latest`, depois da 273).
+- Pedidos ao traefix iniciais: PT-01 (mudança incompatível só com `schema` novo) e PT-02 (rótulos OCI e `NOTICE`,
+  recomendação), avisados ao humano no PR desta ADR.
 - O calendário do traefix segue do humano; mudança de formato do lado dele chega como fato novo e nova ADR aqui.

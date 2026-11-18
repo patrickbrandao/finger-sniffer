@@ -182,9 +182,12 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
       `api.go`);
     - tester: e2e simulado e carga com o esquema novo (304, depois de 302 e 303);
     - docs: `docs/bot.md` e guia de integração com o perfil da spec 019 (305, depois de 302 e 303);
-    - infra + tester: traefix (digest fixado) num container à parte no finger-01, router de teste, medida de CPU,
+    - infra + tester: traefix (`latest`, digest e `sender` registrados) num container à parte no finger-01,
+      router de teste, medida de CPU,
       lotes reais em `testdata` e casos `TestF8TraefixReal` (273, depois de 302–304, com deploy do bot antes);
-    - infra: troca do `traefik-app` só observando (306, depois da 273 e da P9).
+    - infra: troca do `traefik-app` para a `latest`, só observando (306, depois da 273).
+    Decisão do humano (P9, 2026-11-18): sempre `traefix:latest` e os dois projetos andam juntos; necessidades novas
+    viram pedidos `PT-nn` na spec 019.
     Critério: os da spec 019; release `v0.5.1` depois da 273 (a 306 não bloqueia a release).
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
   Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
@@ -220,5 +223,5 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
 - **Pendências para o humano** (detalhe na spec 018): P4 termos da ja4db; P5 base legal (LGPD); P6 controlador,
   encarregado e canal do titular. Respondidas em 2026-11-16 (ADR 0054): P1 e P2 (traefix externo), P3 (os dois
   casos de clientes externos), P7 (tráfego dos sites segue visível), P8 (troca só observando, task 273).
-  Aberta em 2026-11-18 (ADR 0062 item 8): P9 — o `traefik-app` dos sites pode rodar o traefix sobre
-  `v3.8.0-rc.3` e com o custo de CPU medido na task 273, ou espera uma versão do traefix sobre tag estável.
+  P9 respondida em 2026-11-18 (ADR 0062 itens 7–9): sempre `tmsoftbrasil/traefix:latest`, base RC e custo de CPU
+  aceitos, os dois projetos andam juntos.
