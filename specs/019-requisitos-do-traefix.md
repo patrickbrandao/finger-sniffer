@@ -162,6 +162,7 @@ entregues em 2026-11-18).
 | PT-08 | Custo de CPU medido no Linux e reduzido | entregue como medida e otimização parcial (+40% h1, +29% h2, teto; aceito) |
 | PT-09 | Chave vazia em `requestHeaders` falha na carga | entregue (`fork-point-218`) |
 | PT-10 | Marcar no registro de conexão quando o SYN salvo pode não ser do cliente (`docker-proxy`, proxy local) | pedido |
+| PT-11 | Corrigir o padrão de `tcp.ja4t` no `traefix-fingerprint-v1.schema.json`: a escala de janela tem 1 dígito ou mais (`…_1430_6`), não 2; hoje um lote real de um cliente macOS não valida no esquema do próprio traefix. A tradução no openapi do bot já aceita 1 dígito; a cópia fica igual à do traefix até a correção | pedido |
 
 ## Comportamento esperado do lado do finger-sniffer
 - No finger-01, `export.url` e o forwardAuth usam a 9003 (HTTP, só loopback e a rede do traefik, chave opcional; o

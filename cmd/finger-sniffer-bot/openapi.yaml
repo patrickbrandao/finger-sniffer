@@ -122,7 +122,7 @@ paths:
           in: header
           required: false
           description: JA4T do SYN do cliente, com `fingerprint.tcp` no traefix (ADR 0063 item 5).
-          schema: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]{2,}$" }
+          schema: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$" }
         - { name: X-Fs-Src-Ip, in: header, required: false, deprecated: true, schema: { type: string } }
         - { name: X-Fs-Src-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
         - { name: X-Fs-Dst-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
@@ -613,7 +613,8 @@ components:
         Lote `traefix.fingerprint/v1`, formato do projeto traefix. Tradução em componentes de
         `traefix-fingerprint-v1.schema.json` do traefix no commit `9f480d2e7` (`fork-point-218`), copiado em
         `cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json`; um teste do bot valida os lotes de exemplo
-        contra as duas formas (ADR 0063 item 3). O bot ignora campos e tipos de registro desconhecidos e lê só o da
+        contra as duas formas (ADR 0063 item 3). Diferença conhecida: `tcp.ja4t` aceita escala de janela de 1
+        dígito (pedido PT-11 ao traefix). O bot ignora campos e tipos de registro desconhecidos e lê só o da
         spec 019 RF-07; aceita também registros que este esquema declararia incompletos, desde que tenham o que lê.
       properties:
         schema: { type: string, const: traefix.fingerprint/v1 }
@@ -692,7 +693,7 @@ components:
           required: [ttl]
           description: Com `fingerprint.tcp` (só Linux; ADR 0063 item 5).
           properties:
-            ja4t: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]{2,}$" }
+            ja4t: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$" }
             p0f:
               type: string
               description: "`raw_sig` do p0f v3 (sem palpite de SO)."
