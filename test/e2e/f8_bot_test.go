@@ -1527,8 +1527,9 @@ func TestF8Bot(t *testing.T) {
 			r := botDo(t, http.MethodGet, "/auth", key, legacyAuthHeaders(id, o, a, true), nil)
 			v := decodeVerdict(t, "auth", r)
 			t.Logf("auth com X-Fs-* e TraefikIngestBatch: %d %s", r.status, v.String())
-			if r.status != http.StatusOK || v.Class != "bot" || !v.has("ja4h_library") || !v.View.TCP {
-				t.Errorf("X-Fs-* antigos: %d %s; esperado 200 bot com ja4h_library e view.tcp", r.status, v.String())
+			// pela 9002 o bot não consulta o store (ADR 0063 item 7) e o TraefikIngestBatch não tem visão TCP: sem view.tcp
+			if r.status != http.StatusOK || v.Class != "bot" || !v.has("ja4h_library") || v.View.TCP {
+				t.Errorf("X-Fs-* antigos: %d %s; esperado 200 bot com ja4h_library e sem view.tcp (9002)", r.status, v.String())
 			}
 			checkVerdictHeaders(t, "auth X-Fs-*", r, v)
 			checkMirror(t, a, v)
