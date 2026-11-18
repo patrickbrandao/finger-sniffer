@@ -1,0 +1,69 @@
+{
+  "entryPoint": "websecure",
+  "records": [
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T06",
+      "dst": {
+        "ip": "10.249.0.2",
+        "port": 443
+      },
+      "entryPoint": "websecure",
+      "proto": "h1",
+      "src": {
+        "ip": "198.51.100.46",
+        "port": 40200
+      },
+      "time": "2026-11-16T12:00:00.010000000Z",
+      "type": "connection"
+    },
+    {
+      "authority": "www.example.com",
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T06",
+      "cookieNames": [],
+      "end": "2026-11-16T12:00:00.060000000Z",
+      "entryPoint": "websecure",
+      "fieldNames": [
+        "User-Agent",
+        "user-agent",
+        "X-Custom",
+        "Accept"
+      ],
+      "fields": [
+        {
+          "name": "User-Agent",
+          "value": "First/1.0"
+        },
+        {
+          "name": "user-agent",
+          "value": "Second/2.0"
+        },
+        {
+          "name": "X-Custom",
+          "value": "secret"
+        },
+        {
+          "name": "Accept",
+          "value": "text/html"
+        },
+        {
+          "name": "ACCEPT",
+          "value": "*/*"
+        }
+      ],
+      "headersTruncated": false,
+      "httpVersion": "1.1",
+      "ja4h": "ge11nn030000_fe444ad14866_000000000000_000000000000",
+      "method": "GET",
+      "path": "/",
+      "proto": "h1",
+      "router": "site@docker",
+      "service": "site@docker",
+      "start": "2026-11-16T12:00:00.020000000Z",
+      "status": 200,
+      "type": "request"
+    }
+  ],
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "sentAt": "2026-11-16T12:00:01.000000000Z"
+}

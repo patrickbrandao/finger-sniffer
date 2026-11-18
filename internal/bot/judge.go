@@ -63,6 +63,8 @@ type Judge struct {
 	authTime  *histogram
 	authWait  *histogram
 	classKeys map[string]map[string]string // source → class → chave da métrica
+	// p0f é o p0f.fp da visão TCP do traefix (FS_BOT_P0F_DB), carregado no primeiro uso.
+	p0f *p0fSource
 }
 
 // newJudge cria o avaliador; m pode ser nil (sem listas: só as regras que não dependem delas).
@@ -73,6 +75,7 @@ func newJudge(cfg Config, ix *Index, ag *agg.Aggregator, hub *Hub, m *lists.Mana
 		index:  ix, agg: ag, hub: hub, lists: m, bg: bg, metrics: metrics, now: now,
 		authTime: newHistogram(metrics, metricAuthSeconds, authBuckets),
 		authWait: newHistogram(metrics, metricAuthWaitSecs, authBuckets),
+		p0f:      newP0FSource(cfg.P0FPath, nil),
 	}
 	if k, ok := j.engine.Sources.Known.(*knownSource); ok {
 		j.known = k
@@ -94,6 +97,9 @@ func newJudge(cfg Config, ix *Index, ag *agg.Aggregator, hub *Hub, m *lists.Mana
 	}
 	for _, src := range []string{ja4hFromHeader, ja4hFromIngest, ja4hNone} {
 		metrics.Add(authJA4HMetric(src), 0)
+	}
+	for _, k := range mismatchKinds {
+		metrics.Add(mismatchMetric(k), 0)
 	}
 	return j
 }
@@ -174,6 +180,13 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 			fps.JA4T, fps.P0fOS = optString(t.JA4T), optString(t.P0fOS)
 		}
 		in.TCP = t
+	} else if vw.fork != nil && vw.fork.TCP != nil {
+		// sem o store casado (site externo), a visão TCP do traefix (ADR 0063 item 5)
+		in.TCP = vw.fork.TCP.rules()
+		fps.JA4T, fps.P0fOS = optString(in.TCP.JA4T), optString(in.TCP.P0fOS)
+		if in.TCP.TTLInitial != 0 {
+			fps.TTLInitial = ptr(in.TCP.TTLInitial)
+		}
 	}
 	// TLS: o ClientHello do fork (traefik termina o TLS); sem ele, o do espelho (conexão direta ou probe).
 	switch f := vw.fork; {
@@ -413,8 +426,29 @@ func (j *Judge) Ingest(id string, allows func(string) bool) bool {
 	}
 	vw := views{ip: ip, site: site, fork: &fork, store: store, http: httpFromFork(req), proto: req.Proto}
 	v, res := j.evaluate(vw, requestSubject(site, ip, fork.SrcPort, fork.DstPort, id, store, req.Method, req.Path))
-	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path}, nil)
+	var init func(c *ForkConn)
+	if store != nil && fork.TCP != nil && !fork.ja4tChecked {
+		j.compareJA4T(fork.TCP, store)
+		init = func(c *ForkConn) { c.ja4tChecked = true }
+	}
+	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path}, init)
 	return true
+}
+
+// compareJA4T conta a divergência entre o JA4T da visão TCP do traefix e o do store casado, uma vez por conexão
+// (bot_ingest_fingerprint_mismatch_total{kind="ja4t"}, ADR 0063 item 5); a visão do store é a que vale nas regras.
+func (j *Judge) compareJA4T(t *ForkTCP, store *StoreConn) {
+	var rec struct {
+		TCP *struct {
+			JA4T *string `json:"ja4t"`
+		} `json:"tcp"`
+	}
+	if t.JA4T == "" || json.Unmarshal(store.Record, &rec) != nil || rec.TCP == nil || deref(rec.TCP.JA4T) == "" {
+		return
+	}
+	if *rec.TCP.JA4T != t.JA4T {
+		j.metrics.Add(mismatchMetric(mismatchJA4T), 1)
+	}
 }
 
 // connectionVerdict avalia uma conexão sem veredito de requisição guardado (consulta): a do fork com a do store

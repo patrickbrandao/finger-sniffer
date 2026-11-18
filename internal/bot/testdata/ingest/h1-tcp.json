@@ -1,0 +1,85 @@
+{
+  "entryPoint": "websecure",
+  "records": [
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T01",
+      "dst": {
+        "ip": "10.249.0.2",
+        "port": 443
+      },
+      "entryPoint": "websecure",
+      "proto": "h1",
+      "src": {
+        "ip": "198.51.100.41",
+        "port": 36378
+      },
+      "tcp": {
+        "ja4t": "64240_2-4-8-1-3_1460_12",
+        "p0f": "4:128+0:0:1460:mss*44,12:mss,sok,ts,nop,ws:df,id+:0",
+        "rttMicros": 1834,
+        "syn": "RQAAPFebQACABl40rOkYVWgUF5qOGgBQ2krYYgAAAACgAvrwaPMAAAIEBbQEAggKnUvAxgAAAAABAwMM",
+        "ttl": 128
+      },
+      "time": "2026-11-16T12:00:00.010000000Z",
+      "tls": {
+        "alpn": "http/1.1",
+        "alpnOffered": [
+          "http/1.1"
+        ],
+        "cipher": "TLS_AES_256_GCM_SHA384",
+        "clientHello": "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",
+        "clientHelloTruncated": false,
+        "ja3": "32e4b8812cda0c0d50783b438492a769",
+        "ja3String": "771,4866-4867-4865-49196-49200-159-52393-52392-52394-49195-49199-158-49188-49192-107-49187-49191-103-49162-49172-57-49161-49171-51-157-156-61-60-53-47,65281-0-11-10-16-22-23-49-13-43-45-51-27,4588-29-23-30-24-25-256-257,0-1-2",
+        "ja3n": "13cf6fd0e076661bcef355f636f2c557",
+        "ja3nString": "771,4866-4867-4865-49196-49200-159-52393-52392-52394-49195-49199-158-49188-49192-107-49187-49191-103-49162-49172-57-49161-49171-51-157-156-61-60-53-47,0-10-11-13-16-22-23-27-43-45-49-51-65281,4588-29-23-30-24-25-256-257,0-1-2",
+        "ja4": "t13d3013h2_1d37bd780c83_8537cf56674e",
+        "ja4o": "t13d3013h2_8d44cdc55eec_5bd17f9d395a",
+        "ja4r": "t13d3013h2_002f,0033,0035,0039,003c,003d,0067,006b,009c,009d,009e,009f,1301,1302,1303,c009,c00a,c013,c014,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9,ccaa_000a,000b,000d,0016,0017,001b,002b,002d,0031,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602",
+        "sni": "www.example.com",
+        "version": "TLS 1.3"
+      },
+      "type": "connection"
+    },
+    {
+      "authority": "www.example.com",
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T01",
+      "cookieNames": [],
+      "end": "2026-11-16T12:00:00.060000000Z",
+      "entryPoint": "websecure",
+      "fieldNames": [
+        "Host",
+        "User-Agent",
+        "Accept"
+      ],
+      "fields": [
+        {
+          "name": "Host",
+          "value": "www.example.com"
+        },
+        {
+          "name": "User-Agent",
+          "value": "curl/8.5.0"
+        },
+        {
+          "name": "Accept",
+          "value": "*/*"
+        }
+      ],
+      "headersTruncated": false,
+      "httpVersion": "1.1",
+      "ja4h": "ge11nn030000_fe444ad14866_000000000000_000000000000",
+      "method": "GET",
+      "path": "/",
+      "proto": "h1",
+      "router": "site@docker",
+      "service": "site@docker",
+      "start": "2026-11-16T12:00:00.020000000Z",
+      "status": 200,
+      "type": "request"
+    }
+  ],
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "sentAt": "2026-11-16T12:00:01.000000000Z"
+}

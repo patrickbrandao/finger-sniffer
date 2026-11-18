@@ -1,0 +1,78 @@
+{
+  "entryPoint": "websecure",
+  "futureBatchField": "ignored",
+  "records": [
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T07",
+      "dst": {
+        "ip": "10.249.0.2",
+        "port": 443
+      },
+      "entryPoint": "websecure",
+      "future": {
+        "x": 1
+      },
+      "proto": "h1",
+      "src": {
+        "ip": "198.51.100.47",
+        "port": 40300
+      },
+      "time": "2026-11-16T12:00:00.010000000Z",
+      "tls": {
+        "futureField": true,
+        "sni": "www.example.com"
+      },
+      "type": "connection"
+    },
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T07",
+      "level": 2,
+      "tls": "not-an-object",
+      "type": "tls-alert"
+    },
+    {
+      "authority": "www.example.com",
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T07",
+      "cookieNames": [],
+      "end": "2026-11-16T12:00:00.060000000Z",
+      "entryPoint": "websecure",
+      "fieldNames": [
+        "Host",
+        "User-Agent",
+        "Accept"
+      ],
+      "fields": [
+        {
+          "name": "Host",
+          "value": "www.example.com"
+        },
+        {
+          "name": "User-Agent",
+          "value": "curl/8.5.0"
+        },
+        {
+          "name": "Accept",
+          "value": "*/*"
+        }
+      ],
+      "headersTruncated": false,
+      "httpVersion": "1.1",
+      "ja4h": "ge11nn030000_fe444ad14866_000000000000_000000000000",
+      "method": "GET",
+      "newThing": [
+        1,
+        2
+      ],
+      "path": "/",
+      "proto": "h1",
+      "router": "site@docker",
+      "service": "site@docker",
+      "start": "2026-11-16T12:00:00.020000000Z",
+      "status": 200,
+      "type": "request"
+    }
+  ],
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "sentAt": "2026-11-16T12:00:01.000000000Z"
+}

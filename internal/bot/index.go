@@ -70,10 +70,16 @@ type ForkConn struct {
 	Cipher      string
 	// TLS e H2 são as visões calculadas do client_hello e do h2_prefix do registro de conexão (spec 018 RF-03);
 	// nil quando o traefix não mandou a parte. Os bytes crus não ficam no índice.
-	TLS           *ForkTLS
-	H2            *ForkH2
+	TLS *ForkTLS
+	H2  *ForkH2
+	// TCP é a visão TCP da conexão do traefix (tcp.* do registro traefix.fingerprint/v1, ADR 0063 item 5); nil sem
+	// ela, em h3 ou com origem loopback, link-local ou privada. Nas regras, a do store casada vence.
+	TCP           *ForkTCP
 	HasConnRecord bool
-	Requests      []ForkRequest
+	// ja4tChecked marca que o JA4T desta visão já foi comparado com o do store casado
+	// (bot_ingest_fingerprint_mismatch_total{kind="ja4t"} uma vez por conexão).
+	ja4tChecked bool
+	Requests    []ForkRequest
 	// connCost é o que os textos do registro de conexão somaram no interner (forkBytes).
 	connCost int64
 	// Veredito por requisição (spec 018 "Comportamento"): authSeen e reqSeen contam as requisições vistas pelo
@@ -107,7 +113,8 @@ func (f *ForkConn) ParseError() bool {
 }
 
 // ForkTLS é a visão TLS do fork: as fingerprints do ClientHello cru, iguais às do web do espelho para os mesmos
-// bytes (pkg/tlsparse, pkg/fingerprint). Com ParseError, nenhuma fingerprint é preenchida.
+// bytes (pkg/tlsparse, pkg/fingerprint), ou, sem os bytes crus, as prontas do traefix (Ready, ADR 0063 item 4).
+// Com ParseError, nenhuma fingerprint é preenchida.
 type ForkTLS struct {
 	JA3        string
 	JA3MD5     string
@@ -120,6 +127,7 @@ type ForkTLS struct {
 	ALPN       []string // ALPN oferecido, na ordem do ClientHello
 	Truncated  bool
 	ParseError bool
+	Ready      bool  // fingerprints prontas do traefix (sem tls.clientHello)
 	cost       int64 // estrutura e textos criados (forkBytes)
 }
 
@@ -132,9 +140,13 @@ type ForkH2 struct {
 	PseudoOrder  []string
 	HeadersSeen  bool
 	Akamai       string
-	Truncated    bool
-	ParseError   bool
-	cost         int64 // estrutura, fatias e textos criados (forkBytes)
+	// HeadersPriority é a prioridade do primeiro HEADERS (`stream:exclusivo:depende:peso`), só da forma pronta do
+	// traefix (http2.headersPriority).
+	HeadersPriority string
+	Truncated       bool
+	ParseError      bool
+	Ready           bool  // forma pronta do traefix (sem http2.prefix)
+	cost            int64 // estrutura, fatias e textos criados (forkBytes)
 }
 
 // ForkRequest é o resumo de uma requisição vista pelo fork (sem query, corpo nem valores de cookie, ADR 0052).

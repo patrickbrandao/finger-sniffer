@@ -94,6 +94,16 @@ type parsedRecord struct {
 	src netip.Addr
 	tls *ForkTLS
 	h2  *ForkH2
+	// tcp é a visão TCP do traefix (só traefix.fingerprint/v1, ADR 0063 item 5).
+	tcp *ForkTCP
+	// quic diz que o ClientHello é do QUIC (proto h3 ou mensagem de handshake pura).
+	quic bool
+	// mismatches são as divergências entre o calculado e o pronto do traefix (rótulo kind).
+	mismatches []string
+	// ignored marca o tipo de registro desconhecido de um lote traefix.fingerprint/v1 (ignorado, ADR 0063 item 2);
+	// ignoredType é o tipo dele.
+	ignored     bool
+	ignoredType string
 }
 
 // ParseErrors devolve as partes que não puderam ser analisadas (para bot_ingest_parse_errors_total{part}).
@@ -127,22 +137,28 @@ func DecodeIngestBatch(body []byte) (TraefikIngestBatch, error) {
 	return b, nil
 }
 
-// parseRecord confere um registro contra o contrato.
+// parseRecord confere um registro do formato anterior (TraefikRecord) contra o contrato.
 func parseRecord(raw json.RawMessage) (parsedRecord, error) {
 	var p parsedRecord
 	if err := json.Unmarshal(raw, &p.r); err != nil {
 		return p, fmt.Errorf("%w: %w", errBadRecord, err)
 	}
+	return p, p.check()
+}
+
+// check confere o registro já convertido para TraefikRecord (os dois esquemas) e calcula as fingerprints dos
+// bytes crus.
+func (p *parsedRecord) check() error {
 	r := &p.r
 	if r.Type != "connection" && r.Type != "request" {
-		return p, fmt.Errorf("%w: type %q", errBadRecord, r.Type)
+		return fmt.Errorf("%w: type %q", errBadRecord, r.Type)
 	}
 	if !ulidPattern(r.FsConnID) {
-		return p, fmt.Errorf("%w: fs_conn_id", errBadRecord)
+		return fmt.Errorf("%w: fs_conn_id", errBadRecord)
 	}
 	ts, err := time.Parse(time.RFC3339Nano, r.Ts)
 	if err != nil {
-		return p, fmt.Errorf("%w: ts", errBadRecord)
+		return fmt.Errorf("%w: ts", errBadRecord)
 	}
 	p.ts = ts
 	for _, e := range []*endpoint{r.Src, r.Dst} {
@@ -150,45 +166,47 @@ func parseRecord(raw json.RawMessage) (parsedRecord, error) {
 			continue
 		}
 		if _, err := netip.ParseAddr(e.IP); err != nil || e.Port < 0 || e.Port > 65535 {
-			return p, fmt.Errorf("%w: endpoint", errBadRecord)
+			return fmt.Errorf("%w: endpoint", errBadRecord)
 		}
 	}
 	if r.Src != nil {
 		p.src, _ = netip.ParseAddr(r.Src.IP)
 	}
 	if r.Proto != "" && r.Proto != "h1" && r.Proto != "h2" && r.Proto != "h3" {
-		return p, fmt.Errorf("%w: proto %q", errBadRecord, r.Proto)
+		return fmt.Errorf("%w: proto %q", errBadRecord, r.Proto)
 	}
 	if len(r.Path) > maxPathBytes {
-		return p, fmt.Errorf("%w: path longer than %d bytes", errBadRecord, maxPathBytes)
+		return fmt.Errorf("%w: path longer than %d bytes", errBadRecord, maxPathBytes)
 	}
 	for _, v := range r.Fields {
 		if len([]rune(v)) > maxFieldValue {
-			return p, fmt.Errorf("%w: field value longer than %d", errBadRecord, maxFieldValue)
+			return fmt.Errorf("%w: field value longer than %d", errBadRecord, maxFieldValue)
 		}
 	}
 	if r.Ended != nil {
 		if _, err := time.Parse(time.RFC3339Nano, *r.Ended); err != nil {
-			return p, fmt.Errorf("%w: ended", errBadRecord)
+			return fmt.Errorf("%w: ended", errBadRecord)
 		}
 	}
 	// Base64 inválido está fora do contrato (o registro é recusado); bytes que decodificam mas não analisam viram
 	// parse_error na visão daquela parte, sem recusar o registro (spec 018 RF-03).
+	p.quic = r.Proto == "h3"
 	if r.ClientHello != nil {
 		raw, err := base64.StdEncoding.DecodeString(*r.ClientHello)
 		if err != nil {
-			return p, fmt.Errorf("%w: client_hello", errBadRecord)
+			return fmt.Errorf("%w: client_hello", errBadRecord)
 		}
-		p.tls = analyzeClientHello(raw, r.ClientHelloTruncated)
+		p.quic = p.quic || (len(raw) > 0 && raw[0] == handshakeClientHello)
+		p.tls = analyzeClientHelloAs(raw, r.ClientHelloTruncated, p.quic)
 	}
 	if r.H2Prefix != nil {
 		raw, err := base64.StdEncoding.DecodeString(*r.H2Prefix)
 		if err != nil {
-			return p, fmt.Errorf("%w: h2_prefix", errBadRecord)
+			return fmt.Errorf("%w: h2_prefix", errBadRecord)
 		}
 		p.h2 = analyzeH2Prefix(raw, r.H2PrefixTruncated)
 	}
-	return p, nil
+	return nil
 }
 
 // sites devolve os domínios que o registro cita (SNI e authority, normalizados, sem os vazios). Com chave, todos
@@ -224,7 +242,11 @@ func (p *parsedRecord) apply(c *ForkConn) {
 		c.SNI = shared.str(deref(r.SNI), &cost)
 		c.ALPNOffered = shared.list(r.ALPNOffered, &cost)
 		c.ALPN, c.TLSVersion, c.Cipher = shared.str(deref(r.ALPN), &cost), shared.str(deref(r.TLSVersion), &cost), shared.str(deref(r.Cipher), &cost)
-		c.TLS, c.H2, c.connCost = p.tls, p.h2, cost
+		c.TLS, c.H2, c.TCP = p.tls, p.h2, p.tcp
+		if p.tcp != nil {
+			cost += p.tcp.cost
+		}
+		c.connCost, c.ja4tChecked = cost, false
 	case "request":
 		path, _, _ := strings.Cut(r.Path, "?") // nada de query (ADR 0052 item 2)
 		fields := make(map[string]string, len(r.Fields))
@@ -263,19 +285,44 @@ func (p *parsedRecord) apply(c *ForkConn) {
 // resume todos).
 const maxForkPriorities = 64
 
-// analyzeClientHello calcula as fingerprints do ClientHello cru como o web do espelho (internal/web/conn.go):
-// tlsparse.Parse sobre os registros TLS e, só sem erro, JA3 e JA4 (transporte TCP). O ClientHello do QUIC (spec
-// 019 RF-13) ainda não tem formato no contrato: bytes fora de registros TLS são parse_error.
+// analyzeClientHello calcula as fingerprints do ClientHello cru como o web do espelho, escolhendo o transporte
+// pelos próprios bytes (analyzeClientHelloAs com quic=false).
 func analyzeClientHello(raw []byte, truncated bool) *ForkTLS {
+	return analyzeClientHelloAs(raw, truncated, false)
+}
+
+// handshakeClientHello é o tipo da mensagem de handshake ClientHello (RFC 8446 4); um registro TLS de handshake
+// começa por 0x16 (RFC 8446 5.1).
+const handshakeClientHello = 0x01
+
+// analyzeClientHelloAs calcula as fingerprints do ClientHello cru com os mesmos pacotes do web do espelho (ADR
+// 0062 item 3): em TCP, tlsparse.Parse sobre os registros TLS (internal/web/conn.go) e JA4 `t`; em QUIC (quic, ou
+// bytes que começam pela mensagem de handshake 0x01 e não por um registro 0x16), tlsparse.ParseMessage sobre a
+// mensagem de handshake pura, como o traefix a manda (spec 019 RF-06), e JA4 `q` (pkg/quicparse). Só sem erro de
+// análise há fingerprint.
+func analyzeClientHelloAs(raw []byte, truncated, quic bool) *ForkTLS {
 	t := &ForkTLS{Truncated: truncated, cost: forkTLSBytes}
-	ch, err := tlsparse.Parse(raw)
-	// Cortado (acima de 16 KiB no traefix) também é parse_error: a mensagem não está inteira (spec 019 RF-03).
+	quic = quic || (len(raw) > 0 && raw[0] == handshakeClientHello)
+	var (
+		ch  *tlsparse.ClientHello
+		err error
+	)
+	if quic {
+		ch, err = tlsparse.ParseMessage(raw)
+	} else {
+		ch, err = tlsparse.Parse(raw)
+	}
+	// Cortado (acima de 16 KiB no traefix) também é parse_error: a mensagem não está inteira (spec 019 RF-06).
 	if err != nil || ch == nil || truncated {
 		t.ParseError = true
 		return t
 	}
+	transport := ja4.TCP
+	if quic {
+		transport = ja4.QUIC
+	}
 	j3 := ja3.Compute(ch)
-	j4 := ja4.Compute(ch, ja4.TCP)
+	j4 := ja4.Compute(ch, transport)
 	c := &t.cost
 	t.JA3, t.JA3MD5, t.JA3N, t.JA3NMD5 = shared.str(j3.JA3, c), shared.str(j3.JA3MD5, c), shared.str(j3.JA3N, c), shared.str(j3.JA3NMD5, c)
 	t.JA4, t.JA4R, t.JA4O = shared.str(j4.JA4, c), shared.str(j4.JA4R, c), shared.str(j4.JA4O, c)

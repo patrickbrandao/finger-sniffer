@@ -1,0 +1,30 @@
+{
+  "entryPoint": "websecure",
+  "records": [
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T04",
+      "dst": {
+        "ip": "10.249.0.2",
+        "port": 443
+      },
+      "entryPoint": "websecure",
+      "proto": "h1",
+      "src": {
+        "ip": "198.51.100.44",
+        "port": 40100
+      },
+      "time": "2026-11-16T12:00:00.010000000Z",
+      "tls": {
+        "alpnOffered": [
+          "h2",
+          "http/1.1"
+        ],
+        "sni": "www.example.com"
+      },
+      "type": "connection"
+    }
+  ],
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "sentAt": "2026-11-16T12:00:01.000000000Z"
+}
