@@ -1,16 +1,18 @@
 //go:build load
 
-// Comando botload: carga da F8 no bot (task 285; spec 018 RNF-01 e RNF-02, spec 017 RF-17, ADRs 0055 item 2,
+// Comando botload: carga da F8 no bot (tasks 285 e 304; spec 018 RNF-01 e RNF-02, spec 017 RF-17, ADRs 0055 item 2,
 // 0057 item 2 e 0058). Os modos auth e hostile rodam num container temporário na bridge br-net-public do
 // finger-01 (origem 10.249.0.0/16, como o traefik), contra a 9003 do bot; report roda em qualquer lugar.
 //
 //	botload auth    -out DIR [flags]  traefix simulado: lê do feed do store (connection.opened nas portas web) as
-//	                                  conexões reais da carga oficial, manda o TraefikIngestBatch da conexão e, a
-//	                                  -rate requisições/s, o GET /bot/v1/auth com os X-Fs-* (inclusive X-Fs-Ja4h) e a
-//	                                  chave, o registro type=request no ingest e consultas GET /bot/v1/verdict; lê o
-//	                                  feed SSE do bot e mede o atraso de cada veredito;
-//	botload hostile -out DIR [flags]  ingest de conexões com valores únicos (16 requisições por conexão, UA de 512
-//	                                  bytes, campos longos) para passar do FS_BOT_INDEX_MAX_BYTES (ADR 0057 item 2);
+//	                                  conexões reais da carga oficial, manda o lote traefix.fingerprint/v1 da conexão
+//	                                  (task 304, ADRs 0062 e 0063) e, a -rate requisições/s, o GET /bot/v1/auth com os
+//	                                  X-Traefix-* (origem, JA4, JA3, Akamai, ALPN e JA4H) e a chave, o registro
+//	                                  type=request no ingest e consultas GET /bot/v1/verdict; lê o feed SSE do bot e
+//	                                  mede o atraso de cada veredito;
+//	botload hostile -out DIR [flags]  ingest traefix.fingerprint/v1 de conexões com valores únicos (16 requisições por
+//	                                  conexão, UA de 512 bytes, campos longos, visão TCP) para passar do
+//	                                  FS_BOT_INDEX_MAX_BYTES (ADR 0057 item 2);
 //	botload feed    -out DIR [flags]  feed global do store lido de dentro do finger-01: atraso ts → chegada de cada
 //	                                  evento e stream.dropped, sem o enlace do gerador no Mac (ADR 0046);
 //	botload report  -dir DIR [flags]  percentis por janela das amostras (samples.csv) e, com dois health do store,

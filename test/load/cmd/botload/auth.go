@@ -252,11 +252,7 @@ func (r *authRun) connMaker(ctx context.Context, opened <-chan storeOpened) {
 				dstPort: ev.Data.Dst.Port, tpl: r.tpls[i%len(r.tpls)], created: now,
 			}
 			i++
-			rec := clone(c.tpl.conn)
-			rec["fs_conn_id"], rec["ts"] = c.id, ts(now)
-			rec["src"] = map[string]any{"ip": c.srcIP, "port": c.srcPort}
-			rec["dst"] = map[string]any{"ip": c.dstIP, "port": c.dstPort}
-			rec["sni"] = r.cfg.site
+			rec := connRecord(c, r.cfg.site, now)
 			select {
 			case r.items <- ingestItem{rec: rec, ok: func() {
 				select {
@@ -268,6 +264,25 @@ func (r *authRun) connMaker(ctx context.Context, opened <-chan storeOpened) {
 			}
 		}
 	}
+}
+
+// connRecord é o registro type=connection traefix.fingerprint/v1 da conexão simulada (o traefix o manda na
+// primeira requisição; aqui antes dela, como a carga da task 285, para o forwardAuth achar a visão do ingest).
+func connRecord(c *simConn, site string, now time.Time) map[string]any {
+	rec, tls := withTLS(c.tpl.conn)
+	rec["connId"], rec["time"] = c.id, ts(now)
+	rec["src"] = map[string]any{"ip": c.srcIP, "port": c.srcPort}
+	rec["dst"] = map[string]any{"ip": c.dstIP, "port": c.dstPort}
+	tls["sni"] = site
+	return rec
+}
+
+// requestRecord é o registro type=request traefix.fingerprint/v1 de uma requisição da conexão simulada.
+func requestRecord(c *simConn, site, path string, start, end time.Time) map[string]any {
+	rq := clone(c.tpl.req)
+	rq["connId"], rq["start"], rq["end"] = c.id, ts(start), ts(end)
+	rq["path"], rq["authority"] = path, site
+	return rq
 }
 
 // batcher junta os registros e manda um lote a cada 50 ms (ou com 1024 registros), como o traefix.
@@ -402,16 +417,26 @@ func (r *authRun) logWindow(active int) {
 		r.nFeed.Load(), r.nSkip.Load(), r.nBusy.Load(), active, r.nOpened.Load())
 }
 
-// authHeaders monta os cabeçalhos que o traefix manda ao forwardAuth (spec 019 RF-06 e RF-07, ADR 0058): os X-Fs-*
-// da conexão, o X-Fs-Ja4h da requisição, a chave do middleware e os cabeçalhos do visitante (sem Cookie).
+// authHeaders monta os cabeçalhos que o traefix manda ao forwardAuth (spec 019 RF-04 e RF-05, ADR 0063): os
+// X-Traefix-* da conexão (origem, JA4, JA3, Akamai e ALPN oferecido) e da requisição (JA4H), a chave do middleware
+// e os authRequestHeaders do visitante (sem Cookie). Sem X-Traefix-Ja4t: a carga não conhece o SYN das conexões
+// reais (a visão TCP é a do store).
 func authHeaders(c *simConn, site, path, key string) http.Header {
 	h := http.Header{}
-	h.Set("X-Fs-Src-Ip", c.srcIP)
-	h.Set("X-Fs-Src-Port", strconv.Itoa(c.srcPort))
-	h.Set("X-Fs-Dst-Port", strconv.Itoa(c.dstPort))
-	h.Set("X-Fs-Conn-Id", c.id)
-	h.Set("X-Fs-Proto", "h2")
-	h.Set("X-Fs-Ja4h", c.tpl.ja4h)
+	h.Set("X-Traefix-Src-Ip", c.srcIP)
+	h.Set("X-Traefix-Src-Port", strconv.Itoa(c.srcPort))
+	h.Set("X-Traefix-Dst-Port", strconv.Itoa(c.dstPort))
+	h.Set("X-Traefix-Conn-Id", c.id)
+	h.Set("X-Traefix-Proto", c.tpl.proto)
+	h.Set("X-Traefix-Ja4h", c.tpl.ja4h)
+	h.Set("X-Traefix-Ja4", c.tpl.ja4)
+	h.Set("X-Traefix-Ja3", c.tpl.ja3)
+	if c.tpl.proto == "h2" && c.tpl.akamai != "" {
+		h.Set("X-Traefix-H2", c.tpl.akamai)
+	}
+	if len(c.tpl.alpn) > 0 {
+		h.Set("X-Traefix-Alpn", alpnHeader(c.tpl.alpn))
+	}
 	h.Set("X-Forwarded-Method", http.MethodGet)
 	h.Set("X-Forwarded-Proto", "https")
 	h.Set("X-Forwarded-Host", site)
@@ -467,9 +492,7 @@ func (r *authRun) doAuth(c *simConn, n int) {
 		return
 	}
 	// registro type=request no ingest, depois da resposta (o traefix manda o resumo no fim da requisição)
-	rq := clone(c.tpl.req)
-	rq["fs_conn_id"], rq["ts"], rq["ended"] = c.id, ts(t0), ts(t0.Add(lat+time.Millisecond))
-	rq["path"], rq["authority"] = path, r.cfg.site
+	rq := requestRecord(c, r.cfg.site, path, t0, t0.Add(lat+time.Millisecond))
 	select {
 	case r.items <- ingestItem{rec: rq}:
 	default:
@@ -477,6 +500,24 @@ func (r *authRun) doAuth(c *simConn, n int) {
 	if rand.Float64() < r.cfg.queryRate/float64(r.cfg.rate) { //nolint:gosec // sorteio da amostragem de consultas
 		r.query(c)
 	}
+}
+
+// alpnHeader codifica o ALPN oferecido como o X-Traefix-Alpn: na ordem do cliente, por vírgula, %XX fora do ASCII
+// visível e para `,` e `%` (spec 019 RF-05).
+func alpnHeader(vs []string) string {
+	parts := make([]string, len(vs))
+	for i, v := range vs {
+		var b strings.Builder
+		for _, c := range []byte(v) {
+			if c <= 0x20 || c >= 0x7f || c == ',' || c == '%' {
+				_, _ = fmt.Fprintf(&b, "%%%02X", c)
+				continue
+			}
+			b.WriteByte(c)
+		}
+		parts[i] = b.String()
+	}
+	return strings.Join(parts, ",")
 }
 
 // query é o GET /bot/v1/verdict pela origem da conexão (consulta do site, RNF-01 p95 ≤ 50 ms).
