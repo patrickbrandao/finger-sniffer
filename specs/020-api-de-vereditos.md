@@ -27,7 +27,7 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
     nunca misturados, ADR 0063 item 1), com o JA4H de `X-Traefix-Ja4h` quando bem formado e, sem ele, o da última
     requisição da conexão no ingest (ADR 0058 item 1); visão TLS e h2 do registro de conexão do ingest e, antes
     dele, de `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn` bem formados (ADR 0062 item 4, ADR 0063 item 6); visão TCP do
-    store, senão do registro do traefix, senão de `X-Traefix-Ja4t` (ADR 0063 item 5); espera a visão até
+    store, senão do registro do traefix, senão de `X-Traefix-Ja4t`, ignorado com origem privada (ADR 0063 item 5 e adendo); espera a visão até
     `FS_BOT_VIEW_WAIT` só na 9003 (ADR 0063 item 7); 200 com `X-Traefix-Verdict`, `X-Traefix-Score`,
     `X-Traefix-Signals` (ids separados por vírgula, até 1 KiB), os `X-Fs-*` equivalentes (obsoletos) e corpo
     `Verdict`; 403 com o mesmo corpo e os mesmos cabeçalhos quando a chave está em modo `block` e `class=bot`;

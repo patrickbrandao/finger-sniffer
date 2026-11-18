@@ -222,8 +222,9 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		if in.TCP.TTLInitial != 0 {
 			fps.TTLInitial = ptr(in.TCP.TTLInitial)
 		}
-	} else if vw.hdr != nil && vw.hdr.ja4t != "" {
-		// só o JA4T e o MSS dele: sem TTL nem SO
+	} else if vw.hdr != nil && vw.hdr.ja4t != "" && !discardTCPOrigin(vw.ip) {
+		// só o JA4T e o MSS dele: sem TTL nem SO; com origem local ou privada o SYN é de um proxy local e a visão é
+		// descartada como no ingest (ADR 0063 item 5)
 		srcs.tcp = fpFromHeader
 		in.TCP = headerTCP(vw.hdr.ja4t, vw.ip)
 		fps.JA4T = optString(in.TCP.JA4T)

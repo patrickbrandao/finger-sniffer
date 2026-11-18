@@ -115,8 +115,9 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
 - RF-08: **leitura do forwardAuth pelo bot** (ADRs 0058 item 1, 0062 item 4 e 0063 itens 1, 5–7): `X-Traefix-*`
   (os `X-Fs-*` antigos só sem `X-Traefix-Conn-Id`, nunca misturados); JA4H de `X-Traefix-Ja4h`; visão TLS e h2 do
   registro de conexão do ingest quando já chegou, senão de `X-Traefix-Ja4`/`-Ja3`/`-H2`, com o ALPN de
-  `X-Traefix-Alpn` (sem ele, `ua_alpn_mismatch` não avalia); visão TCP do store quando casada, senão do registro do
-  traefix, senão o JA4T de `X-Traefix-Ja4t`; na 9003, com `X-Traefix-Ja4` a espera de `FS_BOT_VIEW_WAIT` só aguarda
+  `X-Traefix-Alpn` (sem ele, `ua_alpn_mismatch` não avalia; presente e vazio = TLS sem ALPN, lista vazia conhecida); visão TCP do store quando casada, senão do registro do
+  traefix, senão o JA4T de `X-Traefix-Ja4t` (ignorado com
+  `X-Traefix-Src-Ip` loopback, link-local ou privado; adendo da ADR 0063); na 9003, com `X-Traefix-Ja4` a espera de `FS_BOT_VIEW_WAIT` só aguarda
   o store; na 9002 não há espera pelo store. Respostas com `X-Traefix-Verdict`/`-Score`/`-Signals` e os `X-Fs-*`
   equivalentes (obsoletos).
 - RF-09: **imagem e versão**: sempre `tmsoftbrasil/traefix:latest` (Docker Hub), no container de teste e no
@@ -166,6 +167,7 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
 | PT-12 | Tornar opcionais (ou desligados por padrão) os cabeçalhos `Forwarded` (RFC 7239) e `X-Real-Port` que o traefix acrescenta a toda requisição encaminhada, mesmo sem o bloco `fingerprint` (commit `193af416c`): mudam o que os backends do humano recebem na troca do `traefik-app` (task 306) | pedido (achado da task 273) |
 | PT-13 | `dst.ip` dos registros h3 com o endereço de destino real, não o do socket de escuta (`::`) | pedido (achado da task 273) |
 | PT-14 | Registro de requisição h3 sem `http3HeaderOrder` com os `fields` (valores) mesmo sem a ordem dos campos; hoje vêm vazios e o ingest fica sem User-Agent em h3; a documentação do traefix só cita `fieldNames` | pedido (achado da task 273) |
+| PT-15 | Definir a codificação de `X-Traefix-Alpn` para ClientHello com TLS e sem ALPN: cabeçalho presente e vazio (o bot lê assim desde a v0.5.1); hoje a documentação só diz que o cabeçalho falta sem TLS | pedido (auditoria da v0.5.1) |
 
 ## Comportamento esperado do lado do finger-sniffer
 - No finger-01, `export.url` e o forwardAuth usam a 9003 (HTTP, só loopback e a rede do traefik, chave opcional; o

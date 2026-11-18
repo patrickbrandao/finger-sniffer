@@ -1,0 +1,1 @@
+- bot: `X-Traefix-Ja4t` ignorado com origem loopback, link-local ou privada (SYN de proxy local), como a visão TCP do ingest; `X-Traefix-Alpn` presente e vazio é ClientHello sem ALPN (lista vazia conhecida, as regras de ALPN avaliam); adendo da ADR 0063, pedido PT-15 ao traefix e rótulos `tcp`/`store` de `bot_auth_fingerprint_total` na spec 018 (auditoria da v0.5.1, task 307).
