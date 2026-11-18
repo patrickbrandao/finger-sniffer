@@ -147,8 +147,8 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
 
 ## Pedidos ao traefix
 Necessidades do finger-sniffer implementadas pelo humano na `latest` (ADR 0062 item 8). O architect acrescenta e
-avisa; o estado muda para `entregue` quando a `latest` traz o recurso e o lado de cá o confere (a task 273 confere os
-entregues em 2026-11-18).
+avisa; o estado muda para `entregue` quando a `latest` traz o recurso e o lado de cá o confere (a task 273 conferiu PT-01 a
+PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resultados em `docs/dev/traefix-finger-01.md`).
 
 | Id | Pedido | Estado |
 | --- | --- | --- |
@@ -162,7 +162,10 @@ entregues em 2026-11-18).
 | PT-08 | Custo de CPU medido no Linux e reduzido | entregue como medida e otimização parcial (+40% h1, +29% h2, teto; aceito) |
 | PT-09 | Chave vazia em `requestHeaders` falha na carga | entregue (`fork-point-218`) |
 | PT-10 | Marcar no registro de conexão quando o SYN salvo pode não ser do cliente (`docker-proxy`, proxy local) | pedido |
-| PT-11 | Corrigir o padrão de `tcp.ja4t` no `traefix-fingerprint-v1.schema.json`: a escala de janela tem 1 dígito ou mais (`…_1430_6`), não 2; hoje um lote real de um cliente macOS não valida no esquema do próprio traefix. A tradução no openapi do bot já aceita 1 dígito; a cópia fica igual à do traefix até a correção | pedido |
+| PT-11 | Corrigir o padrão de `tcp.ja4t` no `traefix-fingerprint-v1.schema.json`: a escala de janela tem 1 dígito ou mais (`…_1430_6`), não 2; hoje um lote real de um cliente macOS não valida no esquema do próprio traefix. A tradução no openapi do bot já aceita 1 dígito; a cópia fica igual à do traefix até a correção | pedido (confirmado pelos lotes reais da task 273, macOS `_6` e Linux `_7`) |
+| PT-12 | Tornar opcionais (ou desligados por padrão) os cabeçalhos `Forwarded` (RFC 7239) e `X-Real-Port` que o traefix acrescenta a toda requisição encaminhada, mesmo sem o bloco `fingerprint` (commit `193af416c`): mudam o que os backends do humano recebem na troca do `traefik-app` (task 306) | pedido (achado da task 273) |
+| PT-13 | `dst.ip` dos registros h3 com o endereço de destino real, não o do socket de escuta (`::`) | pedido (achado da task 273) |
+| PT-14 | Registro de requisição h3 sem `http3HeaderOrder` com os `fields` (valores) mesmo sem a ordem dos campos; hoje vêm vazios e o ingest fica sem User-Agent em h3; a documentação do traefix só cita `fieldNames` | pedido (achado da task 273) |
 
 ## Comportamento esperado do lado do finger-sniffer
 - No finger-01, `export.url` e o forwardAuth usam a 9003 (HTTP, só loopback e a rede do traefik, chave opcional; o

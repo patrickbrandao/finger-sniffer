@@ -1,0 +1,82 @@
+{
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "entryPoint": "fstest",
+  "sentAt": "2026-11-18T12:54:43.040708583Z",
+  "records": [
+    {
+      "type": "connection",
+      "connId": "01M7QBJJG7Z53XKFPTPWQCVARH",
+      "time": "2026-11-18T12:54:42.951787266Z",
+      "entryPoint": "fstest",
+      "src": {
+        "ip": "198.51.100.73",
+        "port": 58285
+      },
+      "dst": {
+        "ip": "170.247.40.86",
+        "port": 18443
+      },
+      "proto": "h2",
+      "tls": {
+        "sni": "finger-01.badblock.net.br",
+        "alpnOffered": [
+          "h2",
+          "http/1.1"
+        ],
+        "alpn": "h2",
+        "version": "TLS 1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "9ff5f7c88ab8372852860f487a8b1dc5",
+        "ja3String": "771,4866-4867-4865-49196-49200-159-52393-52392-52394-49195-49199-158-49188-49192-107-49187-49191-103-49162-49172-57-49161-49171-51-157-156-61-60-53-47,65281-11-10-22-23-49-13-43-45-51-0-16,4588-4587-4590-29-23-30-24-25-41-256-257,0",
+        "ja3n": "453717a71fd1e765fc27de1ff122593e",
+        "ja3nString": "771,4866-4867-4865-49196-49200-159-52393-52392-52394-49195-49199-158-49188-49192-107-49187-49191-103-49162-49172-57-49161-49171-51-157-156-61-60-53-47,0-10-11-13-16-22-23-43-45-49-51-65281,4588-4587-4590-29-23-30-24-25-41-256-257,0",
+        "ja4": "t13d3012h2_1d37bd780c83_581742d1f3c4",
+        "ja4r": "t13d3012h2_002f,0033,0035,0039,003c,003d,0067,006b,009c,009d,009e,009f,1301,1302,1303,c009,c00a,c013,c014,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9,ccaa_000a,000b,000d,0016,0017,002b,002d,0031,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602,0911,0912,0913,0914,0915,0916,0917,0918,0919,091a,091b,091c,0708",
+        "ja4o": "t13d3012h2_8d44cdc55eec_cc054aaa427e",
+        "clientHello": "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"
+      },
+      "http2": {
+        "akamai": "3:100;4:65536;2:0|1048510465|0|m,s,a,p",
+        "prefix": "AAASBAAAAAAAAAMAAABkAAQAAQAAAAIAAAAAAAAECAAAAAAAPn8AAQAAQQEFAAAAAYKHQZeU1UxbFgBXjHJHQcnVeoqV47LgXmmmfwSVYPGgtncrFbErMccccccccccccYWPeogltlDDy4mVwVMDKi8q"
+      },
+      "tcp": {
+        "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6",
+        "p0f": "4:50+14:0:1430:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:df,ecn:0",
+        "ttl": 50,
+        "rttMicros": 18241,
+        "syn": "RQAAQAAAQAAyBkruxjNkSar3KFbjrUgLiy1oQAAAAACwwv//0qEAAAIEBZYBAwMGAQEICkMkA6MAAAAABAIAAA=="
+      }
+    },
+    {
+      "type": "request",
+      "connId": "01M7QBJJG7Z53XKFPTPWQCVARH",
+      "start": "2026-11-18T12:54:42.980005866Z",
+      "end": "2026-11-18T12:54:43.022620456Z",
+      "entryPoint": "fstest",
+      "proto": "h2",
+      "method": "GET",
+      "authority": "finger-01.badblock.net.br:18443",
+      "path": "/observe/p/f3bbbbbbbbbbbbb1/",
+      "httpVersion": "HTTP/2.0",
+      "fieldNames": [
+        "user-agent",
+        "accept"
+      ],
+      "fields": [
+        {
+          "name": "user-agent",
+          "value": "curl/8.23.0"
+        },
+        {
+          "name": "accept",
+          "value": "*/*"
+        }
+      ],
+      "ja4h": "ge20nn020000_5594a17e7e7e_000000000000_000000000000",
+      "status": 200,
+      "router": "fs-observe@file",
+      "service": "fs-web@file"
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+{
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "entryPoint": "fstest",
+  "sentAt": "2026-11-18T12:59:56.44039325Z",
+  "records": [
+    {
+      "type": "connection",
+      "connId": "01M7QBW4J9B5C4NB89NKHDB960",
+      "time": "2026-11-18T12:59:56.361241499Z",
+      "entryPoint": "fstest",
+      "src": {
+        "ip": "2001:db8:4400::5db6",
+        "port": 58488
+      },
+      "dst": {
+        "ip": "2804:231c:e500:cafe::86",
+        "port": 18443
+      },
+      "proto": "h2",
+      "tls": {
+        "sni": "finger-01.badblock.net.br",
+        "alpnOffered": [
+          "h2",
+          "http/1.1"
+        ],
+        "alpn": "h2",
+        "version": "TLS 1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "a0ac61ac93ebb7ab3c38d57d78afc357",
+        "ja3String": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,11-65281-35-16-10-51-65037-51764-18-13-23-17613-45-27-5-43-0,4588-29-23-24,0",
+        "ja3n": "bd4930bd9b000ee684830e44bab76fdf",
+        "ja3nString": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17613-51764-65037-65281,4588-29-23-24,0",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "ja4r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+        "ja4o": "t13d1517h2_acb858a92679_7afa4e0e8972",
+        "clientHello": "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"
+      },
+      "http2": {
+        "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+        "headersPriority": "1:1:0:256",
+        "prefix": "AAAYBAAAAAAAAAEAAQAAAAIAAAAAAAQAYAAAAAYABAAAAAAECAAAAAAAAO8AAQACAwElAAAAAYAAAAD/gkGXlNVMWxYAV4xyR0HJ1XqKleOy4F5ppn+HBJRg8aC2dysVsSsiOOZzukMkbdBJGECHQUixJ1rR/7j+dJ0rQr3bB1Sfz994P5ff/n6U/nEc81BVL09h6S/z994P5C27/P0p/N6ew9Jraf5++8H8hbd/n0CLQUixJ1rRrUnjNQUCPzBAjUFIsSda0a1dA0ynsp8HIm1hY09TIkCStrmsHIVY1SCktsKtYXtaVCUfATF62dB/ZqKBsNrgU/rQMhqknRP9qZKkloU0DIpq3KfigQRBbid/tSGuugvIseYyWG2XV2XFP6zY9+jP9KUG6lUxFJ1P/al6ew9JWAturgXAuBTcOUdhmG2XV2XPU+xJfKWJ000fQ666DEGkx6mPM6aaP9+aaPodddBiDSY9THmmj77QAXf+jUjmKx080fRqRzFYH3NL9GpHMVjwWOv6NSOYrA66pvr5Y+fvtABd76HXXQYg0mPUwg01RZFi+STjqmL994I2fvtABd1AikFItKVJJ1kGSX+DqPUXQIpBSLSlSSdak8hfhqh9zTDSX0CKQUi0pUknWtQWzwI/MUCKQUi0pUknWkKhP4aQ5LaS1J9QkpvZq/pSQstA0l+lI7PpT2hMn1GcrStd2/VafvtABd/6LUtw3ffaAC730Wr77QAXd0CGrsMewyfXhbYAfShv"
+      },
+      "tcp": {
+        "ja4t": "65535_2-1-3-1-1-8-4-0-0_1432_6",
+        "p0f": "6:53+11:0:1432:65535,6:mss,nop,ws,nop,nop,ts,sok,eol+1:ecn,flow:0",
+        "ttl": 53,
+        "rttMicros": 18859,
+        "syn": "YAAPAAAsBjUgAQ24RAAAAAAAAAAAAF22KAQjHOUAyv4AAAAAAAAAhuR4SAvfjy0vAAAAALDC///stQAAAgQFmAEDAwYBAQgKHZknsQAAAAAEAgAA"
+      }
+    },
+    {
+      "type": "request",
+      "connId": "01M7QBW4J9B5C4NB89NKHDB960",
+      "start": "2026-11-18T12:59:56.389282939Z",
+      "end": "2026-11-18T12:59:56.425300298Z",
+      "entryPoint": "fstest",
+      "proto": "h2",
+      "method": "GET",
+      "authority": "finger-01.badblock.net.br:18443",
+      "path": "/observe/p/f32oag6vt1db5lcd/",
+      "httpVersion": "HTTP/2.0",
+      "fieldNames": [
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "upgrade-insecure-requests",
+        "user-agent",
+        "accept",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-user",
+        "sec-fetch-dest",
+        "accept-encoding",
+        "accept-language",
+        "priority"
+      ],
+      "fields": [
+        {
+          "name": "sec-ch-ua",
+          "value": "\"Not-A.Brand\";v=\"99\", \"Google Chrome\";v=\"157\", \"Chromium\";v=\"157\""
+        },
+        {
+          "name": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "name": "sec-ch-ua-platform",
+          "value": "\"macOS\""
+        },
+        {
+          "name": "user-agent",
+          "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+        },
+        {
+          "name": "accept",
+          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+        },
+        {
+          "name": "sec-fetch-site",
+          "value": "none"
+        },
+        {
+          "name": "sec-fetch-mode",
+          "value": "navigate"
+        },
+        {
+          "name": "sec-fetch-user",
+          "value": "?1"
+        },
+        {
+          "name": "sec-fetch-dest",
+          "value": "document"
+        },
+        {
+          "name": "accept-encoding",
+          "value": "gzip, deflate, br, zstd"
+        },
+        {
+          "name": "accept-language",
+          "value": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+      ],
+      "ja4h": "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+      "status": 200,
+      "router": "fs-observe@file",
+      "service": "fs-web@file"
+    }
+  ]
+}
