@@ -29,7 +29,23 @@ const (
 	metricAuthSeconds  = "bot_auth_seconds"
 	metricAuthWaitSecs = "bot_auth_wait_seconds"
 	metricAuthJA4H     = "bot_auth_ja4h_total"
+	metricAuthFP       = "bot_auth_fingerprint_total"
 )
+
+// Origens das visões do forwardAuth (rótulo source de bot_auth_fingerprint_total, ADRs 0062 item 4 e 0063 item 5).
+const (
+	fpFromIngest = "ingest"
+	fpFromStore  = "store"
+	fpFromHeader = "header"
+	fpNone       = "none"
+)
+
+func authFPMetric(kind, source string) string {
+	return metricAuthFP + `{kind="` + kind + `",source="` + source + `"}`
+}
+
+// fpSources diz de onde veio cada visão do veredito (tls, h2 e tcp).
+type fpSources struct{ tls, h2, tcp string }
 
 // Origens do JA4H do forwardAuth (rótulo source de bot_auth_ja4h_total, ADR 0058 item 1).
 const (
@@ -38,7 +54,8 @@ const (
 	ja4hNone       = "none"
 )
 
-// ja4hPattern é o JA4H completo aceito em X-Fs-Ja4h (openapi do bot 0.2.0); fora dele o cabeçalho é ignorado.
+// ja4hPattern é o JA4H completo aceito em X-Traefix-Ja4h (e no X-Fs-Ja4h antigo; openapi do bot 0.4.0); fora dele o
+// cabeçalho é ignorado.
 var ja4hPattern = regexp.MustCompile(`^[a-z0-9]{12}_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$`)
 
 func authJA4HMetric(source string) string { return metricAuthJA4H + `{source="` + source + `"}` }
@@ -97,6 +114,11 @@ func newJudge(cfg Config, ix *Index, ag *agg.Aggregator, hub *Hub, m *lists.Mana
 	}
 	for _, src := range []string{ja4hFromHeader, ja4hFromIngest, ja4hNone} {
 		metrics.Add(authJA4HMetric(src), 0)
+	}
+	for _, kind := range []string{"tls", "h2", "tcp"} {
+		for _, src := range []string{fpFromIngest, fpFromStore, fpFromHeader, fpNone} {
+			metrics.Add(authFPMetric(kind, src), 0)
+		}
 	}
 	for _, k := range mismatchKinds {
 		metrics.Add(mismatchMetric(k), 0)
@@ -158,6 +180,10 @@ type views struct {
 	store *StoreConn
 	http  *rules.HTTP
 	proto string // h1 | h2 | h3 da requisição ("" sem requisição)
+	// hdr são os cabeçalhos do forwardAuth (só na fonte auth): fingerprints de reserva antes do registro de conexão.
+	hdr *forkHeaders
+	// src (opcional) recebe a origem de cada visão.
+	src *fpSources
 }
 
 // evaluate avalia as regras sobre as visões e monta o Verdict do sujeito.
@@ -168,7 +194,15 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 	if vw.store != nil && len(vw.store.Record) > 0 {
 		_ = json.Unmarshal(vw.store.Record, &rec) // Record já validado na entrada; parte ausente fica nil
 	}
+	srcs := fpSources{tls: fpNone, h2: fpNone, tcp: fpNone}
+	defer func() {
+		if vw.src != nil {
+			*vw.src = srcs
+		}
+	}()
+	// TCP: o store casado; sem ele, o registro de conexão do traefix; sem ele, o JA4T do cabeçalho (ADR 0063 item 5).
 	if vw.store != nil {
+		srcs.tcp = fpFromStore
 		t := &rules.TCP{}
 		if rec.IP != nil && rec.IP.TTLInitial != nil {
 			t.TTLInitial = *rec.IP.TTLInitial
@@ -182,14 +216,21 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		in.TCP = t
 	} else if vw.fork != nil && vw.fork.TCP != nil {
 		// sem o store casado (site externo), a visão TCP do traefix (ADR 0063 item 5)
+		srcs.tcp = fpFromIngest
 		in.TCP = vw.fork.TCP.rules()
 		fps.JA4T, fps.P0fOS = optString(in.TCP.JA4T), optString(in.TCP.P0fOS)
 		if in.TCP.TTLInitial != 0 {
 			fps.TTLInitial = ptr(in.TCP.TTLInitial)
 		}
+	} else if vw.hdr != nil && vw.hdr.ja4t != "" {
+		// só o JA4T e o MSS dele: sem TTL nem SO
+		srcs.tcp = fpFromHeader
+		in.TCP = headerTCP(vw.hdr.ja4t, vw.ip)
+		fps.JA4T = optString(in.TCP.JA4T)
 	}
-	// TLS: o ClientHello do fork (traefik termina o TLS); sem ele, o do espelho (conexão direta ou probe).
-	switch f := vw.fork; {
+	// TLS: o ClientHello do registro de conexão (o traefix termina o TLS); sem ele, as fingerprints dos cabeçalhos do
+	// forwardAuth; sem elas, o do espelho (conexão direta ou probe).
+	switch f, h := vw.fork, vw.hdr; {
 	case f != nil && f.TLS != nil && !f.TLS.ParseError && f.TLS.JA4 != "":
 		alpn := f.TLS.ALPN
 		if len(alpn) == 0 {
@@ -197,6 +238,12 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		}
 		in.TLS = &rules.TLS{JA4: f.TLS.JA4, JA4R: f.TLS.JA4R, ALPN: alpn}
 		fps.JA3, fps.JA3N, fps.JA4O = optString(f.TLS.JA3MD5), optString(f.TLS.JA3NMD5), optString(f.TLS.JA4O)
+		srcs.tls = fpFromIngest
+	case h != nil && h.ja4 != "":
+		// sem X-Traefix-Alpn o ALPN oferecido é desconhecido e as regras de ALPN não avaliam (ADR 0063 item 6)
+		in.TLS = &rules.TLS{JA4: h.ja4, ALPN: h.alpn, ALPNUnknown: !h.alpnKnown}
+		fps.JA3 = optString(h.ja3)
+		srcs.tls = fpFromHeader
 	default:
 		t := rec.TLS
 		if (t == nil || t.JA4 == nil) && rec.HTTP3 != nil {
@@ -205,6 +252,7 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		if t != nil && deref(t.JA4) != "" {
 			in.TLS = &rules.TLS{JA4: *t.JA4, JA4R: deref(t.JA4R), ALPN: t.ALPN}
 			fps.JA3, fps.JA3N, fps.JA4O = t.JA3MD5, t.JA3NMD5, t.JA4O
+			srcs.tls = fpFromStore
 		}
 	}
 	if in.TLS != nil {
@@ -212,9 +260,11 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 	}
 	switch f := vw.fork; {
 	case f != nil && f.H2 != nil && !f.H2.ParseError && f.H2.Akamai != "":
-		in.H2 = &rules.H2{Akamai: f.H2.Akamai}
+		in.H2, srcs.h2 = &rules.H2{Akamai: f.H2.Akamai}, fpFromIngest
+	case vw.hdr != nil && vw.hdr.h2 != "":
+		in.H2, srcs.h2 = &rules.H2{Akamai: vw.hdr.h2}, fpFromHeader
 	case rec.HTTP2 != nil && deref(rec.HTTP2.Akamai) != "":
-		in.H2 = &rules.H2{Akamai: *rec.HTTP2.Akamai}
+		in.H2, srcs.h2 = &rules.H2{Akamai: *rec.HTTP2.Akamai}, fpFromStore
 	}
 	if in.H2 != nil {
 		fps.Akamai = optString(in.H2.Akamai)
@@ -268,17 +318,18 @@ func httpVersion(proto, version string) string {
 }
 
 // httpFromAuth é a requisição vista pelo forwardAuth: o traefik repassa os cabeçalhos do visitante (mas não a
-// ordem deles), então o bot não calcula o JA4H. Ele vem de X-Fs-Ja4h, calculado pelo traefix, quando bem formado;
-// sem ele, da última requisição da mesma conexão que o ingest já trouxe; sem as duas, nenhum (ADR 0058 item 1).
-// source é a origem do JA4H (rótulo de bot_auth_ja4h_total).
-func httpFromAuth(h http.Header, proto string, fork *ForkConn) (out *rules.HTTP, source string) {
+// ordem deles), então o bot não calcula o JA4H. Ele vem de X-Traefix-Ja4h (ou do X-Fs-Ja4h antigo), calculado pelo
+// traefix, quando bem formado; sem ele, da última requisição da mesma conexão que o ingest já trouxe; sem as duas,
+// nenhum (ADR 0058 item 1). source é a origem do JA4H (rótulo de bot_auth_ja4h_total).
+func httpFromAuth(h http.Header, f *forkHeaders, fork *ForkConn) (out *rules.HTTP, source string) {
+	proto := f.proto
 	out = &rules.HTTP{
 		UserAgent: clip(h.Get("User-Agent"), maxUserAgentBytes), Version: httpVersion(proto, ""),
 		HasAcceptLanguage: len(h.Values("Accept-Language")) > 0,
 	}
-	// um único valor: repetido é tão malformado quanto fora do padrão
-	if v := h.Values("X-Fs-Ja4h"); len(v) == 1 && ja4hPattern.MatchString(v[0]) {
-		out.JA4H = v[0]
+	// um único valor bem formado (parseForkHeaders): repetido é tão malformado quanto fora do padrão
+	if f.ja4h != "" {
+		out.JA4H = f.ja4h
 		return out, ja4hFromHeader
 	}
 	if fork != nil && len(fork.Requests) > 0 {
@@ -289,7 +340,7 @@ func httpFromAuth(h http.Header, proto string, fork *ForkConn) (out *rules.HTTP,
 	return out, ja4hNone
 }
 
-// httpFromFork é a requisição resumida pelo ingest do traefix (spec 019 RF-04).
+// httpFromFork é a requisição resumida pelo ingest do traefix (spec 019 RF-06 e RF-07).
 func httpFromFork(r *ForkRequest) *rules.HTTP {
 	out := &rules.HTTP{Version: httpVersion(r.Proto, r.HTTPVersion), JA4H: r.JA4H, FieldOrder: r.FieldNames}
 	for k, v := range r.Fields {
@@ -380,12 +431,16 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 
 // Auth avalia a requisição do forwardAuth com as visões que chegaram na espera e a registra (fonte auth).
 func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn) Verdict {
-	req, ja4hSource := httpFromAuth(h, f.proto, fork)
+	req, ja4hSource := httpFromAuth(h, &f, fork)
 	j.metrics.Add(authJA4HMetric(ja4hSource), 1)
-	vw := views{ip: f.srcIP, site: site, fork: fork, store: store, http: req, proto: f.proto}
+	var src fpSources
+	vw := views{ip: f.srcIP, site: site, fork: fork, store: store, http: req, proto: f.proto, hdr: &f, src: &src}
 	v, res := j.evaluate(vw, requestSubject(site, f.srcIP, f.srcPort, f.dstPort, f.fsConnID, store, method, path))
+	j.metrics.Add(authFPMetric("tls", src.tls), 1)
+	j.metrics.Add(authFPMetric("h2", src.h2), 1)
+	j.metrics.Add(authFPMetric("tcp", src.tcp), 1)
 	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path}, func(c *ForkConn) {
-		// conexão ainda sem registro do traefix: a origem vem dos X-Fs-* (o registro de conexão completa depois). First
+		// conexão ainda sem registro do traefix: a origem vem dos cabeçalhos (o registro de conexão completa depois). First
 		// fica zero: o instante do forwardAuth não é o início da conexão, e numa conexão longa (keep-alive) ele
 		// tiraria a do store da janela de 5 s do casamento (RF-04).
 		if !c.HasSrc {
@@ -586,4 +641,18 @@ func (j *Judge) fingerprintLabels(kind, value string) (known, ja4db *string) {
 		ja4db = j.ja4db.labelText(value)
 	}
 	return known, ja4db
+}
+
+// headerTCP é a visão TCP só do JA4T de X-Traefix-Ja4t (ADR 0063 item 5): o JA4T e os derivados do MSS dele (spec
+// 013 RF-06a, família pela origem), sem TTL inicial nem SO.
+func headerTCP(ja4t string, ip netip.Addr) *rules.TCP {
+	t := &rules.TCP{JA4T: ja4t}
+	if mss, ok := ja4tMSS(ja4t); ok {
+		family := 4
+		if ip.Unmap().Is6() {
+			family = 6
+		}
+		_, t.MTUImplied, t.MSSReduction = mssDerived(mss, family)
+	}
+	return t
 }

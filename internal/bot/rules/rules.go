@@ -231,13 +231,16 @@ func (en Engine) browserChecks(ev *eval, in Input, ua UA) {
 	if in.H2 != nil && in.H2.Akamai != "" && known != nil && known.Measured(ua.Stack, KindAkamai) &&
 		!slices.Contains(known.Families(KindAkamai, in.H2.Akamai), ua.Stack) {
 		ev.add(SignalUAH2Mismatch, "ua "+ua.Family+", akamai not in "+ua.Stack+" set")
-	} else if in.TLS != nil && !isQUIC && strings.HasPrefix(in.HTTP.Version, "1") && !slices.Contains(in.TLS.ALPN, "h2") {
+	} else if alpnKnown(in.TLS) && !isQUIC && strings.HasPrefix(in.HTTP.Version, "1") && !slices.Contains(in.TLS.ALPN, "h2") {
 		ev.add(SignalUAH2Mismatch, "ua "+ua.Family+", http/"+in.HTTP.Version+" without h2 in alpn")
 	}
-	if in.TLS != nil && !isQUIC && !slices.Contains(in.TLS.ALPN, "h2") {
+	if alpnKnown(in.TLS) && !isQUIC && !slices.Contains(in.TLS.ALPN, "h2") {
 		ev.add(SignalUAALPNMismatch, "ua "+ua.Family+", alpn ["+strings.Join(in.TLS.ALPN, ",")+"] without h2")
 	}
 }
+
+// alpnKnown diz se há visão TLS com o ALPN oferecido conhecido (ADR 0063 item 6).
+func alpnKnown(t *TLS) bool { return t != nil && !t.ALPNUnknown }
 
 // labelNames diz se o nome rotulado na ja4db é da família (o Chromium conta como Chrome).
 func labelNames(name, family string) bool {

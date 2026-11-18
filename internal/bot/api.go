@@ -129,11 +129,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// Nenhuma resposta de erro leva os X-Fs-* do veredito, nem os postos antes do erro: o traefix separa por
-// X-Fs-Verdict o bloqueio (403 do modo block) da falha de configuração ou de limite (fail-open de 4xx, ADR 0058
-// item 3).
+// verdictHeaders são os cabeçalhos do veredito, nos dois conjuntos (os X-Fs-* obsoletos, ADR 0063 item 1).
+var verdictHeaders = [...]string{
+	"X-Traefix-Verdict", "X-Traefix-Score", "X-Traefix-Signals", "X-Fs-Verdict", "X-Fs-Score", "X-Fs-Signals",
+}
+
+// Nenhuma resposta de erro leva os cabeçalhos do veredito (X-Traefix-* nem X-Fs-*), nem os postos antes do erro:
+// o traefix separa pelo Verdict o bloqueio (403 do modo block) da falha de configuração ou de limite (fail-open de
+// 4xx, ADRs 0058 item 3 e 0063 item 1).
 func writeError(w http.ResponseWriter, status int, code, detail string) {
-	for _, k := range []string{"X-Fs-Verdict", "X-Fs-Score", "X-Fs-Signals"} {
+	for _, k := range verdictHeaders {
 		w.Header().Del(k)
 	}
 	writeJSON(w, status, errorBody{Error: code, Detail: detail})
@@ -152,7 +157,7 @@ func (a *API) Handler(internal bool, allow []netip.Prefix) http.Handler {
 	keyed := func(h http.HandlerFunc) http.Handler { return a.authenticate(internal, h) }
 	mux.Handle("GET /bot/v1/health", open(a.health))
 	mux.Handle("GET /bot/v1/openapi.yaml", open(a.openapi))
-	mux.Handle("GET /bot/v1/auth", keyed(a.forwardAuth))
+	mux.Handle("GET /bot/v1/auth", keyed(a.forwardAuth(internal)))
 	mux.Handle("GET /bot/v1/verdict", keyed(a.verdictBySource))
 	mux.Handle("GET /bot/v1/verdict/conn/{fs_conn_id}", keyed(a.verdictByConn))
 	mux.Handle("GET /bot/v1/probes/{id}/verdict", keyed(a.probeVerdict))
@@ -265,47 +270,139 @@ func (a *API) openapi(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(a.OpenAPI)
 }
 
-// forkHeaders são os X-Fs-* que o fork acrescenta (spec 019 RF-06).
+// Prefixos dos cabeçalhos de origem do forwardAuth (ADR 0063 item 1): os do traefix e os antigos, obsoletos.
+const (
+	prefixTraefix = "X-Traefix-"
+	prefixFs      = "X-Fs-"
+)
+
+// forkHeaders são os cabeçalhos de origem e de fingerprint que o traefix acrescenta ao forwardAuth (spec 019 RF-05
+// e RF-08), de um só conjunto: X-Traefix-* ou, só sem X-Traefix-Conn-Id, os X-Fs-* antigos (nunca misturados).
 type forkHeaders struct {
+	prefix   string
 	srcIP    netip.Addr
 	srcPort  int
 	dstPort  int
 	fsConnID string
 	proto    string
+	// Fingerprints calculadas pelo traefix (um único valor bem formado; senão vazio, ADRs 0058, 0062 e 0063).
+	ja4h string
+	ja4  string
+	ja3  string
+	h2   string
+	ja4t string
+	// alpn é o ALPN oferecido de X-Traefix-Alpn, decodificado; alpnKnown diz que o cabeçalho veio bem formado.
+	alpn      []string
+	alpnKnown bool
+}
+
+// Formatos dos cabeçalhos de fingerprint (openapi do bot 0.4.0, /bot/v1/auth).
+var (
+	ja4HeaderPattern  = regexp.MustCompile(`^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
+	ja4tHeaderPattern = regexp.MustCompile(`^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$`)
+)
+
+// Limites de X-Traefix-Alpn (ADR 0063 item 6).
+const (
+	maxALPNHeader = 1024
+	maxALPNValues = 16
+	maxALPNValue  = 255
+)
+
+// single devolve o valor do cabeçalho quando veio uma vez só (repetido é tão malformado quanto fora do padrão).
+func single(h http.Header, name string) string {
+	if v := h.Values(name); len(v) == 1 {
+		return v[0]
+	}
+	return ""
 }
 
 func parseForkHeaders(h http.Header) (forkHeaders, string, string) {
-	var f forkHeaders
-	names := []string{"X-Fs-Src-Ip", "X-Fs-Src-Port", "X-Fs-Dst-Port", "X-Fs-Conn-Id", "X-Fs-Proto"}
+	f := forkHeaders{prefix: prefixTraefix}
+	if len(h.Values(prefixTraefix+"Conn-Id")) == 0 {
+		f.prefix = prefixFs
+	}
+	name := func(n string) string { return f.prefix + n }
 	var missing []string
-	for _, n := range names {
-		if h.Get(n) == "" {
-			missing = append(missing, n)
+	for _, n := range []string{"Src-Ip", "Src-Port", "Dst-Port", "Conn-Id", "Proto"} {
+		if h.Get(name(n)) == "" {
+			missing = append(missing, name(n))
 		}
 	}
 	if len(missing) > 0 {
 		return f, errMissingForkHeaders, "missing " + strings.Join(missing, ", ")
 	}
 	var err error
-	if f.srcIP, err = netip.ParseAddr(h.Get("X-Fs-Src-Ip")); err != nil {
-		return f, errBadRequest, "invalid X-Fs-Src-Ip"
+	if f.srcIP, err = netip.ParseAddr(h.Get(name("Src-Ip"))); err != nil {
+		return f, errBadRequest, "invalid " + name("Src-Ip")
 	}
 	f.srcIP = f.srcIP.Unmap().WithZone("")
-	if f.srcPort, err = parsePort(h.Get("X-Fs-Src-Port")); err != nil {
-		return f, errBadRequest, "invalid X-Fs-Src-Port"
+	if f.srcPort, err = parsePort(h.Get(name("Src-Port"))); err != nil {
+		return f, errBadRequest, "invalid " + name("Src-Port")
 	}
-	if f.dstPort, err = parsePort(h.Get("X-Fs-Dst-Port")); err != nil {
-		return f, errBadRequest, "invalid X-Fs-Dst-Port"
+	if f.dstPort, err = parsePort(h.Get(name("Dst-Port"))); err != nil {
+		return f, errBadRequest, "invalid " + name("Dst-Port")
 	}
-	if f.fsConnID = h.Get("X-Fs-Conn-Id"); !ulidPattern(f.fsConnID) {
-		return f, errBadRequest, "invalid X-Fs-Conn-Id"
+	if f.fsConnID = h.Get(name("Conn-Id")); !ulidPattern(f.fsConnID) {
+		return f, errBadRequest, "invalid " + name("Conn-Id")
 	}
-	switch f.proto = h.Get("X-Fs-Proto"); f.proto {
+	switch f.proto = h.Get(name("Proto")); f.proto {
 	case "h1", "h2", "h3":
 	default:
-		return f, errBadRequest, "invalid X-Fs-Proto"
+		return f, errBadRequest, "invalid " + name("Proto")
+	}
+	// Fingerprints: malformada ou repetida é ausente, sem erro (o veredito sai com o que houver).
+	if v := single(h, name("Ja4h")); ja4hPattern.MatchString(v) {
+		f.ja4h = v
+	}
+	if v := single(h, name("Ja4")); ja4HeaderPattern.MatchString(v) {
+		f.ja4 = v
+	}
+	if v := single(h, name("Ja3")); md5Pattern.MatchString(v) {
+		f.ja3 = v
+	}
+	if v := single(h, name("H2")); f.proto == "h2" && len(v) <= maxReadyAkamai && akamaiPattern.MatchString(v) {
+		if _, ok := parseAkamai(v); ok {
+			f.h2 = v
+		}
+	}
+	// X-Traefix-Alpn e X-Traefix-Ja4t só existem no conjunto novo.
+	if f.prefix == prefixTraefix {
+		if v := single(h, name("Ja4t")); len(v) <= maxTCPText && ja4tHeaderPattern.MatchString(v) {
+			f.ja4t = v
+		}
+		if vs := h.Values(name("Alpn")); len(vs) == 1 {
+			f.alpn, f.alpnKnown = decodeALPNHeader(vs[0])
+		}
 	}
 	return f, "", ""
+}
+
+// decodeALPNHeader lê X-Traefix-Alpn: valores por vírgula, na ordem do cliente, com %XX fora do ASCII visível e
+// para `,` e `%` (ADR 0063 item 6); até 16 valores de até 255 bytes. Fora disso, ok é false (cabeçalho ausente).
+func decodeALPNHeader(s string) ([]string, bool) {
+	if s == "" || len(s) > maxALPNHeader {
+		return nil, false
+	}
+	parts := strings.Split(s, ",")
+	if len(parts) > maxALPNValues {
+		return nil, false
+	}
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		v, err := url.PathUnescape(p)
+		if err != nil || v == "" || len(v) > maxALPNValue {
+			return nil, false
+		}
+		out = append(out, v)
+	}
+	return out, true
+}
+
+// coversFork diz se os cabeçalhos já trazem a visão TLS (e a h2, em h2) que o registro de conexão do ingest daria:
+// com eles, o forwardAuth não espera o traefix (ADR 0062 item 4).
+func (f *forkHeaders) coversFork() bool {
+	return f.ja4 != "" && (f.proto != "h2" || f.h2 != "")
 }
 
 func parsePort(s string) (int, error) {
@@ -329,72 +426,78 @@ func cutPath(uri string) string {
 	return path
 }
 
-// forwardAuth é o GET /bot/v1/auth (spec 020 RF-05): espera as duas visões até FS_BOT_VIEW_WAIT, avalia o
-// veredito v1.2 da requisição e responde 200 (ou 403 em modo block para `bot`) com os X-Fs-* e o Verdict. A
-// verificação de robô nunca segura a resposta (cache ou desconhecido, com a verificação em segundo plano).
-func (a *API) forwardAuth(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	f, code, detail := parseForkHeaders(r.Header)
-	if code != "" {
-		writeError(w, http.StatusBadRequest, code, detail)
-		return
-	}
-	p := principalFrom(r)
-	site := NormalizeSite(r.Header.Get("X-Forwarded-Host"))
-	if !p.allows(site) {
-		// O contrato do forwardAuth não tem 404: o site fora dos domínios da chave é configuração errada do traefik.
-		writeError(w, http.StatusBadRequest, errBadRequest, "site outside the key domains")
-		return
-	}
-	var (
-		fork    ForkConn
-		store   StoreConn
-		hasFork bool
-		hasTCP  bool
-	)
-	a.Index.Wait(r.Context(), a.ViewWait, func() bool {
-		now := a.now()
-		if !hasFork {
-			fork, hasFork = a.Index.Fork(f.fsConnID, now)
+// forwardAuth devolve o GET /bot/v1/auth da porta (spec 020 RF-05): espera as visões até FS_BOT_VIEW_WAIT, avalia
+// o veredito da requisição e responde 200 (ou 403 em modo block para `bot`) com os cabeçalhos do veredito nos dois
+// conjuntos e o Verdict. A verificação de robô nunca segura a resposta (cache ou desconhecido, com a verificação em
+// segundo plano). Espera (ADR 0063 item 7): na 9002 (internal=false) o store nunca tem a conexão e não é esperado;
+// com X-Traefix-Ja4 (e -H2 em h2) a visão do traefix não é esperada.
+func (a *API) forwardAuth(internal bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		f, code, detail := parseForkHeaders(r.Header)
+		if code != "" {
+			writeError(w, http.StatusBadRequest, code, detail)
+			return
 		}
-		if !hasTCP {
-			first := time.Time{}
-			if hasFork {
-				first = fork.First
+		p := principalFrom(r)
+		site := NormalizeSite(r.Header.Get("X-Forwarded-Host"))
+		if !p.allows(site) {
+			// O contrato do forwardAuth não tem 404: o site fora dos domínios da chave é configuração errada do traefik.
+			writeError(w, http.StatusBadRequest, errBadRequest, "site outside the key domains")
+			return
+		}
+		var (
+			fork    ForkConn
+			store   StoreConn
+			hasFork bool
+			hasTCP  bool
+		)
+		needFork, needTCP := !f.coversFork(), internal
+		a.Index.Wait(r.Context(), a.ViewWait, func() bool {
+			now := a.now()
+			if !hasFork {
+				fork, hasFork = a.Index.Fork(f.fsConnID, now)
 			}
-			store, hasTCP = a.Index.MatchStore(f.srcIP, f.srcPort, f.dstPort, first, now)
+			if !hasTCP && internal {
+				first := time.Time{}
+				if hasFork {
+					first = fork.First
+				}
+				store, hasTCP = a.Index.MatchStore(f.srcIP, f.srcPort, f.dstPort, first, now)
+			}
+			return (hasFork || !needFork) && (hasTCP || !needTCP)
+		})
+		waited := time.Since(start)
+		if !hasFork && needFork {
+			a.count(viewWaitMetric("fork"), 1)
 		}
-		return hasFork && hasTCP
-	})
-	waited := time.Since(start)
-	if !hasFork {
-		a.count(viewWaitMetric("fork"), 1)
+		if !hasTCP && needTCP {
+			a.count(viewWaitMetric("tcp"), 1)
+		}
+		var fp *ForkConn
+		if hasFork {
+			fp = &fork
+		}
+		var sp *StoreConn
+		if hasTCP {
+			sp = &store
+		}
+		v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp)
+		vals := [3]string{v.Class, strconv.Itoa(v.Score), signalIDs(v.Signals)}
+		for i, k := range verdictHeaders {
+			w.Header().Set(k, vals[i%3])
+		}
+		status := http.StatusOK
+		if p.key != nil && p.key.Mode == ModeBlock && v.Class == ClassBot {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, v)
+		a.Judge.authWait.Observe(waited)
+		a.Judge.authTime.Observe(time.Since(start))
 	}
-	if !hasTCP {
-		a.count(viewWaitMetric("tcp"), 1)
-	}
-	var fp *ForkConn
-	if hasFork {
-		fp = &fork
-	}
-	var sp *StoreConn
-	if hasTCP {
-		sp = &store
-	}
-	v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp)
-	w.Header().Set("X-Fs-Verdict", v.Class)
-	w.Header().Set("X-Fs-Score", strconv.Itoa(v.Score))
-	w.Header().Set("X-Fs-Signals", signalIDs(v.Signals))
-	status := http.StatusOK
-	if p.key != nil && p.key.Mode == ModeBlock && v.Class == ClassBot {
-		status = http.StatusForbidden
-	}
-	writeJSON(w, status, v)
-	a.Judge.authWait.Observe(waited)
-	a.Judge.authTime.Observe(time.Since(start))
 }
 
-// signalIDs junta os ids por vírgula, até 1 KiB (cabeçalho X-Fs-Signals).
+// signalIDs junta os ids por vírgula, até 1 KiB (cabeçalhos X-Traefix-Signals e X-Fs-Signals).
 func signalIDs(s []Signal) string {
 	var b strings.Builder
 	for _, sig := range s {
