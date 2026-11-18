@@ -51,6 +51,9 @@ type Config struct {
 	ListURLs map[string]string
 	// ListsDir é a pasta das cópias das listas (var/bot/lists, ao lado do banco); vazio desliga os downloads.
 	ListsDir string
+	// P0FPath é o p0f.fp do palpite de SO da visão TCP do traefix (FS_BOT_P0F_DB, o mesmo do store; ADR 0063
+	// item 5); vazio desliga o palpite.
+	P0FPath string
 }
 
 // interfacePrefix acha a sub-rede da interface que tem o IP (variável para os testes).
@@ -167,6 +170,7 @@ func LoadConfig() (Config, error) {
 		}
 	}
 	c.ListsDir = filepath.Join(filepath.Dir(c.DBPath), "lists")
+	c.P0FPath = strings.TrimSpace(service.Env("FS_BOT_P0F_DB", "/finger-sniffer/etc/p0f.fp"))
 	return c, c.validate()
 }
 

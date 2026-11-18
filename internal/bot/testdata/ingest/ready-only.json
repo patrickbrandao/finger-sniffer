@@ -1,0 +1,87 @@
+{
+  "entryPoint": "websecure",
+  "records": [
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T05",
+      "dst": {
+        "ip": "10.249.0.2",
+        "port": 443
+      },
+      "entryPoint": "websecure",
+      "http2": {
+        "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+        "headersPriority": "1:1:0:256"
+      },
+      "proto": "h2",
+      "src": {
+        "ip": "198.51.100.45",
+        "port": 6524
+      },
+      "tcp": {
+        "ja4t": "64240_2-4-8-1-3_1460_12",
+        "p0f": "4:128+0:0:1460:mss*44,12:mss,sok,ts,nop,ws:df,id+:0",
+        "rttMicros": 1834,
+        "ttl": 128
+      },
+      "time": "2026-11-16T12:00:00.010000000Z",
+      "tls": {
+        "alpn": "h2",
+        "alpnOffered": [
+          "h2",
+          "http/1.1"
+        ],
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "83533488f870b1b04a0f060678c9b5b7",
+        "ja3String": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,65037-27-17613-51-35-0-10-65281-16-13-45-18-23-43-5-11-51764,4588-29-23-24,0",
+        "ja3n": "bd4930bd9b000ee684830e44bab76fdf",
+        "ja3nString": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17613-51764-65037-65281,4588-29-23-24,0",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "ja4o": "t13d1517h2_acb858a92679_282dc19b3a1d",
+        "ja4r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+        "sni": "www.example.com",
+        "version": "TLS 1.3"
+      },
+      "type": "connection"
+    },
+    {
+      "authority": "www.example.com",
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T05",
+      "cookieNames": [],
+      "end": "2026-11-16T12:00:00.060000000Z",
+      "entryPoint": "websecure",
+      "fieldNames": [
+        "Host",
+        "User-Agent",
+        "Accept"
+      ],
+      "fields": [
+        {
+          "name": "Host",
+          "value": "www.example.com"
+        },
+        {
+          "name": "User-Agent",
+          "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+        },
+        {
+          "name": "Accept",
+          "value": "*/*"
+        }
+      ],
+      "headersTruncated": false,
+      "httpVersion": "2.0",
+      "ja4h": "ge11nn030000_fe444ad14866_000000000000_000000000000",
+      "method": "GET",
+      "path": "/",
+      "proto": "h2",
+      "router": "site@docker",
+      "service": "site@docker",
+      "start": "2026-11-16T12:00:00.020000000Z",
+      "status": 200,
+      "type": "request"
+    }
+  ],
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "sentAt": "2026-11-16T12:00:01.000000000Z"
+}

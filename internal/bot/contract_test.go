@@ -27,7 +27,12 @@ const (
 	refEvent       = "#/components/schemas/VerdictEvent"
 	refBatch       = "#/components/schemas/TraefikIngestBatch"
 	refIngestReply = "#/paths/~1bot~1v1~1ingest~1traefik/post/responses/202/content/application~1json/schema"
+	// refTraefixIngestBody é o corpo da rota de ingest (os dois esquemas, ADR 0062 item 2).
+	refTraefixIngestBody = "#/paths/~1bot~1v1~1ingest~1traefik/post/requestBody/content/application~1json/schema"
 )
+
+// traefixSchemaCopy é a cópia do esquema publicado pelo traefix (ADR 0063 item 3).
+const traefixSchemaCopy = "../../cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json"
 
 // contractValues junta os valores a validar por schema; o teste de contrato valida tudo num só lint por ref.
 type contractValues map[string][][]byte
@@ -63,6 +68,36 @@ func redoclyBin(t *testing.T) string {
 
 func lintContract(t *testing.T, ref string, values ...[]byte) ([]byte, error) {
 	t.Helper()
+	return lintContractWith(t, ref, false, nil, values...)
+}
+
+// lintTraefixCopy valida os valores contra a cópia do esquema do traefix: o arquivo vai para o diretório
+// temporário ao lado do openapi, e um componente sintético faz $ref a ele (task 302).
+func lintTraefixCopy(t *testing.T, values ...[]byte) ([]byte, error) {
+	t.Helper()
+	const name = "traefix-fingerprint-v1.schema.json"
+	return lintContractWith(t, "#/components/schemas/TraefixSchemaCopy", true, func(dir, spec string) string {
+		b, err := os.ReadFile(traefixSchemaCopy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const anchor = "\n  schemas:\n"
+		if !strings.Contains(spec, anchor) {
+			t.Fatal("openapi sem components.schemas")
+		}
+		return strings.Replace(spec, anchor, anchor+"    TraefixSchemaCopy: { $ref: \"./"+name+"\" }\n", 1)
+	}, values...)
+}
+
+// lintContractWith é lintContract com prep (opcional), que recebe o diretório temporário e o openapi e devolve o
+// openapi a validar (para acrescentar arquivos e componentes). additional valida os exemplos com a semântica do
+// JSON Schema (propriedade a mais vale onde o schema não a proíbe), em vez do padrão do Redocly, que recusa
+// qualquer propriedade não declarada: os lotes do traefix podem trazer campos e tipos novos (ADR 0063 item 2).
+func lintContractWith(t *testing.T, ref string, additional bool, prep func(dir, spec string) string, values ...[]byte) ([]byte, error) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("contrato via Redocly pulado com -short")
 	}
@@ -71,6 +106,9 @@ func lintContract(t *testing.T, ref string, values ...[]byte) ([]byte, error) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "testdata"), 0o750); err != nil {
 		t.Fatal(err)
+	}
+	if prep != nil {
+		spec = prep(dir, spec)
 	}
 	name := strings.ToLower(strings.NewReplacer("#", "", "/", "", "~1", "", "~0", "").Replace(ref))
 	if len(name) > 40 {
@@ -95,6 +133,11 @@ func lintContract(t *testing.T, ref string, values ...[]byte) ([]byte, error) {
 	redocly, err := os.ReadFile("../../redocly.yaml")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if additional {
+		redocly = append(redocly, []byte("\n  # lotes do traefix: campos e tipos novos são aceitos (ADR 0063 item 2)\n"+
+			"  no-invalid-media-type-examples: { severity: error, allowAdditionalProperties: true }\n")...)
+		redocly = []byte(strings.Replace(string(redocly), "  no-invalid-media-type-examples: error\n", "", 1))
 	}
 	if err := os.WriteFile(filepath.Join(dir, "redocly.yaml"), redocly, 0o600); err != nil {
 		t.Fatal(err)

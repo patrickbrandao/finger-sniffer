@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -86,6 +87,12 @@ type API struct {
 	Now      func() time.Time
 	ViewWait time.Duration
 	Judge    *Judge
+	// Log (opcional) recebe as linhas do ingest (divergência de fingerprint); nil = slog.Default().
+	Log *slog.Logger
+	// ignored são os rótulos de bot_ingest_ignored_total{type}; mismatchLog limita o log de divergência a uma
+	// linha por minuto (ADRs 0062 item 3 e 0063 item 2).
+	ignored     ignoredTypes
+	mismatchLog rateLog
 }
 
 type ctxKey struct{}
@@ -728,15 +735,32 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errBadRequest, "body read failed")
 		return
 	}
-	batch, err := DecodeIngestBatch(body)
+	batch, err := decodeBatch(body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, errBadRequest, err.Error())
 		return
 	}
+	var env ingestEnv
+	if batch.schema == SchemaTraefixV1 && a.Judge != nil {
+		env.p0f = a.Judge.p0f.get()
+	}
 	p := principalFrom(r)
 	accepted, rejected := 0, 0
-	for _, raw := range batch.Records {
-		rec, err := parseRecord(raw)
+	for _, raw := range batch.records {
+		var (
+			rec parsedRecord
+			err error
+		)
+		if batch.schema == SchemaTraefixV1 {
+			rec, err = parseTraefixRecord(raw, batch.entryPoint, env)
+		} else {
+			rec, err = parseRecord(raw)
+		}
+		// Tipo de registro desconhecido do traefix: ignorado, fora de accepted e rejected (ADR 0063 item 2).
+		if err == nil && rec.ignored {
+			a.count(metricIngestIgnored+`{type="`+a.ignored.label(rec.ignoredType)+`"}`, 1)
+			continue
+		}
 		// Com chave, só entram registros de sites dela: SNI e authority do registro e o domínio que a conexão já
 		// tem no índice precisam todos ser da chave (spec 020 RF-03). Sem site conhecido, o registro entra (a
 		// conexão ainda pode trazer o SNI depois, e o Judge e a consulta conferem o domínio de novo).
@@ -750,6 +774,7 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		for _, part := range rec.ParseErrors() {
 			a.count(metricIngestParseErrors+`{part="`+part+`"}`, 1)
 		}
+		a.countMismatches(rec.mismatches, rec.r.FsConnID)
 		a.Index.UpdateFork(rec.r.FsConnID, a.now(), rec.apply)
 		if rec.r.Type == "request" {
 			// veredito por requisição na chegada do resumo (publicado se o forwardAuth ainda não o fez)
@@ -763,6 +788,20 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 	a.count(metricIngestRecords, float64(accepted))
 	a.count(metricIngestDropped, float64(rejected))
 	writeJSON(w, http.StatusAccepted, map[string]int{"accepted": accepted, "rejected": rejected})
+}
+
+// countMismatches conta as divergências entre o calculado pelo bot e o pronto do traefix e escreve no máximo uma
+// linha de log por minuto (ADR 0062 item 3).
+func (a *API) countMismatches(kinds []string, connID string) {
+	if len(kinds) == 0 {
+		return
+	}
+	for _, k := range kinds {
+		a.count(mismatchMetric(k), 1)
+	}
+	if a.mismatchLog.allow(a.now()) {
+		logger(a.Log).Warn("bot: traefix fingerprint differs from the computed one", "kinds", kinds, "conn_id", connID)
+	}
 }
 
 // ingestAllowed confere os domínios do registro e o da conexão já indexada contra os da chave.

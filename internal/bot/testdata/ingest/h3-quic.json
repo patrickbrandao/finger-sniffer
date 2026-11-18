@@ -1,0 +1,88 @@
+{
+  "entryPoint": "websecure",
+  "records": [
+    {
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T03",
+      "dst": {
+        "ip": "10.249.0.2",
+        "port": 443
+      },
+      "entryPoint": "websecure",
+      "http3": {
+        "settings": "1:0,6:16384,7:100"
+      },
+      "proto": "h3",
+      "src": {
+        "ip": "198.51.100.43",
+        "port": 51000
+      },
+      "time": "2026-11-16T12:00:00.010000000Z",
+      "tls": {
+        "alpn": "h3",
+        "alpnOffered": [
+          "h3",
+          "h3-29"
+        ],
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "clientHello": "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",
+        "clientHelloTruncated": false,
+        "ja4": "q13d0311h3_55b375c5d22e_df5ee7f3ca36",
+        "quicTransportParameters": [
+          1,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          14,
+          15
+        ],
+        "sni": "www.example.com",
+        "version": "TLS 1.3"
+      },
+      "type": "connection"
+    },
+    {
+      "authority": "www.example.com",
+      "connId": "01JC0X3K8V2T7Q9F4M6P1R5T03",
+      "cookieNames": [],
+      "end": "2026-11-16T12:00:00.060000000Z",
+      "entryPoint": "websecure",
+      "fieldNames": [
+        "Host",
+        "User-Agent",
+        "Accept"
+      ],
+      "fields": [
+        {
+          "name": "Host",
+          "value": "www.example.com"
+        },
+        {
+          "name": "User-Agent",
+          "value": "curl/8.23.0"
+        },
+        {
+          "name": "Accept",
+          "value": "*/*"
+        }
+      ],
+      "headersTruncated": false,
+      "httpVersion": "3",
+      "ja4h": "ge11nn030000_fe444ad14866_000000000000_000000000000",
+      "method": "GET",
+      "path": "/",
+      "proto": "h3",
+      "router": "site@docker",
+      "service": "site@docker",
+      "start": "2026-11-16T12:00:00.020000000Z",
+      "status": 200,
+      "type": "request"
+    }
+  ],
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-218-g9f480d2e7",
+  "sentAt": "2026-11-16T12:00:01.000000000Z"
+}
