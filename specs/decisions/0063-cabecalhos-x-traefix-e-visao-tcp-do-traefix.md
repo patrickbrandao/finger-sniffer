@@ -1,6 +1,6 @@
 # 0063 — Cabeçalhos `X-Traefix-*`, visão TCP do traefix, ALPN no forwardAuth e esquema publicado pelo traefix
 
-Status: aceita (adendo de 2026-11-18: auditoria da v0.5.1)
+Status: aceita (adendo de 2026-11-18: auditoria da v0.5.1; adendo item 2 substituído pela 0065)
 Data: 2026-11-18
 
 ## Contexto

@@ -92,6 +92,25 @@
             "settings": { "type": "string" }
           }
         },
+        "timing": {
+          "description": "Milestones of the start of the connection, in microseconds. The arrival times come from the kernel when source is kernel; the server flight and the end of the handshake always come from the Traefix clock.",
+          "type": "object",
+          "required": ["source"],
+          "properties": {
+            "source": { "enum": ["kernel", "user"] },
+            "firstByte": { "$ref": "#/$defs/time" },
+            "tcpRttMicros": { "type": "integer", "minimum": 0 },
+            "estToFirstMicros": { "type": "integer", "description": "May be negative when the first bytes were already queued at the accept." },
+            "clientHelloMicros": { "type": "integer" },
+            "serverMicros": { "type": "integer" },
+            "tlsRttMicros": { "type": "integer" },
+            "handshakeMicros": { "type": "integer" },
+            "rttGapMicros": { "type": "integer" },
+            "initialToHandshakeMicros": { "type": "integer" },
+            "quicRttMicros": { "type": "integer", "minimum": 0 },
+            "quicMinRttMicros": { "type": "integer", "minimum": 0 }
+          }
+        },
         "tcp": {
           "type": "object",
           "required": ["ttl"],
@@ -101,6 +120,14 @@
             "ttl": { "type": "integer", "minimum": 0, "maximum": 255 },
             "rttMicros": { "type": "integer", "minimum": 0 },
             "syn": { "$ref": "#/$defs/base64" }
+          }
+        },
+        "udp": {
+          "type": "object",
+          "properties": {
+            "ttl": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "dscp": { "type": "integer", "minimum": 0, "maximum": 63 },
+            "ecn": { "type": "integer", "minimum": 0, "maximum": 3 }
           }
         }
       }

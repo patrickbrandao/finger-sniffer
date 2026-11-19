@@ -199,6 +199,11 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     metas; trecho hostil acima da RNF-01 do bot no cliente (p95 11,4 / p99 52,5 ms), limite conhecido aceito pelo
     humano (ADR 0064, task 309). Release `v0.5.1`. Pendentes: 306 (espera o PT-12 por decisão do humano), 308, 309,
     pedidos PT-10..PT-15 ao traefix.
+  - **Terceira entrega do traefix (`fork-point-223`, 2026-11-19, ADR 0065)**: tempos (relay), TTL em h3, cabeçalhos de
+    detalhe. Frentes: architect (311: ADR 0065, specs, openapi 0.5.0, cópia do esquema) → implementer-bot (312: tempos,
+    `relay_rtt_gap` em rules `v1.4`, TTL em h3 e no cabeçalho, ALPN pelo `00` do JA4, detalhe no `Fingerprints`) →
+    infra + tester (313: traefix `latest` num container à parte com cliente direto e por relay SOCKS5, TTL em h3,
+    PT-13/PT-14, lotes reais, e2e) → release `v0.5.2`. Baixa prioridade: 314 (TTL TCP × h3 e relay agregados por IP).
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
   Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
   store ≥ 99%; fail-open); carga da F8 com forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga

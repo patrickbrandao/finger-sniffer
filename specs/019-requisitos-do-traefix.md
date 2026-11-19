@@ -19,7 +19,9 @@ finger-sniffer usa a entrega: o perfil de configuração, o que o bot lê de cad
 pedidos ao traefix e os critérios de aceite. Os dois projetos **andam juntos** (decisão do humano, ADR 0062 itens 7
 e 8): roda-se sempre `tmsoftbrasil/traefix:latest`, e toda necessidade nova do finger-sniffer entra aqui como pedido
 ao traefix, implementado pelo humano na `latest`. Entregas: `fork-point-213-g5c011b2f3` e
-`fork-point-218-g9f480d2e7` (visão TCP, `X-Traefix-*`), ambas em 2026-11-18.
+`fork-point-218-g9f480d2e7` (visão TCP, `X-Traefix-*`), ambas em 2026-11-18; `fork-point-223-g59c901c7b`
+(cabeçalhos de detalhe, tempos, TTL em h3) em 2026-11-19 (ADR 0065), com a página
+`docs/content/reference/install-configuration/entrypoints-fingerprint-signals.md` como especificação dos sinais.
 
 Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; **bot** = o servidor de
 `export.url` e do forwardAuth.
@@ -41,6 +43,7 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
       http3: {}
       fingerprint:
         tcp: true                  # visão TCP pelo SYN salvo (só Linux; ADR 0063 item 5)
+        headerDetail: full         # padrão; obrigatório para os tempos (`timing`, `X-Traefix-Timing`; ADR 0065 item 1)
         export:
           url: http://10.249.255.254:9003/bot/v1/ingest/traefik   # site externo: https://finger-01.badblock.net.br:9002/...
           headers:
@@ -80,7 +83,10 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
   `X-Traefix-Conn-Id`, `X-Traefix-Proto` (`h1`|`h2`|`h3`), `X-Traefix-Ja4h` (JA4H FoxIO com a ordem e a caixa
   recebidas), `X-Traefix-Ja3` (MD5 do JA3), `X-Traefix-Ja4` (`t…` em TCP, `q…` em QUIC), `X-Traefix-H2` (Akamai, só
   em h2), `X-Traefix-Alpn` (ALPN oferecido, na ordem do cliente, por vírgula, `%XX` fora do ASCII visível e para `,`
-  e `%`; só com TLS) e `X-Traefix-Ja4t` (com `tcp`). Todo cabeçalho do cliente com o prefixo, em qualquer caixa e
+  e `%`; só com TLS) e `X-Traefix-Ja4t` (com `tcp`); com `headerDetail: full`, também os cabeçalhos de detalhe da página "Fingerprint
+  Signals" do traefix (`X-Traefix-Timing`, `-Ttl` em TCP e h3, `-Ja3n`, `-Ja4r`, `-Ja4o`, `-Tls`, `-Tls-Hello`,
+  `-H2-Detail`, `-H3`, `-Header-Order`, `-Cookie-Names`, `-Transport`, `-Server-Ip`, `-Server-Port`, `-Time`,
+  `-P0f`), ~3,5 KB num navegador em h2. Todo cabeçalho do cliente com o prefixo, em qualquer caixa e
   também com `_` no lugar de `-`, é removido antes de qualquer middleware. Em h3 sem `http3HeaderOrder`, sem
   `X-Traefix-Ja4h`; em h3, sem `X-Traefix-Ja4t`. Os backends leem só `X-Traefix-*` (um `X-Fs-*` pode ter vindo do
   cliente; ADR 0063 item 1).
@@ -94,7 +100,10 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
     `clientHello` com `rawBytes` — com registros TLS em TCP, mensagem de handshake pura em QUIC —,
     `clientHelloTruncated`, `quicTransportParameters`); `http2` (`akamai`, `headersPriority`, `prefix` com
     `rawBytes`, `prefixTruncated`); `http3` (`settings`, com `http3HeaderOrder`); `tcp` (com `tcp`: `ja4t`, `p0f`
-    = `raw_sig` do p0f v3, `ttl` recebido, `rttMicros`, `syn` cru desde o cabeçalho IP com `rawBytes`);
+    = `raw_sig` do p0f v3, `ttl` recebido, `rttMicros`, `syn` cru desde o cabeçalho IP com `rawBytes`); `udp` (h3: `ttl`, `dscp`, `ecn`); `timing` (com
+    `headerDetail` ≠ `basic`: `source`, `firstByte`, `tcpRttMicros`, `estToFirstMicros`, `clientHelloMicros`,
+    `serverMicros`, `tlsRttMicros`, `handshakeMicros`, `rttGapMicros`; em h3 `initialToHandshakeMicros`,
+    `quicRttMicros`, `quicMinRttMicros`);
   - `type: request`, no fim da resposta: `connId`, `start`, `end`, `proto`, `method`, `authority`, `path` (sem query,
     até 256 bytes), `httpVersion`, `fieldNames`, `fields` (lista `{name, value}` na ordem recebida, valor até
     512 bytes, só os de `fields`), `cookieNames`, `ja4h`, `status` (`0` com a conexão assumida), `router`,
@@ -110,14 +119,18 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
   `q`), as prontas do traefix (`ja3`, `ja3n`, `ja4`, `ja4r`, `ja4o`, `akamai`, `headersPriority`) só sem os bytes, e
   a divergência entre as duas em `bot_ingest_fingerprint_mismatch_total{kind}`; dos `fields`, o primeiro valor de
   cada nome permitido; visão TCP do `tcp.*` (JA4T, TTL inicial, MSS e derivados da spec 013 RF-06a, SO do p0f pelo
-  `tcp.syn`), descartada com `src.ip` loopback, link-local ou privado; `quicTransportParameters`, `http3.settings`,
+  `tcp.syn`), descartada com `src.ip` loopback, link-local ou privado; em h3, TTL inicial do `udp.ttl` (ADR 0065 item 4);
+  tempos do `timing` para o sinal `relay_rtt_gap` e o `Fingerprints` do veredito (ADR 0065 itens 2 e 3); `quicTransportParameters`, `http3.settings`,
   `tcp.p0f`, `tcp.rttMicros` e `headersTruncated` sem uso nas regras.
 - RF-08: **leitura do forwardAuth pelo bot** (ADRs 0058 item 1, 0062 item 4 e 0063 itens 1, 5–7): `X-Traefix-*`
   (os `X-Fs-*` antigos só sem `X-Traefix-Conn-Id`, nunca misturados); JA4H de `X-Traefix-Ja4h`; visão TLS e h2 do
   registro de conexão do ingest quando já chegou, senão de `X-Traefix-Ja4`/`-Ja3`/`-H2`, com o ALPN de
-  `X-Traefix-Alpn` (sem ele, `ua_alpn_mismatch` não avalia; presente e vazio = TLS sem ALPN, lista vazia conhecida); visão TCP do store quando casada, senão do registro do
-  traefix, senão o JA4T de `X-Traefix-Ja4t` (ignorado com
-  `X-Traefix-Src-Ip` loopback, link-local ou privado; adendo da ADR 0063); na 9003, com `X-Traefix-Ja4` a espera de `FS_BOT_VIEW_WAIT` só aguarda
+  `X-Traefix-Alpn` (sem ele, a lista é vazia conhecida se o ALPN da parte a do `X-Traefix-Ja4` for `00`, senão
+  desconhecida e `ua_alpn_mismatch` não avalia; ADR 0065 item 5); visão TCP do store quando casada, senão do registro do
+  traefix, senão o JA4T de `X-Traefix-Ja4t` com o TTL inicial de
+  `X-Traefix-Ttl` (ignorados com `X-Traefix-Src-Ip` loopback, link-local ou privado; adendo da ADR 0063, ADR 0065
+  item 4; em h3, só o TTL); tempos de `X-Traefix-Timing` quando o registro de conexão não chegou; `X-Traefix-Ja3n`,
+  `-Ja4r`, `-Ja4o` no `Fingerprints`; os demais cabeçalhos de detalhe ignorados (ADR 0065 item 6); na 9003, com `X-Traefix-Ja4` a espera de `FS_BOT_VIEW_WAIT` só aguarda
   o store; na 9002 não há espera pelo store. Respostas com `X-Traefix-Verdict`/`-Score`/`-Signals` e os `X-Fs-*`
   equivalentes (obsoletos).
 - RF-09: **imagem e versão**: sempre `tmsoftbrasil/traefix:latest` (Docker Hub), no container de teste e no
@@ -167,7 +180,9 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
 | PT-12 | Tornar opcionais (ou desligados por padrão) os cabeçalhos `Forwarded` (RFC 7239) e `X-Real-Port` que o traefix acrescenta a toda requisição encaminhada, mesmo sem o bloco `fingerprint` (commit `193af416c`): mudam o que os backends do humano recebem na troca do `traefik-app` (task 306) | pedido (achado da task 273) |
 | PT-13 | `dst.ip` dos registros h3 com o endereço de destino real, não o do socket de escuta (`::`) | pedido (achado da task 273) |
 | PT-14 | Registro de requisição h3 sem `http3HeaderOrder` com os `fields` (valores) mesmo sem a ordem dos campos; hoje vêm vazios e o ingest fica sem User-Agent em h3; a documentação do traefix só cita `fieldNames` | pedido (achado da task 273) |
-| PT-15 | Definir a codificação de `X-Traefix-Alpn` para ClientHello com TLS e sem ALPN: cabeçalho presente e vazio (o bot lê assim desde a v0.5.1); hoje a documentação só diz que o cabeçalho falta sem TLS | pedido (auditoria da v0.5.1) |
+| PT-15 | Definir a codificação de `X-Traefix-Alpn` para ClientHello com TLS e sem ALPN | retirado (ADR 0065 item 5: o bot lê o `00` do JA4) |
+| PT-16 | Cumprir o PT-01 também nas chaves dos cabeçalhos: `X-Traefix-Transport` mudou de sentido na `fork-point-222` (`ipid` em hexadecimal, `flow` → `flow_label`) sem `traefix.fingerprint/v2` | pedido (ADR 0065) |
+| PT-17 | Tempos (`timing`, `X-Traefix-Timing`) também com `headerDetail: basic`, ou uma opção separada, para sites que não querem os ~28 cabeçalhos de detalhe | pedido (ADR 0065) |
 
 ## Comportamento esperado do lado do finger-sniffer
 - No finger-01, `export.url` e o forwardAuth usam a 9003 (HTTP, só loopback e a rede do traefik, chave opcional; o
@@ -210,6 +225,8 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
 - [ ] Sem a visão do store (registro do traefix com `src` fora do finger-01, simulado), `ua_os_tcp_mismatch` e
       `known_client` avaliam pela visão TCP do traefix.
 - [ ] CPU do traefix medida no finger-01 (RF-11) e registrada no PR da task 273.
+- [ ] Um cliente por relay (SOCKS5 por `ssh -D` até o finger-01) sai com `relay_rtt_gap` e o direto sem ele; TTL inicial
+      em h3 no veredito (task 313, ADR 0065).
 - [ ] Troca do `traefik-app` em modo só observação sem mudança de resposta nos sites do humano (task 306, depois da
       273).
 
@@ -220,6 +237,7 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
 - Ligar forwardAuth ou modo `block` nos sites do humano: ação do humano.
 
 ## Decisões relacionadas
+- specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md
 - specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md
 - specs/decisions/0062-traefix-consumido-como-esta.md
 - specs/decisions/0054-traefix-projeto-externo.md
