@@ -919,9 +919,9 @@ func TestBotDoc(t *testing.T) {
 		"spec 019", "url: https://finger-01.badblock.net.br:9002/bot/v1/ingest/traefik", ".finger-west-01.badblock.net.br:8443/p/",
 		"mas não a ordem deles", "Automação não declarada de um Chrome real sai `human`", "Uso não comercial",
 		"7 dias e 1 hora", "`observe`", "`block`", "key create", "forget",
-		// forwardAuth do bot (ADRs 0058, 0062 e 0063): contrato 0.4.0, regras v1.3 (ADR 0060), perfil da spec 019
+		// forwardAuth do bot (ADRs 0058, 0062 e 0063): contrato 0.5.0, regras v1.4 (ADRs 0060 e 0065), perfil da spec 019
 		// com X-Traefix-*, fail-open de 4xx, visão TCP, latest e o processo de andar juntos, licença FoxIO
-		"versão\n0.4.0", "`v1.3`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook",
+		"versão\n0.5.0", "`v1.4`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook",
 		"X-Traefix-Ja4h", "X-Traefix-Ja4t", "X-Traefix-Alpn", "X-Traefix-Conn-Id",
 		"**Os backends leem só `X-Traefix-*`, nunca `X-Fs-*`.**", "fingerprint:\n      tcp: true", "rawBytes: true",
 		"timeout: 200ms", "authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]", "**nunca vazio**",

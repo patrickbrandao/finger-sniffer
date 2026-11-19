@@ -4,7 +4,7 @@ Derivado das specs [018](../specs/018-bot.md) (serviço bot), [019](../specs/019
 (traefix) e [020](../specs/020-api-de-vereditos.md) (API), das ADRs
 [0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md)
 e do contrato [cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão
-0.4.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
+0.5.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
 
 O serviço `finger-sniffer-bot` junta a visão IP/TCP do espelho (o que o store viu da conexão: SYN, JA4T, p0f, TTL,
 MSS) com a visão de aplicação do **traefix** (o traefik modificado, projeto externo do humano, imagem
@@ -37,8 +37,8 @@ dá 401 nas duas portas.
 
 ## O veredito
 
-Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.3` das ADRs 0057,
-[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md) e [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md)):
+Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.4` das ADRs 0057,
+[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md), [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md) e [0065](../specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md)):
 
 ```json
 {
@@ -54,7 +54,7 @@ Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), re
                    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6", "p0f_os": "Mac OS X", "ttl_initial": 64,
                    "ua_family": "curl", "ua_os": "other"},
   "crawler": null,
-  "rules_version": "v1.3",
+  "rules_version": "v1.4",
   "lists_version": "91cc382c89a43660",
   "subject": {"kind": "request", "site": "www.example.com", "src": {"ip": "198.51.100.23", "port": 40000},
               "dst_port": 443, "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S10", "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S10",
@@ -80,11 +80,11 @@ mais indício de automação.
 (requisição), `h2`, `h3`, `behavior` (agregados do IP no site) e `parse_error` (bytes do traefix ilegíveis). Um
 `human` exige `tls` e `http`; sem eles, score baixo sai `unknown`.
 
-`rules_version` é a versão das regras (`v1.3`) e `lists_version` um hash das listas em uso (base própria e listas
+`rules_version` é a versão das regras (`v1.4`) e `lists_version` um hash das listas em uso (base própria e listas
 de IP; a ja4db só quando ligada). A mesma entrada com as mesmas duas versões dá sempre o mesmo veredito. Mudança de
 peso ou de regra é nova `rules_version`.
 
-### Sinais (rules v1.3)
+### Sinais (rules v1.4)
 
 Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga da F8).
 
@@ -97,7 +97,7 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `ua_alpn_mismatch` | incoherence | 15 | ALPN oferecido incompatível com a família (ex.: navegador sem `h2`) |
 | `ja4h_library` | incoherence | 20 | JA4H sem `Accept-Language` e com ordem de campos de biblioteca; compara também o JA4H sem `Origin` e `Referer`, para o probe (ADR 0060) |
 | `tunnel_mss` | incoherence | 5 | MSS reduzido ou `mtu_implied` < 1500: túnel ou VPN no caminho (só informativo) |
-| `relay_rtt_gap` | incoherence | 15 | tempos do traefix (`headerDetail: full`): volta TLS bem maior que a TCP e espera longa pelo primeiro byte, sinal de relay SOCKS5/HTTP CONNECT entre o cliente e o traefix (rules `v1.4`, ADR 0065; a partir da task 312) |
+| `relay_rtt_gap` | incoherence | 15 | tempos do traefix (`headerDetail: full`): volta TLS bem maior que a TCP e espera longa pelo primeiro byte, sinal de relay SOCKS5/HTTP CONNECT entre o cliente e o traefix (rules `v1.4`, ADR 0065) |
 | `ua_claims_crawler` | incoherence | 60 | UA de robô conhecido vindo de IP fora da lista dele, ou com DNS reverso/direto falho |
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
 | `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 que a base própria só viu em bibliotecas |
@@ -214,7 +214,7 @@ $ curl -s $BOT/bot/v1/health | jq '{status, version, rules_version, lists_versio
 {
   "status": "ok",
   "version": "v0.4.0-22-gd9a4703",
-  "rules_version": "v1.3",
+  "rules_version": "v1.4",
   "lists_version": "91cc382c89a43660",
   "lists": [
     {"name": "known_clients", "entries": 15, "fetched_at": null, "stale": false},
