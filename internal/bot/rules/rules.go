@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -23,7 +24,7 @@ const (
 	KindBehavior    = "behavior"
 )
 
-// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.3)"), na ordem em que aparecem no veredito.
+// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.4)"), na ordem em que aparecem no veredito.
 const (
 	SignalUAMissing               = "ua_missing"
 	SignalUATLSMismatch           = "ua_tls_mismatch"
@@ -32,6 +33,7 @@ const (
 	SignalUAALPNMismatch          = "ua_alpn_mismatch"
 	SignalJA4HLibrary             = "ja4h_library"
 	SignalTunnelMSS               = "tunnel_mss"
+	SignalRelayRTTGap             = "relay_rtt_gap"
 	SignalUAClaimsCrawler         = "ua_claims_crawler"
 	SignalUAAutomation            = "ua_automation"
 	SignalLibraryClient           = "library_client"
@@ -46,7 +48,7 @@ const (
 	SignalRouteBreadth            = "route_breadth"
 )
 
-// signalDef é uma linha da tabela de pesos (rules v1.3, provisórios; ADRs 0049, 0057, 0058 e 0060).
+// signalDef é uma linha da tabela de pesos (rules v1.4, provisórios; ADRs 0049, 0057, 0058, 0060 e 0065).
 type signalDef struct {
 	id     string
 	kind   string
@@ -62,6 +64,7 @@ var signalTable = []signalDef{
 	{SignalUAALPNMismatch, KindIncoherence, 15},
 	{SignalJA4HLibrary, KindIncoherence, 20},
 	{SignalTunnelMSS, KindIncoherence, 5},
+	{SignalRelayRTTGap, KindIncoherence, 15},
 	{SignalUAClaimsCrawler, KindIncoherence, 60},
 	{SignalUAAutomation, KindList, 70},
 	{SignalLibraryClient, KindList, 50},
@@ -93,6 +96,11 @@ const (
 	ja4dbNameMaxLen      = 48
 	providerNameMaxLen   = 32
 	ja4hPartsForBaseLook = 2
+	// relay_rtt_gap (ADR 0065 item 3): volta TLS acima da TCP em mais de 20 ms e de 30% dela, com o primeiro byte
+	// do cliente depois de mais de 10 ms do accept
+	relayMinGapMicros   = 20_000
+	relayMinGapFrac     = 0.3
+	relayMinFirstMicros = 10_000
 )
 
 // Signal é um sinal presente no veredito (schema Signal do openapi do bot).
@@ -115,7 +123,7 @@ type Result struct {
 	UAOS     string `json:"ua_os,omitempty"`
 }
 
-// Engine avalia as regras v1.3 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
+// Engine avalia as regras v1.4 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
 type Engine struct {
 	Sources Sources
 	// RateHigh é FS_BOT_RATE_HIGH; 0 usa DefaultRateHigh.
@@ -134,7 +142,7 @@ func (e *eval) add(id, detail string) {
 	e.present[id] = detail
 }
 
-// Evaluate aplica as regras v1.3 (ADRs 0049, 0057, 0058 e 0060). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
+// Evaluate aplica as regras v1.4 (ADRs 0049, 0057, 0058, 0060 e 0065). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
 // resultado.
 func (en Engine) Evaluate(in Input) Result {
 	ev := &eval{present: map[string]string{}}
@@ -209,7 +217,36 @@ func (en Engine) incoherence(ev *eval, in Input, ua UA) {
 			ev.add(SignalTunnelMSS, fmt.Sprintf("implied mtu %d", *t.MTUImplied))
 		}
 	}
+	if !in.View.H3 {
+		relayGap(ev, in.Timing)
+	}
 }
+
+// relayGap avalia relay_rtt_gap (ADR 0065 item 3): atrás de um relay (SOCKS5, HTTP CONNECT, relay TCP) o kernel mede
+// a volta TCP com o relay, enquanto a volta TLS e a espera pelo primeiro byte incluem o caminho cliente ↔ relay. Só
+// em TCP e com as duas voltas conhecidas; a diferença é o rtt_gap do traefix, ou TLS − TCP sem ele.
+func relayGap(ev *eval, t *Timing) {
+	if t == nil || t.TCPRTTMicros == nil || t.TLSRTTMicros == nil || t.EstToFirstMicros == nil {
+		return
+	}
+	tcp, est := *t.TCPRTTMicros, *t.EstToFirstMicros
+	if t.RTTGapMicros == nil && (outOfRange(tcp) || outOfRange(*t.TLSRTTMicros)) {
+		return // fora de qualquer medida real (e a subtração poderia estourar)
+	}
+	gap := *t.TLSRTTMicros - tcp
+	if t.RTTGapMicros != nil {
+		gap = *t.RTTGapMicros
+	}
+	if gap > relayMinGapMicros && float64(gap) > float64(tcp)*relayMinGapFrac && est > relayMinFirstMicros {
+		ev.add(SignalRelayRTTGap, fmt.Sprintf("rtt gap %s ms, tcp rtt %s ms, first byte after %s ms", ms(gap), ms(tcp), ms(est)))
+	}
+}
+
+// outOfRange diz se um tempo em microssegundos passa de ±2^40 (~12 dias).
+func outOfRange(us int64) bool { return us > 1<<40 || us < -(1<<40) }
+
+// ms escreve microssegundos em milissegundos com uma casa.
+func ms(us int64) string { return strconv.FormatFloat(float64(us)/1000, 'f', 1, 64) }
 
 // browserChecks avalia TLS, h2 e ALPN de um UA de navegador contra a pilha esperada.
 func (en Engine) browserChecks(ev *eval, in Input, ua UA) {
@@ -477,7 +514,7 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// SignalWeight devolve o peso v1.3 do sinal (false para id desconhecido).
+// SignalWeight devolve o peso v1.4 do sinal (false para id desconhecido).
 func SignalWeight(id string) (int, bool) {
 	for _, d := range signalTable {
 		if d.id == id {

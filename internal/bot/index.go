@@ -73,8 +73,12 @@ type ForkConn struct {
 	TLS *ForkTLS
 	H2  *ForkH2
 	// TCP é a visão TCP da conexão do traefix (tcp.* do registro traefix.fingerprint/v1, ADR 0063 item 5); nil sem
-	// ela, em h3 ou com origem loopback, link-local ou privada. Nas regras, a do store casada vence.
-	TCP           *ForkTCP
+	// ela ou com origem loopback, link-local ou privada; em h3, só o TTL do udp.ttl (UDP, ADR 0065 item 4). Nas
+	// regras, a do store casada vence.
+	TCP *ForkTCP
+	// Timing são os tempos do início da conexão do registro de conexão (ADR 0065 item 2); nil sem eles (traefix com
+	// headerDetail basic ou formato anterior).
+	Timing        *ForkTiming
 	HasConnRecord bool
 	// ja4tChecked marca que o JA4T desta visão já foi comparado com o do store casado
 	// (bot_ingest_fingerprint_mismatch_total{kind="ja4t"} uma vez por conexão).

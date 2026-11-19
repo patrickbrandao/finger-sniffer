@@ -8,7 +8,7 @@ package rules
 import "net/netip"
 
 // RulesVersion é a versão das regras (ADR 0049 item 6: mudança de regra muda a versão e regrava os goldens).
-const RulesVersion = "v1.3"
+const RulesVersion = "v1.4"
 
 // Input é o que as regras leem. Cada parte é opcional (nil quando a visão não tinha aquela camada).
 type Input struct {
@@ -19,6 +19,9 @@ type Input struct {
 	H2       *H2
 	HTTP     *HTTP
 	Behavior *Behavior
+	// Timing são os tempos do início da conexão TCP medidos pelo traefix (ADR 0065 item 2); nil sem eles e em h3.
+	// Omitido do JSON quando nil: as entradas golden anteriores não mudam.
+	Timing *Timing `json:",omitempty"`
 	// View diz o que havia para decidir (montada por quem chama; `human` exige TLS e HTTP).
 	View View
 }
@@ -46,6 +49,19 @@ type TLS struct {
 	// X-Traefix-Alpn, ADR 0062 item 4): as regras que olham o ALPN não avaliam (nunca disparam por falta do dado).
 	// Omitido do JSON quando falso: as entradas golden das regras não mudam.
 	ALPNUnknown bool `json:",omitempty"`
+}
+
+// Timing são os tempos de uma conexão TCP medidos pelo traefix, em microssegundos (ADR 0065 item 2); nil = não
+// medido (ausente é desconhecido, nunca 0).
+type Timing struct {
+	// TCPRTTMicros é a volta do handshake TCP com o par da conexão TCP (o relay, se houver).
+	TCPRTTMicros *int64 `json:",omitempty"`
+	// TLSRTTMicros é a volta do voo do servidor até a resposta do cliente TLS (o cliente real).
+	TLSRTTMicros *int64 `json:",omitempty"`
+	// RTTGapMicros é TLSRTTMicros − TCPRTTMicros (calculado por quem monta quando o traefix não o mandou).
+	RTTGapMicros *int64 `json:",omitempty"`
+	// EstToFirstMicros vai do accept ao primeiro byte do cliente; pode ser negativo.
+	EstToFirstMicros *int64 `json:",omitempty"`
 }
 
 // H2 é o prefixo h2 visto.

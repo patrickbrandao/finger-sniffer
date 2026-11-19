@@ -109,6 +109,13 @@ func checkSample(t *testing.T, file string, fc *ForkConn) {
 		if len(fc.Requests) != 1 || fc.Requests[0].Fields["User-Agent"] != "curl/8.5.0" || fc.Requests[0].HTTPVersion != "1.1" {
 			t.Errorf("requisição: %+v", fc.Requests)
 		}
+		// timing (ADR 0065 item 2): só os campos que o bot usa
+		tm := fc.Timing
+		if tm == nil || tm.Source != timingKernel || tm.QUIC || tm.TCPRTT != (micros{1834, true}) ||
+			tm.EstToFirst != (micros{1210, true}) || tm.TLSRTT != (micros{2240, true}) || tm.RTTGap != (micros{406, true}) ||
+			tm.QUICRTT.ok || tm.cost != forkTimingBytes {
+			t.Errorf("timing: %+v", tm)
+		}
 	case "h2-tcp.json":
 		if fc.H2 == nil || fc.H2.Ready || fc.H2.Akamai == "" || fc.H2.HeadersPriority != "1:1:0:256" {
 			t.Errorf("h2: %+v", fc.H2)
@@ -120,11 +127,16 @@ func checkSample(t *testing.T, file string, fc *ForkConn) {
 		if fc.TLS == nil || fc.TLS.ParseError || !strings.HasPrefix(fc.TLS.JA4, "q") {
 			t.Errorf("tls do QUIC: %+v", fc.TLS)
 		}
-		if fc.TCP != nil {
-			t.Errorf("visão TCP em h3: %+v", fc.TCP)
+		// em h3, a visão de transporte só com o TTL do udp (ADR 0065 item 4)
+		if fc.TCP == nil || !fc.TCP.UDP || fc.TCP.TTL != 50 || fc.TCP.TTLInitial != 64 || fc.TCP.JA4T != "" || fc.TCP.SynMSS != nil {
+			t.Errorf("visão de transporte em h3: %+v", fc.TCP)
+		}
+		if tm := fc.Timing; tm == nil || !tm.QUIC || tm.Source != timingUser || tm.QUICRTT != (micros{23500, true}) ||
+			tm.QUICMinRTT != (micros{23100, true}) || tm.TCPRTT.ok || tm.rules() != nil {
+			t.Errorf("timing do h3: %+v", tm)
 		}
 	case "conn-only.json":
-		if len(fc.Requests) != 0 || fc.SNI != "www.example.com" || fc.TLS != nil || fc.TCP != nil {
+		if len(fc.Requests) != 0 || fc.SNI != "www.example.com" || fc.TLS != nil || fc.TCP != nil || fc.Timing != nil {
 			t.Errorf("conexão sem requisição: %+v", fc)
 		}
 	case "ready-only.json":

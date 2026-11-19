@@ -319,8 +319,13 @@ func TestOSTCPMismatch(t *testing.T) {
 }
 
 func TestSignalTable(t *testing.T) {
-	if len(signalTable) != 19 {
-		t.Fatalf("%d sinais; a spec 018 (rules v1.2) tem 19", len(signalTable))
+	if len(signalTable) != 20 {
+		t.Fatalf("%d sinais; a spec 018 (rules v1.4) tem 20", len(signalTable))
+	}
+	// relay_rtt_gap (v1.4, ADR 0065 item 3) entra logo depois de tunnel_mss, incoerência de peso 15
+	if pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalTunnelMSS }); pos < 0 ||
+		signalTable[pos+1] != (signalDef{SignalRelayRTTGap, KindIncoherence, 15}) {
+		t.Fatalf("posição/peso de relay_rtt_gap: %+v", signalTable)
 	}
 	// os dois sinais da v1.1 entram logo antes de ja4db_match, com o tipo e o peso da ADR 0057 item 1
 	pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalJA4DBMatch })
@@ -341,7 +346,7 @@ func TestSignalTable(t *testing.T) {
 	if _, ok := SignalWeight("nope"); ok {
 		t.Fatal("id desconhecido com peso")
 	}
-	if RulesVersion != "v1.3" {
+	if RulesVersion != "v1.4" {
 		t.Fatalf("RulesVersion %q", RulesVersion)
 	}
 }
@@ -380,4 +385,39 @@ func hasSignal(r Result, id string) bool {
 		}
 	}
 	return false
+}
+
+// TestRelayRTTGap: os limiares da ADR 0065 item 3 — gap > 20 ms e > 30% da volta TCP e primeiro byte depois de
+// 10 ms; só em TCP (não em h3) e com as duas voltas e a espera conhecidas.
+func TestRelayRTTGap(t *testing.T) {
+	us := func(v int64) *int64 { return &v }
+	cases := []struct {
+		name string
+		tm   *Timing
+		h3   bool
+		want bool
+	}{
+		{"relay", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(82_000), RTTGapMicros: us(80_000), EstToFirstMicros: us(80_000)}, false, true},
+		{"direct", &Timing{TCPRTTMicros: us(12_000), TLSRTTMicros: us(12_400), RTTGapMicros: us(400), EstToFirstMicros: us(1_000)}, false, false},
+		{"gap at 20 ms", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(22_000), RTTGapMicros: us(20_000), EstToFirstMicros: us(30_000)}, false, false},
+		{"gap below 30% of tcp", &Timing{TCPRTTMicros: us(100_000), TLSRTTMicros: us(125_000), RTTGapMicros: us(25_000), EstToFirstMicros: us(30_000)}, false, false},
+		{"gap above 30% of tcp", &Timing{TCPRTTMicros: us(100_000), TLSRTTMicros: us(131_000), RTTGapMicros: us(31_000), EstToFirstMicros: us(30_000)}, false, true},
+		{"first byte at 10 ms", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(82_000), RTTGapMicros: us(80_000), EstToFirstMicros: us(10_000)}, false, false},
+		{"negative first byte", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(82_000), RTTGapMicros: us(80_000), EstToFirstMicros: us(-50)}, false, false},
+		{"gap computed", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(82_000), EstToFirstMicros: us(80_000)}, false, true},
+		{"no tcp rtt", &Timing{TLSRTTMicros: us(82_000), RTTGapMicros: us(80_000), EstToFirstMicros: us(80_000)}, false, false},
+		{"no tls rtt", &Timing{TCPRTTMicros: us(2_000), RTTGapMicros: us(80_000), EstToFirstMicros: us(80_000)}, false, false},
+		{"no first byte", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(82_000), RTTGapMicros: us(80_000)}, false, false},
+		{"huge values", &Timing{TCPRTTMicros: us(-1 << 62), TLSRTTMicros: us(1 << 62), EstToFirstMicros: us(80_000)}, false, false},
+		{"h3", &Timing{TCPRTTMicros: us(2_000), TLSRTTMicros: us(82_000), RTTGapMicros: us(80_000), EstToFirstMicros: us(80_000)}, true, false},
+		{"nil", nil, false, false},
+	}
+	for _, c := range cases {
+		in := withView(Input{HTTP: &HTTP{UserAgent: goldenUA["chrome"]}, Timing: c.tm})
+		in.View.H3 = c.h3
+		res := Engine{}.Evaluate(in)
+		if got := hasSignal(res, SignalRelayRTTGap); got != c.want {
+			t.Errorf("%s: %v; quer %v (%+v)", c.name, got, c.want, res.Signals)
+		}
+	}
 }

@@ -57,8 +57,14 @@ type Fingerprints struct {
 	JA4T       *string `json:"ja4t"`
 	P0fOS      *string `json:"p0f_os"`
 	TTLInitial *int    `json:"ttl_initial"`
-	UAFamily   *string `json:"ua_family"`
-	UAOS       *string `json:"ua_os"`
+	// Tempos do traefix em TCP (ADR 0065 item 2), em microssegundos, e a origem dos horários.
+	TCPRTTMicros     *int64  `json:"tcp_rtt_us"`
+	TLSRTTMicros     *int64  `json:"tls_rtt_us"`
+	RTTGapMicros     *int64  `json:"rtt_gap_us"`
+	EstToFirstMicros *int64  `json:"est_to_first_us"`
+	TimingSource     *string `json:"timing_source"`
+	UAFamily         *string `json:"ua_family"`
+	UAOS             *string `json:"ua_os"`
 }
 
 // Subject é o sujeito do veredito.

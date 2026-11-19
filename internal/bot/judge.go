@@ -44,8 +44,8 @@ func authFPMetric(kind, source string) string {
 	return metricAuthFP + `{kind="` + kind + `",source="` + source + `"}`
 }
 
-// fpSources diz de onde veio cada visão do veredito (tls, h2 e tcp).
-type fpSources struct{ tls, h2, tcp string }
+// fpSources diz de onde veio cada visão do veredito (tls, h2, tcp e os tempos).
+type fpSources struct{ tls, h2, tcp, timing string }
 
 // Origens do JA4H do forwardAuth (rótulo source de bot_auth_ja4h_total, ADR 0058 item 1).
 const (
@@ -119,6 +119,10 @@ func newJudge(cfg Config, ix *Index, ag *agg.Aggregator, hub *Hub, m *lists.Mana
 		for _, src := range []string{fpFromIngest, fpFromStore, fpFromHeader, fpNone} {
 			metrics.Add(authFPMetric(kind, src), 0)
 		}
+	}
+	// os tempos só vêm do traefix (registro de conexão ou cabeçalho; ADR 0065 item 2)
+	for _, src := range []string{fpFromIngest, fpFromHeader, fpNone} {
+		metrics.Add(authFPMetric("timing", src), 0)
 	}
 	for _, k := range mismatchKinds {
 		metrics.Add(mismatchMetric(k), 0)
@@ -194,7 +198,9 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 	if vw.store != nil && len(vw.store.Record) > 0 {
 		_ = json.Unmarshal(vw.store.Record, &rec) // Record já validado na entrada; parte ausente fica nil
 	}
-	srcs := fpSources{tls: fpNone, h2: fpNone, tcp: fpNone}
+	srcs := fpSources{tls: fpNone, h2: fpNone, tcp: fpNone, timing: fpNone}
+	// udpOnly marca a visão de transporte de h3 (só o TTL): não conta como view.tcp (ADR 0065 item 4)
+	udpOnly := false
 	defer func() {
 		if vw.src != nil {
 			*vw.src = srcs
@@ -216,18 +222,37 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		in.TCP = t
 	} else if vw.fork != nil && vw.fork.TCP != nil {
 		// sem o store casado (site externo), a visão TCP do traefix (ADR 0063 item 5)
-		srcs.tcp = fpFromIngest
+		srcs.tcp, udpOnly = fpFromIngest, vw.fork.TCP.UDP
 		in.TCP = vw.fork.TCP.rules()
 		fps.JA4T, fps.P0fOS = optString(in.TCP.JA4T), optString(in.TCP.P0fOS)
 		if in.TCP.TTLInitial != 0 {
 			fps.TTLInitial = ptr(in.TCP.TTLInitial)
 		}
-	} else if vw.hdr != nil && vw.hdr.ja4t != "" && !discardTCPOrigin(vw.ip) {
-		// só o JA4T e o MSS dele: sem TTL nem SO; com origem local ou privada o SYN é de um proxy local e a visão é
-		// descartada como no ingest (ADR 0063 item 5)
-		srcs.tcp = fpFromHeader
-		in.TCP = headerTCP(vw.hdr.ja4t, vw.ip)
+	} else if t := headerTransport(vw.hdr, vw.ip); t != nil {
+		// o JA4T (e o MSS dele) e o TTL inicial dos cabeçalhos, sem SO; em h3 só o TTL; com origem local ou privada o
+		// SYN é de um proxy local e a visão é descartada como no ingest (ADR 0063 item 5, ADR 0065 item 4)
+		srcs.tcp, udpOnly = fpFromHeader, vw.hdr.proto == "h3"
+		in.TCP = t
 		fps.JA4T = optString(in.TCP.JA4T)
+		if t.TTLInitial != 0 {
+			fps.TTLInitial = ptr(t.TTLInitial)
+		}
+	}
+	// Tempos: os do registro de conexão do traefix; sem ele, os de X-Traefix-Timing (ADR 0065 item 2). relay_rtt_gap
+	// só os lê em TCP e com origem pública (com origem local ou privada, o par da conexão TCP é um proxy local).
+	var tm *ForkTiming
+	switch {
+	case vw.fork != nil && vw.fork.Timing != nil:
+		tm, srcs.timing = vw.fork.Timing, fpFromIngest
+	case vw.hdr != nil && vw.hdr.timing != nil:
+		tm, srcs.timing = vw.hdr.timing, fpFromHeader
+	}
+	if tm != nil {
+		fps.TCPRTTMicros, fps.TLSRTTMicros, fps.RTTGapMicros = tm.TCPRTT.ptr(), tm.TLSRTT.ptr(), tm.gap().ptr()
+		fps.EstToFirstMicros, fps.TimingSource = tm.EstToFirst.ptr(), optString(tm.Source)
+		if vw.proto != "h3" && !discardTCPOrigin(vw.ip) {
+			in.Timing = tm.rules()
+		}
 	}
 	// TLS: o ClientHello do registro de conexão (o traefix termina o TLS); sem ele, as fingerprints dos cabeçalhos do
 	// forwardAuth; sem elas, o do espelho (conexão direta ou probe).
@@ -241,9 +266,10 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		fps.JA3, fps.JA3N, fps.JA4O = optString(f.TLS.JA3MD5), optString(f.TLS.JA3NMD5), optString(f.TLS.JA4O)
 		srcs.tls = fpFromIngest
 	case h != nil && h.ja4 != "":
-		// sem X-Traefix-Alpn o ALPN oferecido é desconhecido e as regras de ALPN não avaliam (ADR 0063 item 6)
-		in.TLS = &rules.TLS{JA4: h.ja4, ALPN: h.alpn, ALPNUnknown: !h.alpnKnown}
-		fps.JA3 = optString(h.ja3)
+		// sem X-Traefix-Alpn (e sem o `00` do JA4) o ALPN oferecido é desconhecido e as regras de ALPN não avaliam
+		// (ADR 0063 item 6, ADR 0065 item 5); os cabeçalhos de detalhe completam o Fingerprints (ADR 0065 item 6)
+		in.TLS = &rules.TLS{JA4: h.ja4, JA4R: h.ja4r, ALPN: h.alpn, ALPNUnknown: !h.alpnKnown}
+		fps.JA3, fps.JA3N, fps.JA4O = optString(h.ja3), optString(h.ja3n), optString(h.ja4o)
 		srcs.tls = fpFromHeader
 	default:
 		t := rec.TLS
@@ -274,7 +300,7 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		fps.JA4H = optString(vw.http.JA4H)
 	}
 	view := View{
-		TCP: in.TCP != nil, TLS: in.TLS != nil, HTTP: in.HTTP != nil, H2: vw.proto == "h2" || (vw.proto == "" && in.H2 != nil),
+		TCP: in.TCP != nil && !udpOnly, TLS: in.TLS != nil, HTTP: in.HTTP != nil, H2: vw.proto == "h2" || (vw.proto == "" && in.H2 != nil),
 		H3: vw.proto == "h3", ParseError: vw.fork != nil && vw.fork.ParseError(),
 	}
 	if vw.site != "" && vw.ip.IsValid() && j.agg != nil {
@@ -440,6 +466,7 @@ func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fo
 	j.metrics.Add(authFPMetric("tls", src.tls), 1)
 	j.metrics.Add(authFPMetric("h2", src.h2), 1)
 	j.metrics.Add(authFPMetric("tcp", src.tcp), 1)
+	j.metrics.Add(authFPMetric("timing", src.timing), 1)
 	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path}, func(c *ForkConn) {
 		// conexão ainda sem registro do traefix: a origem vem dos cabeçalhos (o registro de conexão completa depois). First
 		// fica zero: o instante do forwardAuth não é o início da conexão, e numa conexão longa (keep-alive) ele
@@ -644,8 +671,32 @@ func (j *Judge) fingerprintLabels(kind, value string) (known, ja4db *string) {
 	return known, ja4db
 }
 
-// headerTCP é a visão TCP só do JA4T de X-Traefix-Ja4t (ADR 0063 item 5): o JA4T e os derivados do MSS dele (spec
-// 013 RF-06a, família pela origem), sem TTL inicial nem SO.
+// headerTransport é a visão de transporte dos cabeçalhos do forwardAuth (ADR 0063 item 5, ADR 0065 item 4): em TCP,
+// o JA4T de X-Traefix-Ja4t (com os derivados do MSS) e o TTL inicial de X-Traefix-Ttl; em h3, só o TTL. nil sem
+// nenhum dos dois ou com origem local ou privada.
+func headerTransport(h *forkHeaders, ip netip.Addr) *rules.TCP {
+	if h == nil || discardTCPOrigin(ip) {
+		return nil
+	}
+	var t *rules.TCP
+	switch {
+	case h.proto == "h3":
+		if h.ttl >= 0 {
+			t = &rules.TCP{}
+		}
+	case h.ja4t != "":
+		t = headerTCP(h.ja4t, ip)
+	case h.ttl >= 0:
+		t = &rules.TCP{}
+	}
+	if t != nil && h.ttl >= 0 {
+		t.TTLInitial = initialTTL(h.ttl)
+	}
+	return t
+}
+
+// headerTCP é a visão TCP do JA4T de X-Traefix-Ja4t (ADR 0063 item 5): o JA4T e os derivados do MSS dele (spec 013
+// RF-06a, família pela origem), sem SO.
 func headerTCP(ja4t string, ip netip.Addr) *rules.TCP {
 	t := &rules.TCP{JA4T: ja4t}
 	if mss, ok := ja4tMSS(ja4t); ok {

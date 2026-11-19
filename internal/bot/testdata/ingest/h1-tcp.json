@@ -39,7 +39,18 @@
         "sni": "www.example.com",
         "version": "TLS 1.3"
       },
-      "type": "connection"
+      "type": "connection",
+      "timing": {
+        "source": "kernel",
+        "firstByte": "2026-11-16T12:00:00.011000000Z",
+        "tcpRttMicros": 1834,
+        "estToFirstMicros": 1210,
+        "clientHelloMicros": 0,
+        "serverMicros": 410,
+        "tlsRttMicros": 2240,
+        "handshakeMicros": 3900,
+        "rttGapMicros": 406
+      }
     },
     {
       "authority": "www.example.com",

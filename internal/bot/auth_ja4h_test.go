@@ -37,7 +37,7 @@ func TestAuthJA4HHeader(t *testing.T) {
 	if err := json.Unmarshal(b, &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.Fingerprints == nil || v.Fingerprints.JA4H == nil || *v.Fingerprints.JA4H != ja4hCurl || v.RulesVersion != "v1.3" {
+	if v.Fingerprints == nil || v.Fingerprints.JA4H == nil || *v.Fingerprints.JA4H != ja4hCurl || v.RulesVersion != "v1.4" {
 		t.Errorf("fingerprints/versão: %+v %q", v.Fingerprints, v.RulesVersion)
 	}
 	if metric(ja4hFromHeader) != 1 || metric(ja4hFromIngest) != 0 || metric(ja4hNone) != 0 {
