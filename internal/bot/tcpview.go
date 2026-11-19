@@ -2,6 +2,7 @@ package bot
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"net/netip"
 	"regexp"
@@ -33,7 +34,10 @@ type ForkTCP struct {
 	// P0f é o raw_sig do traefix (tcp.p0f) e RTTMicros, o tcp.rttMicros: guardados, sem regra (spec 019 RF-07).
 	P0f       string
 	RTTMicros *int64
-	cost      int64 // estrutura e textos criados (somado ao connCost da conexão)
+	// UDP marca a visão de transporte de uma conexão h3 (só o TTL do primeiro Initial, ADR 0065 item 4): não é TCP
+	// (view.tcp fica false), mas a parte de TTL de ua_os_tcp_mismatch a lê.
+	UDP  bool
+	cost int64 // estrutura e textos criados (somado ao connCost da conexão)
 }
 
 // forkTCPBytes é o custo fixo da visão TCP do traefix no índice.
@@ -258,4 +262,207 @@ func (s *p0fSource) get() *p0f.DB {
 		s.db = db
 	})
 	return s.db
+}
+
+// udpViewFrom monta a visão de transporte de uma conexão h3 do traefix só com o TTL do primeiro Initial (udp.ttl ou
+// X-Traefix-Ttl): o TTL inicial estimado como o store (spec 013), sem JA4T, MSS nem SO (ADR 0065 item 4). Com origem
+// local ou privada ou sem TTL, nil, como a visão TCP.
+func udpViewFrom(ttl int, src netip.Addr) *ForkTCP {
+	if ttl < 0 || ttl > 255 || discardTCPOrigin(src) {
+		return nil
+	}
+	return &ForkTCP{TTL: ttl, TTLInitial: initialTTL(ttl), UDP: true, cost: forkTCPBytes}
+}
+
+// traefixUDPTTL lê o objeto udp do registro de conexão (h3; ADR 0065 item 4): só o ttl. Fora de inteiro de 0 a 255 (ou
+// udp que não é objeto), -1.
+func traefixUDPTTL(raw json.RawMessage) int {
+	var m map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+		return -1
+	}
+	v, ok := parseMicros(string(m["ttl"]), true)
+	if !ok || v > 255 {
+		return -1
+	}
+	return int(v)
+}
+
+// Origem dos horários dos tempos do traefix (timing.source, `src` de X-Traefix-Timing).
+const (
+	timingKernel = "kernel"
+	timingUser   = "user"
+)
+
+// maxTimingMicros é o maior tempo aceito (1 h, em módulo): acima disso o valor não é medida de início de conexão e
+// é tratado como ausente (e as contas das regras não estouram).
+const maxTimingMicros = 3_600_000_000
+
+// micros é um tempo opcional em microssegundos (ok=false é desconhecido, nunca 0).
+type micros struct {
+	v  int64
+	ok bool
+}
+
+// ptr devolve o tempo como ponteiro (nil desconhecido).
+func (m micros) ptr() *int64 {
+	if !m.ok {
+		return nil
+	}
+	return ptr(m.v)
+}
+
+// ForkTiming são os tempos do início da conexão medidos pelo traefix (timing do registro de conexão ou
+// X-Traefix-Timing; ADR 0065 item 2): só os campos que o bot usa. Tamanho fixo, sem textos alocados (Source é uma das
+// constantes).
+type ForkTiming struct {
+	Source string // timingKernel | timingUser | "" (desconhecida)
+	// QUIC diz que os tempos são de uma conexão h3 (as voltas TCP e TLS não existem nela).
+	QUIC                               bool
+	TCPRTT, EstToFirst, TLSRTT, RTTGap micros
+	QUICRTT, QUICMinRTT                micros
+	cost                               int64
+}
+
+// forkTimingBytes é o custo dos tempos no índice (somado ao connCost da conexão).
+var forkTimingBytes = allocBytes(unsafe.Sizeof(ForkTiming{}))
+
+// gap é o rtt_gap do traefix ou, sem ele, TLS − TCP com as duas voltas conhecidas.
+func (t *ForkTiming) gap() micros {
+	if t.RTTGap.ok {
+		return t.RTTGap
+	}
+	if t.TCPRTT.ok && t.TLSRTT.ok {
+		return micros{v: t.TLSRTT.v - t.TCPRTT.v, ok: true}
+	}
+	return micros{}
+}
+
+// rules devolve os tempos na forma que as regras leem (nil em h3: relay_rtt_gap é só de TCP).
+func (t *ForkTiming) rules() *rules.Timing {
+	if t == nil || t.QUIC || !t.TCPRTT.ok {
+		return nil
+	}
+	return &rules.Timing{
+		TCPRTTMicros: t.TCPRTT.ptr(), TLSRTTMicros: t.TLSRTT.ptr(), RTTGapMicros: t.gap().ptr(), EstToFirstMicros: t.EstToFirst.ptr(),
+	}
+}
+
+// empty diz que nenhum tempo veio.
+func (t *ForkTiming) empty() bool {
+	for _, m := range []micros{t.TCPRTT, t.EstToFirst, t.TLSRTT, t.RTTGap, t.QUICRTT, t.QUICMinRTT} {
+		if m.ok {
+			return false
+		}
+	}
+	return true
+}
+
+// parseMicros lê um inteiro decimal (sinal opcional, até 16 caracteres) dentro de ±maxTimingMicros; nonNeg recusa os
+// negativos. Qualquer outra forma (fração, expoente, texto, vazio) é ausente.
+func parseMicros(s string, nonNeg bool) (int64, bool) {
+	if s == "" || len(s) > 16 {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < '0' || c > '9') && (i != 0 || c != '-') {
+			return 0, false
+		}
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v > maxTimingMicros || v < -maxTimingMicros || (nonNeg && v < 0) {
+		return 0, false
+	}
+	return v, true
+}
+
+// timingSourceOf devolve a constante da origem dos horários ("" para outro valor).
+func timingSourceOf(s string) string {
+	switch s {
+	case timingKernel:
+		return timingKernel
+	case timingUser:
+		return timingUser
+	}
+	return ""
+}
+
+// timingFields liga as chaves do registro (timing) e do cabeçalho (X-Traefix-Timing) a cada tempo guardado; nonNeg
+// marca as voltas, que não podem ser negativas (esquema do traefix).
+var timingFields = []struct {
+	record, header string
+	nonNeg         bool
+	field          func(*ForkTiming) *micros
+}{
+	{"tcpRttMicros", "tcp_rtt_us", true, func(t *ForkTiming) *micros { return &t.TCPRTT }},
+	{"estToFirstMicros", "est_to_first_us", false, func(t *ForkTiming) *micros { return &t.EstToFirst }},
+	{"tlsRttMicros", "tls_rtt_us", false, func(t *ForkTiming) *micros { return &t.TLSRTT }},
+	{"rttGapMicros", "rtt_gap_us", false, func(t *ForkTiming) *micros { return &t.RTTGap }},
+	{"quicRttMicros", "quic_rtt_us", true, func(t *ForkTiming) *micros { return &t.QUICRTT }},
+	{"quicMinRttMicros", "quic_min_rtt_us", true, func(t *ForkTiming) *micros { return &t.QUICMinRTT }},
+}
+
+// traefixTiming lê o objeto timing do registro de conexão (ADR 0065 item 2): os campos da lista, cada um ausente
+// quando fora de inteiro; campos desconhecidos ignorados; timing que não é objeto, ou sem nenhum tempo, nil. quic
+// marca a conexão h3.
+func traefixTiming(raw json.RawMessage, quic bool) *ForkTiming {
+	var m map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	t := &ForkTiming{QUIC: quic, cost: forkTimingBytes}
+	var src string
+	if json.Unmarshal(m["source"], &src) == nil {
+		t.Source = timingSourceOf(src)
+	}
+	for _, f := range timingFields {
+		if v, ok := parseMicros(string(m[f.record]), f.nonNeg); ok {
+			*f.field(t) = micros{v: v, ok: true}
+		}
+	}
+	if t.empty() {
+		return nil
+	}
+	return t
+}
+
+// maxTimingHeader é o teto de X-Traefix-Timing (2 KiB, o dos cabeçalhos de detalhe do traefix).
+const maxTimingHeader = 2048
+
+// parseTimingHeader lê X-Traefix-Timing (`chave=valor` por vírgula; ADR 0065 item 2): `src` em kernel|user, `proto`
+// udp marca h3 (como quic), os tempos da lista como inteiros; chave desconhecida ou par sem `=` ignorados, valor fora
+// de inteiro ou chave repetida = aquele tempo ausente. Acima de 2 KiB ou sem nenhum tempo, nil.
+func parseTimingHeader(s string, quic bool) *ForkTiming {
+	if s == "" || len(s) > maxTimingHeader {
+		return nil
+	}
+	t := &ForkTiming{QUIC: quic}
+	seen := map[string]int{}
+	vals := map[string]string{}
+	for _, kv := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(kv), "=")
+		if !ok {
+			continue
+		}
+		seen[k]++
+		vals[k] = v
+	}
+	if seen["src"] == 1 {
+		t.Source = timingSourceOf(vals["src"])
+	}
+	if seen["proto"] == 1 && vals["proto"] == "udp" {
+		t.QUIC = true
+	}
+	for _, f := range timingFields {
+		if seen[f.header] != 1 {
+			continue
+		}
+		if v, ok := parseMicros(vals[f.header], f.nonNeg); ok {
+			*f.field(t) = micros{v: v, ok: true}
+		}
+	}
+	if t.empty() {
+		return nil
+	}
+	return t
 }

@@ -135,7 +135,7 @@ primeiro uso ou no primeiro ciclo do heartbeat.
 | `fs_bot_auth_wait_seconds` | histograma | só a espera da visão no forwardAuth (até `FS_BOT_VIEW_WAIT`, 100 ms), para medir o RNF-01 descontando-a |
 | `fs_bot_view_wait_total{missing}` | contador | forwardAuth que terminou a espera sem uma das visões: `missing` = `tcp` (conexão do store não casada) ou `fork` (registro do traefix ainda não chegou) |
 | `fs_bot_auth_ja4h_total{source}` | contador | de onde veio o JA4H do forwardAuth: `header` (`X-Traefix-Ja4h`, ou o `X-Fs-Ja4h` antigo), `ingest` (última requisição da conexão) ou `none` (ADR 0058 item 1) |
-| `fs_bot_auth_fingerprint_total{kind,source}` | contador | de onde veio cada visão do veredito do forwardAuth, `kind` = `tls`, `h2` ou `tcp`, `source` = `ingest` (registro de conexão do traefix), `store` (conexão do store casada), `header` (`X-Traefix-Ja4`/`-Ja3`/`-H2`/`-Alpn`/`-Ja4t`) ou `none` (ADRs 0062 item 4 e 0063 item 5) |
+| `fs_bot_auth_fingerprint_total{kind,source}` | contador | de onde veio cada visão do veredito do forwardAuth, `kind` = `tls`, `h2`, `tcp` ou `timing`, `source` = `ingest` (registro de conexão do traefix), `store` (conexão do store casada; não existe para `timing`), `header` (`X-Traefix-Ja4`/`-Ja3`/`-H2`/`-Alpn`/`-Ja4t`/`-Ttl`/`-Timing`) ou `none` (ADRs 0062 item 4, 0063 item 5 e 0065 itens 2 e 4) |
 | `fs_bot_ingest_records_total` | contador | registros do traefix aceitos pelo ingest |
 | `fs_bot_ingest_dropped_total` | contador | registros recusados no ingest (inválidos ou, com chave, de site fora dela), sem rejeitar o lote |
 | `fs_bot_ingest_parse_errors_total{part}` | contador | bytes ilegíveis num registro aceito, `part` = `client_hello` ou `h2_prefix` (a visão sai com `parse_error`) |

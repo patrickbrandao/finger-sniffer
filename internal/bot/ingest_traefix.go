@@ -88,29 +88,32 @@ func decodeBatch(body []byte) (ingestBatch, error) {
 // traefixRecord é um registro do lote traefix.fingerprint/v1 (openapi TraefixConnectionRecord e
 // TraefixRequestRecord): só o que a spec 019 RF-07 lê; o resto é ignorado (ADR 0063 item 2).
 type traefixRecord struct {
-	Type        string         `json:"type"`
-	ConnID      string         `json:"connId"`
-	Time        *string        `json:"time"`
-	Start       *string        `json:"start"`
-	End         *string        `json:"end"`
-	EntryPoint  string         `json:"entryPoint"`
-	Src         *endpoint      `json:"src"`
-	Dst         *endpoint      `json:"dst"`
-	Proto       string         `json:"proto"`
-	TLS         *traefixTLS    `json:"tls"`
-	HTTP2       *traefixH2     `json:"http2"`
-	TCP         *traefixTCP    `json:"tcp"`
-	Method      string         `json:"method"`
-	Authority   string         `json:"authority"`
-	Path        string         `json:"path"`
-	HTTPVersion string         `json:"httpVersion"`
-	FieldNames  []string       `json:"fieldNames"`
-	Fields      []traefixField `json:"fields"`
-	CookieNames []string       `json:"cookieNames"`
-	JA4H        *string        `json:"ja4h"`
-	Status      *int           `json:"status"`
-	Router      *string        `json:"router"`
-	Service     *string        `json:"service"`
+	Type       string      `json:"type"`
+	ConnID     string      `json:"connId"`
+	Time       *string     `json:"time"`
+	Start      *string     `json:"start"`
+	End        *string     `json:"end"`
+	EntryPoint string      `json:"entryPoint"`
+	Src        *endpoint   `json:"src"`
+	Dst        *endpoint   `json:"dst"`
+	Proto      string      `json:"proto"`
+	TLS        *traefixTLS `json:"tls"`
+	HTTP2      *traefixH2  `json:"http2"`
+	TCP        *traefixTCP `json:"tcp"`
+	// UDP e Timing são lidos à parte, campo a campo: parte malformada é ausente sem recusar o registro (ADR 0065).
+	UDP         json.RawMessage `json:"udp"`
+	Timing      json.RawMessage `json:"timing"`
+	Method      string          `json:"method"`
+	Authority   string          `json:"authority"`
+	Path        string          `json:"path"`
+	HTTPVersion string          `json:"httpVersion"`
+	FieldNames  []string        `json:"fieldNames"`
+	Fields      []traefixField  `json:"fields"`
+	CookieNames []string        `json:"cookieNames"`
+	JA4H        *string         `json:"ja4h"`
+	Status      *int            `json:"status"`
+	Router      *string         `json:"router"`
+	Service     *string         `json:"service"`
 }
 
 type traefixTLS struct {
@@ -249,6 +252,13 @@ func parseTraefixRecord(raw json.RawMessage, batchEntryPoint string, env ingestE
 		p.tcp = tv.view
 		p.mismatches = append(p.mismatches, tv.mismatches...)
 	}
+	// Em h3, a visão de transporte só com o TTL do primeiro Initial (udp.ttl), com o mesmo descarte por origem
+	// (ADR 0065 item 4).
+	if p.quic {
+		p.tcp = udpViewFrom(traefixUDPTTL(t.UDP), p.src)
+	}
+	// Tempos do início da conexão (com headerDetail ≠ basic no traefix; ADR 0065 item 2).
+	p.timing = traefixTiming(t.Timing, p.quic)
 	return p, nil
 }
 

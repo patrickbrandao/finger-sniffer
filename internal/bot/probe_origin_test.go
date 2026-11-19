@@ -55,7 +55,7 @@ func TestProbeVerdictOriginNormalized(t *testing.T) {
 	if v.Fingerprints == nil || v.Fingerprints.JA4H == nil || *v.Fingerprints.JA4H != measured {
 		t.Errorf("JA4H publicado %v, quer o medido %s", v.Fingerprints, measured)
 	}
-	if v.RulesVersion != "v1.3" {
+	if v.RulesVersion != "v1.4" {
 		t.Errorf("rules_version %q", v.RulesVersion)
 	}
 }

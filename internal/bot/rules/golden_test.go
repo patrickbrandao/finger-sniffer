@@ -125,6 +125,17 @@ func goldenCases(t testing.TB) []goldenCase {
 	firefoxWindow := inputFrom(e("firefox", "h2"), ua["firefox"], ipResidential)
 	firefoxWindow.TCP.JA4T = "64240_2-1-3-1-1-8-4-0-0_1430_6"
 
+	// v1.4 (ADR 0065 item 3): tempos do traefix em TCP; direto, gap ~0 e primeiro byte em 1 ms; por relay, gap e
+	// espera de 80 ms (a volta cliente ↔ relay) com a volta TCP de 2 ms (traefix ↔ relay)
+	direct := &Timing{TCPRTTMicros: ptr[int64](12_000), TLSRTTMicros: ptr[int64](12_400), RTTGapMicros: ptr[int64](400), EstToFirstMicros: ptr[int64](1_000)}
+	relay := &Timing{TCPRTTMicros: ptr[int64](2_000), TLSRTTMicros: ptr[int64](82_000), RTTGapMicros: ptr[int64](80_000), EstToFirstMicros: ptr[int64](80_000)}
+	chromeDirect := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
+	chromeDirect.Timing = direct
+	chromeRelay := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
+	chromeRelay.Timing = relay
+	curlRelay := inputFrom(e("curl", "h2"), ua["curl"], ipResidential)
+	curlRelay.Timing = relay
+
 	return []goldenCase{
 		// as classes da ADR 0057 item 1 (rules v1.1; ja4db desligada, ADR 0056 item 1)
 		{"curl", inputFrom(e("curl", "h2"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
@@ -169,6 +180,10 @@ func goldenCases(t testing.TB) []goldenCase {
 		{"ua_missing_probe", probeFrom(e("python", "h1"), "", ipResidential, pythonProbeFields), false, ClassBot, []string{SignalUAMissing, SignalJA4HLibrary, SignalLibraryClient}},
 		{"chrome_probe", probeFrom(e("chrome", "h2"), ua["chrome"], ipResidential, chromeProbeFields), false, ClassHuman, []string{SignalKnownClient}},
 		{"firefox_probe", probeFrom(e("firefox", "h2"), ua["firefox"], ipResidential, firefoxProbeFields), false, ClassHuman, []string{SignalKnownClient}},
+		// casos novos da v1.4 (ADR 0065 item 3): relay pelos tempos do traefix; o peso baixo não muda a classe do Chrome
+		{"chrome_direct_timing", chromeDirect, false, ClassHuman, []string{SignalKnownClient}},
+		{"chrome_relay", chromeRelay, false, ClassHuman, []string{SignalRelayRTTGap, SignalKnownClient}},
+		{"curl_relay", curlRelay, false, ClassBot, []string{SignalJA4HLibrary, SignalRelayRTTGap, SignalLibraryClient}},
 	}
 }
 

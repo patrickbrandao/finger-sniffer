@@ -96,6 +96,8 @@ type parsedRecord struct {
 	h2  *ForkH2
 	// tcp é a visão TCP do traefix (só traefix.fingerprint/v1, ADR 0063 item 5).
 	tcp *ForkTCP
+	// timing são os tempos do início da conexão do traefix (só traefix.fingerprint/v1, ADR 0065 item 2).
+	timing *ForkTiming
 	// quic diz que o ClientHello é do QUIC (proto h3 ou mensagem de handshake pura).
 	quic bool
 	// mismatches são as divergências entre o calculado e o pronto do traefix (rótulo kind).
@@ -242,9 +244,12 @@ func (p *parsedRecord) apply(c *ForkConn) {
 		c.SNI = shared.str(deref(r.SNI), &cost)
 		c.ALPNOffered = shared.list(r.ALPNOffered, &cost)
 		c.ALPN, c.TLSVersion, c.Cipher = shared.str(deref(r.ALPN), &cost), shared.str(deref(r.TLSVersion), &cost), shared.str(deref(r.Cipher), &cost)
-		c.TLS, c.H2, c.TCP = p.tls, p.h2, p.tcp
+		c.TLS, c.H2, c.TCP, c.Timing = p.tls, p.h2, p.tcp, p.timing
 		if p.tcp != nil {
 			cost += p.tcp.cost
+		}
+		if p.timing != nil {
+			cost += p.timing.cost
 		}
 		c.connCost, c.ja4tChecked = cost, false
 	case "request":

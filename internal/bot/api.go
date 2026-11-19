@@ -291,9 +291,19 @@ type forkHeaders struct {
 	ja3  string
 	h2   string
 	ja4t string
-	// alpn é o ALPN oferecido de X-Traefix-Alpn, decodificado; alpnKnown diz que o cabeçalho veio bem formado.
+	// alpn é o ALPN oferecido de X-Traefix-Alpn, decodificado; alpnKnown diz que o cabeçalho veio bem formado (ou,
+	// sem ele, que o ALPN da parte a do X-Traefix-Ja4 é `00`: lista vazia conhecida, ADR 0065 item 5).
 	alpn      []string
 	alpnKnown bool
+	// ttl é o TTL recebido de X-Traefix-Ttl (-1 = ausente; ADR 0065 item 4).
+	ttl int
+	// timing são os tempos de X-Traefix-Timing (nil sem eles; ADR 0065 item 2).
+	timing *ForkTiming
+	// ja3n, ja4r e ja4o são os cabeçalhos de detalhe que vão ao Fingerprints com a visão TLS do cabeçalho (ADR 0065
+	// item 6); nenhum outro cabeçalho de detalhe é lido.
+	ja3n string
+	ja4r string
+	ja4o string
 }
 
 // Formatos dos cabeçalhos de fingerprint (openapi do bot 0.4.0, /bot/v1/auth).
@@ -301,6 +311,9 @@ var (
 	ja4HeaderPattern  = regexp.MustCompile(`^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
 	ja4tHeaderPattern = regexp.MustCompile(`^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$`)
 )
+
+// maxJA4RHeader é o teto de X-Traefix-Ja4r (openapi do bot 0.5.0).
+const maxJA4RHeader = 2048
 
 // Limites de X-Traefix-Alpn (ADR 0063 item 6).
 const (
@@ -318,7 +331,7 @@ func single(h http.Header, name string) string {
 }
 
 func parseForkHeaders(h http.Header) (forkHeaders, string, string) {
-	f := forkHeaders{prefix: prefixTraefix}
+	f := forkHeaders{prefix: prefixTraefix, ttl: -1}
 	if len(h.Values(prefixTraefix+"Conn-Id")) == 0 {
 		f.prefix = prefixFs
 	}
@@ -374,13 +387,35 @@ func parseForkHeaders(h http.Header) (forkHeaders, string, string) {
 		if vs := h.Values(name("Alpn")); len(vs) == 1 {
 			f.alpn, f.alpnKnown = decodeALPNHeader(vs[0])
 		}
+		// sem X-Traefix-Alpn (o traefix nunca o manda vazio), o `00` do ALPN na parte a do JA4 é o ClientHello sem
+		// ALPN (ADR 0065 item 5); outro valor segue desconhecido
+		if !f.alpnKnown && len(h.Values(name("Alpn"))) == 0 && f.ja4 != "" && f.ja4[8:10] == "00" {
+			f.alpn, f.alpnKnown = []string{}, true
+		}
+		if v := single(h, name("Ttl")); len(v) <= 3 {
+			if n, ok := parseMicros(v, true); ok && n <= 255 && !strings.HasPrefix(v, "-") {
+				f.ttl = int(n)
+			}
+		}
+		if v := single(h, name("Timing")); v != "" {
+			f.timing = parseTimingHeader(v, f.proto == "h3")
+		}
+		if v := single(h, name("Ja3n")); md5Pattern.MatchString(v) {
+			f.ja3n = v
+		}
+		if v := single(h, name("Ja4r")); len(v) <= maxJA4RHeader && ja4rPattern.MatchString(v) {
+			f.ja4r = v
+		}
+		if v := single(h, name("Ja4o")); ja4HeaderPattern.MatchString(v) {
+			f.ja4o = v
+		}
 	}
 	return f, "", ""
 }
 
 // decodeALPNHeader lê X-Traefix-Alpn: valores por vírgula, na ordem do cliente, com %XX fora do ASCII visível e
-// para `,` e `%` (ADR 0063 item 6); até 16 valores de até 255 bytes. Presente e vazio é o ClientHello sem ALPN
-// (lista vazia conhecida, pedido PT-15 ao traefix). Fora disso, ok é false (cabeçalho ausente).
+// para `,` e `%` (ADR 0063 item 6); até 16 valores de até 255 bytes. Presente e vazio é lido como o ClientHello sem
+// ALPN (lista vazia conhecida; o traefix não o manda, ADR 0065 item 5). Fora disso, ok é false (cabeçalho ausente).
 func decodeALPNHeader(s string) ([]string, bool) {
 	if s == "" {
 		return []string{}, true
