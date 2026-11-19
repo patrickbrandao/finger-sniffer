@@ -154,8 +154,12 @@ func histWithInf(ss []loadstat.Sample, base string) []loadstat.Bucket {
 
 // botDelta são as contas das métricas do bot entre duas coletas.
 type botDelta struct {
-	Auth          float64            `json:"auth"`
-	JA4H          map[string]float64 `json:"auth_ja4h"`
+	Auth float64            `json:"auth"`
+	JA4H map[string]float64 `json:"auth_ja4h"`
+	// FP é bot_auth_fingerprint_total por "kind/source" (ADRs 0062 item 4 e 0063 item 5).
+	FP map[string]float64 `json:"auth_fingerprint"`
+	// Mismatch é bot_ingest_fingerprint_mismatch_total por kind (spec 018 RF-12).
+	Mismatch      map[string]float64 `json:"ingest_fingerprint_mismatch"`
 	AuthP95       float64            `json:"auth_p95_ms"`
 	AuthP99       float64            `json:"auth_p99_ms"`
 	AuthLE10      float64            `json:"auth_le_10ms"`
@@ -181,7 +185,7 @@ func diffBot(before, after []loadstat.Sample) botDelta {
 	auth := loadstat.DiffBuckets(histWithInf(before, "bot_auth_seconds"), histWithInf(after, "bot_auth_seconds"))
 	wait := loadstat.DiffBuckets(histWithInf(before, "bot_auth_wait_seconds"), histWithInf(after, "bot_auth_wait_seconds"))
 	out := botDelta{
-		Auth: d("bot_auth_seconds_count", nil), JA4H: map[string]float64{}, ViewWait: map[string]float64{}, Evicted: map[string]float64{},
+		Auth: d("bot_auth_seconds_count", nil), JA4H: map[string]float64{}, FP: map[string]float64{}, Mismatch: map[string]float64{}, ViewWait: map[string]float64{}, Evicted: map[string]float64{},
 		AuthP95: loadstat.Quantile(auth, 0.95) * 1000, AuthP99: loadstat.Quantile(auth, 0.99) * 1000,
 		AuthLE10: loadstat.FractionBelow(auth, 0.01), AuthLE50: loadstat.FractionBelow(auth, 0.05),
 		WaitP95: loadstat.Quantile(wait, 0.95) * 1000, WaitP99: loadstat.Quantile(wait, 0.99) * 1000,
@@ -193,6 +197,14 @@ func diffBot(before, after []loadstat.Sample) botDelta {
 	}
 	for _, s := range []string{"header", "ingest", "none"} {
 		out.JA4H[s] = d("bot_auth_ja4h_total", map[string]string{"source": s})
+	}
+	for _, k := range []string{"tls", "h2", "tcp"} {
+		for _, s := range []string{"ingest", "store", "header", "none"} {
+			out.FP[k+"/"+s] = d("bot_auth_fingerprint_total", map[string]string{"kind": k, "source": s})
+		}
+	}
+	for _, k := range []string{"ja3", "ja3n", "ja4", "ja4r", "ja4o", "akamai", "ja4t"} {
+		out.Mismatch[k] = d("bot_ingest_fingerprint_mismatch_total", map[string]string{"kind": k})
 	}
 	for _, s := range []string{"fork", "tcp"} {
 		out.ViewWait[s] = d("bot_view_wait_total", map[string]string{"missing": s})

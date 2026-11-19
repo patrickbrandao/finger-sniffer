@@ -462,6 +462,8 @@ func TestDiffBot(t *testing.T) {
 	after := write("b.json", map[string]float64{
 		`bot_auth_seconds_bucket{le="0.01"}`: 105, `bot_auth_seconds_bucket{le="0.05"}`: 109, "bot_auth_seconds_count": 110,
 		`bot_auth_ja4h_total{source="header"}`: 110, `bot_conns_evicted_total{reason="bytes"}`: 7, "bot_index_bytes": 1234,
+		`bot_auth_fingerprint_total{kind="tls",source="ingest"}`: 60, `bot_auth_fingerprint_total{kind="tls",source="header"}`: 40,
+		`bot_ingest_fingerprint_mismatch_total{kind="ja4t"}`: 2,
 	})
 	b, err := botMetrics(before)
 	if err != nil {
@@ -474,6 +476,9 @@ func TestDiffBot(t *testing.T) {
 	d := diffBot(b, a)
 	if d.Auth != 100 || d.JA4H["header"] != 100 || d.Evicted["bytes"] != 7 || d.IndexBytes != 1234 {
 		t.Fatalf("diffBot = %+v", d)
+	}
+	if d.FP["tls/ingest"] != 60 || d.FP["tls/header"] != 40 || d.FP["tcp/store"] != 0 || d.Mismatch["ja4t"] != 2 || d.Mismatch["ja4"] != 0 {
+		t.Fatalf("fingerprints %v, divergências %v", d.FP, d.Mismatch)
 	}
 	if d.AuthLE10 != 0.95 || d.AuthLE50 != 0.99 {
 		t.Fatalf("frações ≤ 10 ms %v e ≤ 50 ms %v, esperado 0,95 e 0,99", d.AuthLE10, d.AuthLE50)

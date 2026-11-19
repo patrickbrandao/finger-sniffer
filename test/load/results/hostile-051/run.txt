@@ -1,0 +1,17 @@
+20:16:38 relógio: servidor − local = 8.6493ms (ida e volta 16.69825ms)
+20:16:38 servidor na versão v0.5.0-7-g20e513b (versions_match=true)
+20:16:40 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 6m0s (aquecimento 1m0s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+20:17:10 t= 30s abertas=3002 simultâneas=391 (máx 396) eventos ws=6435
+20:17:40 t= 60s abertas=6000 simultâneas=383 (máx 400) eventos ws=12136
+20:18:10 t= 90s abertas=9000 simultâneas=386 (máx 400) eventos ws=17533
+20:18:40 t=120s abertas=12000 simultâneas=389 (máx 400) eventos ws=24701
+20:19:10 t=150s abertas=14971 simultâneas=394 (máx 400) eventos ws=26366
+20:19:40 t=180s abertas=17952 simultâneas=399 (máx 400) eventos ws=27501
+20:20:10 t=210s abertas=20952 simultâneas=387 (máx 400) eventos ws=31000
+20:20:40 t=240s abertas=23952 simultâneas=386 (máx 400) eventos ws=33716
+20:21:10 t=270s abertas=26854 simultâneas=396 (máx 400) eventos ws=34523
+20:21:40 t=300s abertas=29823 simultâneas=393 (máx 400) eventos ws=37189
+20:22:10 t=330s abertas=32767 simultâneas=387 (máx 400) eventos ws=38413
+20:22:40 fim da geração: 35758 abertas, 242 puladas (teto), esperando as conexões terminarem
+20:35:32 relógio no fim: 11.948736ms (deriva 3.299436ms)
+20:35:32 dados em tmp/load/raw/hostile-051

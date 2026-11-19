@@ -1,0 +1,11 @@
+2026/11/18 21:49:00 auth: 50/s por 1m40s, consultas 5/s, site fs-load.example, portas 8080,8443 (início 2026-11-18T21:49:00.568581243Z)
+2026/11/18 21:49:10 10s: auth 0 p50 0.0 p95 0.0 p99 0.0 máx 0.0 ms | total auth 0 erro 0 tcp 0 consultas 0 feed 0 puladas 499/0 ativas 0 store 0
+2026/11/18 21:49:20 10s: auth 97 p50 0.6 p95 0.8 p99 1.0 máx 1.0 ms | total auth 97 erro 0 tcp 97 consultas 8 feed 97 puladas 902/0 ativas 52 store 52
+2026/11/18 21:49:30 10s: auth 500 p50 0.6 p95 0.8 p99 0.9 máx 1.5 ms | total auth 597 erro 0 tcp 597 consultas 61 feed 597 puladas 902/0 ativas 300 store 300
+2026/11/18 21:49:40 10s: auth 500 p50 0.6 p95 0.7 p99 0.8 máx 1.0 ms | total auth 1097 erro 0 tcp 1097 consultas 110 feed 1097 puladas 902/0 ativas 550 store 554
+2026/11/18 21:49:50 10s: auth 500 p50 0.5 p95 0.7 p99 0.9 máx 1.0 ms | total auth 1597 erro 0 tcp 1597 consultas 154 feed 1597 puladas 902/0 ativas 748 store 802
+2026/11/18 21:50:00 10s: auth 500 p50 0.6 p95 0.8 p99 0.8 máx 1.1 ms | total auth 2097 erro 0 tcp 2097 consultas 202 feed 2097 puladas 902/0 ativas 750 store 1053
+2026/11/18 21:50:10 10s: auth 500 p50 0.6 p95 0.7 p99 0.8 máx 1.1 ms | total auth 2597 erro 0 tcp 2597 consultas 251 feed 2597 puladas 902/0 ativas 746 store 1303
+2026/11/18 21:50:20 10s: auth 500 p50 0.6 p95 0.7 p99 0.9 máx 1.1 ms | total auth 3097 erro 0 tcp 3097 consultas 289 feed 3097 puladas 902/0 ativas 748 store 1553
+2026/11/18 21:50:30 10s: auth 500 p50 0.6 p95 0.7 p99 0.9 máx 1.3 ms | total auth 3597 erro 0 tcp 3597 consultas 334 feed 3597 puladas 902/0 ativas 738 store 1794
+2026/11/18 21:50:43 fim: auth 4098 (erro 0, view.tcp 4098), consultas 384 (erro 0), feed 4098, sem veredito no feed 0, puladas 902 (sem conexão) 0 (em voo), conexões do store 2117, erros de ingest 0, amostras perdidas 0

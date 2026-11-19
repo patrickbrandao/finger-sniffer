@@ -1,0 +1,1 @@
+- Carga da F8 na v0.5.1 (`traefix.fingerprint/v1`, visão TCP do traefix no índice): janela oficial 400/100 com forwardAuth a 200/s com todas as metas do bot e da ADR 0046 no espelho; no trecho hostil, teto do índice e health `ok` em 7 min 59 s, mas forwardAuth p95 11,4 / p99 52,5 ms no cliente e `anon` do bot a 96% do `GOMEMLIMIT` (ADR 0061 item 3, para o architect).
