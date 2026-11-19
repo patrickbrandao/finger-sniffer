@@ -367,6 +367,25 @@ func httpFromAuth(h http.Header, f *forkHeaders, fork *ForkConn) (out *rules.HTT
 	return out, ja4hNone
 }
 
+// forkHeadersKnown diz se o resumo da requisição traz os cabeçalhos: o traefix manda o registro sem `fieldNames`,
+// `fields` nem `ja4h` quando não os capturou (requisição sem router, h3 sem http3HeaderOrder), e ausência é
+// desconhecido, nunca "sem User-Agent" (contrato do traefix; adendo da ADR 0065).
+func forkHeadersKnown(r *ForkRequest) bool {
+	return len(r.FieldNames) > 0 || len(r.Fields) > 0 || r.JA4H != ""
+}
+
+// forkHTTPView é a visão HTTP de uma conexão do traefix pela requisição idx (normalmente a última): sem os
+// cabeçalhos dela, a da requisição anterior mais recente que os tem (as camadas de conexão são as mesmas); sem
+// nenhuma, nil (visão HTTP desconhecida, sem ua_missing).
+func forkHTTPView(c *ForkConn, idx int) *rules.HTTP {
+	for i := idx; i >= 0; i-- {
+		if forkHeadersKnown(&c.Requests[i]) {
+			return httpFromFork(&c.Requests[i])
+		}
+	}
+	return nil
+}
+
 // httpFromFork é a requisição resumida pelo ingest do traefix (spec 019 RF-06 e RF-07).
 func httpFromFork(r *ForkRequest) *rules.HTTP {
 	out := &rules.HTTP{Version: httpVersion(r.Proto, r.HTTPVersion), JA4H: r.JA4H, FieldOrder: r.FieldNames}
@@ -507,7 +526,7 @@ func (j *Judge) Ingest(id string, allows func(string) bool) bool {
 	if fork.HasSrc {
 		ip = fork.SrcIP
 	}
-	vw := views{ip: ip, site: site, fork: &fork, store: store, http: httpFromFork(req), proto: req.Proto}
+	vw := views{ip: ip, site: site, fork: &fork, store: store, http: forkHTTPView(&fork, len(fork.Requests)-1), proto: req.Proto}
 	v, res := j.evaluate(vw, requestSubject(site, ip, fork.SrcPort, fork.DstPort, id, store, req.Method, req.Path))
 	var init func(c *ForkConn)
 	if store != nil && fork.TCP != nil && !fork.ja4tChecked {
@@ -548,7 +567,7 @@ func (j *Judge) connectionVerdict(fork *ForkConn, store *StoreConn) Verdict {
 		}
 		s.FsConnID = ptr(fork.FsConnID)
 		if n := len(fork.Requests); n > 0 {
-			vw.http, vw.proto = httpFromFork(&fork.Requests[n-1]), fork.Requests[n-1].Proto
+			vw.http, vw.proto = forkHTTPView(fork, n-1), fork.Requests[n-1].Proto
 		}
 	case store != nil:
 		vw.ip, vw.site = store.SrcIP.Unmap(), storeSite(store)

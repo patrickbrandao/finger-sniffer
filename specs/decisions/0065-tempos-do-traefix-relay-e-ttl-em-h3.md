@@ -1,6 +1,6 @@
 # 0065 — Tempos do traefix (relay), TTL em h3, cabeçalhos de detalhe e ALPN vazio pelo JA4
 
-Status: aceita (pesos provisórios; o sinal `relay_rtt_gap` revisa na carga e no e2e da task 313)
+Status: aceita (pesos provisórios; adendo de 2026-11-19 com os números da task 313)
 Data: 2026-11-19
 
 ## Contexto
@@ -92,3 +92,23 @@ vazio. O JA4 FoxIO codifica o ALPN nos dois últimos caracteres da parte a (`00`
 - Tasks: 312 (bot: tempos, `relay_rtt_gap`, TTL em h3 e no cabeçalho, ALPN pelo JA4, detalhe no `fingerprints`),
   313 (conferência real com relay, depois da 312), 314 (regra futura de TTL TCP × h3 e relay agregado, baixa
   prioridade); nota na task 306 sobre `headerDetail`.
+
+## Adendo (2026-11-19, task 313)
+Fatos da conferência real (traefix `fork-point-223`, digest `sha256:5a1d2156…92d9`, `docs/dev/traefix-finger-01.md`):
+- relay SOCKS5 (`ssh -D` até o finger-01) × direto, 10 conexões por caminho, medianas em ms: direto `rtt_gap`
+  3,8–4,6 e `est_to_first` 0,1–0,4; relay `rtt_gap` 14,6–21,3 e `est_to_first` 13,0–17,5 (`tcp_rtt` 0,02, par
+  local). Com os limiares do item 3, o sinal saiu em 14 de 50 conexões por relay e 2 de 40 diretas; com `rtt_gap` >
+  15 ms e `est_to_first` > 5 ms, 35 de 50 e as mesmas 2 de 40 (picos do Wi-Fi do cliente, que só a agregação da task
+  314 tira); `est_to_first` abaixo de 5 ms segurou os diretos com `tls_rtt` de até 265 ms;
+- TTL em h3 ok (`udp.ttl` 56 → `ttl_initial` 64); PT-13 entregue (`dst.ip` real em h3); PT-10, PT-11, PT-12, PT-14
+  seguem; `basic` ~1,1 KB e `full` ~3,2–3,4 KB de `X-Traefix-*` no backend em h1/h2;
+- a requisição sem router (ex.: `/favicon.ico` do Chrome) e a h3 sem `http3HeaderOrder` chegam sem `fieldNames`,
+  `fields` e `ja4h`, e o veredito da conexão (que segue a última requisição) saía `ua_missing`.
+
+Decisão:
+1. **Limiares** do item 3: `rtt_gap_us` > 15 ms e > 30% de `tcp_rtt_us` e `est_to_first_us` > 5 ms (peso 15
+   mantido, provisório; amostra de um cliente só).
+2. **Resumo sem cabeçalhos = desconhecido**: um registro de requisição sem `fieldNames`, `fields` e `ja4h` não é
+   "sem User-Agent"; a visão HTTP da conexão vem da requisição anterior mais recente que tem os cabeçalhos e, sem
+   nenhuma, a visão HTTP fica ausente (`view.http=false`, sem `ua_missing`).
+3. **PT-18** novo: exportar `fieldNames`/`fields`/`ja4h` também nas requisições sem router.
