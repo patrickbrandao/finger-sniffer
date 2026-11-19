@@ -96,11 +96,11 @@ const (
 	ja4dbNameMaxLen      = 48
 	providerNameMaxLen   = 32
 	ja4hPartsForBaseLook = 2
-	// relay_rtt_gap (ADR 0065 item 3): volta TLS acima da TCP em mais de 20 ms e de 30% dela, com o primeiro byte
-	// do cliente depois de mais de 10 ms do accept
-	relayMinGapMicros   = 20_000
+	// relay_rtt_gap (ADR 0065 item 3 e adendo): volta TLS acima da TCP em mais de 15 ms e de 30% dela, com o
+	// primeiro byte do cliente depois de mais de 5 ms do accept
+	relayMinGapMicros   = 15_000
 	relayMinGapFrac     = 0.3
-	relayMinFirstMicros = 10_000
+	relayMinFirstMicros = 5_000
 )
 
 // Signal é um sinal presente no veredito (schema Signal do openapi do bot).

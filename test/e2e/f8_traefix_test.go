@@ -15,7 +15,9 @@ package e2e
 //     traefik upstream com a mesma configuração dinâmica (paridade da spec 019 RF-01);
 //   - FS_E2E_TRAEFIX_METRICS_CMD: comando no servidor que imprime o /metrics do traefix de teste;
 //   - FS_E2E_TRAEFIX_CONTAINER: nome do container de teste (digest e sender no log, ADR 0062 item 7);
-//   - FS_E2E_TRAEFIX_STOP_BOT=1: autoriza parar o finger-sniffer-bot por alguns segundos (fail-open com o bot parado).
+//   - FS_E2E_TRAEFIX_STOP_BOT=1: autoriza parar o finger-sniffer-bot por alguns segundos (fail-open com o bot parado);
+//   - FS_E2E_TRAEFIX_SOCKS: SOCKS5 local (host:porta) de um `ssh -D` até o finger-01, para o caso do relay (task 313,
+//     ADR 0065): o TCP do traefix vê o próprio host e o TLS a volta desta máquina.
 
 import (
 	"context"
@@ -44,6 +46,7 @@ var (
 	traefikUpstreamURL = os.Getenv("FS_E2E_TRAEFIK_UPSTREAM_URL")
 	traefixMetricsCmd  = env("FS_E2E_TRAEFIX_METRICS_CMD", "curl -sf http://127.0.0.1:18082/metrics")
 	traefixContainer   = env("FS_E2E_TRAEFIX_CONTAINER", "fs-traefix-test")
+	traefixSOCKS       = os.Getenv("FS_E2E_TRAEFIX_SOCKS")
 )
 
 // requireTraefix pula o caso enquanto o router de teste do traefix não existir.
@@ -289,6 +292,11 @@ type traefixVerdict struct {
 		JA4T       *string `json:"ja4t"`
 		P0fOS      *string `json:"p0f_os"`
 		TTLInitial *int    `json:"ttl_initial"`
+		TCPRTT     *int64  `json:"tcp_rtt_us"`
+		TLSRTT     *int64  `json:"tls_rtt_us"`
+		RTTGap     *int64  `json:"rtt_gap_us"`
+		EstToFirst *int64  `json:"est_to_first_us"`
+		TimingSrc  *string `json:"timing_source"`
 	} `json:"fingerprints"`
 	View struct {
 		TCP bool `json:"tcp"`
@@ -436,15 +444,20 @@ func TestF8TraefixReal(t *testing.T) {
 		}
 		vFs, fFs := verdictWith("X-Fs")
 		vNeutral, fNeutral := verdictWith("X-Zz")
+		// relay_rtt_gap depende dos tempos de cada conexão (ADR 0065 item 3) e sai da comparação; com ele em só um
+		// dos dois, a classe pode mudar pelo peso dele e também não se compara
 		ids := func(v traefixVerdict) []string {
 			var out []string
 			for _, s := range v.Signals {
-				out = append(out, s.ID)
+				if s.ID != "relay_rtt_gap" {
+					out = append(out, s.ID)
+				}
 			}
 			return out
 		}
-		if vFs.Class != vNeutral.Class || !slices.Equal(ids(vFs), ids(vNeutral)) || fFs["x-traefix-verdict"] != fNeutral["x-traefix-verdict"] ||
-			derefOr(vFs.Fingerprints.JA4H) == forgedJA4H {
+		sameTiming := slices.ContainsFunc(vFs.Signals, isRelaySignal) == slices.ContainsFunc(vNeutral.Signals, isRelaySignal)
+		if (sameTiming && (vFs.Class != vNeutral.Class || fFs["x-traefix-verdict"] != fNeutral["x-traefix-verdict"])) ||
+			!slices.Equal(ids(vFs), ids(vNeutral)) || derefOr(vFs.Fingerprints.JA4H) == forgedJA4H {
 			t.Errorf("X-Fs-* forjados mudaram o veredito: %s %v (backend %q), com nomes neutros %s %v (backend %q)",
 				vFs.Class, ids(vFs), fFs["x-traefix-verdict"], vNeutral.Class, ids(vNeutral), fNeutral["x-traefix-verdict"])
 		}
@@ -460,6 +473,9 @@ func TestF8TraefixReal(t *testing.T) {
 					if _, err := os.Stat(c.needs); err != nil {
 						t.Skipf("AVISO: %s ausente", c.needs)
 					}
+				}
+				if c.family == 6 && !hasIPv6Route() {
+					t.Skip("AVISO: esta máquina está sem rota IPv6 até o finger-01")
 				}
 				f := traefixFetch(t, traefixURL, c.run)
 				firstAuths++
@@ -506,6 +522,17 @@ func TestF8TraefixReal(t *testing.T) {
 
 	t.Run("match-rate", func(t *testing.T) {
 		testTraefixRealMatch(t, key, pub)
+	})
+
+	t.Run("relay", func(t *testing.T) {
+		if traefixSOCKS == "" {
+			t.Skip("AVISO: defina FS_E2E_TRAEFIX_SOCKS (ssh -D até o finger-01) para o caso do relay (task 313)")
+		}
+		testTraefixRelay(t, key, pub)
+	})
+
+	t.Run("h3-ttl", func(t *testing.T) {
+		testTraefixH3TTL(t, key)
 	})
 
 	t.Run("block-first-request", func(t *testing.T) {
@@ -695,5 +722,145 @@ func testBotMetricsReal(t *testing.T, before map[string]float64, firstAuths int)
 	}
 	if tlsHdr < float64(firstAuths) {
 		t.Errorf("bot_auth_fingerprint_total{kind=\"tls\",source=\"header\"} Δ %v, esperado ≥ %d", tlsHdr, firstAuths)
+	}
+}
+
+// hasIPv6Route diz se esta máquina alcança o finger-01 por IPv6 (um socket UDP conectado só consulta a rota).
+func hasIPv6Route() bool {
+	c, err := net.Dial("udp6", net.JoinHostPort(vpsHost, "443"))
+	if err != nil {
+		return false
+	}
+	_ = c.Close()
+	return true
+}
+
+// isRelaySignal diz se o sinal é o relay_rtt_gap, que varia com os tempos de cada conexão.
+func isRelaySignal(s botSignal) bool { return s.ID == "relay_rtt_gap" }
+
+// Limiares do relay_rtt_gap (ADR 0065 item 3), repetidos aqui para conferir a decisão do bot conexão a conexão.
+const (
+	relayGapMicros   = 20_000
+	relayGapFrac     = 0.3
+	relayFirstMicros = 10_000
+)
+
+// relayRun é uma conexão da rodada direto × relay: os tempos e os sinais do veredito.
+type relayRun struct {
+	src                string
+	tcp, tls, gap, est int64
+	signal, authSignal bool
+}
+
+func (r relayRun) expected() bool {
+	return r.gap > relayGapMicros && float64(r.gap) > float64(r.tcp)*relayGapFrac && r.est > relayFirstMicros
+}
+
+// relayRound abre n conexões novas (curl h2) pelo router e devolve os tempos e o relay_rtt_gap de cada uma.
+func relayRound(t *testing.T, key *botKey, n int, args ...string) []relayRun {
+	t.Helper()
+	var out []relayRun
+	for range n {
+		f := traefixFetch(t, traefixURL, curlBody(append([]string{"--http2"}, args...)...))
+		v := verdictOfTraefixConn(t, key, f["x-traefix-conn-id"])
+		fp := v.Fingerprints
+		if fp.TCPRTT == nil || fp.TLSRTT == nil || fp.RTTGap == nil || fp.EstToFirst == nil || derefOr(fp.TimingSrc) != "kernel" {
+			t.Fatalf("veredito sem os tempos do traefix (headerDetail: full, tcp): %+v; X-Traefix-Timing %q", fp, f["x-traefix-timing"])
+		}
+		r := relayRun{
+			src: f["x-traefix-src-ip"], tcp: *fp.TCPRTT, tls: *fp.TLSRTT, gap: *fp.RTTGap, est: *fp.EstToFirst,
+			authSignal: slices.Contains(strings.Split(f["x-traefix-signals"], ","), "relay_rtt_gap"),
+		}
+		for _, s := range v.Signals {
+			r.signal = r.signal || s.ID == "relay_rtt_gap"
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// testTraefixRelay: critério da spec 019 (task 313) — o mesmo curl direto e por um SOCKS5 (ssh -D até o finger-01).
+// Pelo relay o kernel do traefix mede a volta TCP com o próprio host (< 1 ms) e a volta TLS inclui o caminho até
+// esta máquina. Uma conexão isolada é ruidosa (o traefix recomenda agregar): o caso confere que o bot decide cada
+// conexão pelos limiares da ADR 0065 (no veredito e no forwardAuth), que o relay sai com relay_rtt_gap em pelo menos
+// uma de n e registra a taxa dos dois lados.
+func testTraefixRelay(t *testing.T, key *botKey, pub string) {
+	const n = 10
+	direct := relayRound(t, key, n, "-4")
+	relay := relayRound(t, key, n, "--socks5-hostname", traefixSOCKS)
+	hits := func(rs []relayRun) (c int) {
+		for _, r := range rs {
+			if r.signal {
+				c++
+			}
+		}
+		return c
+	}
+	ms := func(us int64) float64 { return float64(us) / 1000 }
+	for name, rs := range map[string][]relayRun{"direto": direct, "relay": relay} {
+		for _, r := range rs {
+			t.Logf("%-6s src %-24s tcp_rtt %6.1f tls_rtt %6.1f rtt_gap %6.1f est_to_first %6.1f ms relay_rtt_gap %v", name, r.src,
+				ms(r.tcp), ms(r.tls), ms(r.gap), ms(r.est), r.signal)
+			if r.signal != r.expected() || r.authSignal != r.signal {
+				t.Errorf("%s: relay_rtt_gap no veredito %v, no forwardAuth %v, pelos limiares da ADR 0065 %v (%+v)", name, r.signal,
+					r.authSignal, r.expected(), r)
+			}
+			switch {
+			case name == "direto" && (r.src != pub || r.tcp < 1000):
+				t.Errorf("direto: origem %s (gerador %s), tcp_rtt %d µs", r.src, pub, r.tcp)
+			case name == "relay" && (r.src == pub || r.tcp >= 1000):
+				t.Errorf("relay: origem %s (o próprio finger-01, não o gerador %s), tcp_rtt %d µs (< 1 ms com o host)", r.src, pub, r.tcp)
+			}
+		}
+	}
+	dh, rh := hits(direct), hits(relay)
+	t.Logf("relay_rtt_gap: relay %d de %d, direto %d de %d", rh, n, dh, n)
+	if rh == 0 {
+		t.Errorf("nenhuma das %d conexões pelo relay saiu com relay_rtt_gap", n)
+	}
+	if dh >= rh {
+		t.Logf("AVISO: direto com relay_rtt_gap %d vezes, relay %d: a volta até o finger-01 é curta para uma conexão isolada", dh, rh)
+	}
+}
+
+// testTraefixH3TTL: critério da spec 019 (task 313, ADR 0065 item 4) — em h3 o traefix manda X-Traefix-Ttl e
+// X-Traefix-Transport com proto=udp, e o veredito traz o TTL inicial dele, sem os tempos de TCP.
+func testTraefixH3TTL(t *testing.T, key *botKey) {
+	cases := []fpCase{
+		{"curl-h3-v4", curlOpenSSL, "h3", 4, curlBody("-4", "--http3-only")},
+		{"chrome-h3", chromeBin, "h3", 0, chromeBody(true)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := os.Stat(c.needs); err != nil {
+				t.Skipf("AVISO: %s ausente", c.needs)
+			}
+			f := traefixFetch(t, traefixURL, c.run)
+			tr := map[string]string{}
+			for p := range strings.SplitSeq(f["x-traefix-transport"], ",") {
+				if k, v, ok := strings.Cut(p, "="); ok {
+					tr[k] = v
+				}
+			}
+			if f["x-traefix-proto"] != "h3" || f["x-traefix-ttl"] == "" || tr["proto"] != "udp" || tr["ttl"] != f["x-traefix-ttl"] || tr["ttl_init"] == "" {
+				t.Fatalf("backend em h3: proto %q X-Traefix-Ttl %q X-Traefix-Transport %q", f["x-traefix-proto"], f["x-traefix-ttl"], f["x-traefix-transport"])
+			}
+			v := verdictOfTraefixConn(t, key, f["x-traefix-conn-id"])
+			if v.Fingerprints.TTLInitial == nil || strconv.Itoa(*v.Fingerprints.TTLInitial) != tr["ttl_init"] || !v.View.H3 ||
+				v.Fingerprints.TCPRTT != nil || v.Fingerprints.JA4T != nil {
+				t.Errorf("veredito h3: ttl_initial %v (traefix ttl_init %s) view %+v tcp_rtt %v ja4t %v", v.Fingerprints.TTLInitial, tr["ttl_init"],
+					v.View, v.Fingerprints.TCPRTT, v.Fingerprints.JA4T)
+			}
+			var ids []string
+			for _, s := range v.Signals {
+				ids = append(ids, s.ID)
+			}
+			if slices.Contains(ids, "ua_missing") {
+				// PT-14: sem http3HeaderOrder o registro de requisição h3 vem sem fields, e o veredito pelo ingest fica sem UA
+				t.Logf("AVISO: ua_missing no veredito h3 pelo ingest (PT-14 pendente no traefix)")
+			}
+			t.Logf("%s: X-Traefix-Ttl %s ttl_init %s hops %s, veredito %s %v ttl_initial %d, X-Traefix-Timing %q", c.name, f["x-traefix-ttl"],
+				tr["ttl_init"], tr["hops"], v.Class, ids, *v.Fingerprints.TTLInitial, f["x-traefix-timing"])
+		})
 	}
 }

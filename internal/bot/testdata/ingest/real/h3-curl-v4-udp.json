@@ -1,0 +1,78 @@
+{
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-223-g59c901c7b",
+  "entryPoint": "fstest",
+  "sentAt": "2026-11-19T20:03:52.241607101Z",
+  "records": [
+    {
+      "type": "connection",
+      "connId": "01M7TPH36A9SZGGNBPXEGVK7XP",
+      "time": "2026-11-19T20:03:52.138342577Z",
+      "entryPoint": "fstest",
+      "src": {
+        "ip": "198.51.100.73",
+        "port": 56466
+      },
+      "dst": {
+        "ip": "170.247.40.86",
+        "port": 18443
+      },
+      "proto": "h3",
+      "tls": {
+        "sni": "finger-01.badblock.net.br",
+        "alpnOffered": [
+          "h3",
+          "h3-29"
+        ],
+        "alpn": "h3",
+        "version": "TLS 1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "39d562ecba1bc787c4c3419d5080b14e",
+        "ja3String": "771,4866-4867-4865,57-10-22-23-49-13-43-45-51-0-16,4588-4587-4590-29-23-30-24-25-41-256-257,",
+        "ja3n": "4fb0fc7bea9e7ec3d23416fc0403bb51",
+        "ja3nString": "771,4866-4867-4865,0-10-13-16-22-23-43-45-49-51-57,4588-4587-4590-29-23-30-24-25-41-256-257,",
+        "ja4": "q13d0311h3_55b375c5d22e_df5ee7f3ca36",
+        "ja4r": "q13d0311h3_1301,1302,1303_000a,000d,0016,0017,002b,002d,0031,0033,0039_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0911,0912,0913,0914,0915,0916,0917,0918,0919,091a,091b,091c,0708",
+        "ja4o": "q13d0311h3_0ce35177f2fe_529c51d8652a",
+        "clientHello": "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",
+        "quicTransportParameters": [
+          15,
+          5,
+          6,
+          7,
+          4,
+          8,
+          9,
+          17
+        ]
+      },
+      "udp": {
+        "ttl": 56,
+        "dscp": 0,
+        "ecn": 0
+      },
+      "timing": {
+        "source": "user",
+        "firstByte": "2026-11-19T20:03:52.135425009Z",
+        "initialToHandshakeMicros": 9815,
+        "quicRttMicros": 6693,
+        "quicMinRttMicros": 6536
+      }
+    },
+    {
+      "type": "request",
+      "connId": "01M7TPH36A9SZGGNBPXEGVK7XP",
+      "start": "2026-11-19T20:03:52.146138429Z",
+      "end": "2026-11-19T20:03:52.163677383Z",
+      "entryPoint": "fstest",
+      "proto": "h3",
+      "method": "GET",
+      "authority": "finger-01.badblock.net.br:18443",
+      "path": "/observe/p/t313q21w2z03b8g3/",
+      "httpVersion": "HTTP/3.0",
+      "status": 200,
+      "router": "fs-observe@file",
+      "service": "fs-web@file"
+    }
+  ]
+}

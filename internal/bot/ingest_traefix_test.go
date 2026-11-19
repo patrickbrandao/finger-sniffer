@@ -656,3 +656,30 @@ func TestParseAkamaiRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestTraefixRequestWithoutHeaders: achado da task 313 (adendo da ADR 0065) — o traefix manda o resumo de uma
+// requisição sem router (ex.: /favicon.ico do Chrome) ou de h3 sem http3HeaderOrder sem `fieldNames`, `fields` nem
+// `ja4h`; isso é cabeçalho desconhecido, não "sem User-Agent": a conexão segue pela última requisição com os
+// cabeçalhos e, sem nenhuma, fica sem visão HTTP (nunca ua_missing).
+func TestTraefixRequestWithoutHeaders(t *testing.T) {
+	bare := map[string]any{"path": "/favicon.ico", "status": 404}
+	t.Run("after a request with headers", func(t *testing.T) {
+		f := newFixture(t)
+		id := "01JC0X3K8V2T7Q9F4M6P1R5T60"
+		f.postIngest(traefixBatchJSON(t, id, "198.51.100.60", 50060, chromeConn(nil), chromeRequest()))
+		f.postIngest(traefixBatchJSON(t, id, "198.51.100.60", 50060, nil, bare))
+		v := f.verdictOf(id)
+		if slices.Contains(signalIDList(v.Signals), "ua_missing") || !v.View.HTTP {
+			t.Fatalf("requisição sem cabeçalhos virou ua_missing: %+v", v)
+		}
+	})
+	t.Run("only requests without headers", func(t *testing.T) {
+		f := newFixture(t)
+		id := "01JC0X3K8V2T7Q9F4M6P1R5T61"
+		f.postIngest(traefixBatchJSON(t, id, "198.51.100.61", 50061, chromeConn(nil), bare))
+		v := f.verdictOf(id)
+		if slices.Contains(signalIDList(v.Signals), "ua_missing") || v.View.HTTP {
+			t.Fatalf("sem cabeçalhos conhecidos: %+v", v)
+		}
+	})
+}
