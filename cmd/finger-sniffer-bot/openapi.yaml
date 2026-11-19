@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.4.0
+  version: 0.5.0
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -123,6 +123,34 @@ paths:
           required: false
           description: JA4T do SYN do cliente, com `fingerprint.tcp` no traefix (ADR 0063 item 5).
           schema: { type: string, pattern: "^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$" }
+        - name: X-Traefix-Ttl
+          in: header
+          required: false
+          description: TTL (ou hop limit) como recebido, do SYN em TCP (com `tcp`) ou do primeiro Initial em h3 (ADR 0065 item 4).
+          schema: { type: integer, minimum: 0, maximum: 255 }
+        - name: X-Traefix-Timing
+          in: header
+          required: false
+          description: |
+            Tempos do início da conexão, `chave=valor` por vírgula (`src`, `proto`, `tcp_rtt_us`, `est_to_first_us`,
+            `ch_us`, `srv_us`, `tls_rtt_us`, `tls_us`, `rtt_gap_us`, `req_us`; em h3 `initial_to_hs_us`, `quic_rtt_us`,
+            `quic_min_rtt_us`); chaves desconhecidas ignoradas; com `headerDetail: full` (ADR 0065 item 2).
+          schema: { type: string, maxLength: 2048 }
+        - name: X-Traefix-Ja3n
+          in: header
+          required: false
+          description: "MD5 do JA3N (extensões ordenadas), com `headerDetail: full` (ADR 0065 item 6)."
+          schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+        - name: X-Traefix-Ja4r
+          in: header
+          required: false
+          description: "JA4_r (FoxIO), com `headerDetail: full` (ADR 0065 item 6)."
+          schema: { type: string, maxLength: 2048 }
+        - name: X-Traefix-Ja4o
+          in: header
+          required: false
+          description: "JA4_o (FoxIO), com `headerDetail: full` (ADR 0065 item 6)."
+          schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
         - { name: X-Fs-Src-Ip, in: header, required: false, deprecated: true, schema: { type: string } }
         - { name: X-Fs-Src-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
         - { name: X-Fs-Dst-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
@@ -481,6 +509,11 @@ components:
         ja4t: { type: [string, "null"] }
         p0f_os: { type: [string, "null"] }
         ttl_initial: { type: [integer, "null"] }
+        tcp_rtt_us: { type: [integer, "null"], description: "Volta do handshake TCP medida pelo traefix (ADR 0065)." }
+        tls_rtt_us: { type: [integer, "null"], description: "Volta do handshake TLS com o cliente TLS (ADR 0065)." }
+        rtt_gap_us: { type: [integer, "null"], description: "`tls_rtt_us` − `tcp_rtt_us`; grande atrás de relay (ADR 0065)." }
+        est_to_first_us: { type: [integer, "null"], description: "Accept → primeiro byte do cliente; pode ser negativo (ADR 0065)." }
+        timing_source: { type: [string, "null"], enum: [kernel, user, null] }
         ua_family: { type: [string, "null"] }
         ua_os: { type: [string, "null"] }
     Subject:
@@ -611,7 +644,7 @@ components:
       required: [schema, sender, entryPoint, sentAt, records]
       description: |
         Lote `traefix.fingerprint/v1`, formato do projeto traefix. Tradução em componentes de
-        `traefix-fingerprint-v1.schema.json` do traefix no commit `9f480d2e7` (`fork-point-218`), copiado em
+        `traefix-fingerprint-v1.schema.json` do traefix no commit `59c901c7b` (`fork-point-223`), copiado em
         `cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json`; um teste do bot valida os lotes de exemplo
         contra as duas formas (ADR 0063 item 3). Diferença conhecida: `tcp.ja4t` aceita escala de janela de 1
         dígito (pedido PT-11 ao traefix). O bot ignora campos e tipos de registro desconhecidos e lê só o da
@@ -704,6 +737,30 @@ components:
               type: string
               contentEncoding: base64
               description: SYN cru desde o cabeçalho IP (com `rawBytes`).
+        udp:
+          type: object
+          description: IP do primeiro Initial do QUIC (h3; Linux, macOS, FreeBSD; ADR 0065 item 4).
+          properties:
+            ttl: { type: integer, minimum: 0, maximum: 255 }
+            dscp: { type: integer, minimum: 0, maximum: 63 }
+            ecn: { type: integer, minimum: 0, maximum: 3 }
+        timing:
+          type: object
+          required: [source]
+          description: Tempos do início da conexão, com `headerDetail` diferente de `basic` (ADR 0065 item 2).
+          properties:
+            source: { type: string, enum: [kernel, user] }
+            firstByte: { $ref: "#/components/schemas/Timestamp" }
+            tcpRttMicros: { type: integer, minimum: 0 }
+            estToFirstMicros: { type: integer, description: Pode ser negativo. }
+            clientHelloMicros: { type: integer }
+            serverMicros: { type: integer }
+            tlsRttMicros: { type: integer }
+            handshakeMicros: { type: integer }
+            rttGapMicros: { type: integer }
+            initialToHandshakeMicros: { type: integer }
+            quicRttMicros: { type: integer, minimum: 0 }
+            quicMinRttMicros: { type: integer, minimum: 0 }
     TraefixRequestRecord:
       type: object
       required: [type, start, end, entryPoint, proto, method, path, httpVersion, status]

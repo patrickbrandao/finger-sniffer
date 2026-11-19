@@ -97,6 +97,7 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `ua_alpn_mismatch` | incoherence | 15 | ALPN oferecido incompatível com a família (ex.: navegador sem `h2`) |
 | `ja4h_library` | incoherence | 20 | JA4H sem `Accept-Language` e com ordem de campos de biblioteca; compara também o JA4H sem `Origin` e `Referer`, para o probe (ADR 0060) |
 | `tunnel_mss` | incoherence | 5 | MSS reduzido ou `mtu_implied` < 1500: túnel ou VPN no caminho (só informativo) |
+| `relay_rtt_gap` | incoherence | 15 | tempos do traefix (`headerDetail: full`): volta TLS bem maior que a TCP e espera longa pelo primeiro byte, sinal de relay SOCKS5/HTTP CONNECT entre o cliente e o traefix (rules `v1.4`, ADR 0065; a partir da task 312) |
 | `ua_claims_crawler` | incoherence | 60 | UA de robô conhecido vindo de IP fora da lista dele, ou com DNS reverso/direto falho |
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
 | `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 que a base própria só viu em bibliotecas |
