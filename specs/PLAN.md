@@ -191,6 +191,14 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     Decisão do humano (P9, 2026-11-18): sempre `traefix:latest` e os dois projetos andam juntos; necessidades novas
     viram pedidos `PT-nn` na spec 019.
     Critério: os da spec 019; release `v0.5.1` depois da 273 (a 306 não bloqueia a release).
+    **Saída (2026-11-18)**: tasks 301–305, 273 e 307 na `main` (PRs #273–#280). Traefix real (`fork-point-218`)
+    num container de teste no finger-01: JA4/Akamai/JA4T iguais aos do espelho, casamento traefix ↔ store 100%,
+    `mismatch` Δ 0, PT-01..PT-09 entregues; CPU do bloco `fingerprint` +21–24% h1, +9–11% h2 (task 273,
+    `docs/dev/traefix-finger-01.md`). Auditoria do reviewer sem bloqueante (achados corrigidos na task 307; fuzz na
+    308). `verify-full --e2e` verde no finger-01. Carga da F8 com `traefix.fingerprint/v1`: janela oficial com todas as
+    metas; trecho hostil acima da RNF-01 do bot no cliente (p95 11,4 / p99 52,5 ms), limite conhecido aceito pelo
+    humano (ADR 0064, task 309). Release `v0.5.1`. Pendentes: 306 (espera o PT-12 por decisão do humano), 308, 309,
+    pedidos PT-10..PT-15 ao traefix.
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
   Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
   store ≥ 99%; fail-open); carga da F8 com forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga
