@@ -1,0 +1,95 @@
+{
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-223-g59c901c7b",
+  "entryPoint": "fstest",
+  "sentAt": "2026-11-19T20:04:08.842034422Z",
+  "records": [
+    {
+      "type": "connection",
+      "connId": "01M7TPHKDRNBJCZ558RYBZQ9RF",
+      "time": "2026-11-19T20:04:08.76071106Z",
+      "entryPoint": "fstest",
+      "src": {
+        "ip": "198.51.100.73",
+        "port": 60941
+      },
+      "dst": {
+        "ip": "170.247.40.86",
+        "port": 18443
+      },
+      "proto": "h3",
+      "tls": {
+        "sni": "finger-01.badblock.net.br",
+        "alpnOffered": [
+          "h3"
+        ],
+        "alpn": "h3",
+        "version": "TLS 1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "b55f8fae9d554d5db49708cc3616fceb",
+        "ja3String": "771,4865-4866-4867,51-57-45-16-27-43-17613-51764-13-65037-0-10,4588-29-23-24,",
+        "ja3n": "18555a4ad0bd66d5fd99e1a493aa9f70",
+        "ja3nString": "771,4865-4866-4867,0-10-13-16-27-43-45-51-57-17613-51764-65037,4588-29-23-24,",
+        "ja4": "q13d0312h3_55b375c5d22e_178839b6cec1",
+        "ja4r": "q13d0312h3_1301,1302,1303_000a,000d,001b,002b,002d,0033,0039,44cd,ca34,fe0d_0403,0804,0401,0503,0805,0501,0806,0601,0201",
+        "ja4o": "q13d0312h3_55b375c5d22e_001ccdaeea32",
+        "clientHello": "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",
+        "quicTransportParameters": [
+          12584,
+          15,
+          1,
+          32,
+          6,
+          8,
+          9,
+          3,
+          4,
+          5,
+          7,
+          2586429255983622234,
+          17
+        ]
+      },
+      "udp": {
+        "ttl": 56,
+        "dscp": 0,
+        "ecn": 0
+      },
+      "timing": {
+        "source": "user",
+        "firstByte": "2026-11-19T20:04:08.757961982Z",
+        "initialToHandshakeMicros": 19432,
+        "quicRttMicros": 13749,
+        "quicMinRttMicros": 13364
+      }
+    },
+    {
+      "type": "request",
+      "connId": "01M7TPHKDRNBJCZ558RYBZQ9RF",
+      "start": "2026-11-19T20:04:08.777539919Z",
+      "end": "2026-11-19T20:04:08.78512403Z",
+      "entryPoint": "fstest",
+      "proto": "h3",
+      "method": "GET",
+      "authority": "finger-01.badblock.net.br:18443",
+      "path": "/observe/p/t313u4j7o6okla6k/",
+      "httpVersion": "HTTP/3.0",
+      "status": 200,
+      "router": "fs-observe@file",
+      "service": "fs-web@file"
+    },
+    {
+      "type": "request",
+      "connId": "01M7TPHKDRNBJCZ558RYBZQ9RF",
+      "start": "2026-11-19T20:04:08.803390015Z",
+      "end": "2026-11-19T20:04:08.803551829Z",
+      "entryPoint": "fstest",
+      "proto": "h3",
+      "method": "GET",
+      "authority": "finger-01.badblock.net.br:18443",
+      "path": "/favicon.ico",
+      "httpVersion": "HTTP/3.0",
+      "status": 404
+    }
+  ]
+}

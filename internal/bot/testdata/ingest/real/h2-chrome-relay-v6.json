@@ -1,0 +1,141 @@
+{
+  "schema": "traefix.fingerprint/v1",
+  "sender": "traefix/fork-point-223-g59c901c7b",
+  "entryPoint": "fstest",
+  "sentAt": "2026-11-19T20:02:09.241987246Z",
+  "records": [
+    {
+      "type": "connection",
+      "connId": "01M7TPDYGT6TZTMFYE8MER1185",
+      "time": "2026-11-19T20:02:09.050236347Z",
+      "entryPoint": "fstest",
+      "src": {
+        "ip": "2001:db8:4400::86",
+        "port": 35340
+      },
+      "dst": {
+        "ip": "2804:231c:e500:cafe::86",
+        "port": 18443
+      },
+      "proto": "h2",
+      "tls": {
+        "sni": "finger-01.badblock.net.br",
+        "alpnOffered": [
+          "h2",
+          "http/1.1"
+        ],
+        "alpn": "h2",
+        "version": "TLS 1.3",
+        "cipher": "TLS_AES_128_GCM_SHA256",
+        "ja3": "bfed908c02f70a58def1bcdfee5680e3",
+        "ja3String": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,23-10-65037-13-51764-27-16-18-11-65281-35-17613-51-45-5-43-0,4588-29-23-24,0",
+        "ja3n": "bd4930bd9b000ee684830e44bab76fdf",
+        "ja3nString": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-5-10-11-13-16-18-23-27-35-43-45-51-17613-51764-65037-65281,4588-29-23-24,0",
+        "ja4": "t13d1517h2_8daaf6152771_cb7bf5808d99",
+        "ja4r": "t13d1517h2_002f,0035,009c,009d,1301,1302,1303,c013,c014,c02b,c02c,c02f,c030,cca8,cca9_0005,000a,000b,000d,0012,0017,001b,0023,002b,002d,0033,44cd,ca34,fe0d,ff01_0904,0905,0906,0403,0804,0401,0503,0805,0501,0806,0601",
+        "ja4o": "t13d1517h2_acb858a92679_df505535e18b",
+        "clientHello": "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"
+      },
+      "http2": {
+        "akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p",
+        "headersPriority": "1:1:0:256",
+        "prefix": "AAAYBAAAAAAAAAEAAQAAAAIAAAAAAAQAYAAAAAYABAAAAAAECAAAAAAAAO8AAQACAwElAAAAAYAAAAD/gkGXlNVMWxYAV4xyR0HJ1XqKleOy4F5ppn+HBJRg8aC2dysVsJZCyXz0OC0yAe50sUCHQUixJ1rR/7j+dJ0rQr3bB1Sfz994P5ff/n6U/nEc81BVL09h6S/z994P5C27/P0p/N6ew9Jraf5++8H8hbd/n0CLQUixJ1rRrUnjNQUCPzBAjUFIsSda0a1dA0ynsp8HIm1hY09TIkCStrmsHIVY1SCktsKtYXtaVCUfATF62dB/ZqKBsNrgU/rQMhqknRP9qZKkloU0DIpq3KfigQRBbid/tSGuugvIseYyWG2XV2XFP6zY9+jP9KUG6lUxFJ1P/al6ew9JWAturgXAuBTcOUdhmG2XV2XPU+xJfKWJ000fQ666DEGkx6mPM6aaP9+aaPodddBiDSY9THmmj77QAXf+jUjmKx080fRqRzFYH3NL9GpHMVjwWOv6NSOYrA66pvr5Y+fvtABd76HXXQYg0mPUwg01RZFi+STjqmL994I2fvtABd1AikFItKVJJ1kGSX+DqPUXQIpBSLSlSSdak8hfhqh9zTDSX0CKQUi0pUknWtQWzwI/MUCKQUi0pUknWkKhP4aQ5LaS1J9QkpvZq/pSQstA0l+lI7PpT2hMn1GcrStd2/VafvtABd/6LUtw3ffaAC730Wr77QAXd0CGrsMewyfXhbYAfShv"
+      },
+      "tcp": {
+        "ja4t": "65476_2-4-8-1-3_65476_12",
+        "p0f": "6:64+0:0:65476:mss*1,12:mss,sok,ts,nop,ws:flow:0",
+        "ttl": 64,
+        "rttMicros": 23,
+        "syn": "YAPJvgAoBkAgAQ24RAAAAAAAAAAAAACGKAQjHOUAyv4AAAAAAAAAhooMSAtz7sWWAAAAAKAC/8Q8TAAAAgT/xAQCCApPfEjbAAAAAAEDAww="
+      },
+      "timing": {
+        "source": "kernel",
+        "firstByte": "2026-11-19T20:02:09.061475693Z",
+        "tcpRttMicros": 23,
+        "estToFirstMicros": 11239,
+        "clientHelloMicros": 0,
+        "serverMicros": 2809,
+        "tlsRttMicros": 39929,
+        "handshakeMicros": 42895,
+        "rttGapMicros": 39906
+      }
+    },
+    {
+      "type": "request",
+      "connId": "01M7TPDYGT6TZTMFYE8MER1185",
+      "start": "2026-11-19T20:02:09.104603859Z",
+      "end": "2026-11-19T20:02:09.207162643Z",
+      "entryPoint": "fstest",
+      "proto": "h2",
+      "method": "GET",
+      "authority": "finger-01.badblock.net.br:18443",
+      "path": "/observe/p/t313exjo0uis0zht/",
+      "httpVersion": "HTTP/2.0",
+      "fieldNames": [
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "upgrade-insecure-requests",
+        "user-agent",
+        "accept",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-user",
+        "sec-fetch-dest",
+        "accept-encoding",
+        "accept-language",
+        "priority"
+      ],
+      "fields": [
+        {
+          "name": "sec-ch-ua",
+          "value": "\"Not-A.Brand\";v=\"99\", \"Google Chrome\";v=\"157\", \"Chromium\";v=\"157\""
+        },
+        {
+          "name": "sec-ch-ua-mobile",
+          "value": "?0"
+        },
+        {
+          "name": "sec-ch-ua-platform",
+          "value": "\"macOS\""
+        },
+        {
+          "name": "user-agent",
+          "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+        },
+        {
+          "name": "accept",
+          "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+        },
+        {
+          "name": "sec-fetch-site",
+          "value": "none"
+        },
+        {
+          "name": "sec-fetch-mode",
+          "value": "navigate"
+        },
+        {
+          "name": "sec-fetch-user",
+          "value": "?1"
+        },
+        {
+          "name": "sec-fetch-dest",
+          "value": "document"
+        },
+        {
+          "name": "accept-encoding",
+          "value": "gzip, deflate, br, zstd"
+        },
+        {
+          "name": "accept-language",
+          "value": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+      ],
+      "ja4h": "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+      "status": 200,
+      "router": "fs-observe@file",
+      "service": "fs-web@file"
+    }
+  ]
+}
