@@ -130,14 +130,26 @@ do bot:
   conexão no lote junto com a primeira requisição, e o lote sai a cada 100 ms: no forwardAuth dessa requisição o
   registro quase nunca chegou. O traefik repassa à auth os cabeçalhos do visitante, mas não a ordem deles, então o
   bot usa o que o traefix calculou antes dos middlewares: `X-Traefix-Ja4h`, `X-Traefix-Ja4`, `X-Traefix-Ja3`,
-  `X-Traefix-H2`, `X-Traefix-Alpn` e `X-Traefix-Ja4t` (spec 019 RF-08). Sem `X-Traefix-Ja4h` vale o JA4H da última
+  `X-Traefix-H2`, `X-Traefix-Alpn`, `X-Traefix-Ja4t`, `X-Traefix-Ttl` e, com `headerDetail: full`, `X-Traefix-Timing`,
+  `X-Traefix-Ja3n`, `X-Traefix-Ja4r` e `X-Traefix-Ja4o` (spec 019 RF-08, ADR 0065). Sem `X-Traefix-Ja4h` vale o JA4H da última
   requisição da mesma conexão que o ingest já trouxe; sem nenhum dos dois, a requisição fica sem `ja4h_library`
   (curl numa conexão nova sairia com 50, `suspect`, em vez de 70). A origem de cada parte está em
   `fs_bot_auth_ja4h_total{source}` e `fs_bot_auth_fingerprint_total{kind,source}` ([metrics.md](metrics.md#bot)):
   `none` crescendo junto com o tráfego indica um traefix que não manda os cabeçalhos. O feed e o webhook recebem o
   veredito uma vez por requisição, o primeiro que sair (normalmente o do forwardAuth).
-- **h3 sem JA4H e sem TCP.** Com `http3HeaderOrder` desligado (perfil atual, até a medida de custo da task 273), a
-  requisição h3 não tem `X-Traefix-Ja4h`; e h3 nunca tem visão TCP do traefix.
+- **h3 sem JA4H e sem TCP, mas com TTL.** Com `http3HeaderOrder` desligado (perfil atual), a requisição h3 não tem
+  `X-Traefix-Ja4h` nem os cabeçalhos no resumo do ingest; h3 não tem visão TCP (JA4T, p0f), mas tem o TTL do
+  primeiro Initial (`udp.ttl`, `X-Traefix-Ttl`), e a parte de TTL do `ua_os_tcp_mismatch` vale em h3 (ADR 0065).
+- **Resumo sem cabeçalhos é desconhecido.** O traefix manda o resumo de uma requisição sem router (ex.:
+  `/favicon.ico`) ou de h3 sem `http3HeaderOrder` sem `fieldNames`, `fields` e `ja4h`; o bot não o trata como "sem
+  User-Agent": a visão HTTP da conexão vem da requisição anterior que tem os cabeçalhos e, sem nenhuma, fica ausente
+  (adendo da ADR 0065).
+- **Relay pelos tempos.** Com `headerDetail: full`, o veredito traz em `fingerprints` `tcp_rtt_us`, `tls_rtt_us`,
+  `rtt_gap_us`, `est_to_first_us` e `timing_source`. Atrás de um relay (SOCKS5, HTTP CONNECT, relay TCP) o traefix
+  mede a volta TCP com o relay e a volta TLS com o cliente: `rtt_gap_us` > 15 ms e > 30% de `tcp_rtt_us`, com o
+  primeiro byte depois de 5 ms, dá `relay_rtt_gap` (peso 15). Relay perto do cliente ou VPN de camada 3 não aparecem
+  (a VPN aparece no MSS); uma conexão só é ruidosa (no finger-01, 2 de 40 conexões diretas por Wi-Fi saíram com o
+  sinal); com origem privada os tempos aparecem mas não alimentam o sinal.
 - **JA4T medido com o MSS do caminho.** A base própria guarda o JA4T medido inteiro, mas o `known_client` compara
   sem o campo do MSS: um grampo de MSS no caminho (túnel, PPPoE) não tira o −20 de um navegador real; o MSS
   reduzido aparece só em `tunnel_mss`.
@@ -240,8 +252,9 @@ repetido é ignorado). De onde vem cada visão:
 | Visão | Ordem de preferência |
 | --- | --- |
 | JA4H | `X-Traefix-Ja4h`; senão a última requisição da conexão no ingest |
-| TLS e h2 | registro de conexão do ingest, se já chegou; senão `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn` (sem `-Alpn`, `ua_alpn_mismatch` não avalia) |
-| TCP | conexão casada no store (espelho); senão o `tcp` do registro do traefix; senão só o JA4T de `X-Traefix-Ja4t` |
+| TLS e h2 | registro de conexão do ingest, se já chegou; senão `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn` (sem `-Alpn`, a lista é vazia se o ALPN do JA4 for `00`, senão `ua_alpn_mismatch` não avalia); `-Ja3n`, `-Ja4r` e `-Ja4o` só no `fingerprints` |
+| TCP e TTL | conexão casada no store (espelho); senão o `tcp` (ou, em h3, o `udp`) do registro do traefix; senão o JA4T de `X-Traefix-Ja4t` com o TTL de `X-Traefix-Ttl` (em h3, só o TTL); origem privada descarta |
+| Tempos | `timing` do registro do ingest; senão `X-Traefix-Timing` |
 
 Na 9003 o bot espera até `FS_BOT_VIEW_WAIT` (100 ms) pelas visões que faltam (com `X-Traefix-Ja4`, só pela do
 store); na 9002 não espera o store, que nunca vê a conexão de um site externo.
@@ -513,7 +526,10 @@ Os sites do humano no finger-01 ficam atrás do container `traefik-app` (80/443)
 `fingerprint`) recebe um `connId`, os dados vão ao bot pelo ingest na 9003, e cada requisição chega ao backend com
 `X-Traefix-Src-Ip`, `X-Traefix-Src-Port`, `X-Traefix-Dst-Port`, `X-Traefix-Conn-Id`, `X-Traefix-Proto`
 (`h1`|`h2`|`h3`), `X-Traefix-Ja4h`, `X-Traefix-Ja3`, `X-Traefix-Ja4`, `X-Traefix-H2` (só em h2), `X-Traefix-Alpn`
-(só com TLS) e `X-Traefix-Ja4t` (com `tcp`).
+(só com TLS), `X-Traefix-Ja4t` e `X-Traefix-Ttl` (com `tcp`) e, com `headerDetail: full` (padrão), os cabeçalhos de
+detalhe da página "Fingerprint Signals" do traefix (`X-Traefix-Timing`, `-Tls`, `-Tls-Hello`, `-H2-Detail`, `-H3`,
+`-Header-Order`, `-Cookie-Names`, `-Transport` e outros): medido no finger-01, ~3,2–3,4 KB de `X-Traefix-*` por
+requisição h1/h2 com `full` e ~1,1 KB com `basic` (task 313).
 
 **Os backends leem só `X-Traefix-*`, nunca `X-Fs-*`.** O traefix remove do cliente, antes de qualquer middleware,
 todo cabeçalho com o prefixo dele (`X-Traefix-`, em qualquer caixa e também com `_` no lugar de `-`), e só esse
@@ -531,6 +547,7 @@ entryPoints:
     http3: {}
     fingerprint:
       tcp: true                  # visão TCP pelo SYN salvo (só Linux)
+      headerDetail: full         # padrão; obrigatório para os tempos (relay_rtt_gap); com basic não há timing
       export:
         url: http://10.249.255.254:9003/bot/v1/ingest/traefik
         # headers:

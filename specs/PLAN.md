@@ -204,6 +204,12 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
     `relay_rtt_gap` em rules `v1.4`, TTL em h3 e no cabeçalho, ALPN pelo `00` do JA4, detalhe no `Fingerprints`) →
     infra + tester (313: traefix `latest` num container à parte com cliente direto e por relay SOCKS5, TTL em h3,
     PT-13/PT-14, lotes reais, e2e) → release `v0.5.2`. Baixa prioridade: 314 (TTL TCP × h3 e relay agregados por IP).
+    **Saída (2026-11-19)**: tasks 311–313 na `main` (PRs #282–#284). Traefix `fork-point-223` num container de teste
+    no finger-01: relay SOCKS5 com `rtt_gap` de 14,6–21,3 ms contra 3,8–4,6 ms no direto; `relay_rtt_gap` com os
+    limiares do adendo da ADR 0065 em 35 de 50 conexões por relay e 2 de 40 diretas; TTL inicial em h3; 461 lotes sem
+    recusa, `mismatch` Δ 0, casamento 100%; PT-13 entregue. Falso `ua_missing` de resumos sem cabeçalhos corrigido.
+    Release `v0.5.2`. Pendentes: 306 (PT-12 e escolha do `headerDetail` pelo humano), 308, 309, 314, pedidos PT-10,
+    PT-11, PT-12, PT-14, PT-16, PT-17, PT-18.
 - **Critério de saída**: e2e da F8 verde (vereditos esperados de curl, Go, python-requests, Chrome, Firefox e
   Googlebot falso por probe e consulta e, com a 273 concluída, pelo router de teste do traefix; casamento traefix ↔
   store ≥ 99%; fail-open); carga da F8 com forwardAuth p95 ≤ 10 ms / p99 ≤ 50 ms a 200 req/s junto com a carga
