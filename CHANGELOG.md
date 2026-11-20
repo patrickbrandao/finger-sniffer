@@ -5,6 +5,23 @@ Detalhe das decisões em `specs/decisions/`.
 
 ## [Não lançado]
 
+## [0.5.2] - 2026-11-19
+
+Terceira entrega do traefix (`fork-point-223`): o bot passa a usar os tempos da conexão para apontar relay (SOCKS5, HTTP CONNECT, relay TCP) entre o cliente e o traefix (sinal `relay_rtt_gap`, rules `v1.4`), o TTL em HTTP/3 e as fingerprints de detalhe do traefix. Conferido com o traefix real num container de teste no finger-01 (task 313): relay detectado em 35 de 50 conexões e 2 de 40 diretas, TTL inicial em h3, 461 lotes sem recusa. Corrigido o falso `ua_missing` de requisições que o traefix exporta sem cabeçalhos. Contratos: openapi do bot 0.5.0 (aditivo), cópia do esquema do traefix `fork-point-223`; store (openapi 0.6.1) e asyncapi (0.6.2) sem mudança.
+
+### Adicionado
+- bot: tempos do traefix (`timing` do registro de conexão e `X-Traefix-Timing`, registro > cabeçalho) no `Fingerprints` (`tcp_rtt_us`, `tls_rtt_us`, `rtt_gap_us`, `est_to_first_us`, `timing_source`) e sinal `relay_rtt_gap` (rules `v1.4`, peso 15, só em TCP com origem pública); TTL inicial em h3 (`udp.ttl`, `X-Traefix-Ttl`) e `X-Traefix-Ttl` na visão TCP do cabeçalho para `ua_os_tcp_mismatch`; ALPN vazio pelo `00` do `X-Traefix-Ja4`; `X-Traefix-Ja3n`/`-Ja4r`/`-Ja4o` no `Fingerprints`; `fs_bot_auth_fingerprint_total{kind="timing"}` (ADR 0065, task 312).
+- test/infra: traefix `fork-point-223-g59c901c7b` num container de teste no finger-01 com `headerDetail: full`: relay SOCKS5 (`ssh -D`) com `tcp_rtt` de 0,02 ms e `relay_rtt_gap` em 14 de 50 conexões, direto em 2 de 40 (volta curta até o gerador; proposta de limiar 15 ms/5 ms ao architect); TTL inicial de `udp.ttl` no veredito h3; PT-13 entregue, PT-10/11/12/14 pedidos; `X-Traefix-*` no backend ~3,2–3,4 KB com `full` e ~1,1 KB com `basic` (`docs/dev/traefix-finger-01.md`, task 313).
+- test: lotes reais com `timing` e `udp` (direto, relay IPv4/IPv6, h3) no teste de contrato e em `TestTraefixRealTiming` (rodada sintética com origem em loopback sem o sinal); `TestF8TraefixReal` com os casos `relay` (`FS_E2E_TRAEFIX_SOCKS`) e `h3-ttl`, `forged-headers` sem comparar o `relay_rtt_gap` e IPv6 pulado sem rota (task 313).
+
+### Corrigido
+- bot: `relay_rtt_gap` com `rtt_gap` > 15 ms e `est_to_first` > 5 ms (relay detectado em 35 de 50 conexões, era 14); resumo de requisição do traefix sem `fieldNames`/`fields`/`ja4h` (sem router, h3 sem `http3HeaderOrder`) é cabeçalho desconhecido e não vira mais `ua_missing` (adendo da ADR 0065; PT-13 entregue, PT-18 pedido).
+- docs: `docs/bot.md` com `headerDetail: full` no perfil, TTL em h3, tempos e `relay_rtt_gap`, ALPN pelo `00` do JA4, resumo sem cabeçalhos e os cabeçalhos de detalhe; spec 018 RF-12 com `kind="timing"` (auditoria da v0.5.2).
+
+### Decidido
+- specs: terceira entrega do traefix (`fork-point-223`, ADR 0065): perfil com `headerDetail: full`, tempos da conexão (`timing`, `X-Traefix-Timing`) e sinal `relay_rtt_gap` (rules `v1.4`, peso 15), TTL inicial em h3 (`udp`, `X-Traefix-Ttl`), ALPN vazio pelo `00` do JA4 (PT-15 retirado), `X-Traefix-Ja3n`/`-Ja4r`/`-Ja4o` no `Fingerprints`; openapi do bot 0.5.0 e cópia do esquema atualizada; pedidos PT-16 e PT-17; tasks 312–314.
+- Pedidos ao traefix (spec 019): PT-13 entregue; PT-15 retirado (o bot lê o `00` do JA4); PT-10, PT-11, PT-12 (bloqueia a troca do `traefik-app`), PT-14, PT-16, PT-17 e PT-18 pedidos.
+
 ## [0.5.1] - 2026-11-18
 
 Integração com o traefix real (projeto externo `tmsoftbrasil/traefix`, sempre `latest` por decisão do humano): o bot aceita o lote `traefix.fingerprint/v1`, lê os cabeçalhos `X-Traefix-*` no forwardAuth (a primeira requisição de cada conexão já sai classificada pelos cabeçalhos) e usa a visão TCP do traefix (JA4T e SO do p0f) para sites sem a visão do espelho. Conferido com o traefix `fork-point-218-g9f480d2e7` num container de teste no finger-01 (task 273): JA4, Akamai e JA4T iguais aos do espelho, casamento traefix ↔ store 100%. Limite conhecido (ADR 0064): com o índice do bot no teto, o forwardAuth passa um pouco da meta no cliente. A troca do `traefik-app` dos sites (task 306) espera o pedido PT-12 ao traefix (cabeçalhos `Forwarded`/`X-Real-Port`). Contratos: openapi do bot 0.4.0 (aditivo), cópia do esquema do traefix em `cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json`; store (openapi 0.6.1) e asyncapi (0.6.2) sem mudança.
