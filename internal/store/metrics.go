@@ -168,6 +168,9 @@ func (m *storeMetrics) registerStream(st *streamStats) {
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "fs_store_ingest_pending_messages", Help: "Messages still pending for the store consumer (NumPending of the last message processed).",
 		}, func() float64 { _, _, p := st.snapshot(); return float64(p) }),
+		prometheus.NewCounterFunc(prometheus.CounterOpts{
+			Name: "fs_store_stream_recreated_total", Help: "Times the store recreated FS_EVENTS and its consumer after they were gone (NATS restart with the in-memory stream); messages lost meanwhile are not counted in fs_store_stream_lost_total.",
+		}, func() float64 { return float64(st.recreatedTotal()) }),
 	)
 }
 

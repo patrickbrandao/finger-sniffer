@@ -103,11 +103,63 @@ type Ingestor struct {
 	// onFull, se definido, é o expurgo de emergência depois de um SQLITE_FULL (expurgo fora do orçamento e
 	// checkpoint TRUNCATE do WAL), chamado no laço de ingest entre o rollback e a nova tentativa do lote.
 	onFull func(ctx context.Context)
+
+	// reopen, se definido, recria o stream e o consumidor durável quando o consumidor sumiu (task 320) e diz se o
+	// stream foi recriado; lastReopen limita as tentativas a uma por reopenEvery.
+	reopen     func(ctx context.Context) (cons jetstream.Consumer, recreated bool, err error)
+	lastReopen time.Time
 }
 
 // maxFinalizeTries é o máximo de tentativas de finalizar uma conexão; esgotadas, a linha é fechada com ended_ns
 // e o que houver (ADR 0034).
 const maxFinalizeTries = 5
+
+// Recriação do consumidor (task 320): o FS_EVENTS é MemoryStorage (ADR 0016) e some, com o consumidor, quando o
+// nats-server reinicia; sem recriá-lo o ingest ficaria parado até o próximo reinício do store.
+const (
+	fetchRetryWait = 200 * time.Millisecond // pausa depois de um Fetch com erro (sem ela, milhares por segundo)
+	reopenAfter    = 5 * time.Second        // erro de outro tipo por mais que isso também tenta recriar
+	reopenEvery    = 2 * time.Second        // no máximo uma tentativa de recriação por intervalo
+)
+
+// SetReopen liga a recriação do stream e do consumidor depois de um reinício do NATS (task 320).
+func (in *Ingestor) SetReopen(f func(ctx context.Context) (jetstream.Consumer, bool, error)) {
+	in.reopen = f
+}
+
+// consumerGone diz se o erro do Fetch mostra que o consumidor (ou o stream) não existe mais: sem resposta do
+// JetStream ao pedido de mensagens, consumidor ou stream inexistente, ou consumidor apagado.
+func consumerGone(err error) bool {
+	return errors.Is(err, nats.ErrNoResponders) || errors.Is(err, jetstream.ErrConsumerNotFound) ||
+		errors.Is(err, jetstream.ErrStreamNotFound) || errors.Is(err, jetstream.ErrConsumerDeleted)
+}
+
+// fetchFailed trata um Fetch que falhou sem trazer mensagens: conta o tempo de falha (motivo do health) e, se o
+// consumidor sumiu ou a falha passou de reopenAfter, recria o stream e o consumidor. Devolve o consumidor novo, ou
+// nil (o laço espera fetchRetryWait e tenta de novo com o atual).
+func (in *Ingestor) fetchFailed(ctx context.Context, err error) jetstream.Consumer {
+	now := in.now()
+	since := in.stream.fetchFailed(now)
+	if in.reopen == nil || (!consumerGone(err) && since < reopenAfter) {
+		return nil
+	}
+	if !in.lastReopen.IsZero() && now.Sub(in.lastReopen) < reopenEvery {
+		return nil
+	}
+	in.lastReopen = now
+	cons, recreated, rerr := in.reopen(ctx)
+	if rerr != nil {
+		in.log.Warn("stream reopen failed", "err", rerr, "fetch_err", err)
+		return nil
+	}
+	if recreated {
+		in.stream.streamRecreated(now)
+		in.log.Warn("stream recreated: the previous FS_EVENTS was gone (NATS restart?)", "fetch_err", err)
+	} else {
+		in.log.Info("stream consumer reattached", "fetch_err", err)
+	}
+	return cons
+}
 
 // SetMetrics liga as métricas Prometheus do ingest.
 func (in *Ingestor) SetMetrics(m *storeMetrics) { in.prom = m }
@@ -152,18 +204,29 @@ func (in *Ingestor) Run(ctx context.Context, cons jetstream.Consumer) error {
 			}
 		default:
 		}
+		// O erro do Fetch vem por dois caminhos: o retorno (pedido não enviado) e batch.Error() (pedido enviado e
+		// recusado, ex.: nats.ErrNoResponders com o consumidor ausente). Expirar sem mensagens não é erro.
 		batch, err := cons.Fetch(64, jetstream.FetchMaxWait(100*time.Millisecond))
-		if err != nil {
-			if ctx.Err() == nil && !errors.Is(err, context.Canceled) {
-				time.Sleep(200 * time.Millisecond)
+		var msgs []jetstream.Msg
+		if err == nil {
+			for m := range batch.Messages() {
+				msgs = append(msgs, m)
 			}
+			err = batch.Error()
+		}
+		if err != nil && len(msgs) == 0 {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				continue
+			}
+			if c := in.fetchFailed(ctx, err); c != nil {
+				cons = c
+				continue
+			}
+			time.Sleep(fetchRetryWait)
 			continue
 		}
-		var msgs []jetstream.Msg
-		for m := range batch.Messages() {
-			msgs = append(msgs, m)
-		}
-		if len(msgs) == 0 && batch.Error() == nil {
+		in.stream.fetchOK()
+		if len(msgs) == 0 {
 			in.stream.caughtUp() // nada a buscar: o consumidor alcançou o stream
 		}
 		if len(msgs) > 0 || len(in.pending) > 0 || len(in.eventOnly) > 0 {

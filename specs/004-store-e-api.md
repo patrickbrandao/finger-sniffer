@@ -65,7 +65,12 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-09: health agregado: heartbeat de cada serviço (5 s; `down` após 15 s sem heartbeat), versões
   (acusa desencontro), sysctls e offloads efetivos, estado do certificado, uso de disco/SQLite, NTP.
   O store fica `degraded`, com motivo, enquanto o ingest está mais de 5 s atrás do stream (`ingest backlog <n>s`)
-  e por 5 min depois de perder mensagens do stream (`stream lost <n> messages in 5m`) (ADR 0041); também com
+  e por 5 min depois de perder mensagens do stream (`stream lost <n> messages in 5m`) (ADR 0041); enquanto o Fetch
+  do consumidor falha há mais de 5 s (`ingest fetch failing <n>s`: o backlog congela no último valor e não o
+  mostraria) e por 5 min depois de recriar o stream (`stream recreated in 5m`): o `FS_EVENTS` em memória (ADR 0016)
+  e o consumidor somem num reinício do NATS, e o store os recria sozinho, sem esperar o próprio reinício
+  (`fs_store_stream_recreated_total`; a perda entre a queda e a recriação não é mensurável pelo salto de
+  sequência) (task 320); também com
   `db full` (modo banco cheio e 5 min depois do último `SQLITE_FULL`) e `db space <n>% free` (livre do tmpfs
   abaixo de 10%) (ADR 0045).
 - RF-10: `/metrics` (Prometheus, `prometheus/client_golang`) em 9001 com as métricas próprias do store (lista em
@@ -269,7 +274,8 @@ heartbeat com rótulos (`nome{r="v"}`, histograma em `_bucket`/`_sum`/`_count`, 
 `fs_store_finalize_retries_total`, `fs_store_batch_count_mismatch_total` (ADR 0034),
 `fs_store_stream_lost_total`, `fs_store_ingest_backlog_seconds` (gauge: parede − publicação da última mensagem
 processada), `fs_store_ingest_pending_messages` (gauge: `NumPending` do consumidor), `fs_store_stray_midflow_total`
-(avulsos TCP de fluxo sem início visto, exceto RST) (ADR 0041),
+(avulsos TCP de fluxo sem início visto, exceto RST) (ADR 0041), `fs_store_stream_recreated_total` (vezes que o
+`FS_EVENTS` e o consumidor foram recriados depois de sumirem; task 320),
 `fs_store_writer_seconds{op}` (histograma: duração de cada comando do escritor SQLite), `fs_store_wal_frames` (gauge:
 quadros do WAL no último checkpoint) e `fs_store_packet_spills_total` (pacotes de conexão aberta que transbordaram para `packets`,
 RF-04a) (task 248),
