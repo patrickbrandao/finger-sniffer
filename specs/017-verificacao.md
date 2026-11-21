@@ -100,6 +100,13 @@ repetidas do mesmo cliente.
   processos) essas duas metas não são medidas de forma limpa; um gerador fora do Mac é a task 256; amostragem de CPU/RAM por unit (cgroup, em `finger.slice/finger-sniffer.slice/`) no finger-01;
   metas e percentis da ADR 0022, primeiro minuto descartado. Relatório em `test/load/RESULTS.md` com versão,
   data, perfil, números por meta (passou/falhou) e a decomposição do atraso do feed.
+  **Trava da carga** (task 361): a carga roda sozinha no servidor. Enquanto `/tmp/fs-load-running` existir no
+  finger-01, `make deploy` (antes do build e de novo sob a trava do deploy) e o passo e2e do `verify-full` recusam com
+  saída ≠ 0 e a data da trava na mensagem (`FORCE_DURING_LOAD=1` e `FS_E2E_DURING_LOAD=1` passam por cima, de caso
+  pensado). Os scripts de carga tomam a trava por `test/load/loadlock.sh`, de forma atômica e com um token próprio:
+  um segundo script recusa sem tocar na trava, no `loadmon` nem no diretório remoto do primeiro, e o fim de cada um só
+  apaga a trava se ela ainda for dele (`FS_LOAD_LOCK_HELD=1` quando um vigia da mesma carga, como o `f8-side.sh`, já
+  a segura).
 
 ### Regras para os agentes
 - Toda mudança vem com o teste que a cobre; o nível só decide quanto da suíte roda.

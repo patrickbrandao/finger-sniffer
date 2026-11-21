@@ -19,6 +19,8 @@
 #                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
 #   FS_E2E_TIMEOUT       -timeout do go test no passo e2e (padrão 45m; com FS_E2E_LONG=1 a suíte passa dos
 #                        10 min padrão do go test)
+#   FS_E2E_DURING_LOAD=1 roda o e2e mesmo com uma carga em andamento no servidor (/tmp/fs-load-running; por padrão o
+#                        passo é recusado, spec 017 RF-13, task 361). FS_LOAD_LOCK troca o caminho da trava (testes).
 #   FS_RACE_SPLIT_PKGS   pacotes (padrões do go list) cujos testes -race saem do passo de testes do full e rodam
 #                        em lotes (race-shard) nos jobs paralelos do CI (task 294); vazio (padrão, inclusive no
 #                        full local): tudo de uma vez
@@ -849,6 +851,37 @@ linux_priv_tests() {
 	return $rc
 }
 
+# load_lock_check: falha (com o motivo) enquanto houver carga em andamento no servidor. A trava é gravada por
+# test/load/*.sh; o e2e mistura tráfego, cria chaves do bot e faz forget do IP do gerador, e invalidaria a medida
+# (spec 017 RF-13, task 361). FS_E2E_DURING_LOAD=1 passa por cima, de caso pensado.
+LOAD_LOCK="${FS_LOAD_LOCK:-/tmp/fs-load-running}"
+load_lock_check() {
+	[ "${FS_E2E_DURING_LOAD:-0}" = 1 ] && return 0
+	local out
+	out=$(ssh -p "$VPS_PORT" -o BatchMode=yes -o ConnectTimeout=10 "$VPS_SSH" \
+		"if [ -e '$LOAD_LOCK' ]; then echo \"present \$(cat '$LOAD_LOCK' 2>/dev/null)\"; else echo absent; fi") || {
+		echo "$VPS_LABEL inacessível por ssh ($VPS_SSH:$VPS_PORT) ao conferir $LOAD_LOCK"
+		return 1
+	}
+	case "$out" in
+	absent) return 0 ;;
+	present*)
+		echo "carga em andamento em $VPS_LABEL ($LOAD_LOCK: ${out#present }); e2e recusado (FS_E2E_DURING_LOAD=1 passa por cima)"
+		return 1
+		;;
+	*)
+		echo "resposta inesperada ao conferir $LOAD_LOCK em $VPS_LABEL: $out"
+		return 1
+		;;
+	esac
+}
+
+# e2e_tests: o passo e2e do full (matriz da spec 017), recusado durante uma carga.
+e2e_tests() {
+	load_lock_check || return 1
+	go test -count=1 -timeout "$E2E_TIMEOUT" -tags e2e ./test/e2e/...
+}
+
 verify_full() {
 	local e2e=0 pkgs
 	while [ $# -gt 0 ]; do
@@ -898,7 +931,7 @@ verify_full() {
 
 	if [ "$e2e" = 1 ]; then
 		if [ -d test/e2e ] && ls test/e2e/*_test.go >/dev/null 2>&1; then
-			run_step "e2e ($VPS_LABEL)" go test -count=1 -timeout "$E2E_TIMEOUT" -tags e2e ./test/e2e/...
+			run_step "e2e ($VPS_LABEL)" e2e_tests
 		else
 			skip_step "e2e ($VPS_LABEL)" "test/e2e ainda não existe"
 		fi
