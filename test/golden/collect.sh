@@ -9,12 +9,19 @@
 #   <nome>.tshark.json  tshark -T json com os campos IP/TCP e tcp.analysis.* (inclui ack_rtt)
 #   <nome>.ja4.jsonl    ja4 -j da FoxIO (JA4T)
 #   <nome>.p0f.txt      observações syn e syn+ack do p0f -r
-# No fim (inclusive em erro) o netem e os listeners são removidos e a remoção é conferida.
+# No fim (inclusive em erro) os listeners são removidos e a remoção é conferida.
 #
-# Uso: test/golden/collect.sh        (a partir de qualquer diretório)
+# O caso retransmit-macos troca a qdisc raiz da $IFACE, a NIC única do host, que também leva os sites do humano
+# (ADR 0038 item 9; task 357). Por isso ele só roda com FS_GOLDEN_NETEM=1, dado com o aval do humano, e só sobre a
+# raiz padrão do kernel (handle 0:); a raiz só é apagada se ainda for a prio 1: que o próprio script pôs.
+#
+# Uso: test/golden/collect.sh                      (a partir de qualquer diretório; sem o caso de retransmissão)
+#      FS_GOLDEN_NETEM=1 test/golden/collect.sh    (com o caso de retransmissão, só com o aval do humano)
 set -euo pipefail
 cd "$(dirname "$0")"
 
+NETEM="${FS_GOLDEN_NETEM:-0}"
+NETEM_TOUCHED=0 # 1 depois que netem_on tentou trocar a raiz (só então netem_off pode apagá-la)
 VPS="${VPS_SSH:-root@finger-01.tmsoft.com.br}"
 SSH_PORT="${VPS_PORT:-48022}"
 IFACE="${FS_CAPTURE_IFACE:-ens192}" # interface capturada do finger-01 (ADR 0038)
@@ -25,26 +32,58 @@ PORT=7700
 EXT=example.com
 JA4="${JA4_BIN:-/root/ja4-rust/target/release/ja4}"
 R=/tmp/fs-golden
-OUT=pcaps
+OUT="${FS_GOLDEN_OUT:-pcaps}"
 DOC4=198.51.100.10
 DOC6=2001:db8::10
-CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-FIREFOX="/Applications/Firefox.app/Contents/MacOS/firefox"
+CHROME="${CHROME_BIN:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+FIREFOX="${FIREFOX_BIN:-/Applications/Firefox.app/Contents/MacOS/firefox}"
 LOCAL_TMP=$(mktemp -d)
 
 remote() { ssh -p "$SSH_PORT" -o BatchMode=yes "$VPS" "$@" </dev/null; }
 log() { echo "[golden] $*"; }
 
+# root_qdisc: a linha da qdisc raiz da $IFACE (só leitura).
+root_qdisc() { remote "tc qdisc show dev $IFACE root" | head -1; }
+
+# netem_on: põe a prio 1: com o netem 30: como raiz, só se a raiz atual for a padrão do kernel (handle 0:, ex.: mq ou
+# fq_codel); uma raiz configurada no host não é tocada. A perda vale só nos pacotes que saem da porta do listener
+# (ssh e serviços não são afetados).
+netem_on() {
+	local cur
+	cur=$(root_qdisc)
+	if ! echo "$cur" | grep -qE '^qdisc [a-z_]+ 0: root'; then
+		log "AVISO: a raiz da $IFACE não é a padrão do kernel (${cur:-desconhecida}); netem não ligado"
+		return 1
+	fi
+	NETEM_TOUCHED=1
+	remote "tc qdisc add dev $IFACE root handle 1: prio && \
+		tc qdisc add dev $IFACE parent 1:3 handle 30: netem loss 8% && \
+		tc filter add dev $IFACE protocol ip parent 1:0 prio 3 u32 match ip sport $PORT 0xffff flowid 1:3"
+}
+
+# netem_off: apaga a raiz só se este script a trocou e ela ainda é a prio 1: de netem_on; nunca "del root" às cegas.
+netem_off() {
+	[ "$NETEM_TOUCHED" = 1 ] || return 0
+	NETEM_TOUCHED=0
+	if root_qdisc | grep -q '^qdisc prio 1: root'; then
+		remote "tc qdisc del dev $IFACE root"
+	else
+		log "ATENÇÃO: a raiz da $IFACE não é mais a prio 1: do netem; nada apagado"
+	fi
+}
+
 cleanup() {
 	set +e
-	remote "pkill -f '[f]s-golden-srv'; pkill -f '[t]cpdump -i $IFACE -s0 -U -w $R'; \
-		tc qdisc del dev $IFACE root 2>/dev/null; true"
-	local left
-	left=$(remote "pgrep -fc '[f]s-golden-srv'; tc qdisc show dev $IFACE | grep -c netem; ss -ltnH 'sport = :$PORT' | wc -l")
-	if [ "$(echo "$left" | tr -d ' \n')" = "000" ]; then
-		log "servidor limpo: sem listener na $PORT e sem netem"
+	netem_off
+	remote "pkill -f '[f]s-golden-srv'; pkill -f '[t]cpdump -i $IFACE -s0 -U -w $R'; true"
+	local left s check="pgrep -fc '[f]s-golden-srv'; ss -ltnH 'sport = :$PORT' | wc -l"
+	[ "$NETEM" = 1 ] && check="$check; tc qdisc show dev $IFACE | grep -c netem"
+	left=$(remote "$check")
+	s=$(echo "$left" | tr -d ' \n')
+	if [ -n "$s" ] && [ -z "$(echo "$s" | tr -d 0)" ]; then
+		log "servidor limpo: sem listener na $PORT$([ "$NETEM" = 1 ] && echo ' e sem netem')"
 	else
-		log "ATENÇÃO: sobras no servidor (listener, netem, socket): $(echo "$left" | tr '\n' ' ')"
+		log "ATENÇÃO: sobras no servidor (listener, socket$([ "$NETEM" = 1 ] && echo ', netem')): $(echo "$left" | tr '\n' ' ')"
 	fi
 	remote "rm -rf $R"
 	rm -rf "$LOCAL_TMP"
@@ -105,17 +144,12 @@ firefox() {
 	limit 60 "$FIREFOX" --headless --no-remote --profile "$LOCAL_TMP/ff" --screenshot "$LOCAL_TMP/ff.png" \
 		"http://$VPS4:$PORT/" >/dev/null 2>&1
 }
-# ATENÇÃO no finger-01: o netem troca a qdisc raiz da $IFACE, que também leva o tráfego dos sites do host (ADR 0038
-# item 9); rodar só com o aval do humano.
-netem_on() {
-	# perda só nos pacotes que saem da porta do listener (ssh e serviços não são afetados)
-	remote "tc qdisc add dev $IFACE root handle 1: prio && \
-		tc qdisc add dev $IFACE parent 1:3 handle 30: netem loss 8% && \
-		tc filter add dev $IFACE protocol ip parent 1:0 prio 3 u32 match ip sport $PORT 0xffff flowid 1:3"
-}
-netem_off() { remote "tc qdisc del dev $IFACE root"; }
+# Sem netem, nenhum tráfego: o caso sai sem pacotes e é descartado (nunca um "retransmit" sem perda).
 retransmit() {
-	netem_on
+	netem_on || {
+		netem_off
+		return 1
+	}
 	mac_curl -4 "http://$HOST:$PORT/big.bin"
 	netem_off
 }
@@ -130,7 +164,11 @@ run_case go-macos "tcp port $PORT and $MACF" go run -tags golden ./goclient "htt
 run_case chrome-macos "tcp port $PORT and $MACF" chrome
 run_case firefox-macos "tcp port $PORT and $MACF" firefox
 run_case keepalive-macos "tcp port $PORT and $MACF" python3 sock.py keepalive "$VPS4" "$PORT"
-run_case retransmit-macos "tcp port $PORT and $MACF" retransmit
+if [ "$NETEM" = 1 ]; then
+	run_case retransmit-macos "tcp port $PORT and $MACF" retransmit
+else
+	log "caso retransmit-macos pulado: o netem troca a qdisc raiz da $IFACE do host (ADR 0038 item 9); FS_GOLDEN_NETEM=1 só com o aval do humano"
+fi
 run_case rst-macos "tcp port $PORT and $MACF" python3 sock.py rst "$VPS4" "$PORT"
 
 log "saídas de referência no servidor"
