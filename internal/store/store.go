@@ -49,6 +49,9 @@ type Config struct {
 	P0FPath      string // FS_P0F_DB
 	LiveBuffer   int    // FS_LIVE_BUFFER (ADR 0020)
 	LiveMax      int    // FS_LIVE_MAX_CLIENTS
+	// SpaceReader lê o espaço do sistema de arquivos do banco; nil usa o statfs do diretório de DBPath. Só os
+	// testes passam outro, para o expurgo por espaço não depender do disco de quem roda (task 410).
+	SpaceReader SpaceReader
 }
 
 // LoadConfig lê FS_* do store.
@@ -202,7 +205,11 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.ingest.SetConnPublisher(s.conns)
 	s.prom.reg.MustRegister(s.conns.collectors()...)
 	s.prom.registerStream(&s.ingest.stream)
-	s.space = newDBSpace(NewStatfsSpace(cfg.DBPath)).withReserve(cfg.DBPath)
+	spaceReader := cfg.SpaceReader
+	if spaceReader == nil {
+		spaceReader = NewStatfsSpace(cfg.DBPath)
+	}
+	s.space = newDBSpace(spaceReader).withReserve(cfg.DBPath)
 	if err := s.space.ensureReserve(); err != nil {
 		svc.Log.Warn("db space reserve", "err", err)
 	}

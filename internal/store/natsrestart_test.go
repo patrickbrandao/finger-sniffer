@@ -148,13 +148,7 @@ func TestIntegrationNATSRestart(t *testing.T) {
 			MaxOpen: 200, MaxNewPerS: 50, Snaplen: 65535,
 		},
 	}
-	st, err := New(ctx, storeSvc, cfg, []byte("openapi: 3.1.0\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// O statfs real do banco é o do disco de quem roda o teste: com menos de 10% livre, o expurgo por espaço (ADR
-	// 0045) apagaria as conexões no meio do teste. Espaço de sobra, fixo.
-	st.space.reader = newFakeSpace(4<<30, 3<<30)
+	st := newTestStore(ctx, t, storeSvc, cfg)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); _ = st.Run(ctx) }()

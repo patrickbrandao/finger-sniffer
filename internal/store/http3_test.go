@@ -413,10 +413,7 @@ func TestIntegrationHTTP3(t *testing.T) {
 			MaxOpen: 200, MaxNewPerS: 50, Snaplen: 65535,
 		},
 	}
-	st, err := New(ctx, storeSvc, cfg, []byte("openapi: 3.1.0\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := newTestStore(ctx, t, storeSvc, cfg)
 	go func() { _ = st.Run(ctx) }()
 	nc, err := nats.Connect(ns.ClientURL())
 	if err != nil {

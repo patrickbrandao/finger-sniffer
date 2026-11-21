@@ -92,9 +92,10 @@ func TestIntegrationHealth(t *testing.T) {
 			MaxOpen: 200, MaxNewPerS: 50, Snaplen: 65535,
 		},
 	}
-	st, err := New(ctx, storeSvc, cfg, []byte("openapi: 3.1.0\n"))
-	if err != nil {
-		t.Fatal(err)
+	st := newTestStore(ctx, t, storeSvc, cfg)
+	// O New usa o SpaceReader da config, não o statfs do disco de quem roda (task 410).
+	if _, ok := st.space.reader.(*fakeSpace); !ok {
+		t.Fatalf("store space reader = %T, want the test *fakeSpace", st.space.reader)
 	}
 	go func() { _ = st.Run(ctx) }()
 	go func() { _ = heartbeatsOnly(ctx, storeSvc) }()
