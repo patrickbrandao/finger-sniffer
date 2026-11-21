@@ -93,10 +93,7 @@ func TestHTTPSAPI(t *testing.T) {
 		RetentionDur: 10 * time.Minute,
 		Ingest:       IngestConfig{PcapMax: 16 << 20, TCPIdle: time.Minute, UDPIdle: 30 * time.Second, CloseGrace: time.Second, MaxOpen: 200, MaxNewPerS: 50, Snaplen: 65535},
 	}
-	st, err := New(ctx, svc, cfg, []byte("openapi: 3.1.0\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := newTestStore(ctx, t, svc, cfg)
 	go func() { _ = st.Run(ctx) }()
 
 	base := fmt.Sprintf("https://127.0.0.1:%d", httpsPort)

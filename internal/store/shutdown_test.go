@@ -62,10 +62,7 @@ func TestStoreShutdownWaitsIngest(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	st, err := New(ctx, svc, cfg, []byte("openapi: 3.1.0\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := newTestStore(ctx, t, svc, cfg)
 	done := make(chan error, 1)
 	go func() { done <- st.Run(ctx) }()
 
@@ -151,10 +148,7 @@ func TestStoreShutdownStalledAPIConn(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	st, err := New(ctx, svc, cfg, []byte("openapi: 3.1.0\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := newTestStore(ctx, t, svc, cfg)
 	done := make(chan error, 1)
 	go func() { done <- st.Run(ctx) }()
 	var conn net.Conn
