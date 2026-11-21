@@ -212,6 +212,7 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_stream_lost_total` | contador | mensagens do `FS_EVENTS` que nunca chegaram ao store (expiradas por `max_age` ou `max_bytes`), somando os saltos de `Sequence.Stream` no metadado das mensagens recebidas; reentrega não conta e a primeira mensagem depois da partida não conta salto (ADR 0041) |
 | `fs_store_ingest_backlog_seconds` | gauge | parede menos o instante em que a última mensagem processada entrou no stream; volta a 0 quando um Fetch não traz mensagens (consumidor em dia) (ADR 0041) |
 | `fs_store_ingest_pending_messages` | gauge | `NumPending` do metadado da última mensagem processada (ADR 0041) |
+| `fs_store_stream_recreated_total` | contador | vezes que o store recriou o `FS_EVENTS` e o consumidor depois de eles sumirem (reinício do NATS com o stream em memória, ADR 0016); a perda entre a queda e a recriação não entra em `fs_store_stream_lost_total`, que recomeça a contar saltos do zero (task 320) |
 | `fs_store_dns_queries_total` | contador | consultas DNS gravadas |
 | `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção), `size` (teto do banco) ou `space` (livre do tmpfs do banco abaixo de 10%, ou expurgo de emergência depois de um `SQLITE_FULL`; ADR 0045) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |

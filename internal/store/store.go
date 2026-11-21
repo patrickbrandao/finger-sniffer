@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -206,6 +207,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 		svc.Log.Warn("db space reserve", "err", err)
 	}
 	s.ingest.SetSpace(s.space, s.emergencyPurge())
+	s.ingest.SetReopen(s.reopenStream)
 	s.prom.registerSpace(s.space)
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen).WithOpenSummary(s.ingest.flows.openSummary).
 		WithLivePcap(s.ingest.flows.livePcap)
@@ -394,6 +396,23 @@ func (s *Store) ensureStream(ctx context.Context) jetstream.Consumer {
 		}
 	}
 	return nil
+}
+
+// reopenStream recria o stream e o consumidor durável depois de o consumidor sumir (reinício do NATS com o
+// FS_EVENTS em memória, ADR 0016; task 320) e diz se o stream em si foi recriado (não existia).
+func (s *Store) reopenStream(ctx context.Context) (jetstream.Consumer, bool, error) {
+	js, err := jetstream.New(s.svc.NC)
+	if err != nil {
+		return nil, false, err
+	}
+	c, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, serr := js.Stream(c, StreamName)
+	cons, err := EnsureStream(c, js)
+	if err != nil {
+		return nil, false, err
+	}
+	return cons, errors.Is(serr, jetstream.ErrStreamNotFound), nil
 }
 
 // retentionLoop expurga a cada segundo, em lotes curtos e com orçamento por rodada (spec 004 RF-06, task 105).
