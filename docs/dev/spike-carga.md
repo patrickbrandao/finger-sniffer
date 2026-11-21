@@ -4,7 +4,8 @@
 > registro histórico, mantido como estava.
 
 Data: 2026-11-07 · Máquina: vps602 (Linode, Debian 13, kernel 6.12, 1 vCPU, 967 MiB, disco 25 GB) ·
-Protótipo: [`test/spike/`](../../test/spike/README.md) · Para: architect (confirmar ou substituir as ADRs 0004 e 0005).
+Protótipo: `test/spike/`, removido na task 358 (está no histórico até o commit `b30a5b1`) · Para: architect
+(confirmar ou substituir as ADRs 0004 e 0005).
 
 ## Resumo
 
@@ -101,15 +102,9 @@ pacotes no kernel, 0 perdidos, 0 congelamentos de fila; 1.337 pacotes filtrados 
 
 ## Reproduzir
 
-```bash
-test/spike/run.sh 10m 50
-```
-
-```bash
-FS_SPIKE_LABEL=E-stream-memoria STORE_ARGS="-retention 2m -mem-stream" test/spike/run.sh 4m 50
-```
-
-Outras variações: `STORE_ARGS="-retention 30m"` (sem expurgo), `"-retention 1m -no-vacuum"`. Resultados em
-`tmp/spike-results/<data>-<duração>-<taxa>[-rótulo]/` (`load.jsonl`, `spike-store.jsonl`, `spike-cap.jsonl`,
-`spike-mon.jsonl`, `vmstat.txt`). O `run.sh` envia os binários para `/root/spike` na vps602, roda cada um em unit
-transitória e apaga tudo (inclusive o stream `FS_EVENTS`) no fim.
+Não reproduzir. O protótipo (`test/spike/`) foi removido do repositório na task 358: depois da migração para o
+finger-01 (ADR 0038) o `run.sh` passou a apontar para o servidor em produção, e ele usava o NATS do espelho, apagava e
+recriava o stream `FS_EVENTS` com `fs.v1.>`, tomava o consumidor durável `store` e publicava no subject do capture
+real. O código e o `run.sh` (as variações `STORE_ARGS` e `FS_SPIKE_LABEL` citadas acima) ficam no histórico até o
+commit `b30a5b1` (`git show b30a5b1:test/spike/README.md`). As medidas de carga atuais são as de `test/load/`
+(`test/load/RESULTS.md`).

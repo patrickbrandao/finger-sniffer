@@ -1,0 +1,1 @@
+- test: removido o spike da F1 (`test/spike/`): depois da migração para o finger-01 o `run.sh` apontava para o servidor em produção, apagava e recriava o stream `FS_EVENTS` com `fs.v1.>` e tomava o consumidor `store`; `docs/dev/spike-carga.md` fica como registro, com a seção "Reproduzir" apontando para o histórico (`b30a5b1`) (task 358).
