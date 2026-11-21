@@ -23,15 +23,16 @@ VPS_PORT="${FS_VPS_PORT:-48022}"
 OUT="${OUT:-tmp/load/raw/budget-$(date -u +%Y%m%dT%H%M%SZ)}"
 BIN="tmp/load"
 REMOTE=/tmp/fs-load
-LOCK=/tmp/fs-load-running
 # fatia própria do espelho (ADR 0039 item 1)
 CG=/sys/fs/cgroup/finger.slice/finger-sniffer.slice/finger-sniffer-web.service
 
 ssh_vps() { ssh -p "$VPS_PORT" -o BatchMode=yes "$VPS_SSH" "$@"; }
-cleanup() {
-	ssh_vps "pkill -INT -f '[l]oadmon sample' || true; sleep 1; rm -rf $REMOTE $LOCK" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
+# A trava é tomada e devolvida por test/load/loadlock.sh: recusada, esta execução não apaga a trava nem o diretório
+# da outra carga (antes o cleanup apagava os dois mesmo depois de recusar; task 361).
+# shellcheck source=test/load/loadlock.sh
+. "$ROOT/test/load/loadlock.sh"
+trap load_lock_release EXIT
+load_lock_take || exit 1
 
 web_state() {
 	ssh_vps "systemctl show finger-sniffer-web -p NRestarts -p MainPID -p ActiveEnterTimestamp -p MemoryMax; \
@@ -43,7 +44,7 @@ mkdir -p "$BIN" "$OUT"
 go build -tags load -o "$BIN/budgetload" ./test/load/cmd/budgetload
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags load -o "$BIN/loadmon" ./test/load/cmd/loadmon
 
-ssh_vps "if [ -e $LOCK ]; then echo 'outra carga em andamento' >&2; exit 1; fi; mkdir -p $REMOTE; date -u +%FT%TZ > $LOCK"
+ssh_vps "mkdir -p $REMOTE"
 scp -q -P "$VPS_PORT" "$BIN/loadmon" "$VPS_SSH:$REMOTE/loadmon"
 if [ "${RESTART_WEB:-0}" = 1 ]; then
 	ssh_vps "systemctl restart finger-sniffer-web"

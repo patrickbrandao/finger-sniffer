@@ -8,6 +8,10 @@
 #
 # Fluxo: build local → rsync para uma área de staging própria → instalação remota sob trava
 # (flock /run/finger-sniffer/deploy.lock) → smoke test (units, rede e deploy/smoke.sh; com SVC, só o serviço + health).
+#
+# Com uma carga em andamento no servidor (/tmp/fs-load-running, gravada por test/load/*.sh) o deploy é recusado, antes
+# do build e de novo sob a trava, porque reiniciar as units invalida a medida (spec 017 RF-13, task 361).
+# FORCE_DURING_LOAD=1 passa por cima, de caso pensado.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,6 +41,15 @@ if [ "${FS_DEPLOY_PRINT_TARGETS:-0}" = 1 ]; then
 	exit 0
 fi
 
+LOAD_LOCK="${FS_LOAD_LOCK:-/tmp/fs-load-running}"
+FORCE_DURING_LOAD="${FORCE_DURING_LOAD:-0}"
+if [ "$FORCE_DURING_LOAD" != 1 ]; then
+	echo "== carga em andamento?"
+	rc=0
+	"${SSH[@]}" "if [ -e '$LOAD_LOCK' ]; then echo \"carga em andamento no servidor ($LOAD_LOCK: \$(cat '$LOAD_LOCK' 2>/dev/null)); deploy recusado (FORCE_DURING_LOAD=1 passa por cima)\" >&2; exit 3; fi" || rc=$?
+	[ "$rc" = 0 ] || exit "$rc"
+fi
+
 echo "== build"
 make -s build
 
@@ -49,7 +62,8 @@ rsync -a --delete -e "ssh -p $PORT -o BatchMode=yes" \
 
 echo "== instalação remota (com trava)"
 "${SSH[@]}" "mkdir -p /run/finger-sniffer && flock -w 300 /run/finger-sniffer/deploy.lock \
-	env SVC='$SVC' FORCE='$FORCE' bash '$STAGING/deploy/remote-install.sh' '$STAGING'; rc=\$?; rm -rf '$STAGING'; exit \$rc"
+	env SVC='$SVC' FORCE='$FORCE' FORCE_DURING_LOAD='$FORCE_DURING_LOAD' FS_LOAD_LOCK='$LOAD_LOCK' \
+	bash '$STAGING/deploy/remote-install.sh' '$STAGING'; rc=\$?; rm -rf '$STAGING'; exit \$rc"
 
 # GET por h3 a partir do Mac (spec 016 RF-10): só com o web anunciando h3 e um curl local com HTTP3.
 # O smoke remoto já confere Alt-Svc, o listener UDP e um GET por h3 de dentro do servidor.

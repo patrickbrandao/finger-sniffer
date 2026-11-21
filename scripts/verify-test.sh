@@ -6,7 +6,8 @@
 #     execuções simultâneas, falha de compilação, falha de scp e sinal;
 #   - o openapi do bot entra nos contratos (task 262);
 #   - os testes -race do store em lotes no CI: repartição, união dos lotes = lista (falha com um teste omitido de
-#     propósito), race-shard num módulo mínimo e o workflow (task 294).
+#     propósito), race-shard num módulo mínimo e o workflow (task 294);
+#   - o passo e2e é recusado com a trava da carga no servidor, salvo FS_E2E_DURING_LOAD=1 (task 361).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -420,6 +421,33 @@ ci_shards=$(sed -nE 's/^ +shard: \[([0-9, ]+)\]$/\1/p' "$CI_YML" | tr ',' '\n' |
 check "CI: race-check com o número de lotes da matriz" '[ "$ci_shards" -ge 2 ] && grep -qE "verify\.sh race-check $ci_shards " "$CI_YML"'
 check "CI: race-check depende do verify-full e dos lotes" 'grep -qF "needs: [verify-full, store-race]" "$CI_YML"'
 check "CI: lote com race-shard e tamanho da matriz" 'grep -qF "race-shard \"\${{ matrix.shard }}\" \"\${{ strategy.job-total }}\"" "$CI_YML"'
+
+# ---- task 361: o passo e2e é recusado com a trava da carga no servidor --------------------------------------
+# O ssh é o stub acima (o "servidor" é esta máquina); go é trocado por um stub que só registra a chamada.
+LL="$T/loadlock"
+mkdir -p "$LL/bin"
+cat >"$LL/bin/go" <<'EOF'
+#!/usr/bin/env bash
+echo "go $*" >>"$LL_LOG"
+EOF
+chmod +x "$LL/bin/go"
+ll_e2e() {
+	(
+		export LOAD_LOCK="$LL/fs-load-running" PATH="$LL/bin:$PATH" LL_LOG="$LL/go.log" FS_E2E_DURING_LOAD="$1"
+		e2e_tests
+	) >"$T/out.loadlock-$2" 2>&1
+}
+echo 2026-11-21T10:00:00Z >"$LL/fs-load-running"
+ll_e2e 0 present
+ll_rc=$?
+check "e2e recusado com a trava da carga, sem rodar o go test (task 361)" \
+	'[ "$ll_rc" != 0 ] && grep -q "e2e recusado" "$T/out.loadlock-present" && grep -q 2026-11-21T10:00:00Z "$T/out.loadlock-present" && [ ! -s "$LL/go.log" ]'
+ll_e2e 1 forced
+check "FS_E2E_DURING_LOAD=1 roda o e2e com a trava" 'grep -q "go test .*-tags e2e" "$LL/go.log"'
+rm -f "$LL/fs-load-running" "$LL/go.log"
+ll_e2e 0 absent
+ll_rc=$?
+check "e2e roda sem a trava" '[ "$ll_rc" = 0 ] && grep -q "go test .*-tags e2e" "$LL/go.log"'
 
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do

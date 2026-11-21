@@ -18,6 +18,10 @@ log() { echo "[deploy] $*"; }
 . "$STAGING/deploy/install-lib.sh"
 UNITS="$FS_UNITS"
 
+# Carga em andamento (/tmp/fs-load-running): nada é instalado nem reiniciado. Conferido de novo aqui, já sob a trava
+# do deploy, porque a carga pode ter começado durante o build e o rsync (task 361).
+load_lock_refuse "${FS_LOAD_LOCK:-/tmp/fs-load-running}" || exit 3
+
 # install_if_changed <origem> <destino> <modo>: copia só se diferente; devolve 0 se mudou.
 install_if_changed() {
 	if [ -f "$2" ] && cmp -s "$1" "$2"; then

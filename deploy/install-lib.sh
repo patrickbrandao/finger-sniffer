@@ -267,3 +267,13 @@ store_tmpfs_check() {
 	echo "  banco do store: $mnt NÃO é tmpfs de $size (${info:-não montado})"
 	return 1
 }
+
+# load_lock_refuse <trava>: sai 3, com a mensagem, enquanto houver carga em andamento no servidor (a trava é gravada
+# por test/load/*.sh). O deploy reinicia units e invalidaria a medida (spec 017 RF-13, task 361);
+# FORCE_DURING_LOAD=1 passa por cima, de caso pensado.
+load_lock_refuse() {
+	[ "${FORCE_DURING_LOAD:-0}" = 1 ] && return 0
+	[ -e "$1" ] || return 0
+	echo "carga em andamento no servidor ($1: $(cat "$1" 2>/dev/null)); deploy recusado (FORCE_DURING_LOAD=1 passa por cima)" >&2
+	return 3
+}

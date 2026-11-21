@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Vigia lateral da carga da F8 (task 285), roda no finger-01: a cada 5 s, o health do store (com as métricas bot_*
 # do heartbeat), o health do bot, o /metrics do store e memória/CPU/pressões do cgroup do bot, do store e da fatia.
-# Segura /tmp/fs-load-running entre as rodadas (o run.sh a apaga ao sair). Para com SIGTERM (pkill -f f8-side).
+# Segura /tmp/fs-load-running entre as rodadas: rode o run.sh com FS_LOAD_LOCK_HELD=1 (ele não a cria nem a apaga;
+# test/load/loadlock.sh, task 361). Para com SIGTERM (pkill -f f8-side).
 OUT=${1:-/tmp/fs-load-f8/side}
 mkdir -p "$OUT"
 CG=/sys/fs/cgroup/finger.slice/finger-sniffer.slice
