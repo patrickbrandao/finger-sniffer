@@ -56,15 +56,27 @@ test/golden/collect.sh
 test/golden/foxio-windows.sh   # windows-foxio, a partir do pcap da FoxIO
 ```
 
-O script roda no Mac e usa a vps602 sem aprovação, por ser o servidor de testes. Ele faz o seguinte:
+O script roda no Mac e usa o finger-01 (ADR 0038; os pcaps atuais ainda são os da vps602, servidor anterior). Ele
+faz o seguinte:
 - sobe dois `python3 -m http.server` temporários na porta 7700, um em IPv4 e outro em IPv6;
-- captura cada caso com `tcpdump -s0` na eth0, filtrando pelo IP do cliente;
-- liga o `tc netem` só durante o caso de retransmissão, com perda apenas na porta de origem 7700, para não
-  afetar o ssh;
-- gera as três saídas de referência na própria VPS e copia tudo para `pcaps/`.
+- captura cada caso com `tcpdump -s0` na `ens192` (`FS_CAPTURE_IFACE`), filtrando pelo IP do cliente;
+- gera as três saídas de referência no servidor e copia tudo para `pcaps/` (`FS_GOLDEN_OUT` troca o destino).
 
-No fim, mesmo em erro, o script remove os listeners, o netem e os arquivos temporários. A remoção é
-conferida e aparece no log: "vps602 limpa: sem listener na 7700 e sem netem".
+O caso de retransmissão (`retransmit-macos`) liga o `tc netem` com perda só na porta de origem 7700, mas para isso
+troca a qdisc raiz da `ens192`, a NIC única do host, que também leva os sites do humano (ADR 0038 item 9). Por isso
+ele **só roda com `FS_GOLDEN_NETEM=1`, dado com o aval do humano**; sem ela, o caso é pulado com um aviso e nenhum
+comando `tc` vai ao servidor. Mesmo com a variável, o netem só é ligado sobre a raiz padrão do kernel (handle `0:`) e
+a raiz só é apagada se ainda for a `prio 1:` que o próprio script pôs (task 357):
+
+```bash
+FS_GOLDEN_NETEM=1 test/golden/collect.sh   # só com o aval do humano
+```
+
+No fim, mesmo em erro, o script remove os listeners e os arquivos temporários (e o netem, se o ligou). A remoção é
+conferida e aparece no log: "servidor limpo: sem listener na 7700" (mais "e sem netem" com `FS_GOLDEN_NETEM=1`).
+Um caso cujo cliente não conecta (ex.: navegador que não sobe headless) sai sem pacotes e **o golden versionado dele
+é apagado** de `pcaps/`: confira o `git diff` antes de commitar. O teste do script (`collect_test.go`) roda com
+`ssh`/`scp` falsos e `FS_GOLDEN_OUT` num diretório temporário, sem tocar em `pcaps/` nem no servidor.
 
 Pré-requisitos:
 - **vps602:** `tshark`, `tcpdump` e `p0f` (apt). O `ja4` da FoxIO fica compilado em `/root/ja4-rust`
