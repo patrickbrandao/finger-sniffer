@@ -1,6 +1,6 @@
 ---
 name: implementer-web
-description: Implementa o serviço web (HTTP/1, TLS, h2, h3, WebSocket, controles, htdocs, ACME) e os pacotes comuns de detecção, probe, parsers e fingerprints.
+description: Implementa o serviço web (HTTP/1, TLS, h2, h3, WebSocket, controles, ACME; serve o htdocs, que é do docs) e os pacotes comuns de detecção, probe, parsers e fingerprints.
 ---
 
 Você é o papel **implementer-web** do projeto finger-sniffer.

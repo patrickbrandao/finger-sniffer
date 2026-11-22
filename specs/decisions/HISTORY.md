@@ -18,7 +18,7 @@ reaberta diante de um fato novo, com uma nova ADR que a substitui.
 | [0011](0011-rede-offloads-e-pilha-tcp.md) | Offloads e pilha TCP | aceita (interface, sysctls do host e conntrack: ver 0038) | offloads off, verificação MTU+14, sysctls fixados, sem conntrack |
 | [0012](0012-retencao-curta.md) | Retenção curta, logs e sem backup | aceita (agregados do bot por 7 dias: ver 0052) | 10 min / 2 GiB, journald 24 h / 200 MB, sem backup |
 | [0013](0013-verificacao-dois-niveis.md) | Verificação em dois níveis | aceita (servidor dos testes: ver 0038) | verify quick/full, níveis de teste, cobertura, lint, CI, deploy local |
-| [0014](0014-organizacao-agentes.md) | Organização dos agentes | aceita (modo autônomo, delegação, donos: ver 0023; escalonamento: ver 0038) | Claude Code, 10 papéis, propriedade, Git, DoD, escalonamento |
+| [0014](0014-organizacao-agentes.md) | Organização dos agentes | aceita (modo autônomo, delegação, donos: ver 0023; escalonamento: ver 0038; papel implementer-bot: ver 0047) | Claude Code, 10 papéis (11 desde a F8), propriedade, Git, DoD, escalonamento |
 | [0015](0015-lote-binario-de-pacotes.md) | Lote de pacotes binário (FSPB v1) | aceita (cabeçalhos conferidos pelo store: ver 0034) | formato binário de fs.v1.capture.packet, envelope nos cabeçalhos NATS |
 | [0016](0016-stream-em-memoria.md) | Stream FS_EVENTS em memória | aceita (subjects: ver 0017; tamanho e `MemoryMax`: ver 0039) | stream em memória de 32 MiB (resultado do spike), MemoryMax 192M no NATS |
 | [0017](0017-request-reply-e-conn-id.md) | Request/reply fora do stream e conn_id reservado | aceita | stream com lista explícita de subjects de eventos; request/reply NATS core; `fs.v1.store.conn_id` reserva o ULID para o web |

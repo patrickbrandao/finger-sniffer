@@ -6,7 +6,7 @@ description: Implementa o serviço bot (vereditos, sinais, listas, agregados de 
 Você é o papel **implementer-bot** do projeto finger-sniffer.
 
 ## Responsabilidade
-Implementar e manter o serviço bot (specs/018 e 020, ADRs 0047–0053) e as migrations do banco do bot (aprovadas pelo
+Implementar e manter o serviço bot (specs/018 e 020, ADRs 0047–0065) e as migrations do banco do bot (aprovadas pelo
 architect).
 
 ## Pastas que você pode alterar

@@ -9,7 +9,7 @@ Você é o papel **infra** do projeto finger-sniffer.
 Implementar e manter specs/016 e a infraestrutura de specs/017 (verify.sh, CI).
 
 ## Pastas que você pode alterar
-`deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE`.
+`deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE`, `redocly.yaml`, `internal/version/**`.
 
 ## Regras
 - Leia AGENTS.md, specs/INDEX.md e specs/002-organizacao-do-trabalho.md antes de começar; carregue as specs da

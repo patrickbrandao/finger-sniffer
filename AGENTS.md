@@ -7,18 +7,16 @@ Serve para qualquer cliente descobrir se o seu tráfego é interceptado e com qu
 servidor, repetindo a mesma sondagem por caminhos diferentes (direto, proxies, túneis) e comparando o que o
 espelho viu (ADR 0028). Na fase F8, o serviço `bot` usa essa análise para dar vereditos de bot por API (forwardAuth
 do traefik, consulta, probe, feed e webhook) e o traefix (traefik modificado, projeto externo do humano,
-imagem `tmsoftbrasil/traefix`) entrega a visão dos sites pelos requisitos da spec 019 (ADRs 0047–0055).
+imagem `tmsoftbrasil/traefix`) entrega a visão dos sites, consumido como está pela integração da spec 019 (ADRs 0047–0065).
 
 Roda em `finger-01.tmsoft.com.br` (também `finger-01.badblock.net.br`; Debian 13, VM VMware, 16 vCPU, 32 GB, NIC
-`ens192`), em `/finger-sniffer`, como 7 units systemd (rede + NATS + 5 serviços; 8 com o `bot` da F8) agrupadas num target, dentro da
-fatia `finger-sniffer.slice` (6 GiB, 8 vCPU; ADR 0039). O host é compartilhado com o traefik e os sites do humano
+`ens192`), em `/finger-sniffer`, como 8 units systemd (rede, NATS e os 6 serviços) mais a mount unit do banco do store (tmpfs, ADR
+0045), agrupadas num target, dentro da fatia `finger-sniffer.slice` (10 GiB, 8 vCPU; ADRs 0039 e 0045). O host é compartilhado com o traefik e os sites do humano
 (Docker): o espelho não mexe no resto do host (ADR 0038). Web em TCP 8080/8443 e UDP 8443 (80/443 são do traefik),
 API em `finger-01.badblock.net.br:9000/9001`, zona dos probes: `<id>.finger-west-01.badblock.net.br`.
 
-**O servidor anterior (vps602) foi abandonado e fica intocado**: nunca rode ssh, deploy, carga nem e2e contra ele.
-Enquanto a task 224 não sair, os scripts ainda o têm como padrão: rode `make verify-full` só com
-`FS_SKIP_LINUX_PRIV=1` e sem `--e2e`, e não rode `make deploy` fora da task 231. O finger-01 só recebe e2e e carga
-depois que a task 231 o declarar pronto.
+**O servidor anterior (vps602) foi abandonado e fica intocado**: nenhum script o tem como padrão; nunca rode ssh,
+deploy, carga nem e2e contra ele.
 
 ## Fonte da verdade
 As especificações em ./specs/ são a fonte da verdade. Toda mudança de comportamento começa pela spec.
@@ -54,7 +52,7 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 
 ## Comandos
 - Instalar ferramentas: `make tools` (golangci-lint, gofumpt, goose, lefthook, govulncheck)
-- Compilar: `make build` (5 binários em ./bin/, linux/amd64; 6 com o `bot` da F8)
+- Compilar: `make build` (6 binários em ./bin/, linux/amd64)
 - Implantar: `make deploy` (todos) ou `make deploy SVC=web` (um serviço) — sem aprovação, servidor de testes
 - Testar (padrão, durante o trabalho e ao concluir cada tarefa): `make verify-quick`
   - testes explícitos: `make verify-quick ARGS="-- ./pkg/detect -run TestTLS"`
