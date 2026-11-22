@@ -20,11 +20,17 @@ const (
 // backlog e pendentes, falhas seguidas do Fetch e recriações do stream (task 320). Escrito pelo laço de ingest;
 // lido pelo heartbeat e pelo /metrics (com a trava).
 type streamStats struct {
-	mu      sync.Mutex
-	maxSeq  uint64  // maior Sequence.Stream visto; 0 = nenhum desde a partida ou a recriação do stream
-	lost    uint64  // fs_store_stream_lost_total
-	backlog float64 // fs_store_ingest_backlog_seconds
-	pending uint64  // fs_store_ingest_pending_messages
+	mu     sync.Mutex
+	maxSeq uint64 // maior Sequence.Stream visto; 0 = nenhum desde a partida ou a recriação do stream
+	lost   uint64 // fs_store_stream_lost_total
+	// lastPub é o instante de publicação no stream da última mensagem processada; caught diz que um Fetch vazio
+	// mostrou o consumidor em dia depois dela. O backlog sai deles no instante da leitura (ADR 0041 item 3): com o
+	// ingest parado ele cresce com a parede, em vez de congelar no valor do último lote (task 338).
+	lastPub time.Time
+	caught  bool
+	// clock é o relógio do /metrics (nil = time.Now; os testes fixam a parede).
+	clock   func() time.Time
+	pending uint64 // fs_store_ingest_pending_messages
 	lostLog []lostAt
 	// failSince é a primeira falha da sequência atual de Fetch com erro (zero enquanto o Fetch funciona).
 	failSince time.Time
@@ -44,7 +50,7 @@ func (s *streamStats) observe(md *jetstream.MsgMetadata, wall time.Time) uint64 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !md.Timestamp.IsZero() {
-		s.backlog = max(wall.Sub(md.Timestamp).Seconds(), 0)
+		s.lastPub, s.caught = md.Timestamp, false
 	}
 	s.pending = md.NumPending
 	seq := md.Sequence.Stream
@@ -68,7 +74,16 @@ func (s *streamStats) observe(md *jetstream.MsgMetadata, wall time.Time) uint64 
 func (s *streamStats) caughtUp() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.backlog, s.pending = 0, 0
+	s.caught, s.pending = true, 0
+}
+
+// backlogAt é o backlog em segundos no instante now: parede − publicação da última mensagem processada, 0 com o
+// consumidor em dia ou sem mensagem desde a partida ou a recriação do stream. Chamado com a trava.
+func (s *streamStats) backlogAt(now time.Time) float64 {
+	if s.caught || s.lastPub.IsZero() {
+		return 0
+	}
+	return max(now.Sub(s.lastPub).Seconds(), 0)
 }
 
 // fetchFailed registra um Fetch com erro no instante de parede wall e devolve há quanto tempo o Fetch falha sem
@@ -95,16 +110,25 @@ func (s *streamStats) fetchOK() {
 func (s *streamStats) streamRecreated(wall time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.maxSeq, s.backlog, s.pending = 0, 0, 0
+	s.maxSeq, s.lastPub, s.caught, s.pending = 0, time.Time{}, false, 0
 	s.recreated++
 	s.recLog = append(s.recLog, wall)
 }
 
-// snapshot devolve os valores das métricas.
+// snapshot devolve os valores das métricas agora.
 func (s *streamStats) snapshot() (lost uint64, backlog float64, pending uint64) {
+	now := time.Now
+	if s.clock != nil {
+		now = s.clock
+	}
+	return s.snapshotAt(now())
+}
+
+// snapshotAt devolve os valores das métricas no instante now.
+func (s *streamStats) snapshotAt(now time.Time) (lost uint64, backlog float64, pending uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lost, s.backlog, s.pending
+	return s.lost, s.backlogAt(now), s.pending
 }
 
 // recreatedTotal devolve fs_store_stream_recreated_total.
@@ -119,8 +143,8 @@ func (s *streamStats) reasons(now time.Time) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []string
-	if s.backlog > backlogDegraded.Seconds() {
-		out = append(out, fmt.Sprintf("ingest backlog %ds", int64(math.Round(s.backlog))))
+	if b := s.backlogAt(now); b > backlogDegraded.Seconds() {
+		out = append(out, fmt.Sprintf("ingest backlog %ds", int64(math.Round(b))))
 	}
 	keep := s.lostLog[:0]
 	var n uint64
@@ -134,8 +158,8 @@ func (s *streamStats) reasons(now time.Time) []string {
 	if n > 0 {
 		out = append(out, fmt.Sprintf("stream lost %d messages in 5m", n))
 	}
-	// O backlog congela no último valor enquanto o Fetch falha: sem este motivo o health ficaria ok com o ingest
-	// parado (task 320).
+	// Com o Fetch falhando e o stream sem mensagem processada desde a partida ou a recriação, o backlog é 0: este
+	// motivo cobre o ingest parado nesse caso (task 320).
 	if !s.failSince.IsZero() && now.Sub(s.failSince) > fetchFailDegraded {
 		out = append(out, fmt.Sprintf("ingest fetch failing %ds", int64(math.Round(now.Sub(s.failSince).Seconds()))))
 	}

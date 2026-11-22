@@ -35,6 +35,7 @@ func TestStreamStatsFetchFailingAndRecreated(t *testing.T) {
 		t.Errorf("sem o motivo da falha do Fetch: %q", got)
 	}
 	s.fetchOK()
+	s.caughtUp() // o Fetch que volta vazio também mostra o consumidor em dia (laço do Ingestor.Run)
 	if got := s.reasons(t0.Add(8 * time.Second)); len(got) != 0 {
 		t.Errorf("motivo depois de o Fetch voltar: %v", got)
 	}
