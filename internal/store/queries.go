@@ -42,6 +42,11 @@ type Queries struct {
 	livePcap func(id string, snaplen uint32) ([]byte, int, bool)
 	// hide e unhide avisam o ingest das conexões abertas de um probe apagado (SetHideOpen).
 	hide, unhide func(ids []string)
+	// deletes deixa um único DELETE de probe por vez no escritor, que o ingest usa pela mesma conexão: sem isso,
+	// centenas de DELETE simultâneos disputam a conexão com o ingest num sorteio (task 317). Os demais esperam.
+	deletes chan struct{}
+	// deleteTx e deleteMax contam as transações de DELETE no escritor e o máximo simultâneo (para os testes).
+	deleteTx, deleteNow, deleteMax atomic.Int64
 }
 
 // WithLivePcap liga o acessor do pcap parcial das conexões abertas, cujos pacotes ficam na memória do ingest
@@ -79,6 +84,7 @@ func NewQueries(db *sql.DB, live func(string) (connectionJSON, bool), snaplen ui
 		db: db, live: live, now: time.Now, pollEvery: 50 * time.Millisecond, snaplen: snaplen,
 		waiters: make(chan struct{}, probeWaitMax),
 		blobs:   make(chan struct{}, blobMax), blobWrite: blobWriteTimeout,
+		deletes: make(chan struct{}, 1),
 	}
 }
 
@@ -632,6 +638,28 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	if !probe.Valid(id) {
 		return bad("invalid probe id %q", id)
 	}
+	// Pelo leitor primeiro: um probe sem nada a apagar (o laço anônimo de DELETE) não toca o escritor (task 317).
+	var any int
+	err := q.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM probes WHERE probe_id = ?)
+		OR EXISTS (SELECT 1 FROM connections WHERE probe_id = ?)
+		OR EXISTS (SELECT 1 FROM dns_queries WHERE probe_id = ?)`, id, id, id).Scan(&any)
+	if err != nil {
+		return err
+	}
+	if any == 0 {
+		return ErrNotFound
+	}
+	select {
+	case q.deletes <- struct{}{}:
+		defer func() { <-q.deletes }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	q.deleteTx.Add(1)
+	if n := q.deleteNow.Add(1); n > q.deleteMax.Load() {
+		q.deleteMax.Store(n)
+	}
+	defer q.deleteNow.Add(-1)
 	tx, err := w.BeginTx(ctx, nil)
 	if err != nil {
 		return err

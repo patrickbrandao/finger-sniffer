@@ -2,9 +2,15 @@ package store
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
@@ -81,5 +87,102 @@ func TestDeleteProbeAtomic(t *testing.T) {
 	}
 	if count(t, db, "SELECT count(*) FROM connections WHERE probe_id = ?", probeID) != 2 || f.in.flows.isHidden(f.opened) {
 		t.Fatal("failed delete must change nothing")
+	}
+}
+
+// TestDeleteProbeMissingSkipsWriter: 200 goroutines em laço de DELETE de probes inexistentes não abrem nenhuma
+// transação no escritor (task 317). A latência do ingest simulado só vai para o log: no Mac ela varia mais com a
+// CPU tomada pelas goroutines do que com a disputa da conexão, e um teto relativo ficaria instável.
+func TestDeleteProbeMissingSkipsWriter(t *testing.T) {
+	db, path := testDB(t)
+	ctx := context.Background()
+	// Leitor separado do escritor, como no store (OpenReadDB com 4 conexões).
+	rdb, err := OpenReadDB(path, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rdb.Close() })
+	q := NewQueries(rdb, nil, 65535)
+	ingestP99 := func(load bool) time.Duration {
+		stop := make(chan struct{})
+		var wg sync.WaitGroup
+		if load {
+			for g := range 200 {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for i := 0; ; i++ {
+						select {
+						case <-stop:
+							return
+						default:
+						}
+						id := fmt.Sprintf("nope%04d%06d", g, i%1000000)
+						if err := q.DeleteProbe(ctx, db, id); !errors.Is(err, ErrNotFound) {
+							t.Errorf("delete %s: %v", id, err)
+							return
+						}
+					}
+				}()
+			}
+		}
+		rec, pcap, ev := strings.Repeat("r", 3000), make([]byte, 8000), strings.Repeat("e", 600)
+		var lats []time.Duration
+		for i := range 300 {
+			t0 := time.Now()
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := insertConn(ctx, tx, fmt.Sprintf("in%v%06d", load, i), time.Now().UnixNano(), rec, pcap, ev, 1); err != nil {
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			lats = append(lats, time.Since(t0))
+			time.Sleep(time.Millisecond)
+		}
+		close(stop)
+		wg.Wait()
+		sort.Slice(lats, func(i, j int) bool { return lats[i] < lats[j] })
+		return lats[len(lats)*99/100]
+	}
+	base := ingestP99(false)
+	loaded := ingestP99(true)
+	t.Logf("ingest p99: %v without, %v with 200 DELETE loops", base, loaded)
+	if n := q.deleteTx.Load(); n != 0 {
+		t.Fatalf("missing probes opened %d writer transactions", n)
+	}
+}
+
+// TestDeleteProbeOneAtATime: DELETE simultâneos de probes existentes nunca seguram juntos o escritor (task 317).
+func TestDeleteProbeOneAtATime(t *testing.T) {
+	db, _ := testDB(t)
+	ctx := context.Background()
+	q := NewQueries(db, nil, 65535)
+	const n = 20
+	for i := range n {
+		id := fmt.Sprintf("real%010d", i)
+		if _, err := db.Exec("INSERT INTO probes (probe_id, first_seen, last_seen) VALUES (?, 0, 0)", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := q.DeleteProbe(ctx, db, fmt.Sprintf("real%010d", i)); err != nil {
+				t.Errorf("delete %d: %v", i, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if q.deleteTx.Load() != n || q.deleteMax.Load() != 1 {
+		t.Fatalf("writer transactions %d, max simultaneous %d; want %d and 1", q.deleteTx.Load(), q.deleteMax.Load(), n)
+	}
+	if c := count(t, db, "SELECT count(*) FROM probes"); c != 0 {
+		t.Fatalf("probes left: %d", c)
 	}
 }
