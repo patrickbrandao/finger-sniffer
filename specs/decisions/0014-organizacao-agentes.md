@@ -1,7 +1,7 @@
 # 0014 — Organização dos agentes
 
 Status: aceita (revisão no modo autônomo, delegação e donos: ver 0023; escalonamento "fora do espelho no finger-01":
-ver 0038, 2026-11-15)
+ver 0038, 2026-11-15; 11º papel, implementer-bot: ver 0047)
 Data: 2026-11-07
 
 ## Contexto

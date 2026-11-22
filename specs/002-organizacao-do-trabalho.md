@@ -11,20 +11,21 @@ Git, fluxo de tarefas, Definition of Done e quando parar para perguntar.
 
 | Papel | Responsabilidade | Pode alterar | Sub-agente |
 | --- | --- | --- | --- |
-| architect | guardião das specs, ADRs e contratos; aprova migrations; resolve conflitos de contrato; cria tarefas da próxima fase | `specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `cmd/finger-sniffer-bot/openapi.yaml`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/agents/**`, `tasks/**` | .claude/agents/architect.md |
+| architect | guardião das specs, ADRs e contratos; aprova migrations; resolve conflitos de contrato; cria tarefas da próxima fase | `specs/**`, `cmd/finger-sniffer-store/openapi.yaml`, `cmd/finger-sniffer-bot/openapi.yaml`, `cmd/finger-sniffer-bot/traefix-fingerprint-v1.schema.json`, `eventbus/nats/asyncapi.yaml`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`, `.claude/agents/**`, `tasks/**` | .claude/agents/architect.md |
 | implementer-capture | serviço capture | `cmd/finger-sniffer-capture/**` (exceto contratos), `internal/capture/**` | .claude/agents/implementer-capture.md |
 | implementer-web | serviço web; dono de `pkg/` de detecção, probe, parsers, fingerprints e certificados (`pkg/certs`, usado também por raw e store) | `cmd/finger-sniffer-web/**`, `internal/web/**`, `pkg/detect/**`, `pkg/probe/**`, `pkg/tlsparse/**`, `pkg/h1/**`, `pkg/h2passive/**`, `pkg/quicparse/**`, `pkg/fingerprint/**`, `pkg/iana/**`, `pkg/certs/**` | .claude/agents/implementer-web.md |
 | implementer-raw | serviço raw | `cmd/finger-sniffer-raw/**`, `internal/raw/**` | .claude/agents/implementer-raw.md |
 | implementer-dns | serviço dns | `cmd/finger-sniffer-dns/**`, `internal/dns/**` | .claude/agents/implementer-dns.md |
 | implementer-store | serviço store, API, análise IP/TCP; dono de `pkg/` de base de serviço e envelope; escreve migrations | `cmd/finger-sniffer-store/**` (exceto openapi.yaml), `internal/store/**`, `pkg/service/**`, `pkg/event/**`, `database/sqlite/migrations/**` (com aprovação do architect) | .claude/agents/implementer-store.md |
-| implementer-bot | serviço bot (F8): veredito, sinais, listas, agregados, chaves, API de vereditos, feed e webhook; escreve as migrations do banco do bot | `cmd/finger-sniffer-bot/**` (exceto openapi.yaml), `internal/bot/**` (exceto `internal/bot/lists/known_clients.json`), `database/sqlite/bot/**` (com aprovação do architect) | .claude/agents/implementer-bot.md |
+| implementer-bot | serviço bot (F8): veredito, sinais, listas, agregados, chaves, API de vereditos, feed e webhook; escreve as migrations do banco do bot | `cmd/finger-sniffer-bot/**` (exceto openapi.yaml e traefix-fingerprint-v1.schema.json), `internal/bot/**` (exceto `internal/bot/lists/known_clients.json`), `database/sqlite/bot/**` (com aprovação do architect) | .claude/agents/implementer-bot.md |
 | tester | e2e, matriz da spec 017, golden pcaps, fuzzing longo, carga; base própria de fingerprints medidos | `test/**`, `**/testdata/**`, `**/*_test.go` de qualquer pacote (somente testes), `internal/bot/lists/known_clients.json` | .claude/agents/tester.md |
 | reviewer | revisa PRs contra spec, ADRs e DoD; não altera código | nada (só comenta) | .claude/agents/reviewer.md |
 | infra | systemd, NIC/sysctl, NATS, deploy, Makefile, verify, CI, lint, versão do build | `deploy/**`, `scripts/**`, `Makefile`, `.github/**`, `.golangci.yml`, `lefthook.yml`, `redocly.yaml`, `eventbus/nats/nats.conf`, `.env.example`, `.gitignore`, `go.mod`, `go.sum`, `LICENSE`, `NOTICE`, `internal/version/**` | .claude/agents/infra.md |
 | docs | documentação derivada e site estático | `docs/**`, `htdocs/**`, `README.md` | .claude/agents/docs.md |
 
 Regras de propriedade:
-- **specs/, specs/decisions/, os dois openapi.yaml (store e bot) e asyncapi.yaml: só o architect altera.** Quem precisar de mudança abre
+- **specs/, specs/decisions/, os dois openapi.yaml (store e bot), asyncapi.yaml e a cópia do esquema do traefix
+  (ADR 0063, sem edição): só o architect altera.** Quem precisar de mudança abre
   uma tarefa "mudança de contrato" e espera o architect aplicar.
 - **Migrations**: implementer-store (`database/sqlite/migrations/`) e implementer-bot (`database/sqlite/bot/`)
   escrevem; o architect aprova no PR antes do merge.
