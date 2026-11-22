@@ -47,7 +47,7 @@ func TestStreamHealthReasons(t *testing.T) {
 	if r := s.reasons(t0); len(r) != 0 {
 		t.Fatalf("backlog of 5 s must not degrade: %v", r)
 	}
-	if _, b, p := s.snapshot(); b != 5 || p != 3 {
+	if _, b, p := s.snapshotAt(t0); b != 5 || p != 3 {
 		t.Fatalf("backlog %v pending %d", b, p)
 	}
 	s.observe(mdAt(2, t0.Add(-6200*time.Millisecond), 2), t0)
@@ -60,6 +60,7 @@ func TestStreamHealthReasons(t *testing.T) {
 	}
 	s.observe(mdAt(5, t0, 0), t0) // 3 e 4 perdidas
 	s.observe(mdAt(10, t0.Add(time.Minute), 0), t0.Add(time.Minute))
+	s.caughtUp() // consumidor em dia: sem isso o backlog cresceria com a parede (task 338)
 	if r := s.reasons(t0.Add(time.Minute)); !slices.Equal(r, []string{"stream lost 6 messages in 5m"}) {
 		t.Fatalf("reasons %v", r)
 	}
@@ -93,6 +94,7 @@ func TestIngestReadsStreamMetadata(t *testing.T) {
 	if r := in.stream.reasons(wall); !slices.Equal(r, []string{"ingest backlog 7s", "stream lost 3 messages in 5m"}) {
 		t.Fatalf("reasons %v", r)
 	}
+	in.stream.clock = func() time.Time { return wall }
 	problems, err := testutil.GatherAndLint(m.reg, "fs_store_stream_lost_total", "fs_store_ingest_backlog_seconds", "fs_store_ingest_pending_messages")
 	if err != nil {
 		t.Fatal(err)
@@ -122,5 +124,35 @@ func TestIngestReadsStreamMetadata(t *testing.T) {
 		if !found {
 			t.Errorf("missing %s", name)
 		}
+	}
+}
+
+// TestStreamBacklogGrowsWhileStalled: sem mensagem nova processada e sem Fetch vazio, o backlog cresce com a
+// parede (health e gauge) em vez de congelar no valor do último lote; um caughtUp zera; a recriação do stream
+// também (task 338).
+func TestStreamBacklogGrowsWhileStalled(t *testing.T) {
+	var s streamStats
+	t0 := time.Unix(0, base)
+	s.observe(mdAt(1, t0.Add(-100*time.Millisecond), 0), t0)
+	if r := s.reasons(t0); len(r) != 0 {
+		t.Fatalf("ingest in step must not degrade: %v", r)
+	}
+	if _, b, _ := s.snapshotAt(t0.Add(10 * time.Second)); b < 10 || b > 10.2 {
+		t.Fatalf("stalled backlog = %v, want ~10.1", b)
+	}
+	if r := s.reasons(t0.Add(10 * time.Second)); !slices.Equal(r, []string{"ingest backlog 10s"}) {
+		t.Fatalf("stalled reasons %v", r)
+	}
+	s.caughtUp()
+	if _, b, _ := s.snapshotAt(t0.Add(time.Minute)); b != 0 {
+		t.Fatalf("backlog after caughtUp = %v", b)
+	}
+	if r := s.reasons(t0.Add(time.Minute)); len(r) != 0 {
+		t.Fatalf("reasons after caughtUp %v", r)
+	}
+	s.observe(mdAt(2, t0.Add(time.Minute), 0), t0.Add(time.Minute))
+	s.streamRecreated(t0.Add(time.Minute))
+	if _, b, _ := s.snapshotAt(t0.Add(time.Hour)); b != 0 {
+		t.Fatalf("backlog after stream recreated = %v", b)
 	}
 }
