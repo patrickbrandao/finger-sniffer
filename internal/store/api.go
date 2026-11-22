@@ -103,11 +103,28 @@ func sanitize(s string) string {
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
+	defer writeDeadline(w)()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+// jsonWriteTimeout é o prazo de escrita de cada resposta JSON. O servidor não tem WriteTimeout (SSE, WS e
+// long-poll ficam abertos), e sem prazo um cliente que pede e não lê prende o handler no Write e a resposta inteira
+// na memória para sempre (task 319). O long-poll de /probes/{id}?wait só escreve depois da espera, então o prazo
+// conta a partir dali.
+var jsonWriteTimeout = 60 * time.Second
+
+// writeDeadline põe o prazo de escrita da resposta e devolve a função que o tira (no-op sem suporte a prazo, como
+// no ResponseWriter de teste).
+func writeDeadline(w http.ResponseWriter) func() {
+	rc := http.NewResponseController(w)
+	if rc.SetWriteDeadline(time.Now().Add(jsonWriteTimeout)) != nil {
+		return func() {}
+	}
+	return func() { _ = rc.SetWriteDeadline(time.Time{}) }
 }
 
 // writeErr converte erros de consulta em 400/404/500/503 com o schema Error.
@@ -287,6 +304,7 @@ func (a *API) getProbe(w http.ResponseWriter, r *http.Request) {
 // record_json já são JSON e vão direto para o socket, sem a cópia do conjunto inteiro que o Encoder faz (e a
 // segunda, reindentada) antes de escrever (task 153).
 func writeProbe(w http.ResponseWriter, p probeJSON) {
+	defer writeDeadline(w)()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	// bufio guarda o primeiro erro de escrita e ignora as seguintes; o Flush o devolve (cliente que caiu).
