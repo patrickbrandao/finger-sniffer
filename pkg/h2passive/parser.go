@@ -230,6 +230,7 @@ type Parser struct {
 	// bloco de cabeçalho em montagem (HEADERS sem END_HEADERS + CONTINUATION)
 	blockStream uint32
 	block       []byte
+	blockHeld   int // bytes do bloco em montagem reservados do orçamento (ADR 0070 item 7)
 	blockOpen   bool
 	hpackDead   bool
 
@@ -345,7 +346,12 @@ func (p *Parser) FeedAt(at time.Time, tMs float64, b []byte) {
 		}
 		n := min(p.need, len(b))
 		if p.keep {
-			p.payload = append(p.payload, b[:n]...)
+			if p.cur.typ == FrameContinuation {
+				// CONTINUATION vai direto para o bloco em montagem (já reservado em startFrame).
+				p.block = append(p.block, b[:n]...)
+			} else {
+				p.payload = append(p.payload, b[:n]...)
+			}
 		}
 		p.need -= n
 		b = b[n:]
@@ -407,6 +413,9 @@ func (p *Parser) startFrame() {
 		p.keep = p.blockOpen && len(p.block)+int(h.length) <= p.lim.MaxHeaderBlock
 		if p.blockOpen && !p.keep {
 			p.killHPACK(ErrHeaderBlockLimit)
+		}
+		if p.keep && !p.reserveBlock(int(h.length)) {
+			p.keep = false
 		}
 	default:
 		p.keep = false
@@ -473,13 +482,45 @@ func (p *Parser) endFrame() {
 		p.onHeaders(h, pl)
 	case FrameContinuation:
 		if p.blockOpen && p.keep {
-			p.block = append(p.block, pl...)
 			if h.flags&FlagEndHeaders != 0 {
 				p.finishBlock()
 			}
 		}
 	}
 	p.keep = false
+	// Buffer grande não fica preso à conexão depois do frame (ADR 0070 item 7).
+	if cap(p.payload) > maxKeptBuf {
+		p.payload = nil
+	}
+}
+
+// maxKeptBuf é a capacidade acima da qual os buffers do parser são soltos depois de cada frame ou bloco
+// (retenção fixa por conexão, spec 005 RF-12).
+const maxKeptBuf = 32 << 10
+
+// reserveBlock reserva n bytes do bloco em montagem; sem orçamento, para o HPACK e marca o stream com
+// FieldsCut (fields_truncated).
+func (p *Parser) reserveBlock(n int) bool {
+	if p.opts.Reserve == nil || n == 0 {
+		return true
+	}
+	if !p.opts.Reserve(n) {
+		if st := p.stream(p.blockStream); st != nil {
+			st.FieldsCut = true
+		}
+		p.killHPACK(ErrHeaderBlockLimit)
+		return false
+	}
+	p.blockHeld += n
+	return true
+}
+
+// releaseBlock devolve a reserva do bloco em montagem.
+func (p *Parser) releaseBlock() {
+	if p.blockHeld > 0 && p.opts.Release != nil {
+		p.opts.Release(p.blockHeld)
+	}
+	p.blockHeld = 0
 }
 
 // onHeaders trata um frame HEADERS: prioridade, padding e início do bloco.
@@ -532,6 +573,10 @@ func (p *Parser) onHeaders(h frameHeader, pl []byte) {
 		return
 	}
 	p.blockStream = h.streamID
+	p.releaseBlock()
+	if !p.reserveBlock(len(frag)) {
+		return
+	}
 	p.block = append(p.block[:0], frag...)
 	p.blockOpen = true
 	if h.flags&FlagEndHeaders != 0 {
@@ -544,6 +589,10 @@ func (p *Parser) finishBlock() {
 	p.blockOpen = false
 	fields, err := p.dec.decode(p.block)
 	p.block = p.block[:0]
+	if cap(p.block) > maxKeptBuf {
+		p.block = nil
+	}
+	p.releaseBlock()
 	st := p.stream(p.blockStream)
 	if st != nil {
 		first := !st.headSeen
@@ -610,6 +659,7 @@ func (p *Parser) killHPACK(err error) {
 	p.hpackDead = true
 	p.blockOpen = false
 	p.block = nil
+	p.releaseBlock()
 	if p.err == nil {
 		p.err = err
 	}

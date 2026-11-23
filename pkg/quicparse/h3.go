@@ -38,6 +38,14 @@ const (
 const (
 	// DefaultMaxFrameBuffer limita o payload de HEADERS/SETTINGS guardado para decodificar.
 	DefaultMaxFrameBuffer = 1 << 20
+	// MaxControlFrameBuffer limita os frames guardados do stream de controle (SETTINGS, GOAWAY; ADR 0070
+	// item 7): um SETTINGS com DefaultMaxSettings pares cabe em ~4 KiB.
+	MaxControlFrameBuffer = 64 << 10
+	// MaxFieldSectionSize é o MAX_FIELD_SECTION_SIZE anunciado pelo espelho: teto da seção decodificada
+	// (nome + valor + 32 por campo, RFC 9114 seção 4.2.2).
+	MaxFieldSectionSize = 1 << 20
+	// FieldOverhead é o custo fixo de cada campo decodificado guardado na conta do orçamento (ADR 0033).
+	FieldOverhead = 80
 	// DefaultMaxSettings limita os pares do SETTINGS registrados.
 	DefaultMaxSettings = 256
 	// MaxStreamFrames limita a lista de tipos de frame guardada por stream.
@@ -150,16 +158,19 @@ func (r *frameReader) feed(b []byte) {
 			if r.keep {
 				p = r.buf
 			}
-			if r.onFrame != nil {
-				r.onFrame(r.typ, r.length, p)
-			}
 			if r.keep {
-				// O payload já foi decodificado (os campos são cópias): solta o buffer e devolve a reserva.
-				r.buf = nil
+				// A reserva do payload volta antes do onFrame, para que os campos decodificados (cópias) possam
+				// reservar o seu custo no mesmo hold (ADR 0070 item 7); o buffer é solto logo depois.
 				if r.held > 0 && r.release != nil {
 					r.release(r.held)
 				}
 				r.held = 0
+			}
+			if r.onFrame != nil {
+				r.onFrame(r.typ, r.length, p)
+			}
+			if r.keep {
+				r.buf = nil
 			}
 		}
 	}
@@ -219,7 +230,7 @@ type UniStream struct {
 func NewUniStream() *UniStream {
 	u := &UniStream{Settings: [][2]uint64{}}
 	u.fr = frameReader{
-		maxBuf: DefaultMaxFrameBuffer,
+		maxBuf: MaxControlFrameBuffer,
 		buffered: func(t uint64) bool {
 			return t == H3FrameSettings || t == H3FrameGoaway
 		},
@@ -278,6 +289,15 @@ func (u *UniStream) onFrame(t, _ uint64, p []byte) {
 	}
 }
 
+// SetBudget liga o orçamento de entrada aos frames guardados do stream de controle (ADR 0070 item 7), como
+// em RequestStream.SetBudget.
+func (u *UniStream) SetBudget(reserve func(n int) bool, release func(n int)) {
+	u.fr.reserve, u.fr.release = reserve, release
+}
+
+// Held devolve quantos bytes do frame incompleto estão reservados agora.
+func (u *UniStream) Held() int { return u.fr.held }
+
 // Err devolve o primeiro erro de leitura (frame grande demais, SETTINGS ilegível).
 func (u *UniStream) Err() error {
 	if u.err != nil {
@@ -297,9 +317,11 @@ type RequestStream struct {
 	// HeadersSeen informa se o primeiro HEADERS chegou inteiro.
 	HeadersSeen bool
 
-	maxFields int
-	fr        frameReader
-	err       error
+	maxFields  int
+	fr         frameReader
+	err        error
+	fieldsHeld int // custo reservado dos campos decodificados guardados (80 + nome + valor)
+	section    int // tamanho decodificado somado (nome + valor + 32), teto MaxFieldSectionSize
 }
 
 // NewRequestStream cria o leitor do stream id. maxFields <= 0 usa DefaultMaxFieldsPerSection.
@@ -337,6 +359,9 @@ func (s *RequestStream) SetBudget(reserve func(n int) bool, release func(n int))
 // Held devolve quantos bytes do HEADERS incompleto estão reservados agora.
 func (s *RequestStream) Held() int { return s.fr.held }
 
+// FieldsHeld devolve o custo reservado dos campos decodificados, que quem chamou devolve depois de publicar.
+func (s *RequestStream) FieldsHeld() int { return s.fieldsHeld }
+
 func (s *RequestStream) onFrame(t, _ uint64, p []byte) {
 	r := &s.Request
 	if len(r.Frames) < MaxStreamFrames {
@@ -355,6 +380,25 @@ func (s *RequestStream) onFrame(t, _ uint64, p []byte) {
 			r.FieldsTruncated = true
 		} else if err != nil && s.err == nil {
 			s.err = err
+		}
+		// O decodificado reserva do orçamento (ADR 0070 item 7); sem reserva, ou acima de
+		// MAX_FIELD_SECTION_SIZE, a leitura termina com ErrH3Budget e os campos não são guardados.
+		cost, section := 0, 0
+		for _, f := range fields {
+			cost += FieldOverhead + len(f.Name) + len(f.Value)
+			section += 32 + len(f.Name) + len(f.Value)
+		}
+		if s.section+section > MaxFieldSectionSize {
+			s.err = fmt.Errorf("%w: seção decodificada acima de %d bytes", ErrH3Budget, MaxFieldSectionSize)
+			return
+		}
+		if s.fr.reserve != nil && !s.fr.reserve(cost) {
+			s.err = fmt.Errorf("%w: campos decodificados", ErrH3Budget)
+			return
+		}
+		s.section += section
+		if s.fr.reserve != nil {
+			s.fieldsHeld += cost
 		}
 		r.Fields = append(r.Fields, fields...)
 		if !s.HeadersSeen {

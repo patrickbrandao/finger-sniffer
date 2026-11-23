@@ -1,0 +1,1 @@
+- web: h2 anuncia `MAX_FRAME_SIZE` 16384 e o parser passivo solta buffers acima de 32 KiB e reserva o bloco HEADERS+CONTINUATION em montagem (sem reserva, `fields_truncated`) (task 328, ADR 0070).

@@ -33,6 +33,9 @@ func newIdleConn(c net.Conn, idle time.Duration, last time.Time, now func() time
 // SetIdle troca a ociosidade (controle idle=, task 023).
 func (c *idleConn) SetIdle(d time.Duration) { c.idle.Store(int64(d)) }
 
+// idleFor devolve a ociosidade corrente (padrão ou idle=).
+func (c *idleConn) idleFor() time.Duration { return time.Duration(c.idle.Load()) }
+
 func (c *idleConn) deadline() time.Time {
 	return time.Unix(0, c.last.Load()).Add(time.Duration(c.idle.Load()))
 }

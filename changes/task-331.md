@@ -1,0 +1,1 @@
+- web: frames do stream de controle h3 até 64 KiB com reserva do orçamento; o segundo stream de controle fecha a conexão com `H3_STREAM_CREATION_ERROR` (task 331, ADR 0070).

@@ -1,0 +1,1 @@
+- web: escrita do corpo h2/h3 com prazo igual à ociosidade por stream (vencido, RST_STREAM/`H3_REQUEST_CANCELLED`) e buffers de no máximo 32 KiB (task 329, ADR 0070).

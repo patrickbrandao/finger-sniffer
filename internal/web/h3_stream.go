@@ -229,31 +229,54 @@ func (st *h3Stream) cancelWrite(code quic.StreamErrorCode) {
 	st.rs.Request.ResponseEndedAt = instant(st.h.srv.now())
 }
 
-// writeData manda até limit bytes de r em frames DATA de piece bytes.
+// writeData manda até limit bytes de r em frames DATA de piece bytes. O payload sai de um buffer de no
+// máximo h3WriteBuf (o frame de chunk= grande vai em várias escritas) e cada escrita tem prazo igual à
+// ociosidade: vencido, o stream é resetado (ADR 0070 item 4).
 func (st *h3Stream) writeData(r io.Reader, limit int64, piece int) error {
 	if piece <= 0 {
 		piece = h3DataPiece
 	}
-	// os 16 primeiros bytes guardam o cabeçalho do frame, escrito logo antes dos dados
-	buf := make([]byte, 16+min(int64(piece), max(limit, 1)))
-	data := buf[16:]
+	buf := make([]byte, min(int64(piece), h3WriteBuf, max(limit, 1)))
 	for left := limit; left > 0; {
-		n, err := r.Read(data[:min(int64(len(data)), left)])
-		if n > 0 {
-			frame := quicparse.AppendH3FrameHeader(buf[:0], quicparse.H3FrameData, uint64(n))
-			start := 16 - len(frame)
-			copy(buf[start:16], frame)
-			if _, werr := st.str.Write(buf[start : 16+n]); werr != nil {
-				return werr
+		fl := min(int64(piece), left)
+		if err := st.writeTimed(quicparse.AppendH3FrameHeader(nil, quicparse.H3FrameData, uint64(fl))); err != nil { //nolint:gosec // fl > 0
+			return err
+		}
+		for k := fl; k > 0; {
+			n, err := io.ReadFull(r, buf[:min(int64(len(buf)), k)])
+			if n > 0 {
+				if werr := st.writeTimed(buf[:n]); werr != nil {
+					return werr
+				}
+				k -= int64(n)
 			}
-			left -= int64(n)
+			if err != nil {
+				// corpo menor que o declarado no frame: o stream não pode seguir
+				st.cancelWrite(h3InternalError)
+				return err
+			}
 		}
-		if err != nil {
-			break
-		}
+		left -= fl
 	}
 	return nil
 }
+
+// h3WriteBuf é o maior buffer de escrita de corpo por stream (ADR 0070 item 4).
+const h3WriteBuf = 32 << 10
+
+// writeTimed escreve p com prazo igual à ociosidade, renovado a cada escrita; vencido, RESET_STREAM.
+func (st *h3Stream) writeTimed(p []byte) error {
+	_ = st.str.SetWriteDeadline(st.h.srv.now().Add(st.h.srv.cfg.IdleDefault))
+	_, err := st.str.Write(p)
+	var nerr net.Error
+	if errors.As(err, &nerr) && nerr.Timeout() {
+		st.cancelWrite(h3RequestCancelled)
+	}
+	return err
+}
+
+// h3RequestCancelled é o H3_REQUEST_CANCELLED (RFC 9114 seção 8.1).
+const h3RequestCancelled = 0x10c
 
 // writeSimple escreve uma resposta sem controles (rotas do espelho, htdocs, erros) e fecha o stream.
 func (st *h3Stream) writeSimple(resp response, head bool) {
@@ -349,6 +372,8 @@ func (st *h3Stream) control(rawQuery string, head bool) {
 func (st *h3Stream) publish() {
 	h := st.h
 	s := h.srv
+	// Publicado, o cabeçalho decodificado volta ao hold da conexão (ADR 0070 item 7).
+	defer h.headersHold.release(int64(st.rs.FieldsHeld()))
 	req := st.rs.Request
 	req.Status = st.status
 	req.JA4H = ja4hOfH3(&req)

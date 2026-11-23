@@ -24,6 +24,26 @@ type h2Stream struct {
 	status  int
 	// upgrade marca o stream 1 do Upgrade: h2c (a requisição foi HTTP/1).
 	upgrade bool
+	// decoded é o custo reservado do cabeçalho decodificado pela biblioteca (ADR 0070 item 7); denied diz
+	// que não houve orçamento e o stream responde 431 sem esperar o corpo.
+	decoded int64
+	denied  bool
+}
+
+// h2DecodedConnMax é o teto por conexão do cabeçalho decodificado dos streams em atendimento (o mesmo do
+// HEADERS h3 em espera; ADR 0070 item 7).
+const h2DecodedConnMax = h3HeadersConnMax
+
+// decodedCost estima o que a biblioteca guarda da requisição: 80 + nome + valor por campo, mais o alvo e o
+// host (spec 010 RF-02).
+func decodedCost(r *http.Request) int64 {
+	n := int64(2*h2passive.FieldOverhead + len(r.RequestURI) + len(r.Host) + len(r.Method))
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			n += int64(h2passive.FieldOverhead + len(k) + len(v))
+		}
+	}
+	return n
 }
 
 // ServeHTTP atende um stream h2 com as mesmas rotas do HTTP/1 (spec 005 RF-05) e os controles que fazem
@@ -52,6 +72,14 @@ func (h *h2Conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		st.rec = h2passive.HTTP2Stream{PseudoOrder: []string{}, Fields: []h2passive.HPACKField{}}
 	}
 	h.mu.Unlock()
+	if !st.upgrade {
+		cost := decodedCost(r)
+		if h.decodedHold.reserve(cost) {
+			st.decoded = cost
+		} else {
+			st.denied = true
+		}
+	}
 	h.ic.hold()
 	h.c.srv.metrics.Add(MetricH2StreamsTotal, 1)
 	defer func() {
@@ -77,6 +105,7 @@ func (st *h2Stream) finish() {
 	st.rec.Status = st.status
 	h.fillInstants(&st.rec, st.upgrade)
 	h.publishStream(&st.rec, st.probeID)
+	h.decodedHold.release(st.decoded)
 	// Publicado: os campos do stream saem dos parsers e o custo volta ao orçamento (ADR 0033).
 	if st.rec.StreamID != 0 {
 		h.mu.Lock()
@@ -93,6 +122,11 @@ func (st *h2Stream) finish() {
 func (st *h2Stream) serve() {
 	r := st.r
 	st.probeID = st.probeOf()
+	if st.denied {
+		// Sem orçamento para o cabeçalho decodificado: 431 na hora, sem esperar o corpo (ADR 0070 item 2).
+		st.writeResponse(textResponse(http.StatusRequestHeaderFieldsTooLarge, "request header fields too large\n"))
+		return
+	}
 	if r.Method == http.MethodConnect && strings.EqualFold(r.Header.Get(":protocol"), "websocket") {
 		st.websocket()
 		return
@@ -316,26 +350,39 @@ func (st *h2Stream) control(rawQuery string) {
 	if ctl.Close == CloseMidBody {
 		limit = size / 2
 	}
-	piece := ctl.Chunk
+	piece := int64(ctl.Chunk)
 	if piece <= 0 {
-		piece = 32 << 10
+		piece = h2WriteBuf
 	}
-	buf := make([]byte, min(int64(piece), max(limit, 1)))
+	// Buffer de no máximo 32 KiB; o pedaço lógico de chunk= sai com um Flush no fim (ADR 0070 item 4).
+	buf := make([]byte, min(piece, h2WriteBuf, max(limit, 1)))
+	rc := http.NewResponseController(st.w)
+	var inPiece int64
 	for left := limit; left > 0; {
-		n, err := body.Read(buf[:min(int64(len(buf)), left)])
+		n, err := body.Read(buf[:min(int64(len(buf)), left, piece-inPiece)])
 		if n > 0 {
+			// Prazo de escrita do stream igual à ociosidade corrente, renovado a cada escrita que progride:
+			// vencido, o x/net reseta o stream e o Write volta com erro (o hold é solto).
+			_ = rc.SetWriteDeadline(h.c.srv.now().Add(h.ic.idleFor()))
 			if _, werr := st.w.Write(buf[:n]); werr != nil {
 				return
 			}
 			left -= int64(n)
-			if ctl.Chunk > 0 && flusher != nil {
-				// Um DATA por pedaço (até o SETTINGS_MAX_FRAME_SIZE do cliente).
-				flusher.Flush()
+			inPiece += int64(n)
+			if inPiece == piece {
+				inPiece = 0
+				if ctl.Chunk > 0 && flusher != nil {
+					// Um DATA por pedaço (até o SETTINGS_MAX_FRAME_SIZE do cliente).
+					flusher.Flush()
+				}
 			}
 		}
 		if err != nil {
 			break
 		}
+	}
+	if ctl.Chunk > 0 && inPiece > 0 && flusher != nil {
+		flusher.Flush()
 	}
 	if ctl.Close == CloseMidBody {
 		st.abort(flusher)
@@ -345,6 +392,9 @@ func (st *h2Stream) control(rawQuery string) {
 	}
 	st.end(ctl)
 }
+
+// h2WriteBuf é o maior buffer de escrita de corpo por stream (ADR 0070 item 4).
+const h2WriteBuf = 32 << 10
 
 // altSvc anuncia o h3 na resposta h2 (só h2 sobre TLS; h2c nunca).
 func (st *h2Stream) altSvc(hdr http.Header) {
