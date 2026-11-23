@@ -433,7 +433,7 @@ func (d *Dispatcher) deliver(ctx context.Context, t Target, body []byte) {
 	}
 }
 
-// send faz uma tentativa e diz se vale tentar de novo (5xx ou erro de rede).
+// send faz uma tentativa e diz se vale tentar de novo (5xx, erro de rede ou status fora de 200–599).
 func (d *Dispatcher) send(ctx context.Context, t Target, body []byte) bool {
 	rctx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
@@ -454,8 +454,27 @@ func (d *Dispatcher) send(ctx context.Context, t Target, body []byte) bool {
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	_ = resp.Body.Close()
-	d.opts.Count(sentMetric(strconv.Itoa(resp.StatusCode)), 1)
-	return resp.StatusCode >= 500
+	class := statusClass(resp.StatusCode)
+	d.opts.Count(sentMetric(class), 1)
+	return class == "5xx" || class == "error"
+}
+
+// statusClass reduz o status da resposta à classe usada no rótulo code (ADR 0073 item 5): o status cru é escolhido
+// pelo servidor remoto e daria até ~900 séries e um oráculo no /metrics. 3xx é resposta final (o redirecionamento
+// não é seguido); fora de 200–599 conta como error.
+func statusClass(code int) string {
+	switch {
+	case code >= 200 && code <= 299:
+		return "2xx"
+	case code >= 300 && code <= 399:
+		return "3xx"
+	case code >= 400 && code <= 499:
+		return "4xx"
+	case code >= 500 && code <= 599:
+		return "5xx"
+	default:
+		return "error"
+	}
 }
 
 // sentMetric monta bot_webhook_sent_total{code="..."} (rótulos no formato da ADR 0056 item 4).

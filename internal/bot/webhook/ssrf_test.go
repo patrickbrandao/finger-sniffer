@@ -16,7 +16,7 @@ import (
 )
 
 // TestRedirectNotFollowed: o webhook https responde 3xx para um servidor http em loopback; o segundo não recebe
-// nada, o envio conta o status do 3xx e não repete (task 372).
+// nada, o envio conta code="3xx" e não repete (task 372).
 func TestRedirectNotFollowed(t *testing.T) {
 	var internalHits atomic.Int32
 	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -31,7 +31,7 @@ func TestRedirectNotFollowed(t *testing.T) {
 		d, c, fa, ctx := newDispatcher(t, srv, time.Now)
 		d.SetTargets(ctx, []Target{target(srv.URL)})
 		d.Publish("bot", "example.com", body("{}"))
-		metric := sentMetric(strconv.Itoa(code))
+		metric := sentMetric("3xx")
 		waitFor(t, func() bool { return c.Get(metric) == 1 })
 		time.Sleep(50 * time.Millisecond)
 		if n := internalHits.Load(); n != 0 {

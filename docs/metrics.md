@@ -150,7 +150,7 @@ primeiro uso ou no primeiro ciclo do heartbeat.
 | `fs_bot_index_bytes` | gauge | bytes contabilizados do índice (aproximação de ±25% do heap, ADR 0057 item 2); despejo por bytes nos últimos 60 s deixa o health `degraded` com `index bytes` |
 | `fs_bot_list_entries{list}` | gauge | entradas de cada lista (`known_clients`, `googlebot`, `bingbot`, `aws`, ...; `ja4db` só com `FS_BOT_JA4DB_ENABLE=true`) |
 | `fs_bot_list_age_seconds{list}` | gauge | idade da última atualização boa de cada lista baixada (sem nenhuma, desde a partida); acima de 72 h o health fica `degraded` com `list <nome> stale` |
-| `fs_bot_webhook_sent_total{code}` | contador | tentativas de entrega do webhook, `code` = status HTTP da resposta (`200`, `500`, ...) ou `error` (erro de rede ou prazo de 5 s); cada nova tentativa conta de novo |
+| `fs_bot_webhook_sent_total{code}` | contador | tentativas de entrega do webhook, `code` = classe do status (`2xx`, `3xx`, `4xx`, `5xx`) ou `error` (erro de rede, prazo de 5 s, destino recusado ou status fora de 200–599); cada nova tentativa conta de novo |
 | `fs_bot_webhook_dropped_total` | contador | eventos de webhook descartados: fila de 1000 da chave cheia, ou eventos ainda na fila de uma chave revogada ou do serviço parando |
 | `fs_bot_webhook_url_rejected_total` | contador | chaves com `webhook_url` que não é `https` com host, recusadas na carga das chaves (uma vez por URL) |
 | `fs_bot_keys_active` | gauge | chaves não revogadas |

@@ -142,7 +142,7 @@ func TestSignatureIndependentReceiver(t *testing.T) {
 	if Verify([]byte("outro"), ts, sig, r.body, now, 0) {
 		t.Fatal("Verify aceitou segredo errado")
 	}
-	waitFor(t, func() bool { return c.Get(`bot_webhook_sent_total{code="200"}`) == 1 })
+	waitFor(t, func() bool { return c.Get(`bot_webhook_sent_total{code="2xx"}`) == 1 })
 }
 
 // TestRetry5xx: 5xx repete em 1 s, 5 s e 30 s (relógio falso) e para depois da terceira nova tentativa.
@@ -159,7 +159,7 @@ func TestRetry5xx(t *testing.T) {
 	d, c, fa, ctx := newDispatcher(t, srv, time.Now)
 	d.SetTargets(ctx, []Target{target(srv.URL)})
 	d.Publish("suspect", "example.com", body("{}"))
-	waitFor(t, func() bool { return c.Get(`bot_webhook_sent_total{code="503"}`) == 4 })
+	waitFor(t, func() bool { return c.Get(`bot_webhook_sent_total{code="5xx"}`) == 4 })
 	time.Sleep(50 * time.Millisecond)
 	mu.Lock()
 	defer mu.Unlock()
@@ -184,7 +184,7 @@ func TestNoRetry4xx(t *testing.T) {
 	d.SetTargets(ctx, []Target{target(srv.URL)})
 	d.Publish("bot", "example.com", body("{}"))
 	d.Publish("bot", "example.com", body("{}"))
-	waitFor(t, func() bool { return c.Get(`bot_webhook_sent_total{code="400"}`) == 2 })
+	waitFor(t, func() bool { return c.Get(`bot_webhook_sent_total{code="4xx"}`) == 2 })
 	time.Sleep(50 * time.Millisecond)
 	if len(got) != 2 || len(fa.Delays()) != 0 {
 		t.Fatalf("%d envios e esperas %v; esperados 2 envios sem nova tentativa", len(got), fa.Delays())
@@ -319,4 +319,40 @@ func equalDurations(a, b []time.Duration) bool {
 		}
 	}
 	return true
+}
+
+// TestSentMetricByClass: o rótulo code leva a classe do status, não o status cru (ADR 0073 item 5); 999 (fora de
+// 200–599) conta error e repete como erro de rede, 302 e 418 não repetem.
+func TestSentMetricByClass(t *testing.T) {
+	cases := []struct {
+		status int
+		class  string
+		sends  float64
+	}{
+		{http.StatusNoContent, "2xx", 1},
+		{http.StatusFound, "3xx", 1},
+		{http.StatusTeapot, "4xx", 1},
+		{http.StatusServiceUnavailable, "5xx", 4},
+		{999, "error", 4},
+	}
+	for _, tc := range cases {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		d, c, _, ctx := newDispatcher(t, srv, time.Now)
+		d.SetTargets(ctx, []Target{target(srv.URL)})
+		d.Publish("bot", "example.com", body("{}"))
+		waitFor(t, func() bool { return c.Get(sentMetric(tc.class)) == tc.sends })
+		time.Sleep(50 * time.Millisecond)
+		for _, other := range []string{"2xx", "3xx", "4xx", "5xx", "error", strconv.Itoa(tc.status)} {
+			want := 0.0
+			if other == tc.class {
+				want = tc.sends
+			}
+			if c.Get(sentMetric(other)) != want {
+				t.Fatalf("%d: %s = %v, esperado %v", tc.status, sentMetric(other), c.Get(sentMetric(other)), want)
+			}
+		}
+		srv.Close()
+	}
 }

@@ -1,0 +1,1 @@
+- bot: `fs_bot_webhook_sent_total{code}` passa a levar a classe do status (`2xx`, `3xx`, `4xx`, `5xx`) ou `error` (rede, prazo, destino recusado ou status fora de 200–599), no máximo 5 séries e sem o status escolhido pelo servidor remoto (ADR 0073 item 5, task 412).
