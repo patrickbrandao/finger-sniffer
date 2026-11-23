@@ -62,6 +62,7 @@ type connectionJSON struct {
 	Requests       int               `json:"requests"`
 	Degraded       bool              `json:"degraded"`
 	PcapTruncated  bool              `json:"pcap_truncated"`
+	HTTPTruncated  bool              `json:"http_truncated,omitempty"` // http com só as 1000 primeiras (ADR 0067)
 	RawTruncated   *rawTruncatedJSON `json:"raw_truncated,omitempty"`
 	OffloadSuspect bool              `json:"offload_suspect"`
 	Times          *timesJSON        `json:"times,omitempty"`

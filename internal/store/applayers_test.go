@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -345,5 +346,102 @@ func TestProbeTLSHTTPDNS(t *testing.T) {
 	}
 	if count(t, db, "SELECT count(*) FROM app_events WHERE conn_id = ?", r.ConnID) != 3 {
 		t.Fatal("app events under the same conn_id")
+	}
+}
+
+// openWithRequests manda n requisições h1 (index from..from+n-1) numa conexão aberta, em lotes de 64 (ADR 0067).
+func openWithRequests(t *testing.T, in *Ingestor, from, n int) {
+	t.Helper()
+	for i := from; i < from+n; i += 64 {
+		var msgs []fakeMsg
+		for j := i; j < min(i+64, from+n); j++ {
+			msgs = append(msgs, appMsg(t, event.SubjectWebHTTP1Request, "tcp", client, mirror, 40, "", http1Payload(j, "HTTP/1.1")))
+		}
+		run(t, in, 100, msgs...)
+	}
+}
+
+// TestLayersHTTP1Cap (task 318, ADR 0067): 5 000 requisições numa conexão aberta deixam http[] com as 1000
+// primeiras, http_truncated e requests = 5 000; o registro deixa de crescer depois do teto.
+func TestLayersHTTP1Cap(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 100, batch(client, mirror, protoTCP, fullTCP[:4]))
+	openWithRequests(t, in, 0, 1000)
+	id, _ := onlyConn(t, db)
+	at1000, _ := in.liveStage(connStage{id: id})
+	openWithRequests(t, in, 1000, 4000)
+	r := recordOf(t, in, id)
+	if len(r.HTTP) != appMaxItems || !r.HTTPTruncated || r.Requests != 5000 {
+		t.Fatalf("http %d truncated %v requests %d", len(r.HTTP), r.HTTPTruncated, r.Requests)
+	}
+	var lastIdx struct{ Index int }
+	_ = json.Unmarshal(r.HTTP[len(r.HTTP)-1], &lastIdx)
+	if lastIdx.Index != appMaxItems-1 {
+		t.Fatalf("last index %d", lastIdx.Index)
+	}
+	// Custo constante: o registro publicado com 5 000 tem o mesmo tamanho (mais a marca) que com 1000.
+	at5000, _ := in.liveStage(connStage{id: id})
+	if d := len(at5000.rec) - len(at1000.rec); d < 0 || d > 64 {
+		t.Fatalf("record grew %d -> %d", len(at1000.rec), len(at5000.rec))
+	}
+}
+
+// TestLayersH2H3Cap (task 318): streams h2 e requisições h3 também param em 1000, com a marca, e requests conta
+// o total.
+func TestLayersH2H3Cap(t *testing.T) {
+	var l layers
+	for i := range 1500 {
+		l.addLayer(appEvent{subject: event.SubjectWebHTTP2Stream, env: event.Envelope{Payload: json.RawMessage(fmt.Sprintf(`{"stream_id":%d}`, 2*i+1))}})
+		l.addLayer(appEvent{subject: event.SubjectWebHTTP3Request, env: event.Envelope{Payload: json.RawMessage(fmt.Sprintf(`{"stream_id":%d}`, 4*i))}})
+	}
+	// substituir um stream já listado continua valendo
+	l.addLayer(appEvent{subject: event.SubjectWebHTTP2Stream, env: event.Envelope{Payload: json.RawMessage(`{"stream_id":1,"status":200}`)}})
+	var r connectionJSON
+	l.applyApp(&r, 0)
+	var h2 struct {
+		Streams   []map[string]any `json:"streams"`
+		Truncated bool             `json:"streams_truncated"`
+	}
+	var h3 struct {
+		Requests  []map[string]any `json:"requests"`
+		Truncated bool             `json:"requests_truncated"`
+	}
+	if err := json.Unmarshal(r.HTTP2, &h2); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(r.HTTP3, &h3); err != nil {
+		t.Fatal(err)
+	}
+	if len(h2.Streams) != 1000 || !h2.Truncated || len(h3.Requests) != 1000 || !h3.Truncated || r.Requests != 3000 ||
+		h2.Streams[0]["status"] != 200.0 {
+		t.Fatalf("h2 %d %v h3 %d %v requests %d", len(h2.Streams), h2.Truncated, len(h3.Requests), h3.Truncated, r.Requests)
+	}
+}
+
+// TestAppEventsByteCap (task 318, ADR 0067): os app_events de uma conexão aberta param no teto de bytes
+// (FS_PCAP_MAX_BYTES_PER_CONN); o resto conta em store_app_events_dropped_total e ainda entra no registro; o
+// estado relido de app_events soma os mesmos bytes.
+func TestAppEventsByteCap(t *testing.T) {
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.PcapMax = 32 << 10 })
+	run(t, in, 100, batch(client, mirror, protoTCP, fullTCP[:4]))
+	openWithRequests(t, in, 0, 200)
+	id, _ := onlyConn(t, db)
+	stored := count(t, db, "SELECT count(*) FROM app_events WHERE conn_id = ?", id)
+	size := count(t, db, "SELECT coalesce(sum(length(payload_json)), 0) FROM app_events WHERE conn_id = ?", id)
+	dropped := int(in.metrics.Get("store_app_events_dropped_total"))
+	if stored == 0 || stored >= 200 || size > 32<<10 || stored+dropped != 200 {
+		t.Fatalf("stored %d (%d B) dropped %d", stored, size, dropped)
+	}
+	if r := recordOf(t, in, id); r.Requests != 200 {
+		t.Fatalf("requests %d", r.Requests)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	a, err := loadAppState(context.Background(), tx, id)
+	if err != nil || a.eventBytes != int64(size) {
+		t.Fatalf("reload bytes %v want %d (%v)", a, size, err)
 	}
 }

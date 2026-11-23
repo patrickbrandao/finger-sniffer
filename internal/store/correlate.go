@@ -92,6 +92,22 @@ func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after
 	return probeSet, before, c.app.proto(l4), true
 }
 
+// chargeAppBytes soma n aos bytes de app_events da conexão aberta id; false (sem somar) se passaria de max
+// (ADR 0067). Sem estado em memória (lote desfeito, a recarregar) ou max <= 0, aceita.
+func (t *flowTable) chargeAppBytes(id string, n, limit int64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	c := t.byID[id]
+	if c == nil || c.app == nil || limit <= 0 {
+		return true
+	}
+	if c.app.eventBytes+n > limit {
+		return false
+	}
+	c.app.eventBytes += n
+	return true
+}
+
 // setApp troca o estado de aplicação de uma conexão aberta (reconstruído de app_events).
 func (t *flowTable) setApp(c *conn, a *appState) {
 	t.mu.Lock()
@@ -320,7 +336,11 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 	if !keep {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO app_events (conn_id, ts_ns, subject, payload_json) VALUES (?, ?, ?, ?)",
+	if tg.open && !in.flows.chargeAppBytes(tg.id, int64(len(ev.data)), in.cfg.PcapMax) {
+		// Acima do teto de bytes de app_events da conexão aberta (ADR 0067): o evento não é gravado, mas a
+		// análise (listas com teto) ainda entra no estado em memória.
+		in.metrics.Add("store_app_events_dropped_total", 1)
+	} else if _, err := tx.ExecContext(ctx, "INSERT INTO app_events (conn_id, ts_ns, subject, payload_json) VALUES (?, ?, ?, ?)",
 		tg.id, ev.ts, ev.subject, string(ev.data)); err != nil {
 		return fmt.Errorf("insert app event: %w", err)
 	}
@@ -519,6 +539,7 @@ func loadAppState(ctx context.Context, tx *sql.Tx, id string) (*appState, error)
 		if err := rows.Scan(&subject, &data); err != nil {
 			return nil, err
 		}
+		a.eventBytes += int64(len(data))
 		if ev, err := parseAppEvent(subject, []byte(data)); err == nil {
 			a.add(ev)
 		}

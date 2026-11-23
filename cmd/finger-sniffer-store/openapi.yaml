@@ -24,7 +24,8 @@ info:
     booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0). 0.6.1 (documental, ADR 0038):
     servidor `finger-01.badblock.net.br`. 0.7.0 (ADR 0066, aditivo): `503` com `Retry-After` nas rotas finitas
     (orçamento de 256 MiB das respostas JSON em andamento e desligamento, inclusive `deleteProbe`, `/pcap` e
-    `/raw`), corte por bytes (64 MiB por resposta) e a descrição do `DELETE` de probe (ADR 0068).
+    `/raw`), corte por bytes (64 MiB por resposta) e a descrição do `DELETE` de probe (ADR 0068); (ADR 0067) `http_truncated`,
+    `http2.streams_truncated` e `http3.requests_truncated`.
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -567,6 +568,9 @@ components:
         - type: object
           properties:
             pcap_truncated: { type: boolean }
+            http_truncated:
+              type: boolean
+              description: "`http` lista só as 1000 primeiras requisições HTTP/1 (ADR 0067); `requests` conta todas. Ausente = `false`."
             raw_truncated:
               type: object
               description: Sentidos cujo fluxo de aplicação passou de FS_RAW_STREAM_MAX_BYTES (ADR 0018).
@@ -1049,6 +1053,9 @@ components:
             então, se o cliente não abrir outro stream, `PS` sai vazio (ex. `3:100;4:65536;2:0|1048510465|0|`).
             `WU` = `00` sem WINDOW_UPDATE inicial; `P` = `0` sem frame PRIORITY antes do primeiro HEADERS.
         streams: { type: array, items: { $ref: "#/components/schemas/HTTP2Stream" } }
+        streams_truncated:
+          type: boolean
+          description: "`streams` lista só os 1000 primeiros (ADR 0067). Ausente = `false`."
         frames: { type: array, items: { $ref: "#/components/schemas/H2Frame" } }
         frames_truncated: { type: boolean, description: "Lista cortada para caber no teto do evento (ADR 0018)." }
 
@@ -1119,6 +1126,9 @@ components:
         requests:
           type: array
           items: { $ref: "#/components/schemas/HTTP3Request" }
+        requests_truncated:
+          type: boolean
+          description: "`requests` lista só as 1000 primeiras (ADR 0067). Ausente = `false`."
     HTTP3Request:
       type: object
       description: Uma requisição h3 (spec 011 RF-03).
