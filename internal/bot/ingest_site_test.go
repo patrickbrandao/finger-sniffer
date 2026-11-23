@@ -1,11 +1,13 @@
 package bot
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -202,5 +204,99 @@ func TestIngestFieldAllowlist(t *testing.T) {
 	}
 	if len(r.FieldNames) != 11 || r.JA4H != "ge20nn110000_x_y_z" {
 		t.Errorf("nomes ou JA4H perdidos: %v %q", r.FieldNames, r.JA4H)
+	}
+}
+
+// foreignBatch é o lote de validBatch (conexão com ClientHello e h2 do cliente Go e uma requisição) do site dado.
+func foreignBatch(site string) string {
+	return strings.ReplaceAll(validBatch(), "www.example.com", site)
+}
+
+// foreignRequest é só o registro de requisição de validBatch, do site dado (a requisição seguinte da conexão).
+func foreignRequest(site string) string {
+	b := foreignBatch(site)
+	i := strings.Index(b, `{"type":"request"`)
+	return `{"sender":"v3.6.2-fs.1","records":[` + b[i:]
+}
+
+// TestForwardAuthKeyForeignConn: task 369 — uma chave de a.com que faz forwardAuth na 9002 com o fs_conn_id de uma
+// conexão de victim.org recebe 200 avaliado só pelos cabeçalhos: sem as fingerprints de victim.org no corpo, sem
+// trocar o LastVerdict da conexão e sem roubar a vez de publicação da requisição seguinte de victim.org (spec 020
+// RF-03, ADR 0051 item 3).
+func TestForwardAuthKeyForeignConn(t *testing.T) {
+	f := newFixture(t)
+	feed := &streamClient{queue: make(chan *Verdict, 64)}
+	if err := f.srv.hub.add(feed); err != nil {
+		t.Fatal(err)
+	}
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, foreignBatch("victim.org")); c != 202 ||
+		string(b) != `{"accepted":2,"rejected":0}`+"\n" {
+		t.Fatalf("conexão interna: %d %s", c, b)
+	}
+	before, ok := f.srv.Index().Fork(testForkConnID, f.clock.Now())
+	if !ok || before.TLS == nil || before.TLS.JA4 == "" || before.LastVerdict == nil {
+		t.Fatalf("conexão de victim.org sem JA4 ou veredito: %+v", before)
+	}
+	ja4 := before.TLS.JA4
+	for len(feed.queue) > 0 {
+		<-feed.queue
+	}
+
+	_, key := f.createKey(KeyOptions{Name: "a", Domains: []string{"a.com"}})
+	hdr := forkHeadersFor()
+	hdr["X-Forwarded-Host"] = "a.com"
+	// duas chamadas: com a vez roubada, a segunda passaria do published e a próxima de victim.org não sairia
+	for i := range 2 {
+		c, _, v, b := f.authVerdict("public", key, hdr)
+		if c != 200 || v.Class == "" {
+			t.Fatalf("forwardAuth %d: %d %s", i, c, b)
+		}
+		if strings.Contains(string(b), ja4) || v.View.TLS || v.Fingerprints.Akamai != nil {
+			t.Errorf("forwardAuth %d com as fingerprints de victim.org: %s", i, b)
+		}
+		if v.Subject.Site == nil || *v.Subject.Site != "a.com" {
+			t.Errorf("forwardAuth %d: subject %+v", i, v.Subject)
+		}
+	}
+	after, _ := f.srv.Index().Fork(testForkConnID, f.clock.Now())
+	if !bytes.Equal(after.LastVerdict, before.LastVerdict) {
+		t.Errorf("LastVerdict trocado: %s", after.LastVerdict)
+	}
+	if after.authSeen != before.authSeen || after.published != before.published {
+		t.Errorf("contadores de publicação: auth %d→%d, published %d→%d", before.authSeen, after.authSeen,
+			before.published, after.published)
+	}
+	if n := len(feed.queue); n != 0 {
+		t.Errorf("forwardAuth da outra chave publicou %d vereditos", n)
+	}
+	// a requisição seguinte de victim.org pelo ingest sai no feed
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, foreignRequest("victim.org")); c != 202 ||
+		string(b) != `{"accepted":1,"rejected":0}`+"\n" {
+		t.Fatalf("requisição seguinte: %d %s", c, b)
+	}
+	if n := len(feed.queue); n != 1 {
+		t.Fatalf("feed com %d vereditos depois da requisição de victim.org, quer 1", n)
+	}
+	if v := <-feed.queue; v.Subject.Site == nil || *v.Subject.Site != "victim.org" {
+		t.Errorf("veredito publicado: %+v", v.Subject)
+	}
+}
+
+// TestForwardAuthCoalescedConn: task 369 — coalescência h2 com uma chave por site: a requisição de b.example.com numa
+// conexão de SNI a.example.com dá 200 com veredito (não 400, que jogaria o site em fail-open).
+func TestForwardAuthCoalescedConn(t *testing.T) {
+	f := newFixture(t)
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, foreignBatch("a.example.com")); c != 202 {
+		t.Fatalf("conexão interna: %d %s", c, b)
+	}
+	_, key := f.createKey(KeyOptions{Name: "b", Domains: []string{"b.example.com"}})
+	hdr := forkHeadersFor()
+	hdr["X-Forwarded-Host"] = "b.example.com"
+	c, h, v, b := f.authVerdict("public", key, hdr)
+	if c != 200 || v.Class == "" || h.Get("X-Fs-Verdict") != v.Class {
+		t.Fatalf("coalescência: %d %v %s", c, h, b)
+	}
+	if v.Subject.Site == nil || *v.Subject.Site != "b.example.com" || v.View.TLS {
+		t.Errorf("veredito: %s", b)
 	}
 }

@@ -514,14 +514,19 @@ func (a *API) forwardAuth(internal bool) http.HandlerFunc {
 			a.count(viewWaitMetric("tcp"), 1)
 		}
 		var fp *ForkConn
-		if hasFork {
+		// Conexão de um site fora dos domínios da chave (spec 020 RF-03, ADR 0051 item 3): a requisição é avaliada só
+		// pelos cabeçalhos e não grava nada na conexão (nem veredito nem vez de publicação; a publicação fica para o
+		// registro do ingest). Não é 400: com coalescência h2 uma requisição legítima de b.example.com pode vir numa
+		// conexão de SNI a.example.com, e o 400 a jogaria em fail-open.
+		foreign := hasFork && !connAllowed(p, &fork)
+		if hasFork && !foreign {
 			fp = &fork
 		}
 		var sp *StoreConn
 		if hasTCP {
 			sp = &store
 		}
-		v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp)
+		v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp, !foreign)
 		vals := [3]string{v.Class, strconv.Itoa(v.Score), signalIDs(v.Signals)}
 		for i, k := range verdictHeaders {
 			w.Header().Set(k, vals[i%3])
@@ -953,12 +958,17 @@ func (a *API) ingestAllowed(p principal, rec *parsedRecord) bool {
 			return false
 		}
 	}
-	if c, ok := a.Index.Fork(rec.r.FsConnID, a.now()); ok {
-		if s := c.Site(); s != "" && !p.allows(s) {
-			return false
-		}
+	if c, ok := a.Index.Fork(rec.r.FsConnID, a.now()); ok && !connAllowed(p, &c) {
+		return false
 	}
 	return true
+}
+
+// connAllowed diz se a conexão indexada pode ser lida e escrita pela chave: sem site ainda (conexão sem SNI nem
+// authority) ou com o site nos domínios dela. Conferência comum do ingest e do forwardAuth (task 369).
+func connAllowed(p principal, c *ForkConn) bool {
+	s := c.Site()
+	return s == "" || p.allows(s)
 }
 
 // listenerAddrs combina cada IP com a porta.
