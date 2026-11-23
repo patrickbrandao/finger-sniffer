@@ -127,6 +127,38 @@ func writeDeadline(w http.ResponseWriter) func() {
 	return func() { _ = rc.SetWriteDeadline(time.Time{}) }
 }
 
+// writeJSONBudget é o writeJSON das rotas com orçamento (ADR 0066): serializa antes de escrever, soma o corpo à
+// reserva da requisição e, se não couber, responde 503 em vez de escrever.
+func (a *API) writeJSONBudget(w http.ResponseWriter, r *http.Request, v any) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err == nil {
+		err = reservationFrom(r.Context()).add(len(b))
+	}
+	if err != nil {
+		a.fail(w, r, err)
+		return
+	}
+	defer writeDeadline(w)()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(b, '\n'))
+}
+
+// budgeted abre a reserva do orçamento das respostas JSON para a requisição; o handler chama o release em defer,
+// depois da escrita (que termina, falha ou vence o prazo de jsonWriteTimeout).
+func (a *API) budgeted(r *http.Request) (*http.Request, func()) {
+	res := a.Q.budget.reserve()
+	return r.WithContext(withReservation(r.Context(), res)), res.release
+}
+
+// fail é o writeErr das rotas da API, que conta as recusas do orçamento em fs_store_api_rejected_total.
+func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errJSONBusy) {
+		a.Prom.apiRejected(r.Pattern, "busy")
+	}
+	writeErr(w, err)
+}
+
 // writeErr converte erros de consulta em 400/404/500/503 com o schema Error.
 func writeErr(w http.ResponseWriter, err error) {
 	switch {
@@ -151,21 +183,25 @@ func (a *API) listConnections(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	r, release := a.budgeted(r)
+	defer release()
 	list, err := a.Q.Connections(r.Context(), f)
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	a.writeJSONBudget(w, r, list)
 }
 
 func (a *API) getConnection(w http.ResponseWriter, r *http.Request) {
+	r, release := a.budgeted(r)
+	defer release()
 	rec, err := a.Q.Connection(r.Context(), r.PathValue("conn_id"))
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, rec)
+	a.writeJSONBudget(w, r, rec)
 }
 
 func (a *API) getPcap(w http.ResponseWriter, r *http.Request) {
@@ -216,12 +252,14 @@ func (a *API) listPackets(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	r, release := a.budgeted(r)
+	defer release()
 	list, err := a.Q.Packets(r.Context(), f)
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	a.writeJSONBudget(w, r, list)
 }
 
 func (a *API) listDNS(w http.ResponseWriter, r *http.Request) {
@@ -230,12 +268,14 @@ func (a *API) listDNS(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	r, release := a.budgeted(r)
+	defer release()
 	list, err := a.Q.DNS(r.Context(), f)
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	a.writeJSONBudget(w, r, list)
 }
 
 // waitRe é o formato de ?wait e ?settle em /probes/{id} (openapi); minConnsRe, o de ?min_conns.
@@ -292,11 +332,14 @@ func (a *API) getProbe(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
+	r, release := a.budgeted(r)
+	defer release()
 	p, err := a.Q.Probe(r.Context(), r.PathValue("id"), pw)
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
+	// writeProbe escreve registro a registro, sem outra cópia do conjunto: a reserva é a dos registros lidos.
 	writeProbe(w, p)
 }
 

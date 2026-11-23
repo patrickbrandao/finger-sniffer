@@ -298,6 +298,9 @@ func TestAPIErrorContract(t *testing.T) {
 	for range blobMax {
 		blobFull.q.blobs <- struct{}{}
 	}
+	// e com o orçamento das respostas JSON esgotado (503, ADR 0066)
+	budgetFull := newAPIFixture(t)
+	budgetFull.q.budget = newJSONBudget(1)
 
 	var bodies [][]byte
 	for _, c := range tab.Cases {
@@ -313,6 +316,8 @@ func TestAPIErrorContract(t *testing.T) {
 				base = waitFull.srv.URL
 			case "blob_full":
 				base = blobFull.srv.URL
+			case "json_budget_full":
+				base = budgetFull.srv.URL
 			default:
 				t.Fatalf("fault desconhecida %q", c.Fault)
 			}

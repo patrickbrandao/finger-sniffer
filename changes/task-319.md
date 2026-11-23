@@ -1,2 +1,1 @@
-- fix(store): respostas JSON da API com prazo de escrita de 60 s (`writeJSON`/`writeProbe`): cliente que pede e
-  não lê não prende mais o handler e a resposta na memória (task 319, item 1).
+- store: orçamento de 256 MiB das respostas JSON finitas em andamento (`503` com `Retry-After: 1` e `{"error":"busy"}`), teto de 64 MiB por resposta (`truncated` no probe, listas abaixo do `limit`), métricas `fs_store_api_json_bytes_in_flight` e `fs_store_api_rejected_total{route,reason}`; openapi e asyncapi 0.7.0 (task 319, ADR 0066).

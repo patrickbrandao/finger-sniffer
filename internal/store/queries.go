@@ -47,6 +47,9 @@ type Queries struct {
 	deletes chan struct{}
 	// deleteTx e deleteMax contam as transações de DELETE no escritor e o máximo simultâneo (para os testes).
 	deleteTx, deleteNow, deleteMax atomic.Int64
+	// budget é o orçamento das respostas JSON em andamento e respMax o teto de uma resposta (ADR 0066).
+	budget  *jsonBudget
+	respMax int64
 }
 
 // WithLivePcap liga o acessor do pcap parcial das conexões abertas, cujos pacotes ficam na memória do ingest
@@ -85,6 +88,7 @@ func NewQueries(db *sql.DB, live func(string) (connectionJSON, bool), snaplen ui
 		waiters: make(chan struct{}, probeWaitMax),
 		blobs:   make(chan struct{}, blobMax), blobWrite: blobWriteTimeout,
 		deletes: make(chan struct{}, 1),
+		budget:  newJSONBudget(jsonBudgetMax), respMax: jsonResponseMax,
 	}
 }
 
@@ -219,7 +223,25 @@ type summaryJSON struct {
 	Degraded bool         `json:"degraded"`
 }
 
-// Connections lista conexões, mais novas primeiro.
+// cut abre o teto de uma resposta, ligado à reserva da requisição (se houver).
+func (q *Queries) cut(ctx context.Context) *respCut {
+	return &respCut{res: reservationFrom(ctx), max: q.respMax}
+}
+
+// summarySize estima os bytes de um ConnectionSummary indentado: as chaves e a pontuação fixas mais os valores.
+func summarySize(s summaryJSON) int {
+	n := 360 + len(s.ConnID) + len(s.Proto) + len(s.L4) + len(s.Src.IP) + len(s.Dst.IP) + len(s.Started)
+	if s.ProbeID != nil {
+		n += len(*s.ProbeID)
+	}
+	if s.Ended != nil {
+		n += len(*s.Ended)
+	}
+	return n
+}
+
+// Connections lista conexões, mais novas primeiro; a lista para antes de limit quando o corpo passaria do teto
+// de uma resposta (ADR 0066 item 2).
 func (q *Queries) Connections(ctx context.Context, f ListFilter) ([]summaryJSON, error) {
 	var where []string
 	var args []any
@@ -250,6 +272,7 @@ func (q *Queries) Connections(ctx context.Context, f ListFilter) ([]summaryJSON,
 	}
 	defer func() { _ = rows.Close() }()
 	out := []summaryJSON{}
+	cut := q.cut(ctx)
 	for rows.Next() {
 		var s summaryJSON
 		var probeID sql.NullString
@@ -274,6 +297,11 @@ func (q *Queries) Connections(ctx context.Context, f ListFilter) ([]summaryJSON,
 			if l, ok := q.liveSummary(s.ConnID); ok {
 				s = l
 			}
+		}
+		if ok, err := cut.take(summarySize(s)); err != nil {
+			return nil, err
+		} else if !ok {
+			break
 		}
 		out = append(out, s)
 	}
@@ -308,8 +336,16 @@ func (q *Queries) Connection(ctx context.Context, id string) (json.RawMessage, e
 	}
 	if !ended.Valid {
 		if r, ok := q.live(id); ok {
-			return json.Marshal(r)
+			b, err := json.Marshal(r)
+			if err != nil {
+				return nil, err
+			}
+			rec = string(b)
 		}
+	}
+	// Registro único: conta inteiro no orçamento, sem corte (ADR 0066 item 2).
+	if err := reservationFrom(ctx).add(len(rec)); err != nil {
+		return nil, err
 	}
 	return json.RawMessage(rec), nil
 }
@@ -427,6 +463,7 @@ func (q *Queries) Packets(ctx context.Context, f ListFilter) ([]json.RawMessage,
 	}
 	defer func() { _ = rows.Close() }()
 	out := []json.RawMessage{}
+	cut := q.cut(ctx)
 	for rows.Next() {
 		var rec string
 		var frame []byte
@@ -439,6 +476,11 @@ func (q *Queries) Packets(ctx context.Context, f ListFilter) ([]json.RawMessage,
 		}
 		m["frame_b64"] = base64.StdEncoding.EncodeToString(frame)
 		b, _ := json.Marshal(m)
+		if ok, err := cut.take(len(b)); err != nil {
+			return nil, err
+		} else if !ok {
+			break
+		}
 		out = append(out, b)
 	}
 	return out, rows.Err()
@@ -459,31 +501,41 @@ func (q *Queries) DNS(ctx context.Context, f ListFilter) ([]json.RawMessage, err
 		sqlq += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos; valores vão como parâmetros
 	}
 	sqlq += " ORDER BY ts_ns DESC, id DESC LIMIT ?"
-	return q.rawList(ctx, sqlq, append(args, f.Limit)...)
+	list, _, err := q.rawList(ctx, q.cut(ctx), sqlq, append(args, f.Limit)...)
+	return list, err
 }
 
-func (q *Queries) rawList(ctx context.Context, sqlq string, args ...any) ([]json.RawMessage, error) {
+// rawList lê record_json até o fim das linhas ou o teto da resposta (cut); capped diz se parou pelo teto.
+func (q *Queries) rawList(ctx context.Context, cut *respCut, sqlq string, args ...any) (_ []json.RawMessage, capped bool, _ error) {
 	rows, err := q.db.QueryContext(ctx, sqlq, args...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() { _ = rows.Close() }()
 	out := []json.RawMessage{}
 	for rows.Next() {
 		var rec string
 		if err := rows.Scan(&rec); err != nil {
-			return nil, err
+			return nil, false, err
+		}
+		ok, err := cut.take(len(rec))
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			return out, true, nil
 		}
 		out = append(out, json.RawMessage(rec))
 	}
-	return out, rows.Err()
+	return out, false, rows.Err()
 }
 
 // probeJSON é o schema Probe.
 type probeJSON struct {
 	ProbeID   string `json:"probe_id"`
 	AllClosed bool   `json:"all_closed"`
-	// Truncated: connections ou dns passou de probeMaxItems e foi cortada (ADR 0032).
+	// Truncated: connections ou dns passou de probeMaxItems e foi cortada (ADR 0032), ou o corpo passaria do teto
+	// de uma resposta (ADR 0066).
 	Truncated bool `json:"truncated,omitempty"`
 	// WaitMet só aparece com wait (ADR 0029): true quando saiu pelo critério, false pelo fim do prazo.
 	WaitMet     *bool             `json:"wait_met,omitempty"`
@@ -581,11 +633,12 @@ func (q *Queries) probeStateOf(ctx context.Context, id string) (probeState, erro
 	return st, err
 }
 
-// probeFull lê os registros do probe com o teto de probeMaxItems por lista (lê um a mais para saber se cortou);
-// conexão aberta vem do estado ao vivo.
+// probeFull lê os registros do probe com o teto de probeMaxItems por lista (lê um a mais para saber se capped) e o
+// teto de bytes da resposta (ADR 0066), somados à reserva da requisição; conexão aberta vem do estado ao vivo.
 func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 	q.probeReads.Add(1)
 	p := probeJSON{ProbeID: id, Connections: []json.RawMessage{}, DNS: []json.RawMessage{}}
+	cut := q.cut(ctx)
 	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns FROM connections WHERE probe_id = ? ORDER BY started_ns LIMIT ?", id, probeMaxItems+1)
 	if err != nil {
 		return p, err
@@ -607,6 +660,15 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 				rec = string(b)
 			}
 		}
+		ok, err := cut.take(len(rec))
+		if err != nil {
+			_ = rows.Close()
+			return p, err
+		}
+		if !ok {
+			p.Truncated = true
+			break
+		}
 		p.Connections = append(p.Connections, json.RawMessage(rec))
 	}
 	err = rows.Err()
@@ -614,9 +676,12 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 	if err != nil {
 		return p, err
 	}
-	dns, err := q.rawList(ctx, "SELECT record_json FROM dns_queries WHERE probe_id = ? ORDER BY ts_ns LIMIT ?", id, probeMaxItems+1)
+	dns, capped, err := q.rawList(ctx, cut, "SELECT record_json FROM dns_queries WHERE probe_id = ? ORDER BY ts_ns LIMIT ?", id, probeMaxItems+1)
 	if err != nil {
 		return p, err
+	}
+	if capped {
+		p.Truncated = true
 	}
 	if len(dns) > probeMaxItems {
 		dns, p.Truncated = dns[:probeMaxItems], true

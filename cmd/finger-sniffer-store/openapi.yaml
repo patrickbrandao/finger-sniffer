@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.6.1
+  version: 0.7.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -22,7 +22,8 @@ info:
     `frames` vazio (upgrade sem frames) e descrições de `stream_id` 0, `status` 0, `src_ip` de `/packets`,
     `kind`, `probe_line`, `head_too_large`, `chunks_truncated`, `rate_limited` e do `DELETE` de probe. Todo
     booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0). 0.6.1 (documental, ADR 0038):
-    servidor `finger-01.badblock.net.br`.
+    servidor `finger-01.badblock.net.br`. 0.7.0 (ADR 0066, aditivo): `503` com `Retry-After` nas rotas finitas
+    (orçamento de 256 MiB das respostas JSON em andamento) e corte por bytes (64 MiB por resposta).
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -82,7 +83,8 @@ paths:
       description: |
         Até 1000 conexões (as mais antigas primeiro) e 1000 consultas DNS (pela ordem de chegada); acima disso
         `truncated: true` e o restante fica em `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`
-        (ADR 0032, decisão do humano). O critério do `wait` e `all_closed` olham o conjunto inteiro.
+        (ADR 0032, decisão do humano). O mesmo corte vale quando o corpo chegaria a 64 MiB (ADR 0066). O critério
+        do `wait` e `all_closed` olham o conjunto inteiro.
       parameters:
         - name: wait
           in: query
@@ -153,7 +155,7 @@ paths:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
         "200":
-          description: Conexões que casam com os filtros.
+          description: Conexões que casam com os filtros (menos que `limit` quando o corpo chegaria a 64 MiB, ADR 0066).
           content:
             application/json:
               schema:
@@ -163,6 +165,7 @@ paths:
                 two: { $ref: "./testdata/connections-list-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Busy" }
 
   /api/v1/connections/{conn_id}:
     parameters:
@@ -183,6 +186,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Busy" }
 
   /api/v1/connections/{conn_id}/pcap:
     parameters:
@@ -236,7 +240,7 @@ paths:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
         "200":
-          description: Consultas, mais novas primeiro.
+          description: Consultas, mais novas primeiro (menos que `limit` quando o corpo chegaria a 64 MiB, ADR 0066).
           content:
             application/json:
               schema:
@@ -246,6 +250,7 @@ paths:
                 with_ecs: { $ref: "./testdata/dns-list-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Busy" }
 
   /api/v1/packets:
     get:
@@ -262,7 +267,7 @@ paths:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
         "200":
-          description: Pacotes avulsos.
+          description: Pacotes avulsos (menos que `limit` quando o corpo chegaria a 64 MiB, ADR 0066).
           content:
             application/json:
               schema:
@@ -272,6 +277,7 @@ paths:
                 rst: { $ref: "./testdata/packets-example.json" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Busy" }
 
   /api/v1/stream:
     get:
@@ -373,7 +379,10 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     Busy:
-      description: Acima de 64 esperas `wait` simultâneas no store (ADR 0032); tente de novo depois do `Retry-After`.
+      description: |
+        Tente de novo depois do `Retry-After`. Motivos: acima de 64 esperas `wait` simultâneas (ADR 0032, só em
+        `getProbe`); orçamento das respostas JSON em andamento esgotado (`{"error":"busy"}`, ADR 0066); store
+        desligando (`{"error":"shutting down"}`, ADR 0066).
       headers:
         Retry-After:
           description: Segundos até tentar de novo.
@@ -517,7 +526,8 @@ components:
         truncated:
           type: boolean
           description: |
-            `true` quando `connections` (1000) ou `dns` (1000) foi cortada (ADR 0032); o restante fica em
+            `true` quando `connections` (1000) ou `dns` (1000) foi cortada (ADR 0032), ou o corpo chegaria a 64 MiB
+            (ADR 0066); o restante fica em
             `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`. Ausente = `false`.
         wait_met:
           type: boolean

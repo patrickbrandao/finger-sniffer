@@ -219,6 +219,7 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 	s.queries = NewQueries(rdb, s.ingest.flows.live, cfg.Ingest.Snaplen).WithOpenSummary(s.ingest.flows.openSummary).
 		WithLivePcap(s.ingest.flows.livePcap)
 	s.queries.SetHideOpen(s.ingest.flows.hide, s.ingest.flows.unhide)
+	s.prom.registerAPIBudget(s.queries.budget)
 	// O estado do próprio store no heartbeat reflete o host (offloads, NTP, conntrack).
 	// O estado dos certificados da 9000 também conta (spec 015 RF-05: autoassinado ou expirando = degraded).
 	svc.SetStatus(func() (string, []string) {
