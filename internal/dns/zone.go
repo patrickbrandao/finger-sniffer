@@ -23,6 +23,10 @@ const (
 	acmeLabel = "_acme-challenge"
 	// maxTXTValue é o maior valor TXT aceito (uma string de caracteres do DNS).
 	maxTXTValue = 255
+	// Tetos dos valores vivos do DNS-01 (ADR 0075 item 6): por nome, de nomes e no total.
+	maxACMEValuesPerName = 8
+	maxACMENames         = 16
+	maxACMEValues        = 64
 	// httpsLabel é o segundo rótulo do prefixo de porta do HTTPS RR (_<P>._https, RFC 9460 §2.3).
 	httpsLabel = "_https"
 	// defaultHTTPSPort é a porta da origem de um nome sem prefixo.
@@ -90,7 +94,8 @@ func (z *Zone) acmeName(name string) (string, bool) {
 	return n, first == acmeLabel
 }
 
-// SetACME acrescenta value ao conjunto do nome (idempotente: renova a expiração).
+// SetACME acrescenta value ao conjunto do nome (idempotente: renova a expiração). Acima dos tetos dos valores
+// vivos devolve errACMELimit e não guarda nada.
 func (z *Zone) SetACME(name, value string) error {
 	n, ok := z.acmeName(name)
 	if !ok {
@@ -104,11 +109,37 @@ func (z *Zone) SetACME(name, value string) error {
 	defer z.mu.Unlock()
 	z.pruneLocked(now)
 	set := z.acme[n]
+	// Repetir um valor que já está no conjunto só renova a expiração e não conta nos tetos
+	// (o certmagic repete o set).
+	if _, exists := set[value]; !exists {
+		if err := z.checkACMELimitsLocked(set); err != nil {
+			return err
+		}
+	}
 	if set == nil {
 		set = map[string]time.Time{}
 		z.acme[n] = set
 	}
 	set[value] = now.Add(z.cfg.ACMETTL)
+	return nil
+}
+
+// checkACMELimitsLocked recusa um valor novo quando ele passaria de algum teto. set é o conjunto atual do nome
+// (nil se o nome ainda não existe); chamar só depois do pruneLocked.
+func (z *Zone) checkACMELimitsLocked(set map[string]time.Time) error {
+	if len(set) >= maxACMEValuesPerName {
+		return errACMELimit
+	}
+	if set == nil && len(z.acme) >= maxACMENames {
+		return errACMELimit
+	}
+	total := 0
+	for _, s := range z.acme {
+		total += len(s)
+	}
+	if total >= maxACMEValues {
+		return errACMELimit
+	}
 	return nil
 }
 

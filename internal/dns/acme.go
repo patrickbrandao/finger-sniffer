@@ -20,6 +20,7 @@ const (
 var (
 	errNotACMEName = errors.New("name is not _acme-challenge.<name> inside the zone")
 	errBadValue    = errors.New("value must have 1 to 255 bytes")
+	errACMELimit   = errors.New("acme limit")
 )
 
 // ACMERequest é o pedido de fs.v1.dns.acme.set|clear (asyncapi ACMERequest).

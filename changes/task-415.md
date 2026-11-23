@@ -1,0 +1,1 @@
+- dns: teto dos valores vivos do TXT ACME (8 por nome, 16 nomes, 64 no total; ADR 0075 item 6); acima, `fs.v1.dns.acme.set` responde `{"ok":false,"error":"acme limit"}` e nada é guardado; repetir um valor existente só renova a expiração (task 415).
