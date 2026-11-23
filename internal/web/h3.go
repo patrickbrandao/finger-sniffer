@@ -200,6 +200,7 @@ func (s *Server) ServeQUIC(ctx context.Context, pc *net.UDPConn) error {
 			defer s.wg.Done()
 			defer func() { <-s.sem }()
 			defer s.untrackQUIC(qc)
+			defer s.recoverConn("h3", func() { _ = qc.CloseWithError(h3InternalError, "") })
 			s.handleQUIC(ctx, qc)
 		}()
 	}

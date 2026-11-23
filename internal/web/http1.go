@@ -91,6 +91,7 @@ func (s *h1Session) serveOne(idx int) bool {
 	if firstByteAt.IsZero() {
 		firstByteAt = s.t.lastRead()
 	}
+	srv.hook("http1.head")
 	req.Index = idx
 	req.RequestStartedAt = instant(firstByteAt)
 	s.fillTimes(req, idx, buffered, firstByteAt)
