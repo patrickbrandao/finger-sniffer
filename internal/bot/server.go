@@ -45,6 +45,12 @@ const (
 	metricIndexBytes = "bot_index_bytes"
 	// metricAggDropped conta as observações descartadas pelo teto de entradas dos agregados (ADR 0056).
 	metricAggDropped = "bot_agg_dropped_total"
+	// metricAggEvicted e metricAggLimited contam os despejos pelo teto global e os cortes pelo teto por origem dos
+	// agregados (ADR 0073 item 7).
+	metricAggEvicted = "bot_agg_evicted_total"
+	metricAggLimited = "bot_agg_limited_total"
+	// aggFullDegraded é por quanto tempo um despejo ou descarte pelo teto global deixa o health degraded (agg full).
+	aggFullDegraded = 60 * time.Second
 )
 
 // SubscribeFunc assina um subject do NATS e devolve como cancelar (nats.Conn.Subscribe nos binários, falso nos
@@ -130,7 +136,7 @@ func New(cfg Config, d Deps) *Server {
 		d.Metrics.Add(k, 0)
 	}
 	s.hub = NewHub()
-	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention})
+	s.agg = agg.New(agg.Config{MaxAge: cfg.AggRetention, Now: d.Now})
 	s.lists = newLists(cfg, d)
 	s.hooks = webhook.New(webhook.Options{Now: d.Now, Count: d.Metrics.Add})
 	s.hub.SetSink(s.publishWebhook)
@@ -159,6 +165,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if s.publicFull(s.deps.Now()) {
 		reasons = append(reasons, "public conns")
+	}
+	if s.agg.FullSince(s.deps.Now(), aggFullDegraded) {
+		reasons = append(reasons, "agg full")
 	}
 	if s.api.BlockKeyLimited(s.deps.Now(), blockLimitedDegraded) {
 		reasons = append(reasons, "block key limited")
@@ -498,10 +507,19 @@ func (s *Server) updateMetrics() {
 	m.Set(metricStoreFeedMessages, float64(s.feed.Messages()))
 	m.Set(metricDBBytes, float64(dbFileSize(s.cfg.DBPath)))
 	m.Set(metricAggDropped, float64(s.agg.Dropped()))
+	m.Set(metricAggEvicted, float64(s.agg.Evicted()))
+	for _, r := range []string{agg.LimitIPSites, agg.LimitIPFingerprints} {
+		m.Set(aggLimitedMetric(r), float64(s.agg.Limited(r)))
+	}
 	m.Set(metricIndexBytes, float64(s.index.Bytes(s.deps.Now())))
 	if s.lists != nil {
 		s.lists.UpdateMetrics(s.deps.Now(), m.Set)
 	}
+}
+
+// aggLimitedMetric é bot_agg_limited_total com o rótulo reason.
+func aggLimitedMetric(reason string) string {
+	return metricAggLimited + `{reason="` + reason + `"}`
 }
 
 // evictedMetric é bot_conns_evicted_total com o rótulo reason (formato da ADR 0056 item 4).
