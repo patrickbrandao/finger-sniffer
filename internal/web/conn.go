@@ -244,7 +244,7 @@ func (c *conn) serveTLS(ic *idleConn) {
 
 // publishClientHello publica fs.v1.web.tls.client_hello com JA3/JA4 (spec 008).
 func (c *conn) publishClientHello(tc *tlsparse.Conn) {
-	records, rerr := tc.Records()
+	records, rerr := tc.RawRecords()
 	if errors.Is(rerr, tlsparse.ErrNoBudget) {
 		return
 	}

@@ -203,14 +203,14 @@ func TestConnChunks(t *testing.T) {
 		if c.Complete() {
 			t.Fatal("completa antes de ler")
 		}
-		if _, err := c.Records(); !errors.Is(err, ErrIncomplete) {
+		if _, err := c.RawRecords(); !errors.Is(err, ErrIncomplete) {
 			t.Fatal(err)
 		}
 		got := readAll(t, c)
 		if !bytes.Equal(got, stream) {
 			t.Fatalf("chunk %d: Read alterou o fluxo", chunk)
 		}
-		recs, err := c.Records()
+		recs, err := c.RawRecords()
 		if err != nil || !bytes.Equal(recs, rec) {
 			t.Fatalf("chunk %d: captura %d bytes, err %v", chunk, len(recs), err)
 		}
@@ -230,7 +230,7 @@ func TestConnNotTLS(t *testing.T) {
 	if !c.Complete() {
 		t.Fatal("captura deveria ter terminado")
 	}
-	if _, err := c.Records(); !errors.Is(err, ErrNotHandshake) {
+	if _, err := c.RawRecords(); !errors.Is(err, ErrNotHandshake) {
 		t.Fatal(err)
 	}
 	if _, err := c.ClientHello(); !errors.Is(err, ErrNotHandshake) {
@@ -253,9 +253,14 @@ func TestConnFragmentedBig(t *testing.T) {
 	if got := readAll(t, c); len(got) != len(stream) {
 		t.Fatal("Read alterou o fluxo")
 	}
-	recs, err := c.Records()
+	recs, err := c.RawRecords()
 	if err != nil || len(recs) != MaxCapturedRecords || cap(recs) != MaxCapturedRecords || !c.RecordsTruncated() {
 		t.Fatalf("err=%v len=%d cap=%d", err, len(recs), cap(recs))
+	}
+	// Records (compatível com Parse) sintetiza registros com a mensagem inteira
+	syn, err := c.Records()
+	if pch, perr := Parse(syn); err != nil || perr != nil || !bytes.Equal(pch.Raw, msg) {
+		t.Fatalf("Records sintético: %v %v", err, perr)
 	}
 	ch, _ := c.ClientHello()
 	if !bytes.Equal(ch.Raw, msg) || ch.Records != len(msg) {
@@ -266,7 +271,7 @@ func TestConnFragmentedBig(t *testing.T) {
 	}
 	c.Release()
 	c.Release()
-	if recs, _ := c.Records(); recs != nil || held != 0 {
+	if recs, _ := c.RawRecords(); recs != nil || held != 0 {
 		t.Fatalf("depois de Release: %d bytes, reservado %d", len(recs), held)
 	}
 }
@@ -278,7 +283,7 @@ func TestConnNoBudget(t *testing.T) {
 	if _, err := c.Read(make([]byte, 1<<16)); !errors.Is(err, ErrNoBudget) {
 		t.Fatalf("err=%v", err)
 	}
-	if recs, err := c.Records(); recs != nil || !errors.Is(err, ErrNoBudget) || c.Reserved() != 0 {
+	if recs, err := c.RawRecords(); recs != nil || !errors.Is(err, ErrNoBudget) || c.Reserved() != 0 {
 		t.Fatalf("%d %v", len(recs), err)
 	}
 }

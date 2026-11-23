@@ -37,7 +37,7 @@ func feed(chunks [][]byte) capResult {
 	for _, p := range chunks {
 		c.capture(p)
 	}
-	recs, err := c.Records()
+	recs, err := c.RawRecords()
 	if err != nil && !errors.Is(err, ErrIncomplete) {
 		return capResult{err: err}
 	}

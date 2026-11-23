@@ -231,16 +231,39 @@ func (c *Conn) Complete() bool {
 	return c.done
 }
 
-// Records devolve os bytes crus capturados (os registros do ClientHello, cabeçalhos incluídos, até
+// RawRecords devolve os bytes crus capturados (os registros do ClientHello, cabeçalhos incluídos, até
 // MaxCapturedRecords) e o erro da captura: nil quando completo, ErrIncomplete se ainda faltam bytes, ou o
 // erro definitivo. A fatia não muda depois que a captura termina.
-func (c *Conn) Records() ([]byte, error) {
+func (c *Conn) RawRecords() ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.done {
 		return append([]byte(nil), c.raw...), ErrIncomplete
 	}
 	return c.raw, c.err
+}
+
+// Records é como RawRecords, mas, quando a cópia crua foi cortada e a mensagem está completa, devolve
+// registros sintéticos de até 16 KiB com a mensagem remontada (alocação temporária, não retida): Parse sobre
+// eles dá o mesmo ClientHello, com a contagem de registros sintética. Compatibilidade para quem ainda chama
+// Parse(Records()) (o raw, até adotar ClientHello e RecordsTruncated).
+func (c *Conn) Records() ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.done {
+		return append([]byte(nil), c.raw...), ErrIncomplete
+	}
+	if !c.rawTrunc || c.err != nil || c.need < 0 || len(c.msg) < c.need {
+		return c.raw, c.err
+	}
+	out := make([]byte, 0, len(c.msg)+RecordHeaderLen*(len(c.msg)/16384+1))
+	for m := c.msg; len(m) > 0; {
+		k := min(16384, len(m))
+		out = append(out, RecordTypeHandshake, byte(c.recVer>>8), byte(c.recVer), byte(k>>8), byte(k)) //nolint:gosec // bytes da versão e do tamanho (≤ 16384)
+		out = append(out, m[:k]...)
+		m = m[k:]
+	}
+	return out, nil
 }
 
 // RecordsTruncated informa se a cópia crua parou em MaxCapturedRecords (client_hello_truncated).
