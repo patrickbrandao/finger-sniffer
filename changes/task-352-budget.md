@@ -1,0 +1,1 @@
+- `test/load/budget.sh` lê o journal do web com `--namespace=*` (journal próprio do espelho, ADR 0075).

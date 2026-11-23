@@ -80,8 +80,8 @@ scp -q -P "$VPS_PORT" "$VPS_SSH:$REMOTE/cgroup.csv" "$OUT/cgroup.csv"
 	"$BIN/budgetload" -analyze "$OUT/cgroup.csv"
 	echo "# nstat do servidor (host inteiro), antes → depois"
 	"$BIN/budgetload" -nstat-delta "$OUT/nstat-antes.txt,$OUT/nstat-depois.txt"
-	echo "# journal do web durante a carga (OOM, reinício, pânico)"
-	ssh_vps "journalctl -u finger-sniffer-web --since '$START UTC' --no-pager -o short-iso |
+	echo "# journal do web durante a carga (OOM, reinício, pânico): o do espelho (ADR 0075) e o do sistema, onde o systemd registra início e fim da unit"
+	ssh_vps "journalctl --namespace='*' -u finger-sniffer-web --since '$START UTC' --no-pager -o short-iso |
 		grep -iE 'oom|killed|panic|started|stopped' | tail -20" || true
 } >>"$OUT/web.txt"
 cat "$OUT/web.txt"
