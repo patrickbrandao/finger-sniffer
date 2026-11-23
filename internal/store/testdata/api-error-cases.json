@@ -1,5 +1,5 @@
 {
-  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (finger-01). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full, blob_full, json_budget_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
+  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (finger-01). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full, blob_full, json_budget_full, shutting_down); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
   "cases": [
     {"name": "connection id not ULID", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/bad", "want": 400},
     {"name": "connection id lowercase", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01jc0000000000000000000000", "want": 400},
@@ -12,6 +12,7 @@
     {"name": "pcap unknown", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 404},
     {"name": "pcap too many downloads", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 503, "fault": "blob_full"},
     {"name": "pcap db error", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 500, "fault": "db_closed"},
+    {"name": "pcap shutting down", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01M6TY2FG00000000000000001/pcap", "want": 503, "fault": "shutting_down"},
 
     {"name": "raw id not ULID", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/bad/raw?dir=in", "want": 400},
     {"name": "raw without dir", "op": "getConnectionRaw", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/raw", "want": 400},
@@ -52,11 +53,13 @@
     {"name": "probe unknown after wait", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=200ms", "want": 404},
     {"name": "probe too many waits", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=10s", "want": 503, "fault": "probe_wait_full"},
     {"name": "probe json budget full", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/t1a2b3c4", "want": 503, "fault": "json_budget_full"},
+    {"name": "probe shutting down", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/t1a2b3c4", "want": 503, "fault": "shutting_down"},
     {"name": "probe db error", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
 
     {"name": "delete probe id invalid", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/AB", "want": 400},
     {"name": "delete probe unknown", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/zz089unknown0000", "want": 404},
     {"name": "delete probe db error", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
+    {"name": "delete probe shutting down", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/t1a2b3c4", "want": 503, "fault": "shutting_down"},
 
     {"name": "stream kind invalid", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?kind=nope", "want": 400},
     {"name": "stream second kind invalid", "op": "streamEvents", "method": "GET", "path": "/api/v1/stream?kind=dns.query,nope", "want": 400},

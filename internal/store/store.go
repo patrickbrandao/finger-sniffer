@@ -311,9 +311,13 @@ func (s *Store) Run(ctx context.Context) error {
 	go func() { defer wg.Done(); s.conns.Run(ctx.Done()) }()
 
 	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom}
+	// Contexto base das requisições: cancelado no desligamento só depois do sinal da API, para as rotas finitas
+	// pegas no meio responderem 503 em vez de um 200 vazio (ADR 0066 item 3); SSE e WS saem com ele.
+	base, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelBase()
 	srv := &http.Server{
 		Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
-		BaseContext: func(net.Listener) context.Context { return ctx },
+		BaseContext: func(net.Listener) context.Context { return base },
 	}
 	addrs, err := s.cfg.apiAddrs(s.cfg.HTTPAddr)
 	if err != nil {
@@ -328,13 +332,15 @@ func (s *Store) Run(ctx context.Context) error {
 	var tlsSrv *http.Server
 	tlsErr := make(<-chan error)
 	if s.certs != nil {
-		if tlsSrv, tlsErr, err = s.serveHTTPS(ctx, api); err != nil {
+		if tlsSrv, tlsErr, err = s.serveHTTPS(base, api); err != nil {
 			_ = srv.Close()
 			return err
 		}
 	}
 
 	shutdown := func() error {
+		api.BeginShutdown()
+		cancelBase()
 		shut, cancel := context.WithTimeout(context.Background(), apiShutdownWait)
 		defer cancel()
 		// Conexão que não fica ociosa no prazo (aceita e sem pedido, como numa varredura de porta) não é erro do

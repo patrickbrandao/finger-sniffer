@@ -1,0 +1,1 @@
+- store: rota finita pega pelo desligamento responde `503` com `Retry-After: 1` e `{"error":"shutting down"}` em vez de um `200` vazio (sinal na `API` antes de cancelar o contexto base), `reason="shutting_down"` em `fs_store_api_rejected_total`; `503` no `deleteProbe` do openapi 0.7.0 (task 340, ADR 0066 item 3).

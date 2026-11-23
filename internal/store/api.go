@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,7 +28,13 @@ type API struct {
 	Live *Hub
 	// Prom são as métricas do /metrics e da própria API (nil desliga /metrics).
 	Prom *storeMetrics
+	// closing é o sinal de desligamento, ligado antes de cancelar o contexto base do servidor (ADR 0066 item 3).
+	closing atomic.Bool
 }
+
+// BeginShutdown liga o sinal de desligamento: a partir daí, consulta ou espera cancelada responde 503 em vez de
+// nada (ADR 0066 item 3). Chamar antes de cancelar o contexto base.
+func (a *API) BeginShutdown() { a.closing.Store(true) }
 
 // Handler devolve o http.Handler da 9001 (HTTP) com CORS aberto (ADR 0007), incluindo /metrics.
 func (a *API) Handler() http.Handler { return a.handler(true) }
@@ -151,8 +158,18 @@ func (a *API) budgeted(r *http.Request) (*http.Request, func()) {
 	return r.WithContext(withReservation(r.Context(), res)), res.release
 }
 
-// fail é o writeErr das rotas da API, que conta as recusas do orçamento em fs_store_api_rejected_total.
+// errShuttingDown é o 503 de uma rota finita pega pelo desligamento (ADR 0066 item 3).
+var errShuttingDown = busyError{"shutting down"}
+
+// fail é o writeErr das rotas finitas da API: com o sinal de desligamento ligado, o cancelamento vira 503
+// "shutting down" (sem o sinal, o cliente foi embora e nada é escrito); conta as recusas em
+// fs_store_api_rejected_total.
 func (a *API) fail(w http.ResponseWriter, r *http.Request, err error) {
+	if a.closing.Load() && (errors.Is(err, context.Canceled) || r.Context().Err() != nil) {
+		a.Prom.apiRejected(r.Pattern, "shutting_down")
+		writeErr(w, errShuttingDown)
+		return
+	}
 	if errors.Is(err, errJSONBusy) {
 		a.Prom.apiRejected(r.Pattern, "busy")
 	}
@@ -227,7 +244,7 @@ func (a *API) getRaw(w http.ResponseWriter, r *http.Request) {
 func (a *API) blob(w http.ResponseWriter, r *http.Request, read func(context.Context) ([]byte, error), headers func(http.Header)) {
 	release, err := a.Q.acquireBlob()
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	defer release()
@@ -238,7 +255,7 @@ func (a *API) blob(w http.ResponseWriter, r *http.Request, read func(context.Con
 	}
 	data, err := read(r.Context())
 	if err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	headers(w.Header())
@@ -389,7 +406,7 @@ func writeProbe(w http.ResponseWriter, p probeJSON) {
 
 func (a *API) deleteProbe(w http.ResponseWriter, r *http.Request) {
 	if err := a.Q.DeleteProbe(r.Context(), a.W, r.PathValue("id")); err != nil {
-		writeErr(w, err)
+		a.fail(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

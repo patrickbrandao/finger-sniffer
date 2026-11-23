@@ -23,7 +23,8 @@ info:
     `kind`, `probe_line`, `head_too_large`, `chunks_truncated`, `rate_limited` e do `DELETE` de probe. Todo
     booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0). 0.6.1 (documental, ADR 0038):
     servidor `finger-01.badblock.net.br`. 0.7.0 (ADR 0066, aditivo): `503` com `Retry-After` nas rotas finitas
-    (orçamento de 256 MiB das respostas JSON em andamento) e corte por bytes (64 MiB por resposta).
+    (orçamento de 256 MiB das respostas JSON em andamento e desligamento, inclusive `deleteProbe`, `/pcap` e
+    `/raw`) e corte por bytes (64 MiB por resposta).
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -140,6 +141,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/Busy" }
 
   /api/v1/connections:
     get:
@@ -391,7 +393,7 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     BlobBusy:
-      description: Acima de 4 downloads de `/pcap` e `/raw` simultâneos (as duas rotas somadas, ADR 0032); tente de novo depois do `Retry-After`.
+      description: Acima de 4 downloads de `/pcap` e `/raw` simultâneos (as duas rotas somadas, ADR 0032) ou store desligando (`{"error":"shutting down"}`, ADR 0066); tente de novo depois do `Retry-After`.
       headers:
         Retry-After:
           description: Segundos até tentar de novo.
