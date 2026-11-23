@@ -1,7 +1,7 @@
 # 0073 — Limites de entrada da API de vereditos: conexões da 9002, ingest, chaves, feed, agregados e webhook
 
-Status: aceita (item 1.1, teto por origem na 9002, provisório até o humano confirmar que o "sem limite por IP" da
-ADR 0001 não alcança a porta do bot; números provisórios, revisar com a carga da F8 seguinte)
+Status: aceita (item 1.1, teto por origem na 9002, confirmado pelo humano em 2026-11-23; números provisórios, revisar
+com a carga da F8 seguinte)
 Data: 2026-11-23
 
 ## Contexto
@@ -39,7 +39,8 @@ sete pontos:
 A ADR 0051 item 4 não fala de prazo, concorrência, registros, partes por chave nem cortes; nada aqui reabre o que
 ela decidiu (os números dela ficam): os limites novos se somam aos dela. O "sem limite de conexões por IP" da ADR
 0001 é uma escolha do humano para o espelho, decidida antes de o bot existir; o item 1.1 abaixo o aplica só às
-portas do espelho (capturadas e a API do store) e põe na 9002 um teto por origem, provisório até o humano confirmar.
+portas do espelho (capturadas e a API do store) e põe na 9002 um teto por origem; o humano confirmou em 2026-11-23
+("Aceito").
 
 ## Decisão
 Todos os números são constantes do código (sem variável de ambiente), como o teto de 200 da ADR 0051; a CLI da chave
@@ -47,7 +48,7 @@ ganha `--ingest-rate` e `--ingest-burst` (item 3.1). "Origem" é o IPv4 e, em IP
 normalizado.
 
 1. **Conexões da 9002** (task 336; spec 020 RF-04):
-   1. **Teto por origem: 16 conexões simultâneas** (provisório, ver Status). Embrulho do listener antes do
+   1. **Teto por origem: 16 conexões simultâneas** (confirmado pelo humano em 2026-11-23). Embrulho do listener antes do
       `LimitListener`: a 17ª conexão da mesma origem é fechada no `Accept`, sem ocupar vaga global, e conta em
       `bot_public_conns_closed_total{reason="source"}`. Só na 9002; a 9003 fica sem teto por origem (rede do
       traefik, ADR 0047 item 4).
@@ -167,8 +168,8 @@ normalizado.
 - **Site sintético `~other` acima do teto por IP (363)**: guardaria contagens sem significado; descartar é mais
   simples e não afeta os outros IPs.
 - **Sem teto por origem na 9002** (manter a ADR 0001 em todo o sistema): os itens 1.2–1.3 sozinhos encarecem o
-  ataque (cada conexão precisa ficar ativa ou no handshake de 5 s), mas um IP ainda segura a porta; o teto por
-  origem fica provisório até o humano.
+  ataque (cada conexão precisa ficar ativa ou no handshake de 5 s), mas um IP ainda segura a porta; o humano
+  aceitou o teto por origem em 2026-11-23.
 - **Prazo de handshake de 3 s com listener TLS próprio (336 item 3)**: 5 s pelo `ReadHeaderTimeout` resolve sem
   código novo.
 

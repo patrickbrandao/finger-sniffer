@@ -31,7 +31,7 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
     nos agregados; spec 018 RF-02 e RF-08). Com o forwardAuth na 9002 cada requisição do visitante gasta uma ficha:
     a chave de um `block` é criada com `--rate`/`--burst` acima do pico e `--daily` acima do volume do dia;
   - conexões da 9002: 200 simultâneas; até 16 por origem (IPv4 ou /64 IPv6; a excedente é fechada no `accept` sem
-    ocupar vaga; provisório, ADR 0073 item 1.1); `IdleTimeout` 30 s (9003: 120 s); `ReadHeaderTimeout` 5 s nas duas
+    ocupar vaga; ADR 0073 item 1.1); `IdleTimeout` 30 s (9003: 120 s); `ReadHeaderTimeout` 5 s nas duas
     portas, que é também o prazo do handshake TLS; com 180 ou mais conexões, as ociosas mais antigas são fechadas
     até ficarem menos de 180;
   - ingest: corpo até 4 MiB por lote → 413 `payload_too_large`; até 8 lotes em leitura e aplicação no processo, dos
