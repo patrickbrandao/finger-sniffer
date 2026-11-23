@@ -338,8 +338,15 @@ func TestUnitPathsADR0075(t *testing.T) {
 		if got := fieldsOf(d, "ReadWritePaths"); !slices.Equal(got, want.rw) {
 			t.Errorf("%s: ReadWritePaths = %q, quer %q", svc, got, want.rw)
 		}
-		if got := fieldsOf(d, "InaccessiblePaths"); !slices.Equal(got, want.inaccessible) {
-			t.Errorf("%s: InaccessiblePaths = %q, quer %q", svc, got, want.inaccessible)
+		// só os caminhos de var/; os de etc/nats (senhas do NATS) são de TestUnitNATSCredentials
+		var varInacc []string
+		for _, p := range fieldsOf(d, "InaccessiblePaths") {
+			if strings.HasPrefix(p, "-/finger-sniffer/var") {
+				varInacc = append(varInacc, p)
+			}
+		}
+		if !slices.Equal(varInacc, want.inaccessible) {
+			t.Errorf("%s: InaccessiblePaths de var/ = %q, quer %q", svc, varInacc, want.inaccessible)
 		}
 		// var/bot só para o bot: inacessível (var/bot ou var/ inteiro) em toda outra unit
 		if svc != "bot" {

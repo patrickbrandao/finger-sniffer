@@ -15,8 +15,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/miekg/dns"
+	"github.com/nats-io/nats-server/v2/server"
 )
 
 // fakeMirror imita, em 127.0.0.1, as portas que o deploy/smoke.sh consulta.
@@ -34,6 +36,7 @@ type fakeMirror struct {
 	dnsPort    int
 	echo       net.Listener
 	banner     net.Listener
+	nats       *natsAuth
 }
 
 func (f *fakeMirror) setMetric(svc, name string, v int) {
@@ -106,6 +109,8 @@ func (f *fakeMirror) health(w http.ResponseWriter, _ *http.Request) {
 func newFakeMirror(t *testing.T) *fakeMirror {
 	t.Helper()
 	f := &fakeMirror{statuses: map[string]string{}, reasons: map[string][]string{}, metrics: map[string]map[string]int{}, versions: map[string]string{}}
+	// NATS de verdade com o nats.conf do repositório (recusa conexão sem credencial; ADR 0075)
+	f.nats = startAuthNATS(t)
 	for _, s := range []string{"capture", "web", "raw", "dns", "store", "bot"} {
 		f.statuses[s] = "ok"
 	}
@@ -237,6 +242,7 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 		"SMOKE_BOT_INTERNAL_PORT="+port(t, f.plain.Listener.Addr().String()),
 		"SMOKE_BOT_LOOPBACK=127.0.0.1",
 		"SMOKE_BOT_BRIDGE=",
+		"SMOKE_NATS_PORT="+port(t, strings.TrimPrefix(f.nats.url, "nats://")),
 		"SMOKE_HEALTH_WAIT=2",
 		"SMOKE_TIMEOUT=2",
 		// o espelho falso não fala h3; o GET por h3 é coberto só contra o servidor (finger-01)
@@ -255,14 +261,14 @@ func runSmoke(t *testing.T, f *fakeMirror, svc string, extra ...string) (string,
 
 func TestSmokeListSelectsStepsBySVC(t *testing.T) {
 	cases := map[string]string{
-		"":        "health web h3 traefik dns raw store bot",
-		"bot":     "health bot",
-		"web":     "health web h3 traefik",
-		"dns":     "health dns",
-		"raw":     "health raw",
-		"store":   "health store",
-		"capture": "health",
-		"nats":    "health",
+		"":        "health nats_auth web h3 traefik dns raw store bot",
+		"bot":     "health nats_auth bot",
+		"web":     "health nats_auth web h3 traefik",
+		"dns":     "health nats_auth dns",
+		"raw":     "health nats_auth raw",
+		"store":   "health nats_auth store",
+		"capture": "health nats_auth",
+		"nats":    "health nats_auth",
 	}
 	for svc, want := range cases {
 		cmd := exec.Command("bash", "smoke.sh")
@@ -620,5 +626,28 @@ func TestSmokeBotBridgeMustRejectOtherOrigin(t *testing.T) {
 	out, rc := runSmoke(t, f, "bot", "SMOKE_BOT_BRIDGE=127.0.0.1")
 	if rc == 0 || !strings.Contains(out, "esperado 403") {
 		t.Fatalf("esperava falha da recusa por origem, rc=%d\n%s", rc, out)
+	}
+}
+
+// ADR 0075 (task 353): o smoke passa com o NATS do nats.conf (CONNECT sem credencial recusado) e reprova um NATS
+// que aceita conexão sem credencial.
+func TestSmokeNATSAuth(t *testing.T) {
+	f := newFakeMirror(t)
+	out, rc := runSmoke(t, f, "capture")
+	if rc != 0 || !strings.Contains(out, "nats sem credencial") || !strings.Contains(out, "recusada em 127.0.0.1:") {
+		t.Fatalf("rc=%d\n%s", rc, out)
+	}
+	open, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: server.RANDOM_PORT, NoLog: true, NoSigs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go open.Start()
+	if !open.ReadyForConnections(5 * time.Second) {
+		t.Fatal("nats-server sem autenticação não ficou pronto")
+	}
+	t.Cleanup(open.Shutdown)
+	out, rc = runSmoke(t, f, "capture", "SMOKE_NATS_PORT="+port(t, strings.TrimPrefix(open.ClientURL(), "nats://")))
+	if rc == 0 || !strings.Contains(out, "nats sem credencial") || !strings.Contains(out, "aceita em 127.0.0.1:") {
+		t.Fatalf("NATS aberto passou no smoke: rc=%d\n%s", rc, out)
 	}
 }

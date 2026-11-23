@@ -32,6 +32,9 @@ ProtectSystem=strict
 # inacessível (prefixo -: não falha se o diretório não existir).
 ReadWritePaths=/finger-sniffer/var/nats
 InaccessiblePaths=-/finger-sniffer/var/acme -/finger-sniffer/var/bot -/finger-sniffer/var/certs -/finger-sniffer/var/store
+# Senhas do NATS (ADR 0075 item 2.1): o servidor lê só o auth.conf gerado pelo deploy (que já as contém);
+# os arquivos <usuário>.password ficam inacessíveis.
+InaccessiblePaths=-/finger-sniffer/etc/nats/capture.password -/finger-sniffer/etc/nats/web.password -/finger-sniffer/etc/nats/raw.password -/finger-sniffer/etc/nats/dns.password -/finger-sniffer/etc/nats/store.password -/finger-sniffer/etc/nats/bot.password
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

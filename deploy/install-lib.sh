@@ -97,16 +97,22 @@ binary_drift() {
 # unit_active <unit>: a unit está ativa?
 unit_active() { systemctl is-active --quiet "$1"; }
 
+# nats_conf_hash <dest>: hash da configuração do NATS, o nats.conf e o auth.conf que ele inclui (spec 016 RF-11,
+# ADR 0075 item 1.2): senha nova ou trocada reinicia o NATS como uma mudança no nats.conf.
+nats_conf_hash() {
+	printf 'nats=%s auth=%s' "$(hash_file "$1/eventbus/nats/nats.conf")" "$(hash_file "$1/etc/nats/auth.conf")"
+}
+
 # config_hash <dest> <unit>: hashes da configuração que só vale depois de um reinício: o arquivo da unit e o
-# nats.conf (NATS) ou o env (demais). FS_SYSTEMD_DIR para os testes (padrão /etc/systemd/system).
+# nats.conf + auth.conf (NATS) ou o env (demais). FS_SYSTEMD_DIR para os testes (padrão /etc/systemd/system).
 config_hash() {
-	local extra
+	local conf
 	if [ "$2" = finger-sniffer-nats ]; then
-		extra="$1/eventbus/nats/nats.conf"
+		conf=$(nats_conf_hash "$1")
 	else
-		extra="$1/etc/finger-sniffer.env"
+		conf=$(hash_file "$1/etc/finger-sniffer.env")
 	fi
-	printf 'unit=%s conf=%s\n' "$(hash_file "${FS_SYSTEMD_DIR:-/etc/systemd/system}/$2.service")" "$(hash_file "$extra")"
+	printf 'unit=%s conf=%s\n' "$(hash_file "${FS_SYSTEMD_DIR:-/etc/systemd/system}/$2.service")" "$conf"
 }
 
 # config_drift <dest> <unit>: verdadeiro se a configuração atual difere da gravada no último reinício da unit
@@ -125,7 +131,8 @@ mark_applied() {
 # plan_restarts <dest> <svc>: units a reiniciar, uma por linha ("<unit>\t<motivo>"). Binário em execução ≠
 # binário em disco reinicia sempre; com SVC, o serviço pedido também (o carimbo dos demais fica desatualizado
 # de propósito); sem SVC, ainda FORCE=1, CHANGED_CONFIG=1 (units), ENV_CHANGED=1 (todas menos o NATS),
-# NATS_CONF_CHANGED=1 (só o NATS), configuração instalada e ainda não aplicada (config_drift) ou unit parada.
+# NATS_CONF_CHANGED=1 (só o NATS; nats.conf ou auth.conf), configuração instalada e ainda não aplicada
+# (config_drift) ou unit parada.
 plan_restarts() {
 	local u short why
 	for u in $FS_UNITS; do
@@ -142,7 +149,7 @@ plan_restarts() {
 		elif [ "${ENV_CHANGED:-0}" = 1 ] && [ "$u" != finger-sniffer-nats ]; then
 			why="env mudou"
 		elif [ "$u" = finger-sniffer-nats ] && [ "${NATS_CONF_CHANGED:-0}" = 1 ]; then
-			why="nats.conf mudou"
+			why="nats.conf ou auth.conf mudou"
 		elif config_drift "$1" "$u"; then
 			why="configuração instalada e ainda não aplicada"
 		elif ! unit_active "$u"; then
@@ -298,4 +305,55 @@ journald_namespace() {
 	install -m 0644 "$1" "$dst"
 	echo "[deploy] atualizado $dst"
 	systemctl restart systemd-journald@finger-sniffer.service
+}
+
+# --- Usuários do NATS (ADR 0075 item 1.2, spec 016 RF-09/RF-10, task 353) ---
+# Um usuário por serviço; a senha de cada um em <dir>/<usuário>.password (dir = /finger-sniffer/etc/nats).
+FS_NATS_USERS="capture web raw dns store bot"
+
+# ensure_nats_passwords <dir>: cria a senha de cada usuário que ainda não tem arquivo (32 bytes do /dev/urandom em
+# hexadecimal, 64 caracteres sem nada que exija escape no conf); nunca reescreve um arquivo existente (rotação:
+# apagar o arquivo e rodar o deploy completo). Diretório 0700 e arquivos 0600; o dono fica com quem chama. Imprime
+# o nome de cada usuário que ganhou senha nova (nunca a senha).
+ensure_nats_passwords() {
+	local u f pw
+	mkdir -p "$1"
+	chmod 0700 "$1"
+	for u in $FS_NATS_USERS; do
+		f="$1/$u.password"
+		[ -s "$f" ] && continue
+		pw=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
+		if [ "${#pw}" != 64 ]; then
+			echo "[deploy] senha do NATS para $u com ${#pw} caracteres, esperado 64" >&2
+			return 1
+		fi
+		(
+			umask 077
+			printf '%s\n' "$pw" >"$f.new"
+		)
+		mv -f "$f.new" "$f"
+		echo "$u"
+	done
+	chmod 0600 "$1"/*.password
+}
+
+# render_nats_auth <dir>: o auth.conf incluído pelo nats.conf (stdout), só com as variáveis FS_NATS_PW_<USUÁRIO>
+# lidas dos arquivos de senha. Falha se faltar uma senha ou se ela não for hexadecimal de 64 caracteres.
+render_nats_auth() {
+	local u pw
+	echo "# Gerado pelo deploy (deploy/install-lib.sh, ADR 0075 item 1.2) a partir de <usuário>.password. Não editar."
+	for u in $FS_NATS_USERS; do
+		pw=$(tr -d ' \t\r\n' <"$1/$u.password" 2>/dev/null || true)
+		case "$pw" in
+		*[!0-9a-f]* | "")
+			echo "[deploy] senha do NATS de $u ausente ou fora do formato (hex)" >&2
+			return 1
+			;;
+		esac
+		if [ "${#pw}" != 64 ]; then
+			echo "[deploy] senha do NATS de $u com ${#pw} caracteres, esperado 64" >&2
+			return 1
+		fi
+		printf 'FS_NATS_PW_%s: "%s"\n' "$(printf '%s' "$u" | tr '[:lower:]' '[:upper:]')" "$pw"
+	done
 }

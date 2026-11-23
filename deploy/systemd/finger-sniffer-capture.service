@@ -33,6 +33,11 @@ ProtectSystem=strict
 # Caminhos por unit (spec 016 RF-06, ADR 0075 item 2): não grava nem lê nada em var/, que fica inacessível
 # (prefixo -: não falha se o diretório não existir).
 InaccessiblePaths=-/finger-sniffer/var
+# Usuário do NATS do serviço (ADR 0075 item 1.3): definido na unit, nunca no env compartilhado (o
+# EnvironmentFile vence o Environment=). Só a própria senha é legível: o auth.conf do NATS e as senhas dos
+# outros serviços ficam inacessíveis (spec 016 RF-06).
+Environment=FS_NATS_USER=capture FS_NATS_PASSWORD_FILE=/finger-sniffer/etc/nats/capture.password
+InaccessiblePaths=-/finger-sniffer/etc/nats/auth.conf -/finger-sniffer/etc/nats/web.password -/finger-sniffer/etc/nats/raw.password -/finger-sniffer/etc/nats/dns.password -/finger-sniffer/etc/nats/store.password -/finger-sniffer/etc/nats/bot.password
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
