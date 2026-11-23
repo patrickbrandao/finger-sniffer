@@ -309,7 +309,19 @@ type reqItem struct {
 // maxInterned é o teto de cada mapa do interner (resumos e textos), por geração.
 const maxInterned = 8192
 
+// maxSharedText é o maior texto que o interner compartilha (ADR 0073 item 6, defesa em profundidade): acima dele
+// (texto, chave de lista ou de mapa, soma dos textos de um resumo do store), devolve a cópia sem guardar, que sai
+// do heap com a conexão que a recebeu e cujo custo fica nela. O tráfego normal (UA, ordem de campos, JA4H) cabe
+// folgado; com isso o interner retém no máximo maxInterned × 1 KiB por mapa, fora do teto do índice.
+const maxSharedText = 1 << 10
+
 var shared = &interner{max: maxInterned}
+
+// textBytes é a soma dos textos do resumo (o que a chave do interner seguraria).
+func (r *StoreRequest) textBytes() int {
+	return len(r.Method) + len(r.Version) + len(r.Host) + len(r.UserAgent) + len(r.FieldOrder) + len(r.PseudoOrder) +
+		len(r.JA4H) + len(r.OriginHost) + len(r.RefererHost)
+}
 
 // internRequest devolve o resumo compartilhado igual a r, com os textos copiados (sem segurar o JSON de origem),
 // e o custo que ele soma à conexão owner (zero quando outra conexão o criou).
@@ -327,14 +339,17 @@ func (in *interner) request(r StoreRequest, owner string) (*StoreRequest, int64)
 		}
 		return &it.req, 0
 	}
-	if in.reqs == nil || len(in.reqs) >= in.max {
-		in.reqs = make(map[StoreRequest]*reqItem, 256)
-	}
 	c := reqItemBytes
 	r.Method, r.Version, r.Host = in.strLocked(r.Method, &c), in.strLocked(r.Version, &c), in.strLocked(r.Host, &c)
 	r.UserAgent, r.FieldOrder, r.PseudoOrder = in.strLocked(r.UserAgent, &c), in.strLocked(r.FieldOrder, &c), in.strLocked(r.PseudoOrder, &c)
 	r.JA4H, r.OriginHost, r.RefererHost = in.strLocked(r.JA4H, &c), in.strLocked(r.OriginHost, &c), in.strLocked(r.RefererHost, &c)
 	it := &reqItem{req: r, owner: owner, charge: c}
+	if r.textBytes() > maxSharedText {
+		return &it.req, c // grande demais para compartilhar: fica só com a conexão
+	}
+	if in.reqs == nil || len(in.reqs) >= in.max {
+		in.reqs = make(map[StoreRequest]*reqItem, 256)
+	}
 	in.reqs[r] = it // chave com os textos copiados: não segura o JSON de origem
 	return &it.req, c
 }
@@ -349,6 +364,13 @@ func (in *interner) str(s string, c *int64) string {
 func (in *interner) strLocked(s string, c *int64) string {
 	if s == "" {
 		return ""
+	}
+	if len(s) > maxSharedText {
+		v := strings.Clone(s)
+		if c != nil {
+			*c += strBytes(len(v))
+		}
+		return v
 	}
 	if v, ok := in.strs[s]; ok {
 		return v
@@ -379,13 +401,16 @@ func (in *interner) list(l []string, c *int64) []string {
 	for i, s := range l {
 		out[i] = in.strLocked(s, c)
 	}
+	if c != nil {
+		*c += listBytes(len(out))
+	}
+	if len(key) > maxSharedText {
+		return out // lista grande: não fica no interner
+	}
 	if in.lists == nil || len(in.lists) >= in.max {
 		in.lists = make(map[string][]string, 256)
 	}
 	in.lists[strings.Clone(key)] = out
-	if c != nil {
-		*c += listBytes(len(out))
-	}
 	return out
 }
 
@@ -416,13 +441,16 @@ func (in *interner) fields(m map[string]string, c *int64) map[string]string {
 	for k, v := range m {
 		out[in.strLocked(k, c)] = in.strLocked(v, c)
 	}
+	if c != nil {
+		*c += mapBytes(len(out), fieldSlot)
+	}
+	if len(key) > maxSharedText {
+		return out // mapa grande: não fica no interner
+	}
 	if in.maps == nil || len(in.maps) >= in.max {
 		in.maps = make(map[string]map[string]string, 256)
 	}
 	in.maps[key] = out
-	if c != nil {
-		*c += mapBytes(len(out), fieldSlot)
-	}
 	return out
 }
 

@@ -3,12 +3,16 @@ package bot
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+	"unsafe"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/akamai"
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
@@ -682,4 +686,171 @@ func TestTraefixRequestWithoutHeaders(t *testing.T) {
 			t.Fatalf("sem cabeçalhos conhecidos: %+v", v)
 		}
 	})
+}
+
+// TestIngestClipsLongTexts: critério 1 da task 332 (ADR 0073 item 6) — nos dois esquemas, cada texto de 64 KiB é
+// cortado no teto (não recusa o registro), na fronteira de UTF-8, e conta uma vez em
+// bot_ingest_clipped_total{field}; JA4H longo vira ausente e nome de campo permitido longo sai com o valor.
+func TestIngestClipsLongTexts(t *testing.T) {
+	const id = "01JC0X3K8V2T7Q9F4M6P1R5T40"
+	big := func(c string) string { return strings.Repeat(c, 64<<10) } // o lote inteiro cabe nos 4 MiB
+	// "é" tem 2 bytes: o corte de 32 bytes em "a" + "é"... cai no meio de uma runa e recua um byte.
+	method := "a" + strings.Repeat("é", 32<<10)
+	f := newFixture(t)
+	conn := chromeConn(nil)
+	conn["entryPoint"], conn["proto"] = big("e"), "h2"
+	tl := conn["tls"].(map[string]any) //nolint:forcetypeassert // montado em chromeConn
+	tl["sni"], tl["alpn"], tl["version"], tl["cipher"] = big("s"), big("p"), big("v"), big("c")
+	offered := []string{big("o")}
+	for range 20 {
+		offered = append(offered, "h2")
+	}
+	tl["alpnOffered"] = offered
+	names := []string{big("n")}
+	for i := range 200 {
+		names = append(names, "x-"+strconv.Itoa(i))
+	}
+	req := map[string]any{
+		"method": method, "authority": big("w"), "httpVersion": big("h"), "fieldNames": names,
+		"cookieNames": []string{big("k"), "sid"}, "ja4h": big("j"), "router": big("r"), "service": big("v"),
+		"fields": []map[string]string{
+			{"name": "user-agent", "value": big("u")},
+			{"name": "sec-fetch-" + big("x"), "value": "1"},
+			{"name": "accept", "value": "*/*"},
+		},
+	}
+	if c, got := f.postIngest(traefixBatchJSON(t, id, "198.51.100.80", 50020, conn, req)); c != 202 || got["accepted"] != 2 {
+		t.Fatalf("ingest: %d %v", c, got)
+	}
+	for _, field := range clippedFields {
+		if n := f.metrics.Get(clippedMetric(field)); n != 1 {
+			t.Errorf("clipped{%s} = %v, quer 1", field, n)
+		}
+	}
+	fc, ok := f.srv.Index().Fork(id, f.clock.Now())
+	if !ok || len(fc.Requests) != 1 {
+		t.Fatalf("conexão: %v %+v", ok, fc)
+	}
+	r := fc.Requests[0]
+	for _, x := range []struct {
+		name string
+		got  string
+		max  int
+	}{
+		{"entry_point", fc.EntryPoint, maxRouteNameBytes},
+		{"sni", fc.SNI, maxSiteBytes},
+		{"alpn", fc.ALPN, maxALPNBytes},
+		{"tls_version", fc.TLSVersion, maxTLSTextBytes},
+		{"cipher", fc.Cipher, maxTLSTextBytes},
+		{"method", r.Method, maxMethodBytes - 1},
+		{"authority", r.Authority, maxSiteBytes},
+		{"http_version", r.HTTPVersion, maxHTTPVersionBytes},
+		{"router", r.Router, maxRouteNameBytes},
+		{"service", r.Service, maxRouteNameBytes},
+		{"field_names[0]", r.FieldNames[0], maxListNameBytes},
+		{"cookie_names[0]", r.CookieNames[0], maxListNameBytes},
+		{"user-agent", r.Fields["user-agent"], maxFieldValue},
+	} {
+		if len(x.got) != x.max || !utf8.ValidString(x.got) {
+			t.Errorf("%s: %d bytes, quer %d", x.name, len(x.got), x.max)
+		}
+	}
+	if len(fc.ALPNOffered) != maxALPNItems || len(r.FieldNames) != maxFieldNames || len(r.CookieNames) != 2 {
+		t.Errorf("listas: alpn %d, field_names %d, cookie_names %d", len(fc.ALPNOffered), len(r.FieldNames), len(r.CookieNames))
+	}
+	if r.JA4H != "" || len(r.Fields) != 2 || r.Fields["accept"] != "*/*" {
+		t.Errorf("ja4h %q, fields %v", clip(r.JA4H, 16), len(r.Fields))
+	}
+
+	// formato anterior: os mesmos cortes; valor de 513 bytes era recusado e agora é cortado
+	g := newFixture(t)
+	rec := map[string]any{
+		"type": "request", "fs_conn_id": testForkConnID, "ts": "2026-11-16T12:00:00Z", "method": big("m"),
+		"router": big("r"), "field_names": []string{big("n")}, "cookie_names": []string{big("k")},
+		"fields": map[string]string{"user-agent": strings.Repeat("u", maxFieldValue+1), "sec-fetch-" + big("x"): "1"},
+	}
+	body, _ := json.Marshal(map[string]any{"records": []any{rec}})
+	if c, got := g.postIngest(string(body)); c != 202 || got["accepted"] != 1 || got["rejected"] != 0 {
+		t.Fatalf("formato anterior: %d %v", c, got)
+	}
+	for _, field := range []string{clipMethod, clipRouter, clipFieldNames, clipCookieNames, clipFieldName, clipFieldValue} {
+		if n := g.metrics.Get(clippedMetric(field)); n != 1 {
+			t.Errorf("formato anterior: clipped{%s} = %v", field, n)
+		}
+	}
+	fc, _ = g.srv.Index().Fork(testForkConnID, g.clock.Now())
+	if r := fc.Requests[0]; len(r.Method) != maxMethodBytes || len(r.Fields["user-agent"]) != maxFieldValue || len(r.Fields) != 1 {
+		t.Errorf("formato anterior: método %d, UA %d, campos %d", len(r.Method), len(r.Fields["user-agent"]), len(r.Fields))
+	}
+}
+
+// TestInternerKeepsNoLongIngestText: critério 1 da task 332 — depois de N registros com um texto único de 1 MiB
+// (método, router, field_names[0], cookie_names[0] ou nome Sec-Fetch-), o interner guarda menos de N × 256 bytes
+// de texto (antes, os N MiB ficavam nele depois de a conexão sair do índice). Textos acima de 1 KiB não são
+// compartilhados.
+func TestInternerKeepsNoLongIngestText(t *testing.T) {
+	saved := shared
+	t.Cleanup(func() { shared = saved })
+	const n = 64
+	for _, tc := range []struct {
+		name string
+		set  func(r map[string]any, long string)
+	}{
+		{"method", func(r map[string]any, long string) { r["method"] = long }},
+		{"router", func(r map[string]any, long string) { r["router"] = long }},
+		{"field_names", func(r map[string]any, long string) { r["field_names"] = []string{long, "accept"} }},
+		{"cookie_names", func(r map[string]any, long string) { r["cookie_names"] = []string{long} }},
+		{"sec_fetch_name", func(r map[string]any, long string) { r["fields"] = map[string]string{"sec-fetch-" + long: "1"} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			shared = &interner{max: maxInterned}
+			ix := NewIndex(time.Minute, 1, 0, nil) // uma conexão: cada registro novo despeja a anterior
+			now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+			for i := range n {
+				r := map[string]any{
+					"type": "request", "fs_conn_id": fmt.Sprintf("01JC0X3K8V2T7Q9F4M6P1R%04d", i), "ts": "2026-11-16T12:00:00Z",
+					"method": "GET",
+				}
+				tc.set(r, fmt.Sprintf("%04d", i)+strings.Repeat("z", 1<<20))
+				raw, _ := json.Marshal(r)
+				p, err := parseRecord(raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ix.UpdateFork(p.r.FsConnID, now, p.apply)
+			}
+			if got := internerTextBytes(shared); got >= n*256 {
+				t.Errorf("interner com %d bytes de texto depois de %d registros (teto %d)", got, n, n*256)
+			}
+		})
+	}
+	shared = &interner{max: maxInterned}
+	long := strings.Repeat("q", maxSharedText+1)
+	var c int64
+	if a, b := shared.str(long, &c), shared.str(long, &c); unsafe.StringData(a) == unsafe.StringData(b) || c != 2*strBytes(len(long)) {
+		t.Errorf("texto acima de 1 KiB compartilhado (custo %d)", c)
+	}
+	if got := internerTextBytes(shared); got != 0 {
+		t.Errorf("interner guardou %d bytes do texto grande", got)
+	}
+}
+
+// internerTextBytes soma os textos que o interner segura (textos, chaves de listas e de mapas e os do resumo).
+func internerTextBytes(in *interner) int {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	total := 0
+	for k := range in.strs {
+		total += len(k)
+	}
+	for k := range in.lists {
+		total += len(k)
+	}
+	for k := range in.maps {
+		total += len(k)
+	}
+	for k := range in.reqs {
+		total += k.textBytes()
+	}
+	return total
 }
