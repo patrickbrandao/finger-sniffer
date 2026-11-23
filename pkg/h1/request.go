@@ -11,6 +11,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"unicode/utf8"
 	"unsafe"
@@ -81,6 +83,9 @@ type RequestLine struct {
 	Terminator string `json:"terminator"`
 	// TargetTruncated: Target cortado para caber no evento (ADR 0032); o alvo completo fica no fluxo `in`.
 	TargetTruncated bool `json:"target_truncated,omitempty"`
+	// MethodTruncated e VersionTruncated: cortados em MaxLineTokenEvent bytes para o evento (ADR 0070 item 3).
+	MethodTruncated  bool `json:"method_truncated,omitempty"`
+	VersionTruncated bool `json:"version_truncated,omitempty"`
 }
 
 // ExpectContinue registra o comportamento do cliente com `Expect: 100-continue` (RF-04); preenchido pelo
@@ -102,6 +107,8 @@ type Controls struct {
 	Params  map[string]string `json:"params,omitempty"`
 	Clamped []string          `json:"clamped,omitempty"`
 	Invalid []string          `json:"invalid,omitempty"`
+	// Truncated: Params ou Invalid reduzidos para o evento caber no teto (ADR 0070 item 3).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Request é uma requisição HTTP/1 com as tags JSON do schema HTTP1Request do openapi. O parser preenche
@@ -203,9 +210,30 @@ func (r *Request) LimitInline(maxBytes int) {
 // LimitTarget corta request_line.target em no máximo maxBytes bytes, sem partir uma runa UTF-8 válida
 // (bytes que não são UTF-8 são cortados no teto exato), e marca target_truncated (ADR 0032).
 func (r *Request) LimitTarget(maxBytes int) {
-	t := r.RequestLine.Target
+	if t, cut := cutRunes(r.RequestLine.Target, maxBytes); cut {
+		r.RequestLine.Target = t
+		r.RequestLine.TargetTruncated = true
+	}
+}
+
+// MaxLineTokenEvent é o teto de método e versão no evento (ADR 0070 item 3).
+const MaxLineTokenEvent = 256
+
+// LimitLineTokens corta método e versão em MaxLineTokenEvent bytes (fronteira de runa), marcando
+// method_truncated/version_truncated; o valor completo fica nos bytes crus e no fluxo `in`.
+func (r *Request) LimitLineTokens() {
+	if m, cut := cutRunes(r.RequestLine.Method, MaxLineTokenEvent); cut {
+		r.RequestLine.Method, r.RequestLine.MethodTruncated = m, true
+	}
+	if v, cut := cutRunes(r.RequestLine.Version, MaxLineTokenEvent); cut {
+		r.RequestLine.Version, r.RequestLine.VersionTruncated = v, true
+	}
+}
+
+// cutRunes corta t em no máximo maxBytes bytes sem partir uma runa válida; cut informa se cortou.
+func cutRunes(t string, maxBytes int) (string, bool) {
 	if maxBytes <= 0 || len(t) <= maxBytes {
-		return
+		return t, false
 	}
 	n := maxBytes
 	if !utf8.RuneStart(t[n]) {
@@ -219,8 +247,31 @@ func (r *Request) LimitTarget(maxBytes int) {
 			}
 		}
 	}
-	r.RequestLine.Target = t[:n]
-	r.RequestLine.TargetTruncated = true
+	return t[:n], true
+}
+
+// HalveControls reduz Params (pelas chaves em ordem) e Invalid à metade, marcando controls.truncated;
+// devolve false quando não havia o que reduzir (ADR 0070 item 3).
+func (r *Request) HalveControls() bool {
+	c := r.Controls
+	if c == nil || (len(c.Params) == 0 && len(c.Invalid) == 0) {
+		return false
+	}
+	if n := len(c.Params); n > 0 {
+		keys := slices.Sorted(maps.Keys(c.Params))
+		for _, k := range keys[n/2:] {
+			delete(c.Params, k)
+		}
+		if len(c.Params) == 0 {
+			c.Params = nil
+		}
+	}
+	c.Invalid = c.Invalid[:len(c.Invalid)/2]
+	if len(c.Invalid) == 0 {
+		c.Invalid = nil
+	}
+	c.Truncated = true
+	return true
 }
 
 // LimitFields mantém só os primeiros campos cuja soma de tamanhos cabe em maxBytes, marcando

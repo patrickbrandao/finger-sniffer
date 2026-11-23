@@ -852,8 +852,11 @@ components:
         params:
           type: object
           additionalProperties: { type: string }
-        clamped: { type: array, items: { type: string }, description: Parâmetros reduzidos ao teto. }
+        clamped: { type: array, items: { type: string }, description: "Parâmetros reduzidos ao teto, inclusive `h` acima de 1024 repetições e `status` acima de 16 valores 1xx (ADR 0070)." }
         invalid: { type: array, items: { type: string } }
+        truncated:
+          type: boolean
+          description: "`params` ou `invalid` reduzidos para o evento caber em 900 KiB (ADR 0070). Ausente = `false`."
     HTTP1Request:
       type: object
       description: Spec 009.
@@ -877,6 +880,12 @@ components:
               description: |
                 `target` cortado em FS_EVENT_INLINE_MAX bytes (ou menos, para o evento caber em 900 KiB), numa
                 fronteira de runa; o alvo completo está no fluxo `in` (ADR 0032). Ausente = `false`.
+            method_truncated:
+              type: boolean
+              description: "`method` cortado em 256 bytes, numa fronteira de runa; o completo está no fluxo `in` (ADR 0070). Ausente = `false`."
+            version_truncated:
+              type: boolean
+              description: "`version` cortada em 256 bytes, numa fronteira de runa; a completa está no fluxo `in` (ADR 0070). Ausente = `false`."
         fields: { type: array, items: { $ref: "#/components/schemas/HTTPField" } }
         fields_truncated: { type: boolean, description: "Lista cortada para caber no teto do evento (ADR 0018)." }
         field_count: { type: integer }

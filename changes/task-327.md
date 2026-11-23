@@ -1,0 +1,1 @@
+- web: método e versão do HTTP/1 cortados em 256 bytes no evento (`method_truncated`/`version_truncated`), `controls` reduzidos com `controls.truncated` e laço do `fitHTTP1` que para sem redução; o evento não some mais (task 327, ADR 0070 item 3; openapi/asyncapi por delegação).

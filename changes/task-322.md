@@ -1,0 +1,1 @@
+- web: `h=` no máximo 1024 e `status=` 1xx no máximo 16 por requisição; o excedente é ignorado e entra em `controls.clamped` (task 322, ADR 0070 item 3).
