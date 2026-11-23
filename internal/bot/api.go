@@ -848,8 +848,11 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r)
 	c := &streamClient{queue: make(chan *Verdict, streamQueue), site: NormalizeSite(r.URL.Query().Get("site"))}
 	if p.key != nil {
-		c.domains = p.key.Domains
+		c.domains, c.keyHash, c.hasKey = p.key.Domains, p.key.hash, true
 	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	c.cancel = cancel
 	if cl := r.URL.Query().Get("class"); cl != "" {
 		c.classes = map[string]bool{}
 		for _, x := range strings.Split(cl, ",") {
@@ -863,7 +866,7 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer a.Hub.remove(c)
-	a.Hub.serve(r.Context(), w, c)
+	a.Hub.serve(ctx, w, c)
 }
 
 // ingest é o POST /bot/v1/ingest/traefik (spec 020 RF-05, spec 018 RF-03).

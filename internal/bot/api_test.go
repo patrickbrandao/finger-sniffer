@@ -3,6 +3,7 @@ package bot
 import (
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -341,5 +342,80 @@ func TestStreamSSE(t *testing.T) {
 	got := string(buf[:n])
 	if !strings.HasPrefix(got, "event: verdict\ndata: ") || !strings.Contains(got, `"class":"bot"`) {
 		t.Fatalf("evento: %q", got)
+	}
+}
+
+// openFeed abre o feed na 9002 com a chave e espera o cliente entrar no Hub (want clientes ao todo).
+func (f *fixture) openFeed(key string, want int) *http.Response {
+	f.t.Helper()
+	req, _ := http.NewRequestWithContext(f.t.Context(), "GET", f.public.URL+"/bot/v1/stream", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := f.public.Client().Do(req)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != 200 {
+		f.t.Fatalf("feed: %d", resp.StatusCode)
+	}
+	for f.srv.hub.Clients() < want {
+		time.Sleep(time.Millisecond)
+	}
+	return resp
+}
+
+// TestStreamEndsOnRevokeAndRotate: task 368 — o feed aberto com uma chave termina (EOF) na recarga das chaves
+// seguinte à revogação ou à rotação dela e não recebe o veredito publicado depois; o feed de outra chave ativa segue.
+func TestStreamEndsOnRevokeAndRotate(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cancel func(f *fixture, k Key)
+	}{
+		{"revoke", func(f *fixture, k Key) {
+			if _, err := RevokeKey(t.Context(), f.db, k.ID, f.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"rotate", func(f *fixture, k Key) {
+			if _, _, err := RotateKey(t.Context(), f.db, k.ID); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			k, key := f.createKey(KeyOptions{Name: "x", Domains: []string{"example.com"}})
+			_, other := f.createKey(KeyOptions{Name: "y", Domains: []string{"example.com"}})
+			resp := f.openFeed(key, 1)
+			f.openFeed(other, 2)
+			f.srv.hub.Publish(&Verdict{Class: ClassBot, Subject: Subject{Site: ptr("example.com")}, Ts: "antes"})
+			buf := make([]byte, 4096)
+			if n, _ := resp.Body.Read(buf); !strings.Contains(string(buf[:n]), `"ts":"antes"`) {
+				t.Fatalf("veredito antes da revogação: %q", buf[:n])
+			}
+
+			tc.cancel(f, k)
+			f.srv.reloadKeys(t.Context())
+			if n := f.srv.hub.Clients(); n != 1 {
+				t.Errorf("clientes depois da recarga: %d, quer 1 (o da outra chave)", n)
+			}
+			f.srv.hub.Publish(&Verdict{Class: ClassBot, Subject: Subject{Site: ptr("example.com"), Src: &endpoint{IP: "192.0.2.9", Port: 1}}, Ts: "depois"})
+			done := make(chan []byte, 1)
+			go func() {
+				b, _ := io.ReadAll(resp.Body)
+				done <- b
+			}()
+			select {
+			case b := <-done:
+				if strings.Contains(string(b), "depois") {
+					t.Errorf("veredito publicado depois da recarga chegou ao feed: %q", b)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("feed da chave cancelada não terminou")
+			}
+			if c, _, _ := f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", key, nil, ""); c != 401 {
+				t.Errorf("requisição nova com a chave antiga: %d", c)
+			}
+		})
 	}
 }

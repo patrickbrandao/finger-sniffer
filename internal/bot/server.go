@@ -359,9 +359,7 @@ func (s *Server) loops(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-reload.C:
-			if err := s.keys.Reload(ctx); err != nil && ctx.Err() == nil {
-				s.deps.Log.Warn("bot: key reload", "err", err)
-			}
+			s.reloadKeys(ctx)
 			s.syncWebhooks(ctx)
 			s.handleControls(ctx)
 		case <-flush.C:
@@ -387,6 +385,18 @@ func (s *Server) flushAgg(ctx context.Context) error {
 		return nil
 	}
 	return s.agg.Flush(ctx, s.deps.DB, s.deps.Now())
+}
+
+// reloadKeys relê as chaves e encerra os feeds abertos com chave revogada ou rodada (task 368); com erro na leitura,
+// o mapa anterior fica e nenhum feed é encerrado.
+func (s *Server) reloadKeys(ctx context.Context) {
+	if err := s.keys.Reload(ctx); err != nil {
+		if ctx.Err() == nil {
+			s.deps.Log.Warn("bot: key reload", "err", err)
+		}
+		return
+	}
+	s.hub.dropRevoked(s.keys.HasHash)
 }
 
 // syncWebhooks passa as chaves com webhook ao despachante (depois de cada recarga).

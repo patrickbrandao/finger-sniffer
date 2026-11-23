@@ -384,6 +384,14 @@ func (s *KeyStore) Lookup(secret string) (*Key, bool) {
 	return k, ok
 }
 
+// HasHash diz se a chave com o hash dado está ativa (o feed aberto confere depois de cada recarga, task 368).
+func (s *KeyStore) HasHash(h [32]byte) bool {
+	s.mu.RLock()
+	_, ok := s.byHash[h]
+	s.mu.RUnlock()
+	return ok
+}
+
 // WebhookKeys devolve as chaves ativas com webhook_url.
 func (s *KeyStore) WebhookKeys() []*Key {
 	s.mu.RLock()
