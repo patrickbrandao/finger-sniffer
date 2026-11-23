@@ -1,0 +1,1 @@
+- test(load): o gerador do bot da carga da F8 (`test/load/f8-remote.sh`) roda como unit transitória `finger-sniffer-load-f8-*` (`systemd-run`, 1 CPU, 1G, sem swap, fora de `finger-sniffer.slice`) contra `10.249.255.254:9003`, sem Docker; receita do `RESULTS.md` atualizada e teste com stubs (ADR 0071, task 396).
