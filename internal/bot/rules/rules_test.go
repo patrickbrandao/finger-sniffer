@@ -448,11 +448,18 @@ func TestTLSIdentity(t *testing.T) {
 	if id := tlsIdentity(&TLS{JA4: *q.JA4}); id.ciphers != "" || !id.quic || id.stable != "" {
 		t.Fatalf("chrome h3 sem ja4_r: %+v", id)
 	}
-	// QUIC sem stable não avalia ua_tls_mismatch: Go h3 só com o JA4 e UA de Chrome
+	// QUIC sem stable não avalia o conjunto da família: JA4 `q` fora da base, só com o JA4 e UA de Chrome
 	g := base.entry(t, "go", "h3")
 	in := inputFrom(g, goldenUA["chrome"], ipResidential)
-	in.TLS.JA4R = ""
+	in.TLS.JA4, in.TLS.JA4R = "q13d0313h3_55b375c5d22e_000000000000", ""
 	if got := goldenEngine(t, false).Evaluate(in); slices.Contains(signalIDs(got), SignalUATLSMismatch) {
 		t.Fatalf("QUIC sem stable: %v", signalIDs(got))
+	}
+	// a pilha só de biblioteca vale também sem stable, pelo JA4 completo (ADR 0072 item 3.1)
+	in.TLS.JA4 = *g.JA4
+	got := goldenEngine(t, false).Evaluate(in)
+	if i := slices.IndexFunc(got.Signals, func(s Signal) bool { return s.ID == SignalUATLSMismatch }); i < 0 ||
+		got.Signals[i].Detail != "ua chrome, ja4 of measured go" {
+		t.Fatalf("QUIC de biblioteca sem stable: %+v", got.Signals)
 	}
 }

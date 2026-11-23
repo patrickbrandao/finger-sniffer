@@ -38,6 +38,10 @@ const (
 	// Selenium conduzindo um Chrome de verdade, com o marcador no UA
 	uaSelenium  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Selenium/4.27.0"
 	uaChromeWin = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+	// UAs de Safari e do iOS: a pilha declarada é a do Safari, que a base própria não mede (ADR 0072 item 3)
+	uaSafariMac    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
+	uaCriOS        = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1"
+	uaSafariIPhone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
 )
 
 func deref[T any](p *T) T {
@@ -162,6 +166,10 @@ func goldenCases(t testing.TB) []goldenCase {
 	curlUAChromeHeader := inputFrom(e("curl", "h2"), ua["chrome"], ipResidential)
 	curlUAChromeHeader.TLS.JA4R = ""
 
+	// v1.5 (ADR 0072 item 3): biblioteca com UA de iPhone e Accept-Language, de IP de nuvem
+	goIPhoneAL := inputFrom(e("go", "h2"), uaSafariIPhone, ipCloud)
+	goIPhoneAL.HTTP.HasAcceptLanguage = true
+
 	return []goldenCase{
 		// as classes da ADR 0057 item 1 (rules v1.1; ja4db desligada, ADR 0056 item 1)
 		{"curl", inputFrom(e("curl", "h2"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
@@ -220,6 +228,10 @@ func goldenCases(t testing.TB) []goldenCase {
 		{"curl_ua_chrome_header_only", curlUAChromeHeader, false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
 		{"go_h3_ua_chrome", inputFrom(e("go", "h3"), ua["chrome"], ipResidential), false, ClassSuspect, []string{SignalUATLSMismatch, SignalJA4HLibrary}},
 		{"firefox_ua_chrome_stack", inputFrom(e("chrome", "h2"), ua["firefox"], ipResidential), false, ClassHuman, []string{SignalUAH2Mismatch}},
+		// casos novos da v1.5 (ADR 0072 item 3): pilha de biblioteca com UA de Safari ou do iOS, sem medida do Safari
+		{"curl_ua_safari", inputFrom(e("curl", "h2"), uaSafariMac, ipResidential), false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
+		{"go_ua_crios", inputFrom(e("go", "h2"), uaCriOS, ipResidential), false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
+		{"go_ua_iphone_accept_language", goIPhoneAL, false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalIPCloud}},
 	}
 }
 

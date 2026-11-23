@@ -37,7 +37,7 @@
         "id": "ua_tls_mismatch",
         "kind": "incoherence",
         "weight": 45,
-        "detail": "ua chrome, ja4 stable q13d0313h3_55b375c5d22e_4156cdf64688 not in chrome set"
+        "detail": "ua chrome, ja4 of measured go"
       },
       {
         "id": "ja4h_library",
