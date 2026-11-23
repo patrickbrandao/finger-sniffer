@@ -24,8 +24,55 @@ const (
 	MaxIngestBytes   = 4 << 20
 	MaxIngestRecords = 1024
 	maxPathBytes     = 256
-	maxFieldValue    = 512
 )
+
+// Tetos dos textos do registro, em bytes, nos dois esquemas (ADR 0073 item 6, spec 018 RF-03): acima deles o
+// texto é cortado na fronteira de UTF-8 (não recusa: o traefix é consumido como está, ADR 0062) e conta em
+// bot_ingest_clipped_total{field}. Sem eles, um texto único de até 4 MiB ficaria no interner depois de a conexão
+// sair do índice (task 332).
+const (
+	maxMethodBytes      = 32
+	maxHTTPVersionBytes = 16
+	maxSiteBytes        = 255 // authority e sni
+	maxRouteNameBytes   = 128 // entry_point, router e service
+	maxTLSTextBytes     = 64  // tls_version e cipher
+	maxALPNBytes        = 255 // alpn e cada item de alpn_offered
+	maxALPNItems        = 16
+	maxListNameBytes    = 64 // cada item de field_names e cookie_names (até maxFieldNames itens)
+	maxFieldNameBytes   = 64 // nome em fields; acima, o valor é descartado como campo fora da lista permitida
+	maxFieldValue       = 512
+	maxJA4HBytes        = 128 // acima, o JA4H é tratado como ausente
+)
+
+// metricIngestClipped conta os registros com um texto cortado, um por campo (rótulo field, ADR 0073 item 6).
+const metricIngestClipped = "bot_ingest_clipped_total"
+
+// Valores do rótulo field de bot_ingest_clipped_total.
+const (
+	clipMethod      = "method"
+	clipHTTPVersion = "http_version"
+	clipAuthority   = "authority"
+	clipSNI         = "sni"
+	clipEntryPoint  = "entry_point"
+	clipRouter      = "router"
+	clipService     = "service"
+	clipTLSVersion  = "tls_version"
+	clipCipher      = "cipher"
+	clipALPN        = "alpn"
+	clipFieldNames  = "field_names"
+	clipCookieNames = "cookie_names"
+	clipFieldName   = "field_name"
+	clipFieldValue  = "field_value"
+	clipJA4H        = "ja4h"
+)
+
+// clippedFields são os valores do rótulo field de bot_ingest_clipped_total (rótulo fechado).
+var clippedFields = []string{
+	clipMethod, clipHTTPVersion, clipAuthority, clipSNI, clipEntryPoint, clipRouter, clipService, clipTLSVersion,
+	clipCipher, clipALPN, clipFieldNames, clipCookieNames, clipFieldName, clipFieldValue, clipJA4H,
+}
+
+func clippedMetric(field string) string { return metricIngestClipped + `{field="` + field + `"}` }
 
 // allowedField diz se o valor do campo pode ser guardado: só a lista permitida da spec 019 RF-04 (ADR 0048 item 3,
 // ADR 0052 item 2): User-Agent, Accept, Accept-Language, Accept-Encoding, Sec-CH-UA* e Sec-Fetch-*. O valor de
@@ -106,6 +153,85 @@ type parsedRecord struct {
 	// ignoredType é o tipo dele.
 	ignored     bool
 	ignoredType string
+	// clipped são os campos cortados pelos tetos de texto (rótulo field, sem repetição).
+	clipped []string
+}
+
+// markClipped anota o campo cortado (uma vez por registro).
+func (p *parsedRecord) markClipped(field string) {
+	if !slices.Contains(p.clipped, field) {
+		p.clipped = append(p.clipped, field)
+	}
+}
+
+// clipText corta *s em n bytes e anota o campo quando cortou.
+func (p *parsedRecord) clipText(s *string, n int, field string) {
+	if len(*s) > n {
+		*s = clip(*s, n)
+		p.markClipped(field)
+	}
+}
+
+// clipOptional é clipText para o texto opcional (nil fica nil); o valor cortado vai para um ponteiro novo.
+func (p *parsedRecord) clipOptional(s **string, n int, field string) {
+	if *s == nil || len(**s) <= n {
+		return
+	}
+	v := clip(**s, n)
+	*s = &v
+	p.markClipped(field)
+}
+
+// clipList fica com os primeiros maxItems itens de l e corta cada um em n bytes (no próprio vetor do registro).
+func (p *parsedRecord) clipList(l []string, maxItems, n int, field string) []string {
+	if len(l) > maxItems {
+		l = l[:maxItems:maxItems]
+		p.markClipped(field)
+	}
+	for i := range l {
+		p.clipText(&l[i], n, field)
+	}
+	return l
+}
+
+// clipTexts aplica os tetos de texto da ADR 0073 item 6 ao registro (os dois esquemas). Os campos de fora da lista
+// permitida saem aqui (o valor seria descartado no apply de todo modo); nome permitido acima do teto também sai,
+// como campo fora da lista.
+func (p *parsedRecord) clipTexts() {
+	r := &p.r
+	p.clipText(&r.Method, maxMethodBytes, clipMethod)
+	p.clipText(&r.HTTPVersion, maxHTTPVersionBytes, clipHTTPVersion)
+	p.clipText(&r.Authority, maxSiteBytes, clipAuthority)
+	p.clipOptional(&r.SNI, maxSiteBytes, clipSNI)
+	p.clipText(&r.EntryPoint, maxRouteNameBytes, clipEntryPoint)
+	p.clipOptional(&r.Router, maxRouteNameBytes, clipRouter)
+	p.clipOptional(&r.Service, maxRouteNameBytes, clipService)
+	p.clipOptional(&r.TLSVersion, maxTLSTextBytes, clipTLSVersion)
+	p.clipOptional(&r.Cipher, maxTLSTextBytes, clipCipher)
+	p.clipOptional(&r.ALPN, maxALPNBytes, clipALPN)
+	r.ALPNOffered = p.clipList(r.ALPNOffered, maxALPNItems, maxALPNBytes, clipALPN)
+	r.FieldNames = p.clipList(r.FieldNames, maxFieldNames, maxListNameBytes, clipFieldNames)
+	r.CookieNames = p.clipList(r.CookieNames, maxFieldNames, maxListNameBytes, clipCookieNames)
+	if r.JA4H != nil && len(*r.JA4H) > maxJA4HBytes {
+		r.JA4H = nil
+		p.markClipped(clipJA4H)
+	}
+	if len(r.Fields) == 0 {
+		return
+	}
+	fields := make(map[string]string, len(r.Fields))
+	for k, v := range r.Fields {
+		if !allowedField(k) {
+			continue
+		}
+		if len(k) > maxFieldNameBytes {
+			p.markClipped(clipFieldName)
+			continue
+		}
+		p.clipText(&v, maxFieldValue, clipFieldValue)
+		fields[k] = v
+	}
+	r.Fields = fields
 }
 
 // ParseErrors devolve as partes que não puderam ser analisadas (para bot_ingest_parse_errors_total{part}).
@@ -180,11 +306,7 @@ func (p *parsedRecord) check() error {
 	if len(r.Path) > maxPathBytes {
 		return fmt.Errorf("%w: path longer than %d bytes", errBadRecord, maxPathBytes)
 	}
-	for _, v := range r.Fields {
-		if len([]rune(v)) > maxFieldValue {
-			return fmt.Errorf("%w: field value longer than %d", errBadRecord, maxFieldValue)
-		}
-	}
+	p.clipTexts()
 	if r.Ended != nil {
 		if _, err := time.Parse(time.RFC3339Nano, *r.Ended); err != nil {
 			return fmt.Errorf("%w: ended", errBadRecord)
@@ -382,4 +504,11 @@ func deref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// countClipped conta os campos cortados do registro aceito em bot_ingest_clipped_total{field}.
+func (a *API) countClipped(fields []string) {
+	for _, f := range fields {
+		a.count(clippedMetric(f), 1)
+	}
 }

@@ -1,0 +1,1 @@
+- bot: o ingest corta (não recusa) os textos do registro acima dos tetos da ADR 0073 item 6 (`method` 32, `authority`/`sni` 255, `router` 128, nomes 64, valor de campo 512 bytes...) e conta em `fs_bot_ingest_clipped_total{field}`; o interner não compartilha texto acima de 1 KiB, e textos únicos longos não ficam mais retidos fora do teto do índice (task 332).

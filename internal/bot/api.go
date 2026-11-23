@@ -925,6 +925,7 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 			a.count(metricIngestParseErrors+`{part="`+part+`"}`, 1)
 		}
 		a.countMismatches(rec.mismatches, rec.r.FsConnID)
+		a.countClipped(rec.clipped)
 		a.Index.UpdateFork(rec.r.FsConnID, a.now(), rec.apply)
 		if rec.r.Type == "request" {
 			// veredito por requisição na chegada do resumo (publicado se o forwardAuth ainda não o fez)

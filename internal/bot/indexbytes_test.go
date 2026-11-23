@@ -24,7 +24,10 @@ import (
 // `hostile`: valores únicos — cada stream do store com UA de 512 bytes e um campo único; o fork com 16 requisições
 // de caminho de 256 bytes, UA de 512 bytes e campos longos (nada se compartilha).
 type indexLoad struct {
-	hostile  bool
+	hostile bool
+	// long acrescenta ao fork hostil textos únicos acima dos tetos do ingest (método, router, service, entry point,
+	// SNI, nomes de campo e de cookie, nome Sec-Fetch-*, valor de campo, JA4H), cortados no check (task 332).
+	long     bool
 	storeTpl string
 	fork     string
 	req      string
@@ -117,6 +120,11 @@ func (l *indexLoad) add(tb testing.TB, ix *Index, i int, now time.Time) {
 		}
 		recs = append(recs, strings.NewReplacer("FSID", fid, "PATH", path, `"UA"`, `"`+ua+`"`, `"ACCEPT"`, `"`+accept+`"`).Replace(l.req))
 	}
+	if l.long {
+		for j := range recs {
+			recs[j] = longTexts(recs[j], fmt.Sprintf("%s-%02d", fid, j))
+		}
+	}
 	for j, raw := range recs {
 		p, err := parseRecord(json.RawMessage(raw))
 		if err != nil {
@@ -124,6 +132,52 @@ func (l *indexLoad) add(tb testing.TB, ix *Index, i int, now time.Time) {
 		}
 		ix.UpdateFork(fid, now, p.apply)
 	}
+}
+
+// internerSlack é o que o interner pode reter, na geração, dos textos já cortados de conexões despejadas (8192
+// textos de até 255 bytes e as listas e mapas pequenos); sem os cortes e o teto de 1 KiB ele passa de 100 MiB.
+const internerSlack = 8 << 20
+
+// longTexts troca os textos do registro do formato anterior por textos únicos de 4 KiB (prefixo tag), todos acima
+// dos tetos do ingest.
+func longTexts(raw, tag string) string {
+	long := func(c string) string { return tag + strings.Repeat(c, 4096) }
+	return strings.NewReplacer(
+		`"method":"GET"`, `"method":"`+long("m")+`"`,
+		`"entry_point":"websecure"`, `"entry_point":"`+long("e")+`","tls_version":"`+long("v")+`","cipher":"`+long("c")+`"`,
+		`"sni":"www.example.com"`, `"sni":"`+long("s")+`.example.com"`,
+		`"alpn_offered":["h2","http/1.1"]`, `"alpn_offered":["h2","`+long("a")+`"]`,
+		`"http_version":"2.0"`, `"http_version":"`+long("h")+`"`,
+		`"cookie_names":["sid"]`, `"cookie_names":["`+long("k")+`"]`,
+		`"field_names":["sec-ch-ua"`, `"field_names":["`+long("f")+`"`,
+		`"fields":{`, `"fields":{"sec-fetch-`+long("x")+`":"1","accept-language":"`+long("l")+`",`,
+		`"ja4h":"ge20nn05ptbr_aaaaaaaaaaaa_000000000000_000000000000"`, `"ja4h":"`+long("j")+`"`,
+		`"status":200`, `"status":200,"router":"`+long("r")+`","service":"`+long("v")+`"`,
+	).Replace(raw)
+}
+
+// TestIndexBytesLongIngestTexts: task 332 — com teto de bytes pequeno e textos longos do ingest (cortados nos tetos
+// da ADR 0073 item 6), o heap do índice mais o interner fica no teto + 25% + internerSlack depois de despejar
+// (antes, o interner segurava os textos de 4 KiB de cada registro despejado até encher a geração). A razão entre
+// bot_index_bytes e o heap com esses textos fica no BenchmarkIndexFullMemory (`hostile_long`), que mede sozinho.
+func TestIndexBytesLongIngestTexts(t *testing.T) {
+	saved := shared
+	t.Cleanup(func() { shared = saved })
+	const maxBytes = 4 << 20
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	l := newIndexLoad(t, true)
+	l.long = true
+	shared = &interner{max: maxInterned}
+	ix := NewIndex(10*time.Minute, 1000, maxBytes, nil)
+	before := heapObjects()
+	for i := range 1000 {
+		l.add(t, ix, i, now)
+	}
+	used := heapObjects() - before
+	if limit := 1.25*float64(maxBytes) + internerSlack; used > limit {
+		t.Errorf("heap do índice e do interner %.0f acima do teto + 25%% + interner (%.0f)", used, limit)
+	}
+	runtime.KeepAlive(ix)
 }
 
 // TestIndexBytesCap: com teto pequeno, conexões hostis despejam as mais antigas por bytes (reason="bytes"), o
@@ -297,19 +351,23 @@ func heapObjects() float64 {
 // visões (FS_BOT_MAX_CONNS) e `hostile` com 10 000, sem teto de bytes: reporta bytes por conexão, o total para
 // 100 000 e a razão entre o contabilizado (bot_index_bytes) e o heap medido, que tem de ficar em ±25%.
 // `hostile_cap` põe 20 000 conexões hostis com o teto padrão (384 MiB): o heap do índice fica ≤ teto + 25%.
+// `hostile_long` é o hostil com textos acima dos tetos do ingest (cortados, task 332), também em ±25%.
 func BenchmarkIndexFullMemory(b *testing.B) {
 	for _, tc := range []struct {
 		name     string
 		conns    int
 		hostile  bool
 		maxBytes int64
+		long     bool
 	}{
-		{"typical", 100_000, false, 0},
-		{"hostile", 10_000, true, 0},
-		{"hostile_cap", 20_000, true, DefaultIndexMaxBytes},
+		{"typical", 100_000, false, 0, false},
+		{"hostile", 10_000, true, 0, false},
+		{"hostile_cap", 20_000, true, DefaultIndexMaxBytes, false},
+		{"hostile_long", 2000, true, 0, true},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			l := newIndexLoad(b, tc.hostile)
+			l.long = tc.long
 			now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 			for range b.N {
 				shared = &interner{max: maxInterned} // geração nova: o interner não traz textos de outra rodada
