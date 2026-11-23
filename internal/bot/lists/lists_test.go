@@ -1,6 +1,7 @@
 package lists
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/netip"
@@ -308,5 +309,31 @@ func TestCatalog(t *testing.T) {
 	}
 	if len(Robots()) < 6 {
 		t.Errorf("robôs %v", Robots())
+	}
+}
+
+// O ChatGPT-User tem lista própria no catálogo (task 365): um IP do recorte real de chatgpt-user.json (OpenAI,
+// 2026-11-06) cai na lista openai_chatgpt_user com o robô do marcador, e não nas do GPTBot nem do OAI-SearchBot.
+func TestCatalogChatGPTUser(t *testing.T) {
+	s := source("openai_chatgpt_user")
+	if s.URL != "https://openai.com/chatgpt-user.json" || s.Format != FormatGoogle || s.Kind != KindGoodBot ||
+		s.Robot != "chatgpt-user" {
+		t.Fatalf("fonte %+v", s)
+	}
+	e := newEnv(t)
+	e.up.bodies[hostPath(s.URL)] = readTestdata(t, "openai_chatgpt_user.json")
+	m := e.manager(t, nil)
+	if err := m.RefreshAll(context.Background())[s.Name]; err != nil {
+		t.Fatal(err)
+	}
+	if r := readRow(t, e.db, s.Name); r.entries.Int64 != 4 {
+		t.Errorf("entries %d", r.entries.Int64)
+	}
+	got := m.Lookup(netip.MustParseAddr("104.210.139.200"))
+	if !slices.Equal(got, []Match{{List: s.Name, Kind: KindGoodBot, Robot: "chatgpt-user"}}) {
+		t.Errorf("104.210.139.200: %+v", got)
+	}
+	if got := m.Lookup(netip.MustParseAddr("104.210.139.208")); len(got) != 0 {
+		t.Errorf("104.210.139.208 (fora do /28): %+v", got)
 	}
 }

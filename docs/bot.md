@@ -123,7 +123,20 @@ do bot:
 | Chrome headless | `ua_automation` | 70 | `bot` |
 | Googlebot falso (TLS de curl, IP fora da lista) | `ja4h_library`, `ua_claims_crawler` | 80 | `bot` |
 | GPTBot de IP da lista da OpenAI | `ja4h_library`, `ip_verified_crawler` | — | `good_bot` |
+| ChatGPT-User de IP da lista própria (`chatgpt-user.json`, faixas na Azure) | `ja4h_library`, `ip_cloud`, `ip_verified_crawler` | — | `good_bot` |
 | python-requests sem UA | `ua_missing`, `ja4h_library`, `library_client` | 100 | `bot` |
+
+Listas de robôs do catálogo (fixo no código, ADR 0050 item 3; URL trocável por `FS_BOT_LIST_<NOME>_URL`). Para
+OpenAI e DuckDuckGo, provados só pela lista, cada robô precisa da lista do próprio marcador; robô sem lista
+publicada é reconhecido pelo UA, mas fica sem operador e nunca dá `ua_claims_crawler`:
+
+| Operador | Listas | Robôs |
+| --- | --- | --- |
+| Google (DNS) | `googlebot` (`common-crawlers.json`), `google_special_crawlers`, `google_user_triggered`, `google_user_triggered_google` (em `developers.google.com/static/crawling/ipranges/`) | Googlebot e os demais marcadores `*-google` da tabela |
+| Bing (DNS) | `bingbot` | bingbot, BingPreview, AdIdxBot, MicrosoftPreview |
+| Apple (DNS) | `applebot` | Applebot |
+| OpenAI (lista) | `openai_gptbot`, `openai_searchbot`, `openai_chatgpt_user` | GPTBot, OAI-SearchBot, ChatGPT-User |
+| DuckDuckGo (lista) | `duckduckbot`, `duckassistbot` | DuckDuckBot, DuckAssistBot (DuckDuckGo-Favicons-Bot sem lista: sem operador) |
 
 ### Limitações conhecidas
 

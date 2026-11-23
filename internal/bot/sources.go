@@ -20,7 +20,9 @@ var robotOperator = map[string]string{
 	"applebot":      rules.OperatorApple,
 	"gptbot":        rules.OperatorOpenAI,
 	"oai-searchbot": rules.OperatorOpenAI,
+	"chatgpt-user":  rules.OperatorOpenAI,
 	"duckduckbot":   rules.OperatorDuckDuckGo,
+	"duckassistbot": rules.OperatorDuckDuckGo,
 }
 
 // operatorDNSRobot é o robô cujos sufixos de DNS reverso verificam o operador (só os operadores provados por DNS;

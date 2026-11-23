@@ -59,6 +59,9 @@ var uaCases = []struct {
 	{"oai-searchbot", "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot", "crawler:oai-searchbot", "", "other", "openai", "crawler:oai-searchbot"},
 	{"chatgpt-user", "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot", "crawler:chatgpt-user", "", "other", "openai", "crawler:chatgpt-user"},
 	{"duckduckbot", "DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)", "crawler:duckduckbot", "", "other", "duckduckgo", "crawler:duckduckbot"},
+	{"duckassistbot", "DuckAssistBot/1.2; (+http://duckduckgo.com/duckassistbot.html)", "crawler:duckassistbot", "", "other", "duckduckgo", "crawler:duckassistbot"},
+	// sem lista publicada pelo DuckDuckGo: reconhecido, sem operador (task 365)
+	{"duckduckgo-favicons-bot", "Mozilla/5.0 (compatible; DuckDuckGo-Favicons-Bot/1.0; +http://duckduckgo.com)", "crawler:duckduckgo-favicons-bot", "", "other", "", "crawler:duckduckgo-favicons-bot"},
 	{"yandex", "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", "crawler:yandexbot", "", "other", "", "crawler:yandexbot"},
 	{"generic bot", "Mozilla/5.0 (compatible; FooBar-Bot/1.0)", "crawler:other", "", "other", "", "crawler:other"},
 	{"generic spider", "my-spider 0.1", "crawler:other", "", "other", "", "crawler:other"},

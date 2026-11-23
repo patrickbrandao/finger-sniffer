@@ -41,14 +41,21 @@ type Source struct {
 
 // Catalog é o catálogo fixo das listas de IP, na ordem de atualização. Lista nova exige mudança de código.
 var Catalog = []Source{
-	{Name: "googlebot", URL: "https://developers.google.com/static/search/apis/ipranges/googlebot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
-	{Name: "google_special_crawlers", URL: "https://developers.google.com/static/search/apis/ipranges/special-crawlers.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
-	{Name: "google_user_triggered", URL: "https://developers.google.com/static/search/apis/ipranges/user-triggered-fetchers.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
+	// Google: os caminhos antigos (/static/search/apis/ipranges/) respondem 301 para /static/crawling/ipranges/, e o
+	// googlebot.json virou common-crawlers.json; os fetchers acionados por usuário rodam em duas faixas, a da nuvem
+	// (user-triggered-fetchers.json) e a da infraestrutura do Google (user-triggered-fetchers-google.json)
+	{Name: "googlebot", URL: "https://developers.google.com/static/crawling/ipranges/common-crawlers.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
+	{Name: "google_special_crawlers", URL: "https://developers.google.com/static/crawling/ipranges/special-crawlers.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
+	{Name: "google_user_triggered", URL: "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
+	{Name: "google_user_triggered_google", URL: "https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers-google.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "googlebot"},
 	{Name: "bingbot", URL: "https://www.bing.com/toolbox/bingbot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "bingbot"},
 	{Name: "applebot", URL: "https://search.developer.apple.com/applebot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "applebot"},
 	{Name: "openai_gptbot", URL: "https://openai.com/gptbot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "gptbot"},
 	{Name: "openai_searchbot", URL: "https://openai.com/searchbot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "oai-searchbot"},
+	// o ChatGPT-User tem faixas próprias, sem sobreposição com as do GPTBot e do OAI-SearchBot (task 365)
+	{Name: "openai_chatgpt_user", URL: "https://openai.com/chatgpt-user.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "chatgpt-user"},
 	{Name: "duckduckbot", URL: "https://duckduckgo.com/duckduckbot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "duckduckbot"},
+	{Name: "duckassistbot", URL: "https://duckduckgo.com/duckassistbot.json", Format: FormatGoogle, Kind: KindGoodBot, Robot: "duckassistbot"},
 	{Name: "aws", URL: "https://ip-ranges.amazonaws.com/ip-ranges.json", Format: FormatAWS, Kind: KindCloud},
 	{Name: "gcp", URL: "https://www.gstatic.com/ipranges/cloud.json", Format: FormatGoogle, Kind: KindCloud},
 	{Name: "azure", URL: "https://www.microsoft.com/en-us/download/details.aspx?id=56519", Format: FormatAzure, Kind: KindCloud},
@@ -61,7 +68,7 @@ var Catalog = []Source{
 func EnvKey(name string) string { return fmt.Sprintf("FS_BOT_LIST_%s_URL", strings.ToUpper(name)) }
 
 // robotSuffixes são os sufixos de DNS reverso aceitos por robô (ADR 0050 item 4). Robô sem sufixo publicado
-// (GPTBot, OAI-SearchBot, DuckDuckBot) é verificado só pela lista de IP: a verificação por DNS dá "unknown".
+// (GPTBot, OAI-SearchBot, ChatGPT-User, DuckDuckBot, DuckAssistBot) é verificado só pela lista de IP: a verificação por DNS dá "unknown".
 var robotSuffixes = map[string][]string{
 	"googlebot": {"googlebot.com", "google.com", "googleusercontent.com"},
 	"bingbot":   {"search.msn.com"},
