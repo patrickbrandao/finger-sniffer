@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -31,6 +32,8 @@ const (
 	errPayloadTooLarge    = "payload_too_large"
 	errForbiddenOrigin    = "forbidden_origin"
 	errInternal           = "internal"
+	// errBusy é o 503 de capacidade do ingest (ADR 0073 item 2.3).
+	errBusy = "busy"
 )
 
 // Métricas do heartbeat (spec 018 RF-12) já existentes nesta entrega.
@@ -93,12 +96,21 @@ type API struct {
 	// linha por minuto (ADRs 0062 item 3 e 0063 item 2).
 	ignored     ignoredTypes
 	mismatchLog rateLog
+	// gate é o semáforo dos lotes do ingest (ADR 0073 item 2; nil = os tetos padrão, menores nos testes);
+	// bodyTimeout é o prazo do corpo do lote (0 = ingestBodyTimeout).
+	gateOnce    sync.Once
+	gate        *ingestGate
+	bodyTimeout time.Duration
 }
 
 type ctxKey struct{}
 
-// principal é quem fez a requisição: a chave, ou nil na 9003 sem chave (vale para qualquer domínio).
-type principal struct{ key *Key }
+// principal é quem fez a requisição: a chave, ou nil na 9003 sem chave (vale para qualquer domínio), e a porta
+// (internal = 9003).
+type principal struct {
+	key      *Key
+	internal bool
+}
 
 func (p principal) allows(site string) bool {
 	return p.key == nil || MatchDomain(p.key.Domains, site)
@@ -209,7 +221,7 @@ func (a *API) authenticate(internal bool, next http.HandlerFunc) http.Handler {
 		if internal && !strings.HasPrefix(secret, keyPrefix) {
 			present = false
 		}
-		var p principal
+		p := principal{internal: internal}
 		switch {
 		case present:
 			k, ok := a.Keys.Lookup(secret)
@@ -869,8 +881,53 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	a.Hub.serve(ctx, w, c)
 }
 
+// ingestGate devolve o semáforo dos lotes (os tetos da ADR 0073 item 2 se o teste não pôs outro).
+func (a *API) ingestGate() *ingestGate {
+	a.gateOnce.Do(func() {
+		if a.gate == nil {
+			a.gate = newIngestGate(MaxIngestBatches, MaxIngestBatchesPublic, MaxIngestBatchesPerKey)
+		}
+	})
+	return a.gate
+}
+
+// admitBatch pega a vaga do lote antes de ler o corpo (ADR 0073 item 2.1): sem vaga, responde 503 busy ou, pela
+// parte da chave da 9002, 429, os dois com Retry-After: 1, e devolve release nil.
+func (a *API) admitBatch(w http.ResponseWriter, p principal) func() {
+	keyID := ""
+	if p.key != nil && !p.internal {
+		keyID = p.key.ID
+	}
+	release, reason := a.ingestGate().acquire(!p.internal, keyID)
+	if reason == "" {
+		return release
+	}
+	a.count(ingestRefusedMetric(reason), 1)
+	w.Header().Set("Retry-After", "1")
+	if reason == refusedBusy {
+		writeError(w, http.StatusServiceUnavailable, errBusy, "too many batches in progress")
+		return nil
+	}
+	a.count(metricRateLimited, 1)
+	writeError(w, http.StatusTooManyRequests, errRateLimited, "too many batches of the key in progress")
+	return nil
+}
+
 // ingest é o POST /bot/v1/ingest/traefik (spec 020 RF-05, spec 018 RF-03).
 func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
+	p := principalFrom(r)
+	release := a.admitBatch(w, p)
+	if release == nil {
+		return
+	}
+	defer release()
+	// prazo do corpo desde o início do handler, nas duas portas (ADR 0073 item 2.2); sem suporte (gravador dos
+	// testes), sem prazo
+	timeout := a.bodyTimeout
+	if timeout <= 0 {
+		timeout = ingestBodyTimeout
+	}
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(timeout))
 	if r.ContentLength > MaxIngestBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, errPayloadTooLarge, "batch larger than 4 MiB")
 		return
@@ -881,6 +938,9 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &mbe) {
 			writeError(w, http.StatusRequestEntityTooLarge, errPayloadTooLarge, "batch larger than 4 MiB")
 			return
+		}
+		if readTimedOut(err) {
+			a.count(ingestRefusedMetric(refusedBodyTimeout), 1)
 		}
 		writeError(w, http.StatusBadRequest, errBadRequest, "body read failed")
 		return
@@ -894,7 +954,6 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 	if batch.schema == SchemaTraefixV1 && a.Judge != nil {
 		env.p0f = a.Judge.p0f.get()
 	}
-	p := principalFrom(r)
 	accepted, rejected := 0, 0
 	for _, raw := range batch.records {
 		var (
