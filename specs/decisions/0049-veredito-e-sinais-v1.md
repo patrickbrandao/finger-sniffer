@@ -1,6 +1,6 @@
 # 0049 — Veredito e sinais v1
 
-Status: aceita (pesos e limiares provisórios — revisar com a carga e o e2e da F8; item 3 e sinais da v1.1: ver 0057)
+Status: aceita (pesos e limiares provisórios — revisar com a carga e o e2e da F8; item 3 e sinais da v1.1: ver 0057; robô sem lista com sinal próprio: ver 0072)
 Data: 2026-11-16
 
 ## Contexto
