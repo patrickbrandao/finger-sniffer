@@ -54,7 +54,7 @@ cliente**, com a medida do espelho ao lado (o feed global do store lido por `bot
 Pelo enlace do Mac, a conferência da janela oficial terminou às 23:16:05; a chave `auth` expirava às 23:22, então o
 forwardAuth da rodada hostil rodou num container novo (`auth2`, 23:16:22–23:37:42). O índice tinha caído a ~0,3 MiB
 nesse intervalo (TTL), então o hostil rodou a 80/s como na 285 e passou do teto em 52 s (`degraded` às 23:19:03).
-Gerador, imagem `fs-load-f8:285`, containers `fs-load-f8-*` na `network_public`, chaves pela CLI do bot com o segredo
+Gerador (registro histórico, antes da ADR 0071: imagem `fs-load-f8:285`, containers `fs-load-f8-*` na `network_public`), chaves pela CLI do bot com o segredo
 só no shell remoto e o vigia `f8-side.sh` iguais à 285. Brutos do bot em [`results/f8-bot-051`](results/f8-bot-051/)
 (`report-*.md` do `botload report`, com os health do vigia mais próximos de cada borda; `bot_index.csv` a cada 5 s;
 logs dos containers; amostras do cgroup e do `/metrics` do store). As amostras cruas (`samples.csv`,
@@ -135,7 +135,7 @@ ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh 
 O `botload report` passou a mostrar `bot_auth_fingerprint_total` por `kind/source` e
 `bot_ingest_fingerprint_mismatch_total` por `kind` nas contas do heartbeat (`TestDiffBot`).
 
-**Limpeza.** Containers `fs-load-f8-*` parados e removidos, imagem `fs-load-f8:285` removida, as quatro chaves
+**Limpeza** (registro histórico, antes da ADR 0071). Containers `fs-load-f8-*` parados e removidos, imagem `fs-load-f8:285` removida, as quatro chaves
 `load-f8-*` (smoke, auth, auth2, hostile) revogadas às 23:38:07, vigia parado, `/tmp/fs-load-running`,
 `/tmp/fs-load-f8` e `/tmp/fs-load` apagados; `traefik-app` intocado. Health depois: 6 serviços `ok`,
 `versions_match` true, bot `ok`.
@@ -166,7 +166,8 @@ store pela 9001 sem passar pelo enlace do Mac.
 
 - Servidor só para a carga (`/tmp/fs-load-running` segurado pelo vigia lateral `f8-side.sh` de 05:15 a 06:28 UTC);
   bot em `MemoryMax=1G`, `GOMEMLIMIT=768MiB`, `CPUQuota=200%`, `FS_BOT_INDEX_MAX_BYTES=402653184`, `FS_BOT_VIEW_WAIT=100ms`.
-- Gerador do bot: `test/load/cmd/botload` (build tag `load`), binário estático importado como imagem
+- Gerador do bot (registro histórico desta rodada; a receita atual, sem Docker, está no bloco abaixo e na ADR 0071):
+  `test/load/cmd/botload` (build tag `load`), binário estático importado como imagem
   `fs-load-f8:285` (`docker import`, sem download) e rodado em containers temporários `fs-load-f8-<nome>` na rede
   `network_public` (bridge `br-net-public`, origem 10.249.0.0/16 como o traefik), `--cpus 1`, `--memory 1g`, pelo
   `test/load/f8-remote.sh`. O `traefik-app` não foi tocado; os containers e a imagem foram removidos no fim.
@@ -197,6 +198,14 @@ store pela 9001 sem passar pelo enlace do Mac.
 | [`official-f8`](results/official-f8/) 05:51:59–06:01:59 (medida 05:52:59–06:01:59) | 400/100, 10 min | auth 200/s | **janela oficial da F8** |
 | [`hostile-f8`](results/hostile-f8/) 06:12:22–06:18:22 | 400/100, 6 min | auth 200/s + hostil 06:13:47–06:15:49 | item 4 |
 
+**Receita atual (task 396, ADR 0071).** O `f8-remote.sh` sobe cada gerador como unit transitória
+`finger-sniffer-load-f8-<nome>` (`systemd-run --collect -p CPUQuota=100% -p MemoryMax=1G -p MemorySwapMax=0`, teto
+`RuntimeMaxSec=3h`), no `system.slice`, fora de `finger-sniffer.slice`, com o binário em
+`/finger-sniffer/tmp/fs-load-f8-botload` e o alvo padrão do `botload` `http://10.249.255.254:9003`; a chave entra
+pela entrada padrão por um FIFO temporário. Nenhum gerador usa o Docker do host. `f8-remote.sh status` lista as
+units; `cleanup` para as units, revoga as chaves `load-f8-*` e apaga o binário. Na primeira carga com esta receita,
+conferir e registrar aqui que a origem vista pelo bot é `10.249.255.254`.
+
 Os brutos do bot estão em [`results/f8-bot`](results/f8-bot/): `report-<janela>.md` (saída do `botload report`
 por janela, com as contas do heartbeat entre as duas coletas do health mais próximas), `bot_index.csv`
 (`bot_index_bytes` e despejos a cada 5 s), `bot_health.jsonl.gz`, `cgroup_side.txt.gz`, `store_metrics_side.txt.gz`
@@ -205,11 +214,12 @@ e os logs dos containers. As amostras cruas (`samples.csv`, 30 MB; `feed_samples
 ```sh
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags load -o tmp/load/botload ./test/load/cmd/botload
 scp -P 48022 tmp/load/botload test/load/f8-remote.sh test/load/f8-side.sh root@finger-01.tmsoft.com.br:/tmp/fs-load-f8/
-ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh image && (setsid ./f8-side.sh &)'
+ssh -p 48022 root@finger-01.tmsoft.com.br 'test ! -e /tmp/fs-load-running'   # servidor livre (o f8-side.sh segura a trava)
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh install && (setsid ./f8-side.sh &)'
 ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh start-nokey feed-main feed -duration 60m && ./f8-remote.sh start auth auth -duration 60m -rate 200 -query-rate 20'
 OUT=tmp/load/raw/official-f8 test/load/run.sh -commit v0.4.0-26-g8a4ca69 -rate 100 -max-active 400   # depois do prefill de 9 min
 ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh start hostile hostile -duration 2m -rate 80'
-ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh cleanup'   # containers, chaves e imagem
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh cleanup'   # units, chaves e binário
 go run -tags load ./test/load/cmd/botload report -dir <out-auth> -from <início> -to <fim> -health-before hb.json -health-after ha.json
 ```
 
