@@ -50,7 +50,10 @@ func TestH3DecodedFieldsBudget(t *testing.T) {
 	if refused.Load() < 2 {
 		t.Fatalf("refused %d of 4", refused.Load())
 	}
-	if got := h.srv.budget.inUse(); got < 2*690<<10 || got > h3HeadersConnMax {
+	// com -race o decodificado do segundo stream aceito pode chegar depois do prazo de leitura: espera a reserva.
+	waitFor(t, 5*time.Second, func() bool { return h.srv.budget.inUse() >= 2*690<<10 },
+		func() string { return fmt.Sprint("decoded fields reserved ", h.srv.budget.inUse()) })
+	if got := h.srv.budget.inUse(); got > h3HeadersConnMax {
 		t.Fatalf("decoded fields reserved %d", got)
 	}
 	_ = qc.CloseWithError(0, "")
