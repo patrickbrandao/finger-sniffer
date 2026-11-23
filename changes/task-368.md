@@ -1,0 +1,1 @@
+- bot: `key revoke` e `key rotate` encerram em até 2 s (na recarga das chaves) o feed SSE aberto com a chave revogada ou a antiga, que deixa de receber vereditos (task 368).

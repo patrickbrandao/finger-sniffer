@@ -34,6 +34,11 @@ type Hub struct {
 
 type streamClient struct {
 	domains []string // nil = todos (9003 sem chave)
+	// keyHash é o hash da chave que abriu o feed (hasKey false na 9003 sem chave): a revogação ou a rotação dela
+	// encerra o feed na recarga seguinte das chaves (dropRevoked, task 368). cancel encerra o serve.
+	keyHash [32]byte
+	hasKey  bool
+	cancel  context.CancelFunc
 	classes map[string]bool
 	site    string
 	queue   chan *Verdict
@@ -103,6 +108,26 @@ func (h *Hub) remove(c *streamClient) {
 	h.mu.Lock()
 	delete(h.clients, c)
 	h.mu.Unlock()
+}
+
+// dropRevoked encerra os clientes abertos com uma chave que não está mais ativa (revogada, ou a antiga de uma
+// rotação, que troca o hash): saem do Hub na hora, sem receber mais vereditos, e o serve deles termina; devolve
+// quantos saíram. Chamado depois de cada recarga das chaves.
+func (h *Hub) dropRevoked(active func(hash [32]byte) bool) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for c := range h.clients {
+		if !c.hasKey || active(c.keyHash) {
+			continue
+		}
+		delete(h.clients, c)
+		if c.cancel != nil {
+			c.cancel()
+		}
+		n++
+	}
+	return n
 }
 
 // Clients conta os clientes conectados.

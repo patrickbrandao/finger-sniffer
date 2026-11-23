@@ -408,7 +408,8 @@ $ curl -s -H "Authorization: Bearer $KEY" "$BOT/bot/v1/fingerprints/ja4/t13d1517
 Vereditos dos domínios da chave em tempo real, um por requisição. Filtros `class` (classes separadas por vírgula) e
 `site`. Sem replay; fila de 1024 eventos por cliente, com descarte e um evento `stream.dropped` com a contagem; ping
 (`: ping`) a cada 15 s; até 64 clientes (acima, 503). O veredito por probe não vai ao feed nem ao webhook: consulte
-`GET /bot/v1/probes/{id}/verdict` (ADR 0060).
+`GET /bot/v1/probes/{id}/verdict` (ADR 0060). `key revoke` e `key rotate` também encerram, em até 2 s (a recarga
+das chaves), o feed aberto com a chave revogada ou com a antiga.
 
 ```console
 $ curl -sN -H "Authorization: Bearer $KEY" "$BOT/bot/v1/stream?class=bot,suspect"
