@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"net/netip"
 	"os"
 	"strconv"
@@ -572,4 +573,92 @@ func storeMessage(stage, connID, srcIP string, srcPort int) []byte {
 		`"payload":{"stage":"` + stage + `","connection":{"conn_id":"` + connID + `","probe_id":null,"proto":"tcp","l4":"tcp",` +
 		`"family":4,"src":{"ip":"` + srcIP + `","port":` + strconv.Itoa(srcPort) + `},"dst":{"ip":"172.233.24.85","port":443},` +
 		`"started":"2026-11-16T12:00:00.000000000Z","ended":null,"tcp":{"syn":{"ttl":64}},"http":[{"method":"GET"}]}}}`)
+}
+
+// originIndex monta um índice com as duas visões cheias de conexões da mesma faixa de origem em ports portas de
+// destino distintas; a origem 198.51.100.7:51234 tem três entradas (portas 443, 8443 e a última), a mais recente na
+// porta 8443.
+func originIndex(tb testing.TB, ports int, now time.Time) *Index {
+	tb.Helper()
+	ix := NewIndex(10*time.Minute, ports+16, 0, nil)
+	src := mustAddr("198.51.100.7")
+	for p := range ports {
+		ix.PutStore(&StoreConn{ConnID: fmt.Sprintf("S%05d", p), SrcIP: mustAddr("203.0.113.9"), SrcPort: 40000, DstPort: p, Started: now}, now)
+		ix.UpdateFork(fmt.Sprintf("F%05d", p), now, func(c *ForkConn) {
+			c.SrcIP, c.SrcPort, c.DstPort, c.HasSrc = mustAddr("203.0.113.9"), 40000, p, true
+		})
+	}
+	for i, dst := range []int{443, ports - 1, 8443} {
+		at := now.Add(time.Duration(i+1) * time.Second)
+		ix.PutStore(&StoreConn{ConnID: fmt.Sprintf("O%d", dst), SrcIP: src, SrcPort: 51234, DstPort: dst, Started: at}, at)
+		ix.UpdateFork(fmt.Sprintf("O%d", dst), at, func(c *ForkConn) {
+			c.SrcIP, c.SrcPort, c.DstPort, c.HasSrc = src, 51234, dst, true
+		})
+	}
+	return ix
+}
+
+// TestIndexByOriginManyPorts: task 366 — com milhares de portas de destino no índice, a consulta só pela origem acha
+// a entrada mais recente da origem (a mesma escolha de antes), segue a troca de origem e a saída da entrada, e o
+// custo não cresce com o número de portas (antes, uma varredura de todas as portas vistas sob a trava do índice).
+func TestIndexByOriginManyPorts(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC).Add(10 * time.Second)
+	ix := originIndex(t, 65536, now.Add(-10*time.Second))
+	src := mustAddr("::ffff:198.51.100.7")
+	if c, ok := ix.StoreByOrigin(src, 51234, now); !ok || c.ConnID != "O8443" {
+		t.Fatalf("store pela origem: %+v %v", c, ok)
+	}
+	if c, ok := ix.ForkByOrigin(src, 51234, now); !ok || c.FsConnID != "O8443" {
+		t.Fatalf("fork pela origem: %+v %v", c, ok)
+	}
+	// a entrada mais recente muda de origem: a anterior da lista volta a ser a escolhida
+	ix.UpdateFork("O8443", now, func(c *ForkConn) { c.SrcPort = 51235 })
+	if c, ok := ix.ForkByOrigin(src, 51234, now); !ok || c.FsConnID != "O65535" {
+		t.Errorf("depois da troca de origem: %+v %v", c, ok)
+	}
+	if c, ok := ix.ForkByOrigin(src, 51235, now); !ok || c.FsConnID != "O8443" {
+		t.Errorf("na origem nova: %+v %v", c, ok)
+	}
+	// TTL vencido
+	if _, ok := ix.StoreByOrigin(src, 51234, now.Add(11*time.Minute)); ok {
+		t.Error("origem achada depois do TTL")
+	}
+	// forget tira as entradas da origem
+	ix.Forget(netip.MustParsePrefix("198.51.100.7/32"))
+	if _, ok := ix.StoreByOrigin(src, 51234, now); ok {
+		t.Error("origem achada depois do forget")
+	}
+	if n := len(ix.store.byOrigin) + len(ix.fork.byOrigin); n != 2 {
+		t.Errorf("byOrigin com %d origens depois do forget, quer 2 (a da faixa de ruído nas duas visões)", n)
+	}
+
+	// custo: 3 portas × 65 536 portas, com folga larga para o ruído da máquina
+	cost := func(ports int) time.Duration {
+		ix := originIndex(t, ports, now.Add(-10*time.Second))
+		start := time.Now()
+		for range 20000 {
+			ix.ForkByOrigin(src, 51234, now)
+			ix.StoreByOrigin(src, 51234, now)
+		}
+		return time.Since(start)
+	}
+	small, large := cost(3), cost(65536)
+	if large > 20*small+5*time.Millisecond {
+		t.Errorf("consulta pela origem cresce com as portas: 3 portas %v, 65 536 portas %v", small, large)
+	}
+}
+
+// BenchmarkIndexByOrigin: task 366 — custo da consulta só pela origem com 3 e 65 536 portas de destino no índice.
+func BenchmarkIndexByOrigin(b *testing.B) {
+	now := time.Date(2026, 11, 16, 12, 0, 10, 0, time.UTC)
+	src := mustAddr("198.51.100.7")
+	for _, ports := range []int{3, 65536} {
+		b.Run(strconv.Itoa(ports), func(b *testing.B) {
+			ix := originIndex(b, ports, now.Add(-10*time.Second))
+			b.ResetTimer()
+			for b.Loop() {
+				ix.ForkByOrigin(src, 51234, now)
+			}
+		})
+	}
 }

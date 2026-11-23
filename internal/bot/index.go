@@ -196,9 +196,10 @@ type ttlTable[V any] struct {
 	order *list.List
 	byID  map[string]*list.Element
 	bySrc map[srcKey]*list.Element
-	// dstPorts conta as entradas com origem por porta de destino: a consulta só pela origem (sem a porta de
-	// destino, GET /bot/v1/verdict) testa cada porta vista, que são poucas (as entradas do traefik e do espelho).
-	dstPorts map[uint16]int
+	// byOrigin liga cada origem (IP e porta, sem a porta de destino) às entradas com ela, em ordem de atualização
+	// (a mais recente no fim): a consulta só pela origem (GET /bot/v1/verdict) é um lookup, sem varrer as portas de
+	// destino, que vêm do chamador (dst.port do ingest, X-Traefix-Dst-Port) e podem ser todas as 65 536 (task 366).
+	byOrigin map[originKey]*list.List
 	// bytes é a soma dos custos das entradas (contabilidade aproximada, ADR 0057 item 2).
 	bytes int64
 	// seq numera as atualizações, em comum entre as visões do índice: ordena o despejo por bytes entre as duas
@@ -208,20 +209,30 @@ type ttlTable[V any] struct {
 	onRemove func(val V)
 }
 
+// originKey é a origem de uma entrada sem a porta de destino.
+type originKey struct {
+	ip   netip.Addr
+	port uint16
+}
+
+func (k srcKey) origin() originKey { return originKey{ip: k.ip, port: k.port} }
+
 type ttlEntry[V any] struct {
-	id      string
-	src     srcKey
-	hasSrc  bool
-	touched time.Time
-	seq     uint64
-	val     V
-	cost    int64
+	id     string
+	src    srcKey
+	hasSrc bool
+	// originEl é o elemento da entrada em byOrigin (o valor é o elemento dela em order); nil sem origem.
+	originEl *list.Element
+	touched  time.Time
+	seq      uint64
+	val      V
+	cost     int64
 }
 
 func newTTLTable[V any](ttl time.Duration, maxEntries int) *ttlTable[V] {
 	return &ttlTable[V]{
 		ttl: ttl, max: maxEntries, order: list.New(), byID: map[string]*list.Element{}, bySrc: map[srcKey]*list.Element{},
-		dstPorts: map[uint16]int{}, seq: new(uint64),
+		byOrigin: map[originKey]*list.List{}, seq: new(uint64),
 	}
 }
 
@@ -235,22 +246,23 @@ func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64,
 		if e.hasSrc && (!hasSrc || e.src != src) && t.bySrc[e.src] == el {
 			delete(t.bySrc, e.src)
 		}
-		t.unport(e)
+		t.unorigin(e)
 		t.bytes += cost - e.cost
 		e.src, e.hasSrc, e.touched, e.seq, e.val, e.cost = src, hasSrc, now, *t.seq, val, cost
 		if hasSrc {
 			t.bySrc[src] = el
-			t.dstPorts[src.dstPort]++
+			t.addOrigin(e, el)
 		}
 		t.order.MoveToBack(el)
 		return 0
 	}
-	el := t.order.PushBack(&ttlEntry[V]{id: id, src: src, hasSrc: hasSrc, touched: now, seq: *t.seq, val: val, cost: cost})
+	e := &ttlEntry[V]{id: id, src: src, hasSrc: hasSrc, touched: now, seq: *t.seq, val: val, cost: cost}
+	el := t.order.PushBack(e)
 	t.bytes += cost
 	t.byID[id] = el
 	if hasSrc {
 		t.bySrc[src] = el
-		t.dstPorts[src.dstPort]++
+		t.addOrigin(e, el)
 	}
 	for t.order.Len() > t.max {
 		t.remove(t.order.Front())
@@ -267,44 +279,51 @@ func (t *ttlTable[V]) remove(el *list.Element) {
 	if e.hasSrc && t.bySrc[e.src] == el {
 		delete(t.bySrc, e.src)
 	}
-	t.unport(e)
+	t.unorigin(e)
 	if t.onRemove != nil {
 		t.onRemove(e.val)
 	}
 }
 
-// unport desconta a porta de destino da entrada (antes de trocá-la ou removê-la).
-func (t *ttlTable[V]) unport(e *ttlEntry[V]) {
-	if !e.hasSrc {
-		return
+// addOrigin põe a entrada no fim da lista da origem dela (a mais recente).
+func (t *ttlTable[V]) addOrigin(e *ttlEntry[V], el *list.Element) {
+	k := e.src.origin()
+	l := t.byOrigin[k]
+	if l == nil {
+		l = list.New()
+		t.byOrigin[k] = l
 	}
-	if t.dstPorts[e.src.dstPort]--; t.dstPorts[e.src.dstPort] <= 0 {
-		delete(t.dstPorts, e.src.dstPort)
-	}
+	e.originEl = l.PushBack(el)
 }
 
-// getByOrigin devolve a entrada mais recente com a origem dada, em qualquer porta de destino.
-func (t *ttlTable[V]) getByOrigin(ip netip.Addr, port int, now time.Time) (V, bool) {
-	var (
-		best     *ttlEntry[V]
-		zero     V
-		cut      = now.Add(-t.ttl)
-		unmapped = ip.Unmap().WithZone("")
-	)
-	for dst := range t.dstPorts {
-		el, ok := t.bySrc[srcKey{ip: unmapped, port: uint16(port), dstPort: dst}] //nolint:gosec // porta validada
-		if !ok {
-			continue
-		}
-		e := el.Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
-		if !e.touched.Before(cut) && (best == nil || e.seq > best.seq) {
-			best = e
+// unorigin tira a entrada da lista da origem dela (antes de trocá-la ou removê-la).
+func (t *ttlTable[V]) unorigin(e *ttlEntry[V]) {
+	if e.originEl == nil {
+		return
+	}
+	k := e.src.origin()
+	if l := t.byOrigin[k]; l != nil {
+		l.Remove(e.originEl)
+		if l.Len() == 0 {
+			delete(t.byOrigin, k)
 		}
 	}
-	if best == nil {
+	e.originEl = nil
+}
+
+// getByOrigin devolve a entrada mais recente com a origem dada, em qualquer porta de destino: a última da lista
+// da origem (put move a entrada para o fim), que é também a de toque mais recente; vencida ela, as outras também.
+func (t *ttlTable[V]) getByOrigin(ip netip.Addr, port int, now time.Time) (V, bool) {
+	var zero V
+	l := t.byOrigin[newSrcKey(ip, port, 0).origin()]
+	if l == nil || l.Len() == 0 {
 		return zero, false
 	}
-	return best.val, true
+	e := l.Back().Value.(*list.Element).Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+	if e.touched.Before(now.Add(-t.ttl)) {
+		return zero, false
+	}
+	return e.val, true
 }
 
 // oldest devolve o número de atualização da entrada mais antiga (false com a tabela vazia).
