@@ -123,7 +123,7 @@ func New(cfg Config, d Deps) *Server {
 	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, cfg.IndexMaxBytes, func(reason string, n int) {
 		d.Metrics.Add(evictedMetric(reason), float64(n))
 	})
-	for _, r := range []string{evictCount, evictBytes} {
+	for _, r := range []string{evictCount, evictBytes, evictKey} {
 		d.Metrics.Add(evictedMetric(r), 0) // as duas séries aparecem desde o início
 	}
 	// Contadores da spec 018 RF-12 que só andam com eventos aparecem zerados desde o primeiro heartbeat.
@@ -508,7 +508,7 @@ func (s *Server) updateMetrics() {
 	m.Set(metricDBBytes, float64(dbFileSize(s.cfg.DBPath)))
 	m.Set(metricAggDropped, float64(s.agg.Dropped()))
 	m.Set(metricAggEvicted, float64(s.agg.Evicted()))
-	for _, r := range []string{agg.LimitIPSites, agg.LimitIPFingerprints} {
+	for _, r := range []string{agg.LimitIPSites, agg.LimitIPFingerprints, agg.LimitKey} {
 		m.Set(aggLimitedMetric(r), float64(s.agg.Limited(r)))
 	}
 	m.Set(metricIndexBytes, float64(s.index.Bytes(s.deps.Now())))

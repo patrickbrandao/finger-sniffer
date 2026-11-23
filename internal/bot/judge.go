@@ -443,6 +443,9 @@ type published struct {
 	site  string
 	path  string
 	noAgg bool
+	// owner é a chave da 9002 que mandou a requisição ("" = interna): dono da conexão criada e das entradas dos
+	// agregados (ADR 0073 item 3.2).
+	owner string
 }
 
 // record guarda o veredito da requisição na conexão do fork e, se a requisição ainda não foi publicada pela outra
@@ -454,7 +457,7 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 		return
 	}
 	var publish, reused bool
-	j.index.UpdateFork(id, j.now(), func(c *ForkConn) {
+	j.index.UpdateForkOwned(id, p.owner, j.now(), func(c *ForkConn) {
 		if init != nil {
 			init(c)
 		}
@@ -481,13 +484,13 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 	}
 	j.agg.Observe(agg.Request{
 		Time: j.now(), IP: p.ip, Site: p.site, Path: p.path, Reused: reused, Class: v.Class, UAFamily: res.UAFamily,
-		Fingerprints: fps,
+		Fingerprints: fps, Owner: p.owner,
 	})
 }
 
 // Auth avalia a requisição do forwardAuth com as visões que chegaram na espera e, com keep, a registra na conexão
 // (fonte auth); sem keep (conexão de site fora da chave, task 369) nada é gravado nem publicado.
-func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn, keep bool) Verdict {
+func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn, keep bool, owner string) Verdict {
 	req, ja4hSource := httpFromAuth(h, &f, fork)
 	j.metrics.Add(authJA4HMetric(ja4hSource), 1)
 	var src fpSources
@@ -501,7 +504,7 @@ func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fo
 		j.count(SourceAuth, v.Class)
 		return v
 	}
-	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path}, func(c *ForkConn) {
+	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path, owner: owner}, func(c *ForkConn) {
 		// conexão ainda sem registro do traefix: a origem vem dos cabeçalhos (o registro de conexão completa depois). First
 		// fica zero: o instante do forwardAuth não é o início da conexão, e numa conexão longa (keep-alive) ele
 		// tiraria a do store da janela de 5 s do casamento (RF-04).
@@ -518,6 +521,11 @@ func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fo
 // API.ingest, para nenhum veredito, agregado, feed ou webhook sair com o domínio de outra chave (spec 020 RF-03).
 // Devolve false quando o site final não é permitido (nada é registrado).
 func (j *Judge) Ingest(id string, allows func(string) bool) bool {
+	return j.IngestOwned(id, "", allows)
+}
+
+// IngestOwned é o Ingest de uma requisição de dono owner (chave da 9002; "" = interna).
+func (j *Judge) IngestOwned(id, owner string, allows func(string) bool) bool {
 	now := j.now()
 	fork, ok := j.index.Fork(id, now)
 	if !ok || len(fork.Requests) == 0 {
@@ -552,7 +560,7 @@ func (j *Judge) Ingest(id string, allows func(string) bool) bool {
 	// entra em ip_hourly nem em fp_daily (ADR 0073 item 7.3); os dois campos juntos, para não tirar os registros do
 	// formato anterior sem router
 	noAgg := req.Router == "" && req.Status != nil && *req.Status == http.StatusNotFound
-	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path, noAgg: noAgg}, init)
+	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path, noAgg: noAgg, owner: owner}, init)
 	return true
 }
 

@@ -584,3 +584,42 @@ func TestEvictWhenFull(t *testing.T) {
 		t.Fatal("marca de cheio não expirou")
 	}
 }
+
+// TestKeyShare: cada chave da 9002 cria no máximo 10% das entradas e todas juntas 50%; acima, a observação é
+// descartada (bot_agg_limited_total{reason="key"}) e as internas seguem entrando; a entrada que sai devolve a parte
+// (task 371, ADR 0073 item 3.2).
+func TestKeyShare(t *testing.T) {
+	a := New(Config{MaxEntries: 100})
+	obs := func(owner string, i int) {
+		a.Observe(Request{Time: t0, IP: netip.AddrFrom4([4]byte{198, 18, byte(i >> 8), byte(i)}), Site: "s.example", Path: "/", Owner: owner})
+	}
+	for i := range 20 {
+		obs("k1", i) // 2 entradas cada: 5 cabem nos 10
+	}
+	if a.byOwner["k1"] != 10 || a.Limited(LimitKey) != 15 {
+		t.Fatalf("k1 %d limitadas %d", a.byOwner["k1"], a.Limited(LimitKey))
+	}
+	for k := 2; k <= 6; k++ {
+		for i := range 5 {
+			obs(fmt.Sprintf("k%d", k), 100*k+i)
+		}
+	}
+	// k1..k5 = 50 entradas (50%): k6 não cabe
+	if a.keyed != 50 || a.byOwner["k6"] != 0 {
+		t.Fatalf("todas as chaves %d, k6 %d", a.keyed, a.byOwner["k6"])
+	}
+	for i := range 20 {
+		obs("", 1000+i)
+	}
+	if a.Entries() != 90 {
+		t.Fatalf("internas não entraram: %d", a.Entries())
+	}
+	a.Forget(netip.MustParsePrefix("198.18.0.0/27")) // as de k1
+	if a.byOwner["k1"] != 0 || a.keyed != 40 {
+		t.Fatalf("forget não devolveu a parte: k1 %d todas %d", a.byOwner["k1"], a.keyed)
+	}
+	obs("k6", 600)
+	if a.byOwner["k6"] != 2 {
+		t.Fatalf("k6 depois do forget: %d", a.byOwner["k6"])
+	}
+}

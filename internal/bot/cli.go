@@ -25,7 +25,7 @@ func IsCLI(args []string) bool {
 
 const cliUsage = `usage:
   finger-sniffer-bot key create --name NAME --domains a.com,*.b.com [--rate N] [--burst N] [--daily N]
-                                [--mode observe|block] [--webhook-url https://...] [--webhook-classes bot,suspect]
+                                [--ingest-rate N] [--ingest-burst N] [--mode observe|block] [--webhook-url https://...] [--webhook-classes bot,suspect]
   finger-sniffer-bot key list
   finger-sniffer-bot key revoke <id|prefix>
   finger-sniffer-bot key rotate <id|prefix>
@@ -98,6 +98,8 @@ func cliKeyCreate(ctx context.Context, db *sql.DB, args []string, out, errOut io
 	fs.IntVar(&o.RatePerS, "rate", 0, fmt.Sprintf("requests per second (default %d)", DefaultRatePerS))
 	fs.IntVar(&o.Burst, "burst", 0, fmt.Sprintf("bucket size (default %d)", DefaultBurst))
 	fs.IntVar(&o.DailyQuota, "daily", 0, fmt.Sprintf("daily quota (default %d)", DefaultDailyQuota))
+	fs.IntVar(&o.IngestRate, "ingest-rate", 0, fmt.Sprintf("ingest records per second on the public port (default %d)", DefaultIngestRate))
+	fs.IntVar(&o.IngestBurst, "ingest-burst", 0, fmt.Sprintf("ingest records bucket size (default %d)", DefaultIngestBurst))
 	fs.StringVar(&o.Mode, "mode", ModeObserve, "observe or block")
 	fs.StringVar(&o.WebhookURL, "webhook-url", "", "https URL for the verdict webhook")
 	fs.StringVar(&classes, "webhook-classes", "", "verdict classes sent to the webhook (default bot,suspect)")
@@ -116,8 +118,10 @@ func cliKeyCreate(ctx context.Context, db *sql.DB, args []string, out, errOut io
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "id: %s\nname: %s\ndomains: %s\nmode: %s\nlimits: %d/s burst %d, %d/day\nkey: %s\n",
-		k.ID, k.Name, strings.Join(k.Domains, ","), k.Mode, k.Rate(), k.BurstSize(), k.Quota(), secret)
+	_, _ = fmt.Fprintf(out, "id: %s\nname: %s\ndomains: %s\nmode: %s\nlimits: %d/s burst %d, %d/day\n"+
+		"ingest: %d records/s burst %d\nkey: %s\n",
+		k.ID, k.Name, strings.Join(k.Domains, ","), k.Mode, k.Rate(), k.BurstSize(), k.Quota(), k.IngestRateOrDefault(),
+		k.IngestBurstOrDefault(), secret)
 	if whSecret != nil {
 		_, _ = fmt.Fprintf(out, "webhook: %s (%s)\nwebhook secret: %s\n", k.WebhookURL, strings.Join(k.WebhookClasses, ","),
 			hex.EncodeToString(whSecret))

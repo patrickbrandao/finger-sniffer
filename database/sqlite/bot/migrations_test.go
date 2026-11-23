@@ -114,3 +114,49 @@ func TestConstraints(t *testing.T) {
 		t.Error("created_at texto aceito (STRICT)")
 	}
 }
+
+// TestIngestLimitsMigration: a 0003 acrescenta api_keys.ingest_rate/ingest_burst (nulas = padrão) e
+// key_usage_daily.records (0 por padrão; linhas antigas ficam com 0) e desce sem perder as outras colunas (ADR 0073
+// item 3.1, task 371).
+func TestIngestLimitsMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	p, err := goose.NewProvider(goose.DialectSQLite3, db, FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, requests, limited) VALUES ('k', 1, 5, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Up(ctx); err != nil {
+		t.Fatalf("up da 0003: %v", err)
+	}
+	var records int64
+	if err := db.QueryRowContext(ctx, `SELECT records FROM key_usage_daily WHERE key_id = 'k'`).Scan(&records); err != nil || records != 0 {
+		t.Fatalf("records da linha antiga: %d %v", records, err)
+	}
+	ins := `INSERT INTO api_keys (id, name, key_sha256, prefix, domains, mode, created_at, ingest_rate, ingest_burst)
+		VALUES ('01JC0X3K8V2T7Q9N4M6P1R5S8W', 'x', x'01', 'abcd', '[]', 'observe', 1, ?, ?)`
+	if _, err := db.ExecContext(ctx, ins, nil, nil); err != nil {
+		t.Fatalf("colunas nulas: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE api_keys SET ingest_rate = 'muito'`); err == nil {
+		t.Error("ingest_rate texto aceito (STRICT)")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, records) VALUES ('k', 2, NULL)`); err == nil {
+		t.Error("records nulo aceito")
+	}
+	if _, err := p.DownTo(ctx, 2); err != nil {
+		t.Fatalf("down da 0003: %v", err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('api_keys') WHERE name LIKE 'ingest_%'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("colunas da 0003 depois do down: %d %v", n, err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT requests FROM key_usage_daily WHERE key_id = 'k'`).Scan(&n); err != nil || n != 5 {
+		t.Fatalf("uso depois do down: %d %v", n, err)
+	}
+}

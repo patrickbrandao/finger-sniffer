@@ -60,6 +60,15 @@ const (
 const (
 	LimitIPSites        = "ip_sites"
 	LimitIPFingerprints = "ip_fingerprints"
+	// LimitKey é a parte por chave da 9002 (ADR 0073 item 3.2).
+	LimitKey = "key"
+)
+
+// Partes das entradas para as chaves da 9002 (ADR 0073 item 3.2): cada chave até 1/keyShareDiv (10%) e todas juntas
+// até 1/keyedShareDiv (50%) do teto.
+const (
+	keyShareDiv   = 10
+	keyedShareDiv = 2
 )
 
 // Fingerprint é uma fingerprint vista na requisição.
@@ -80,6 +89,8 @@ type Request struct {
 	Class        string
 	UAFamily     string
 	Fingerprints []Fingerprint
+	// Owner é a chave da 9002 que mandou a requisição (id da chave); "" = interna (9003, com ou sem chave).
+	Owner string
 }
 
 // Intervals são n, soma e soma dos quadrados dos intervalos (s) entre requisições do IP no site.
@@ -173,6 +184,7 @@ func (c counters) sub(o counters) counters {
 type hourAcc struct {
 	cur, flushed counters
 	paths        map[uint64]struct{}
+	owner        string // chave da 9002 que criou a entrada ("" = interna)
 }
 
 // hourStats é uma hora fechada e gravada (cache de comportamento).
@@ -189,6 +201,7 @@ type behavior struct {
 	prevMin int64
 	open    map[int64]*hourAcc
 	past    []hourStats // ordenado por hora
+	owner   string      // chave da 9002 que criou a entrada ("" = interna)
 }
 
 type siteKey struct {
@@ -208,6 +221,7 @@ type fpAcc struct {
 	flushedRequests, flushedBot, flushedHuman int64
 	flushedIPs                                int64
 	ips                                       kmv
+	owner                                     string // chave da 9002 que criou a entrada ("" = interna)
 }
 
 // originCount conta o que uma origem criou na hora (entradas de hora) e no dia (fingerprints novas).
@@ -230,11 +244,15 @@ type Aggregator struct {
 	sites   map[siteKey]*behavior
 	fps     map[fpKey]*fpAcc
 	origins map[[16]byte]*originCount
+	// byOwner e keyed são as entradas de cada chave da 9002 e de todas juntas (parte por chave).
+	byOwner map[string]int
+	keyed   int
 
 	dropped      atomic.Uint64
 	evicted      atomic.Uint64
 	limitedSites atomic.Uint64
 	limitedFPs   atomic.Uint64
+	limitedKey   atomic.Uint64
 	fullAt       atomic.Int64 // UnixNano do último despejo ou descarte pelo teto global
 	emptyScanAt  time.Time    // última varredura de despejo que não achou nada despejável
 }
@@ -253,6 +271,7 @@ func New(cfg Config) *Aggregator {
 	return &Aggregator{
 		maxEntries: cfg.MaxEntries, maxAge: cfg.MaxAge, now: cfg.Now, saltDay: math.MinInt64,
 		sites: map[siteKey]*behavior{}, fps: map[fpKey]*fpAcc{}, origins: map[[16]byte]*originCount{},
+		byOwner: map[string]int{},
 	}
 }
 
@@ -267,6 +286,8 @@ func (a *Aggregator) Limited(reason string) uint64 {
 		return a.limitedSites.Load()
 	case LimitIPFingerprints:
 		return a.limitedFPs.Load()
+	case LimitKey:
+		return a.limitedKey.Load()
 	}
 	return 0
 }
@@ -306,6 +327,35 @@ func (a *Aggregator) origin(ip [16]byte, hour, day int64) *originCount {
 	return o
 }
 
+// ownerRoom diz se o dono pode criar n entradas dentro da parte dele (sempre para as internas). Chamada com a.mu.
+func (a *Aggregator) ownerRoom(owner string, n int) bool {
+	if owner == "" {
+		return true
+	}
+	return a.byOwner[owner]+n <= max(1, a.maxEntries/keyShareDiv) && a.keyed+n <= max(1, a.maxEntries/keyedShareDiv)
+}
+
+// charge soma (n > 0) ou tira (n < 0) entradas do dono. Chamada com a.mu.
+func (a *Aggregator) charge(owner string, n int) {
+	if owner == "" {
+		return
+	}
+	a.keyed += n
+	if a.byOwner[owner] += n; a.byOwner[owner] <= 0 {
+		delete(a.byOwner, owner)
+	}
+}
+
+// removeBehavior tira o comportamento e as horas abertas dele da memória e das contas. Chamada com a.mu.
+func (a *Aggregator) removeBehavior(k siteKey, b *behavior) {
+	a.entries -= 1 + len(b.open)
+	a.charge(b.owner, -1)
+	for _, h := range b.open {
+		a.charge(h.owner, -1)
+	}
+	delete(a.sites, k)
+}
+
 // room garante espaço para n entradas novas: com o teto cheio, despeja os comportamentos menos recentes já gravados
 // (1% do teto por passo, sem tocar em skip); sem nada despejável, conta o descarte. Chamada com a.mu.
 func (a *Aggregator) room(n int, skip siteKey) bool {
@@ -343,9 +393,7 @@ func (a *Aggregator) evictLocked(n int, skip siteKey, now time.Time) {
 	}
 	slices.SortFunc(cs, func(x, y cand) int { return x.last.Compare(y.last) })
 	for _, c := range cs[:min(n, len(cs))] {
-		b := a.sites[c.k]
-		a.entries -= 1 + len(b.open)
-		delete(a.sites, c.k)
+		a.removeBehavior(c.k, a.sites[c.k])
 		a.evicted.Add(1)
 	}
 }
@@ -403,17 +451,22 @@ func (a *Aggregator) Observe(r Request) {
 		if b == nil {
 			need = 2
 		}
+		if !a.ownerRoom(r.Owner, need) {
+			a.limitedKey.Add(1)
+			return
+		}
 		if !a.room(need, k) {
 			return
 		}
 		if b == nil {
-			b = &behavior{open: map[int64]*hourAcc{}}
+			b = &behavior{open: map[int64]*hourAcc{}, owner: r.Owner}
 			a.sites[k] = b
 			a.entries++
 		}
-		h = &hourAcc{paths: map[uint64]struct{}{}}
+		h = &hourAcc{paths: map[uint64]struct{}{}, owner: r.Owner}
 		b.open[hour] = h
 		a.entries++
+		a.charge(r.Owner, need)
 		o.sites++
 	}
 	c := &h.cur
@@ -464,12 +517,17 @@ func (a *Aggregator) Observe(r Request) {
 				a.limitedFPs.Add(1)
 				continue
 			}
+			if !a.ownerRoom(r.Owner, 1) {
+				a.limitedKey.Add(1)
+				continue
+			}
 			if !a.room(1, k) {
 				continue
 			}
-			acc = &fpAcc{}
+			acc = &fpAcc{owner: r.Owner}
 			a.fps[fk] = acc
 			a.entries++
+			a.charge(r.Owner, 1)
 			o.fps++
 		}
 		acc.requests++
@@ -559,8 +617,7 @@ func (a *Aggregator) Forget(p netip.Prefix) int {
 	n := 0
 	for k, b := range a.sites {
 		if p.Contains(netip.AddrFrom16(k.ip).Unmap()) {
-			a.entries -= 1 + len(b.open)
-			delete(a.sites, k)
+			a.removeBehavior(k, b)
 			n++
 		}
 	}
@@ -591,11 +648,11 @@ func (a *Aggregator) maintain(now time.Time) {
 			}
 			delete(b.open, hr)
 			a.entries--
+			a.charge(h.owner, -1)
 		}
 		b.past = slices.DeleteFunc(b.past, func(p hourStats) bool { return p.hour < first })
 		if len(b.open) == 0 && len(b.past) == 0 {
-			delete(a.sites, k)
-			a.entries--
+			a.removeBehavior(k, b)
 		}
 	}
 	// contadores por origem: só os da hora ou do dia correntes têm efeito
@@ -612,10 +669,12 @@ func (a *Aggregator) maintain(now time.Time) {
 		if f.flushedRequests == f.requests && f.flushedBot == f.bot && f.flushedHuman == f.human {
 			delete(a.fps, k)
 			a.entries--
+			a.charge(f.owner, -1)
 		} else if k.day < oldestDay {
 			a.dropped.Add(uint64(max(0, f.requests-f.flushedRequests))) //nolint:gosec // não negativo
 			delete(a.fps, k)
 			a.entries--
+			a.charge(f.owner, -1)
 		}
 	}
 	a.saltFor(day)

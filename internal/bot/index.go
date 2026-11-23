@@ -207,6 +207,17 @@ type ttlTable[V any] struct {
 	seq *uint64
 	// onRemove (opcional) é chamado quando uma entrada sai (TTL, teto ou forget), para os índices secundários.
 	onRemove func(val V)
+	// byOwner são as entradas de cada dono (chave da 9002 que as criou) e keyed as de todos os donos, em ordem de
+	// atualização, com os bytes delas: a parte por chave dos tetos (ADR 0073 item 3.2). Entradas sem dono (internas,
+	// 9003 e store) não entram.
+	byOwner map[string]*ownerUse
+	keyed   ownerUse
+}
+
+// ownerUse são as entradas de um dono (os elementos delas em order, da mais antiga à mais recente) e os bytes.
+type ownerUse struct {
+	l     *list.List
+	bytes int64
 }
 
 // originKey é a origem de uma entrada sem a porta de destino.
@@ -227,18 +238,38 @@ type ttlEntry[V any] struct {
 	seq      uint64
 	val      V
 	cost     int64
+	// owner é a chave da 9002 que criou a entrada ("" = interna); ownerEl e keyedEl são os elementos dela em
+	// byOwner e keyed.
+	owner            string
+	ownerEl, keyedEl *list.Element
 }
 
 func newTTLTable[V any](ttl time.Duration, maxEntries int) *ttlTable[V] {
 	return &ttlTable[V]{
 		ttl: ttl, max: maxEntries, order: list.New(), byID: map[string]*list.Element{}, bySrc: map[srcKey]*list.Element{},
-		byOrigin: map[originKey]*list.List{}, seq: new(uint64),
+		byOrigin: map[originKey]*list.List{}, seq: new(uint64), byOwner: map[string]*ownerUse{}, keyed: ownerUse{l: list.New()},
 	}
 }
 
-// put insere ou substitui a entrada com o custo dado; devolve quantas entradas foram despejadas pelo teto de
-// entradas.
+// put insere ou substitui a entrada interna (sem dono) com o custo dado; devolve quantas entradas foram despejadas
+// pelo teto de entradas.
 func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64, now time.Time) (evicted int) {
+	t.putOwned(id, "", src, hasSrc, val, cost, now)
+	return t.trim()
+}
+
+// trim despeja as mais antigas enquanto houver mais entradas que o teto; devolve quantas saíram.
+func (t *ttlTable[V]) trim() (evicted int) {
+	for t.order.Len() > t.max {
+		t.remove(t.order.Front())
+		evicted++
+	}
+	return evicted
+}
+
+// putOwned insere ou substitui a entrada sem aplicar o teto de entradas (trim); owner vale só na criação (a entrada
+// segue com o dono que a criou).
+func (t *ttlTable[V]) putOwned(id, owner string, src srcKey, hasSrc bool, val V, cost int64, now time.Time) {
 	t.expire(now)
 	*t.seq++
 	if el, ok := t.byID[id]; ok {
@@ -248,15 +279,22 @@ func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64,
 		}
 		t.unorigin(e)
 		t.bytes += cost - e.cost
+		if e.owner != "" {
+			u := t.byOwner[e.owner]
+			u.bytes += cost - e.cost
+			t.keyed.bytes += cost - e.cost
+			u.l.MoveToBack(e.ownerEl)
+			t.keyed.l.MoveToBack(e.keyedEl)
+		}
 		e.src, e.hasSrc, e.touched, e.seq, e.val, e.cost = src, hasSrc, now, *t.seq, val, cost
 		if hasSrc {
 			t.bySrc[src] = el
 			t.addOrigin(e, el)
 		}
 		t.order.MoveToBack(el)
-		return 0
+		return
 	}
-	e := &ttlEntry[V]{id: id, src: src, hasSrc: hasSrc, touched: now, seq: *t.seq, val: val, cost: cost}
+	e := &ttlEntry[V]{id: id, src: src, hasSrc: hasSrc, touched: now, seq: *t.seq, val: val, cost: cost, owner: owner}
 	el := t.order.PushBack(e)
 	t.bytes += cost
 	t.byID[id] = el
@@ -264,11 +302,16 @@ func (t *ttlTable[V]) put(id string, src srcKey, hasSrc bool, val V, cost int64,
 		t.bySrc[src] = el
 		t.addOrigin(e, el)
 	}
-	for t.order.Len() > t.max {
-		t.remove(t.order.Front())
-		evicted++
+	if owner != "" {
+		u := t.byOwner[owner]
+		if u == nil {
+			u = &ownerUse{l: list.New()}
+			t.byOwner[owner] = u
+		}
+		e.ownerEl, e.keyedEl = u.l.PushBack(el), t.keyed.l.PushBack(el)
+		u.bytes += cost
+		t.keyed.bytes += cost
 	}
-	return evicted
 }
 
 func (t *ttlTable[V]) remove(el *list.Element) {
@@ -280,9 +323,37 @@ func (t *ttlTable[V]) remove(el *list.Element) {
 		delete(t.bySrc, e.src)
 	}
 	t.unorigin(e)
+	if e.owner != "" {
+		u := t.byOwner[e.owner]
+		u.l.Remove(e.ownerEl)
+		u.bytes -= e.cost
+		if u.l.Len() == 0 {
+			delete(t.byOwner, e.owner)
+		}
+		t.keyed.l.Remove(e.keyedEl)
+		t.keyed.bytes -= e.cost
+	}
 	if t.onRemove != nil {
 		t.onRemove(e.val)
 	}
+}
+
+// enforceOwner despeja as entradas mais antigas do dono enquanto ele passar de maxN entradas ou maxB bytes (0 =
+// sem teto de bytes) e, depois, as mais antigas de todos os donos enquanto passarem de allN ou allB; nunca as
+// internas. Devolve quantas saíram.
+func (t *ttlTable[V]) enforceOwner(owner string, maxN int, maxB int64, allN int, allB int64) (n int) {
+	over := func(u *ownerUse, mn int, mb int64) bool {
+		return u != nil && u.l.Len() > 0 && (u.l.Len() > mn || (mb > 0 && u.bytes > mb))
+	}
+	for u := t.byOwner[owner]; over(u, maxN, maxB); u = t.byOwner[owner] {
+		t.remove(u.l.Front().Value.(*list.Element)) //nolint:forcetypeassert // byOwner guarda elementos de order
+		n++
+	}
+	for over(&t.keyed, allN, allB) {
+		t.remove(t.keyed.l.Front().Value.(*list.Element)) //nolint:forcetypeassert // idem
+		n++
+	}
+	return n
 }
 
 // addOrigin põe a entrada no fim da lista da origem dela (a mais recente).
@@ -392,6 +463,15 @@ func (t *ttlTable[V]) removeSrcIn(p netip.Prefix) (n int) {
 const (
 	evictCount = "count"
 	evictBytes = "bytes"
+	// evictKey é o despejo pela parte por chave da 9002 (ADR 0073 item 3.2).
+	evictKey = "key"
+)
+
+// Partes dos tetos do índice para as chaves da 9002 (ADR 0073 item 3.2): cada chave até 1/keyShareDiv (10%) e
+// todas juntas até 1/keyedShareDiv (50%) do teto de conexões e do teto de bytes.
+const (
+	keyShareDiv   = 10
+	keyedShareDiv = 2
 )
 
 // Index guarda em memória as conexões vistas pelo store e pelo fork nos últimos FS_BOT_CONN_TTL, com teto de
@@ -452,9 +532,12 @@ func (ix *Index) notifyLocked() {
 	ix.changed = make(chan struct{})
 }
 
-func (ix *Index) evicted(byCount, byBytes int) {
+func (ix *Index) evicted(byCount, byBytes int, byKey ...int) {
 	if ix.onEvict == nil {
 		return
+	}
+	if len(byKey) > 0 && byKey[0] > 0 {
+		ix.onEvict(evictKey, byKey[0])
 	}
 	if byCount > 0 {
 		ix.onEvict(evictCount, byCount)
@@ -521,19 +604,36 @@ func (ix *Index) PutStore(c *StoreConn, now time.Time) {
 	ix.evicted(n, nb)
 }
 
-// UpdateFork aplica f à conexão do fork (criada vazia se não existe) e a guarda.
+// UpdateFork aplica f à conexão do fork (criada vazia e interna se não existe) e a guarda.
 func (ix *Index) UpdateFork(id string, now time.Time, f func(c *ForkConn)) {
+	ix.UpdateForkOwned(id, "", now, f)
+}
+
+// UpdateForkOwned é o UpdateFork de uma chave da 9002 (owner = id da chave; "" = interna, 9003 com ou sem chave):
+// a conexão criada fica com esse dono, e o dono que passar da parte dele nos tetos despeja primeiro as próprias
+// conexões mais antigas (ADR 0073 item 3.2), antes do teto global e do de bytes.
+func (ix *Index) UpdateForkOwned(id, owner string, now time.Time, f func(c *ForkConn)) {
 	ix.mu.Lock()
 	c, ok := ix.fork.getByID(id, now)
 	if !ok {
 		c = &ForkConn{FsConnID: id}
 	}
 	f(c)
-	n := ix.fork.put(id, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.HasSrc, c, forkBytes(c), now)
+	ix.fork.putOwned(id, owner, newSrcKey(c.SrcIP, c.SrcPort, c.DstPort), c.HasSrc, c, forkBytes(c), now)
+	nk := 0
+	if owner != "" {
+		maxN, allN := max(1, ix.fork.max/keyShareDiv), max(1, ix.fork.max/keyedShareDiv)
+		var maxB, allB int64
+		if ix.maxBytes > 0 {
+			maxB, allB = max(1, ix.maxBytes/keyShareDiv), max(1, ix.maxBytes/keyedShareDiv)
+		}
+		nk = ix.fork.enforceOwner(owner, maxN, maxB, allN, allB)
+	}
+	n := ix.fork.trim()
 	nb := ix.enforceBytesLocked(now)
 	ix.notifyLocked()
 	ix.mu.Unlock()
-	ix.evicted(n, nb)
+	ix.evicted(n, nb, nk)
 }
 
 // Fork devolve uma cópia rasa da conexão do fork pelo fs_conn_id.

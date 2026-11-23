@@ -4,7 +4,7 @@ Derivado das specs [018](../specs/018-bot.md) (serviço bot), [019](../specs/019
 (traefix) e [020](../specs/020-api-de-vereditos.md) (API), das ADRs
 [0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md)
 e do contrato [cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão
-0.5.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
+0.6.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
 
 O serviço `finger-sniffer-bot` junta a visão IP/TCP do espelho (o que o store viu da conexão: SYN, JA4T, p0f, TTL,
 MSS) com a visão de aplicação do **traefix** (o traefik modificado, projeto externo do humano, imagem
@@ -217,6 +217,7 @@ name: exemplo
 domains: example.com,*.example.com
 mode: observe
 limits: 20/s burst 40, 100000/day
+ingest: 500 records/s burst 2048
 key: fsk_...
 webhook: https://hooks.example.com/fs (bot,suspect)
 webhook secret: 3f9c...
@@ -229,6 +230,7 @@ webhook secret: 3f9c...
 | `--domains` | — | domínios autorizados, separados por vírgula: `example.com` (só ele) ou `*.example.com` (subdomínios, sem o próprio `example.com`) |
 | `--rate`, `--burst` | 20/s, 40 | balde de fichas por chave (só na 9002) |
 | `--daily` | 100 000 | cota diária por chave (só na 9002) |
+| `--ingest-rate`, `--ingest-burst` | 500/s, 2 048 | balde de **registros** do ingest por chave (só na 9002): o lote tira um registro por ficha, de uma vez |
 | `--mode` | `observe` | `observe` (forwardAuth sempre 200) ou `block` (403 para `class=bot`) |
 | `--webhook-url` | — | URL `https` do webhook; gera e imprime o segredo uma vez |
 | `--webhook-classes` | `bot,suspect` | classes enviadas ao webhook |
@@ -253,6 +255,22 @@ uma das 200 vagas (`fs_bot_public_conns_closed_total{reason="source"}`). A conex
 120 s) e o cabeçalho da requisição, como o handshake TLS, tem 5 s para chegar nas duas portas. Com 180 conexões ou
 mais na 9002, as ociosas mais antigas são fechadas até ficarem menos de 180 (`reason="idle"`); o cliente reabre a
 conexão na requisição seguinte. Chegar às 200 deixa o health `degraded` com `public conns` por 60 s.
+
+**Limites por chave na 9002** ([ADR 0073](../specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md)
+item 3; na 9003 nada disso vale):
+
+- além da ficha por requisição, o ingest cobra uma ficha por **registro** do balde de registros da chave
+  (`--ingest-rate`/`--ingest-burst`, padrão 500/s e rajada 2 048): o lote tira `len(records)` fichas de uma vez e,
+  sem fichas para o lote inteiro, recebe 429 `rate_limited` com `Retry-After` (segundos até ter as fichas) sem
+  aplicar nenhum registro (`fs_bot_ingest_refused_total{reason="key_records"}`); os registros aceitos somam em
+  `key_usage_daily.records`, sem cota diária;
+- cada chave fica com até 10% do teto de conexões do índice (`FS_BOT_MAX_CONNS`), de bytes (`FS_BOT_INDEX_MAX_BYTES`)
+  e das entradas dos agregados, e todas as chaves da 9002 juntas com até 50%: passou da parte, as conexões mais
+  antigas da própria chave (ou das chaves da 9002) saem do índice (`fs_bot_conns_evicted_total{reason="key"}`),
+  nunca as da 9003 nem as do store, e a observação que criaria entrada nos agregados é descartada
+  (`fs_bot_agg_limited_total{reason="key"}`);
+- feed: até 4 clientes por chave (acima, 429 com `Retry-After: 15`) e 48 da 9002 ao todo (16 dos 64 ficam para a
+  9003; acima, 503 `internal`).
 
 **CORS.** `Access-Control-Allow-Origin` só para os domínios da chave e só nas rotas `GET`. A chave fica no backend
 do site; consulta pelo navegador não é o uso previsto.
