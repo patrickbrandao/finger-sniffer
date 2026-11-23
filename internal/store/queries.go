@@ -223,6 +223,20 @@ type summaryJSON struct {
 	Degraded bool         `json:"degraded"`
 }
 
+// Filtros dos probes apagados (ADR 0068 item 2): enquanto a linha de deleted_probes existir, as conexões e as
+// consultas do probe até o corte somem de todas as leituras; o laço de retenção as apaga em lotes.
+const (
+	visibleConn = `NOT EXISTS (SELECT 1 FROM deleted_probes d WHERE d.probe_id = connections.probe_id AND connections.conn_id <= d.conn_cut)`
+	visibleDNS  = `NOT EXISTS (SELECT 1 FROM deleted_probes d WHERE d.probe_id = dns_queries.probe_id AND dns_queries.id <= d.dns_cut)`
+)
+
+// deletedConn diz se a conexão é de um probe apagado ainda à espera do apagamento em lotes (sem linha: false).
+func (q *Queries) deletedConn(ctx context.Context, id string) (bool, error) {
+	var n int
+	err := q.db.QueryRowContext(ctx, "SELECT count(*) FROM connections WHERE conn_id = ? AND NOT "+visibleConn, id).Scan(&n)
+	return n > 0, err
+}
+
 // cut abre o teto de uma resposta, ligado à reserva da requisição (se houver).
 func (q *Queries) cut(ctx context.Context) *respCut {
 	return &respCut{res: reservationFrom(ctx), max: q.respMax}
@@ -260,11 +274,10 @@ func (q *Queries) Connections(ctx context.Context, f ListFilter) ([]summaryJSON,
 	if f.Probe != "" {
 		where, args = append(where, "probe_id = ?"), append(args, f.Probe)
 	}
+	where = append(where, visibleConn)
 	sqlq := `SELECT conn_id, probe_id, proto, l4, family, src_ip, src_port, dst_ip, dst_port, started_ns, ended_ns, degraded,
 		coalesce(json_extract(record_json, '$.requests'), 0) FROM connections`
-	if len(where) > 0 {
-		sqlq += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos; valores vão como parâmetros
-	}
+	sqlq += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos; valores vão como parâmetros
 	sqlq += " ORDER BY started_ns DESC LIMIT ?"
 	rows, err := q.db.QueryContext(ctx, sqlq, append(args, f.Limit)...)
 	if err != nil {
@@ -327,7 +340,7 @@ func (q *Queries) Connection(ctx context.Context, id string) (json.RawMessage, e
 	}
 	var rec string
 	var ended sql.NullInt64
-	err := q.db.QueryRowContext(ctx, "SELECT record_json, ended_ns FROM connections WHERE conn_id = ?", id).Scan(&rec, &ended)
+	err := q.db.QueryRowContext(ctx, "SELECT record_json, ended_ns FROM connections WHERE conn_id = ? AND "+visibleConn, id).Scan(&rec, &ended)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -354,6 +367,9 @@ func (q *Queries) Connection(ctx context.Context, id string) (json.RawMessage, e
 func (q *Queries) Pcap(ctx context.Context, id string) ([]byte, error) {
 	if !ValidConnID(id) {
 		return nil, bad("invalid conn_id %q", id)
+	}
+	if del, err := q.deletedConn(ctx, id); err != nil || del {
+		return nil, errOr(err, ErrNotFound)
 	}
 	var data []byte
 	err := q.db.QueryRowContext(ctx, "SELECT data FROM pcaps WHERE conn_id = ?", id).Scan(&data)
@@ -411,6 +427,9 @@ func (q *Queries) Raw(ctx context.Context, id, dir string) ([]byte, error) {
 		d = 1
 	default:
 		return nil, bad("dir must be in or out")
+	}
+	if del, err := q.deletedConn(ctx, id); err != nil || del {
+		return nil, errOr(err, ErrNotFound)
 	}
 	// Reserva o tamanho final de uma vez: o append em dobro reservaria até 2× os 16 MiB do fluxo (task 129).
 	var total int64
@@ -496,10 +515,8 @@ func (q *Queries) DNS(ctx context.Context, f ListFilter) ([]json.RawMessage, err
 	if f.Since != 0 {
 		where, args = append(where, "ts_ns >= ?"), append(args, f.Since)
 	}
-	sqlq := "SELECT record_json FROM dns_queries"
-	if len(where) > 0 {
-		sqlq += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos; valores vão como parâmetros
-	}
+	where = append(where, visibleDNS)
+	sqlq := "SELECT record_json FROM dns_queries WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos
 	sqlq += " ORDER BY ts_ns DESC, id DESC LIMIT ?"
 	list, _, err := q.rawList(ctx, q.cut(ctx), sqlq, append(args, f.Limit)...)
 	return list, err
@@ -629,7 +646,7 @@ type probeState struct {
 func (q *Queries) probeStateOf(ctx context.Context, id string) (probeState, error) {
 	var st probeState
 	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(ended_ns), COALESCE(MAX(updated_ns), 0)
-		FROM connections WHERE probe_id = ?`, id).Scan(&st.conns, &st.closed, &st.updated)
+		FROM connections WHERE probe_id = ? AND `+visibleConn, id).Scan(&st.conns, &st.closed, &st.updated)
 	return st, err
 }
 
@@ -639,7 +656,7 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 	q.probeReads.Add(1)
 	p := probeJSON{ProbeID: id, Connections: []json.RawMessage{}, DNS: []json.RawMessage{}}
 	cut := q.cut(ctx)
-	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns FROM connections WHERE probe_id = ? ORDER BY started_ns LIMIT ?", id, probeMaxItems+1)
+	rows, err := q.db.QueryContext(ctx, "SELECT conn_id, record_json, ended_ns FROM connections WHERE probe_id = ? AND "+visibleConn+" ORDER BY started_ns LIMIT ?", id, probeMaxItems+1)
 	if err != nil {
 		return p, err
 	}
@@ -676,7 +693,7 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 	if err != nil {
 		return p, err
 	}
-	dns, capped, err := q.rawList(ctx, cut, "SELECT record_json FROM dns_queries WHERE probe_id = ? ORDER BY ts_ns LIMIT ?", id, probeMaxItems+1)
+	dns, capped, err := q.rawList(ctx, cut, "SELECT record_json FROM dns_queries WHERE probe_id = ? AND "+visibleDNS+" ORDER BY ts_ns LIMIT ?", id, probeMaxItems+1)
 	if err != nil {
 		return p, err
 	}
@@ -694,11 +711,12 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 // passa a descartar até a conexão fechar (ADR 0034 item 8), e unhide desfaz se a transação falhar.
 func (q *Queries) SetHideOpen(hide, unhide func(ids []string)) { q.hide, q.unhide = hide, unhide }
 
-// DeleteProbe apaga, numa transação, o probe, suas conexões (com pacotes, pcaps e bytes, em cascata) e consultas
-// DNS (ADR 0034 item 8). As conexões ainda abertas também saem do banco na hora, e com isso de todas as leituras;
-// o ingest guarda os conn_id delas e descarta os pacotes e eventos que ainda chegarem até a conexão fechar, sem
-// recriar a linha. O escritor tem uma só conexão com o banco: nenhum lote do ingest roda entre a leitura dos
-// conn_id abertos e o commit, e o conjunto do ingest é preenchido antes do commit.
+// DeleteProbe apaga o probe numa transação curta (ADR 0068, ajusta a ADR 0034 item 8): grava o corte em
+// deleted_probes (maior conn_id e maior id de dns_queries do probe), apaga a linha de probes e passa ao ingest as
+// conexões abertas (hide), que ele descarta até fecharem. Daí em diante todas as leituras excluem as linhas até o
+// corte, e o laço de retenção as apaga em lotes curtos (Retention.purgeDeleted). Tráfego novo com o mesmo ID fica
+// acima do corte e aparece como probe novo. O escritor tem uma só conexão com o banco: nenhum lote do ingest roda
+// entre a leitura dos conn_id abertos e o commit, e o conjunto do ingest é preenchido antes do commit.
 func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	if !probe.Valid(id) {
 		return bad("invalid probe id %q", id)
@@ -706,8 +724,8 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	// Pelo leitor primeiro: um probe sem nada a apagar (o laço anônimo de DELETE) não toca o escritor (task 317).
 	var any int
 	err := q.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM probes WHERE probe_id = ?)
-		OR EXISTS (SELECT 1 FROM connections WHERE probe_id = ?)
-		OR EXISTS (SELECT 1 FROM dns_queries WHERE probe_id = ?)`, id, id, id).Scan(&any)
+		OR EXISTS (SELECT 1 FROM connections WHERE probe_id = ? AND `+visibleConn+`)
+		OR EXISTS (SELECT 1 FROM dns_queries WHERE probe_id = ? AND `+visibleDNS+`)`, id, id, id).Scan(&any)
 	if err != nil {
 		return err
 	}
@@ -731,7 +749,7 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	var open []string
-	rows, err := tx.QueryContext(ctx, "SELECT conn_id FROM connections WHERE probe_id = ? AND ended_ns IS NULL", id)
+	rows, err := tx.QueryContext(ctx, "SELECT conn_id FROM connections WHERE probe_id = ? AND ended_ns IS NULL AND "+visibleConn, id)
 	if err != nil {
 		return err
 	}
@@ -747,21 +765,31 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	var total int64
-	for _, s := range []string{
-		"DELETE FROM connections WHERE probe_id = ?",
-		"DELETE FROM dns_queries WHERE probe_id = ?",
-		"DELETE FROM probes WHERE probe_id = ?",
-	} {
-		res, err := tx.ExecContext(ctx, s, id)
-		if err != nil {
+	// visible conta o que o DELETE esconde agora; os cortes cobrem também o que um DELETE anterior já escondeu.
+	var visible int64
+	var connCut string
+	var dnsCut int64
+	if err := tx.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM connections WHERE probe_id = ? AND `+visibleConn+`) +
+		(SELECT count(*) FROM dns_queries WHERE probe_id = ? AND `+visibleDNS+`),
+		coalesce((SELECT max(conn_id) FROM connections WHERE probe_id = ?), ''),
+		coalesce((SELECT max(id) FROM dns_queries WHERE probe_id = ?), 0)`, id, id, id, id).Scan(&visible, &connCut, &dnsCut); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM probes WHERE probe_id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if visible+n == 0 {
+		return ErrNotFound
+	}
+	if visible > 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_probes (probe_id, conn_cut, dns_cut, deleted_ns) VALUES (?, ?, ?, ?)
+			ON CONFLICT (probe_id) DO UPDATE SET conn_cut = max(conn_cut, excluded.conn_cut), dns_cut = max(dns_cut, excluded.dns_cut),
+			deleted_ns = excluded.deleted_ns`, id, connCut, dnsCut, q.now().UnixNano()); err != nil {
 			return err
 		}
-		n, _ := res.RowsAffected()
-		total += n
-	}
-	if total == 0 {
-		return ErrNotFound
 	}
 	if len(open) > 0 && q.hide != nil {
 		q.hide(open)
@@ -773,4 +801,12 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 		return err
 	}
 	return nil
+}
+
+// errOr devolve err se houver, senão alt.
+func errOr(err, alt error) error {
+	if err != nil {
+		return err
+	}
+	return alt
 }

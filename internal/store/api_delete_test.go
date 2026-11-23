@@ -51,6 +51,8 @@ func TestAPIDeleteProbeOpenConnection(t *testing.T) {
 	other := netip.MustParseAddrPort("192.0.2.20:50000")
 	run(t, f.in, 9000, batch(other, mirror, protoTCP, fullTCP[4:]),
 		appMsg(t, event.SubjectWebHTTP1Request, "tcp", other, mirror, 1000, probeID, http1Payload(1, "HTTP/1.1")))
+	// As linhas saem em lotes pelo laço de retenção (ADR 0068).
+	drainDeleted(t, f.in.db)
 	for _, q := range []string{
 		"SELECT count(*) FROM connections WHERE conn_id = ?", "SELECT count(*) FROM packets WHERE conn_id = ?",
 		"SELECT count(*) FROM pcaps WHERE conn_id = ?", "SELECT count(*) FROM app_events WHERE conn_id = ?",

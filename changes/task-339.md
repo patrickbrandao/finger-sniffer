@@ -1,0 +1,1 @@
+- store: `DELETE` de probe numa transação curta que grava o corte em `deleted_probes` (migration 00003); as leituras filtram na hora e o laço de retenção apaga as linhas em lotes de 100 com o passo de 25 ms, sem segurar o ingest (task 339, ADR 0068).

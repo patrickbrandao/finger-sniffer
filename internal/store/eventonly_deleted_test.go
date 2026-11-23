@@ -64,6 +64,7 @@ func deleteProbe(t *testing.T, in *Ingestor) {
 	if err := NewQueries(in.db, in.flows.live, 65535).DeleteProbe(context.Background(), in.db, probeID); err != nil {
 		t.Fatal(err)
 	}
+	drainDeleted(t, in.db)
 }
 
 func http1At(ms int) func(t *testing.T) fakeMsg {
