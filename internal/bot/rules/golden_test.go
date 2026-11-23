@@ -29,6 +29,7 @@ const (
 	uaBingbot     = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)"
 	uaGPTBot      = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot"
 	uaDuckDuckBot = "DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)"
+	uaChatGPTUser = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot"
 	// Selenium conduzindo um Chrome de verdade, com o marcador no UA
 	uaSelenium  = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Selenium/4.27.0"
 	uaChromeWin = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
@@ -183,6 +184,8 @@ func goldenCases(t testing.TB) []goldenCase {
 		// casos novos da v1.4 (ADR 0065 item 3): relay pelos tempos do traefix; o peso baixo não muda a classe do Chrome
 		{"chrome_direct_timing", chromeDirect, false, ClassHuman, []string{SignalKnownClient}},
 		{"chrome_relay", chromeRelay, false, ClassHuman, []string{SignalRelayRTTGap, SignalKnownClient}},
+		// task 365: o ChatGPT-User da faixa própria (na Azure) é provado pela lista do marcador, não sai ua_claims_crawler
+		{"chatgpt_user_list", inputFrom(e("go", "h2"), uaChatGPTUser, ipChatGPTUser), false, ClassGoodBot, []string{SignalJA4HLibrary, SignalIPCloud, SignalIPVerifiedCrawler}},
 		{"curl_relay", curlRelay, false, ClassBot, []string{SignalJA4HLibrary, SignalRelayRTTGap, SignalLibraryClient}},
 	}
 }

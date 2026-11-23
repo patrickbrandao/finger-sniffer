@@ -191,16 +191,22 @@ var (
 	// faixas no formato das listas publicadas da OpenAI e do DuckDuckGo (operadores provados só pela lista)
 	ipGPTBot      = netip.MustParseAddr("20.171.206.5")
 	ipDuckDuckBot = netip.MustParseAddr("20.191.45.212")
+	// faixa real do ChatGPT-User (chatgpt-user.json da OpenAI, 2026-11-06), separada das do GPTBot e na Azure
+	ipChatGPTUser = netip.MustParseAddr("104.210.139.200")
 )
 
 func testIPs() fakeIPs {
 	return fakeIPs{
-		cloud: map[netip.Prefix]string{netip.MustParsePrefix("203.0.113.0/24"): "aws"},
+		cloud: map[netip.Prefix]string{
+			netip.MustParsePrefix("203.0.113.0/24"):   "aws",
+			netip.MustParsePrefix("104.210.128.0/19"): "azure",
+		},
 		crawler: map[netip.Prefix]string{
-			netip.MustParsePrefix("66.249.64.0/19"):   OperatorGoogle,
-			netip.MustParsePrefix("157.55.39.0/24"):   OperatorBing,
-			netip.MustParsePrefix("20.171.206.0/24"):  OperatorOpenAI,
-			netip.MustParsePrefix("20.191.45.212/32"): OperatorDuckDuckGo,
+			netip.MustParsePrefix("66.249.64.0/19"):     OperatorGoogle,
+			netip.MustParsePrefix("157.55.39.0/24"):     OperatorBing,
+			netip.MustParsePrefix("20.171.206.0/24"):    OperatorOpenAI,
+			netip.MustParsePrefix("20.191.45.212/32"):   OperatorDuckDuckGo,
+			netip.MustParsePrefix("104.210.139.192/28"): OperatorOpenAI,
 		},
 	}
 }

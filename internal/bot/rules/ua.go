@@ -123,9 +123,10 @@ var crawlerTable = []crawlerRule{
 	{"chatgpt-user", "chatgpt-user", OperatorOpenAI},
 	{"gptbot", "gptbot", OperatorOpenAI},
 	{"duckassistbot", "duckassistbot", OperatorDuckDuckGo},
-	{"duckduckgo-favicons-bot", "duckduckgo-favicons-bot", OperatorDuckDuckGo},
 	{"duckduckbot", "duckduckbot", OperatorDuckDuckGo},
-	// robôs sem lista de IP no catálogo: reconhecidos, mas sem verificação
+	// robôs sem lista de IP no catálogo: reconhecidos, mas sem verificação (sem operador não há `ua_claims_crawler`
+	// de um robô impossível de provar; o DuckDuckGo não publica faixas do favicons-bot, task 365)
+	{"duckduckgo-favicons-bot", "duckduckgo-favicons-bot", ""},
 	{"yandexbot", "yandexbot", ""},
 	{"baiduspider", "baiduspider", ""},
 	{"ahrefsbot", "ahrefsbot", ""},
@@ -140,6 +141,16 @@ var crawlerTable = []crawlerRule{
 	{"twitterbot", "twitterbot", ""},
 	{"linkedinbot", "linkedinbot", ""},
 	{"slackbot", "slackbot", ""},
+}
+
+// CrawlerOperators devolve o operador de cada robô da tabela de UA (nome → operador; "" = sem verificação), para
+// conferir a tabela contra o catálogo de listas de IP.
+func CrawlerOperators() map[string]string {
+	out := make(map[string]string, len(crawlerTable))
+	for _, r := range crawlerTable {
+		out[r.name] = r.operator
+	}
+	return out
 }
 
 // genericCrawlerTokens marcam um robô genérico (`crawler:other`): o nome não vem do UA para não abrir cardinalidade
