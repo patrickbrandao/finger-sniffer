@@ -9,12 +9,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/webhook"
 )
 
 // Formato da chave (ADR 0051 item 2): "fsk_" + 32 bytes aleatórios em base32 minúsculo sem preenchimento.
@@ -143,6 +146,10 @@ func validateOptions(o *KeyOptions) error {
 		u, err := url.Parse(o.WebhookURL)
 		if err != nil || u.Scheme != "https" || u.Host == "" {
 			return errors.New("bot: --webhook-url must be an https URL")
+		}
+		// IP literal interno é recusado já aqui (o dial do webhook também recusa, depois da resolução; task 372)
+		if ip, err := netip.ParseAddr(u.Hostname()); err == nil && webhook.BlockedAddr(ip) {
+			return errors.New("bot: --webhook-url must not point to an internal address")
 		}
 		if len(o.WebhookClasses) == 0 {
 			o.WebhookClasses = []string{"bot", "suspect"}

@@ -164,6 +164,11 @@ func TestKeyLifecycle(t *testing.T) {
 		{Name: "x"},
 		{Name: "x", Domains: []string{"example.com"}, Mode: "deny"},
 		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "http://insecure.example.com"},
+		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "https://127.0.0.1/hook"},
+		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "https://[::1]:8443/hook"},
+		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "https://10.249.0.5/hook"},
+		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "https://169.254.169.254/latest"},
+		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "https://100.64.0.1/hook"},
 		{Name: "x", Domains: []string{"example.com"}, WebhookURL: "https://h.example.com", WebhookClasses: []string{"evil"}},
 	} {
 		if _, _, _, err := CreateKey(ctx, db, o, now); err == nil {
