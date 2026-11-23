@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/netip"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -589,17 +590,50 @@ func (ix *Index) StoreByProbe(probeID string, now time.Time) []StoreConn {
 	return out
 }
 
+// l4OfProto é o transporte esperado no store para o protocolo HTTP da requisição do traefix: h3 em UDP (QUIC), h1 e
+// h2 em TCP; "" quando desconhecido (o casamento não confere o L4).
+func l4OfProto(proto string) string {
+	switch proto {
+	case "h3":
+		return "udp"
+	case "h1", "h2":
+		return "tcp"
+	}
+	return ""
+}
+
+// L4 é o transporte da conexão do fork: udp numa conexão h3 (visão de transporte UDP, tempos do QUIC, JA4 `q`, ALPN
+// h3 ou requisição h3), tcp com a visão TCP, JA4 `t` ou requisição h1/h2, "" sem como saber (conexão criada só pelo
+// forwardAuth).
+func (f *ForkConn) L4() string {
+	switch {
+	case f.TCP != nil && f.TCP.UDP, f.Timing != nil && f.Timing.QUIC, f.TLS != nil && strings.HasPrefix(f.TLS.JA4, "q"),
+		f.ALPN == "h3":
+		return "udp"
+	case len(f.Requests) > 0:
+		if l4 := l4OfProto(f.Requests[len(f.Requests)-1].Proto); l4 != "" {
+			return l4
+		}
+	}
+	if f.TCP != nil || (f.TLS != nil && strings.HasPrefix(f.TLS.JA4, "t")) {
+		return "tcp"
+	}
+	return ""
+}
+
 // MatchStore casa uma origem vista pelo fork com a conexão do store (spec 018 RF-04): mesma origem, mesma porta
-// de destino e início a menos de 5 s. Com first zero (forwardAuth antes do registro de conexão do traefix) o
+// de destino, mesmo L4 e início a menos de 5 s. A chave do índice não tem o L4 (o store publica também os fluxos
+// UDP do QUIC): com l4 preenchido ("tcp" ou "udp"), a entrada de outro transporte não casa (task 402), para uma
+// conexão TCP não levar a visão de um fluxo UDP da mesma porta de origem nem o h3 a de uma conexão TCP. Com first zero (forwardAuth antes do registro de conexão do traefix) o
 // início não é conferido, e a entrada fechada não casa (task 364): a mesma 4-tupla só se repete depois do
 // fechamento da conexão anterior, que fica no índice até o TTL; casar com ela daria ao veredito o TCP e o conn_id
 // de outra conexão (atrás de CGNAT, de outro assinante). Sem casar, a espera continua até o opened da nova chegar
 // (ele substitui a fechada na chave) e, se não chegar, conta em bot_view_wait_total{missing="tcp"}.
-func (ix *Index) MatchStore(ip netip.Addr, port, dstPort int, first, now time.Time) (StoreConn, bool) {
+func (ix *Index) MatchStore(ip netip.Addr, port, dstPort int, l4 string, first, now time.Time) (StoreConn, bool) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	c, ok := ix.store.getBySrc(newSrcKey(ip, port, dstPort), now)
-	if !ok {
+	if !ok || (l4 != "" && c.L4 != "" && c.L4 != l4) {
 		return StoreConn{}, false
 	}
 	if first.IsZero() {

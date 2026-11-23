@@ -2,6 +2,7 @@ package bot
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -271,21 +272,8 @@ func TestTraefixRelayRTTGap(t *testing.T) {
 // em TCP, com o descarte por origem privada; ua_os_tcp_mismatch avalia a parte de TTL.
 func TestTraefixTTLTransport(t *testing.T) {
 	ids := func(v Verdict) []string { return signalIDList(v.Signals) }
-	h3Conn := func(udp map[string]any) map[string]any {
-		conn := chromeConn(nil)
-		conn["proto"] = "h3"
-		delete(conn, "http2")
-		conn["tls"].(map[string]any)["clientHello"] = base64.StdEncoding.EncodeToString(loadGoldenInitials(t)[0].message) //nolint:forcetypeassert // montado acima
-		if udp != nil {
-			conn["udp"] = udp
-		}
-		return conn
-	}
-	h3Req := func() map[string]any {
-		r := chromeRequest()
-		r["proto"], r["httpVersion"] = "h3", "3"
-		return r
-	}
+	h3Conn := func(udp map[string]any) map[string]any { return h3TraefixConn(t, udp) }
+	h3Req := h3TraefixReq
 
 	t.Run("ingest h3 windows ttl with macos ua", func(t *testing.T) {
 		f := newFixture(t)
@@ -363,6 +351,84 @@ func TestTraefixTTLTransport(t *testing.T) {
 		}
 		if f, _, _ := parseForkHeaders(headerOf(traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T75", 50077, "h2", uaChrome), "X-Traefix-Ttl", "0")); f.ttl != 0 {
 			t.Errorf("X-Traefix-Ttl 0 = %d", f.ttl)
+		}
+	})
+}
+
+// h3TraefixConn é o registro de conexão h3 do Chrome (ClientHello do primeiro Initial dos goldens), com o objeto udp
+// dado (nil sem ele).
+func h3TraefixConn(t *testing.T, udp map[string]any) map[string]any {
+	t.Helper()
+	conn := chromeConn(nil)
+	conn["proto"] = "h3"
+	delete(conn, "http2")
+	conn["tls"].(map[string]any)["clientHello"] = base64.StdEncoding.EncodeToString(loadGoldenInitials(t)[0].message) //nolint:forcetypeassert // montado acima
+	if udp != nil {
+		conn["udp"] = udp
+	}
+	return conn
+}
+
+// h3TraefixReq é a requisição h3 do Chrome.
+func h3TraefixReq() map[string]any {
+	r := chromeRequest()
+	r["proto"], r["httpVersion"] = "h3", "3"
+	return r
+}
+
+// udpStoreConn é o fluxo QUIC do store da origem dada, com o TTL inicial do primeiro datagrama.
+func udpStoreConn(f *fixture, id, srcIP string, srcPort int) *StoreConn {
+	return &StoreConn{
+		ConnID: id, Stage: StageOpened, L4: "udp", Proto: "h3", SrcIP: mustAddr(srcIP), SrcPort: srcPort,
+		DstIP: mustAddr("203.0.113.10"), DstPort: 443, Started: f.clock.Now(),
+		Record: json.RawMessage(`{"ip":{"ttl_initial":128}}`),
+	}
+}
+
+// TestH3StoreUDPView: task 402 — a conexão h3 do traefix casada com o fluxo UDP do store sai com view.tcp=false e o
+// ttl_initial do store em fingerprints (pelo ingest e pelo forwardAuth, que conta tcp/store só com o TTL); uma
+// conexão TCP do traefix não casa com o fluxo UDP do store de mesma origem e porta.
+func TestH3StoreUDPView(t *testing.T) {
+	const storeID = "01JC0X3K8V2T7Q9N4M6P1R5U01"
+	t.Run("ingest h3", func(t *testing.T) {
+		f := newFixture(t)
+		const id = "01JC0X3K8V2T7Q9F4M6P1R5T80"
+		f.srv.Index().PutStore(udpStoreConn(f, storeID, "198.51.100.90", 50080), f.clock.Now())
+		f.postIngest(traefixBatchJSON(t, id, "198.51.100.90", 50080, h3TraefixConn(t, nil), h3TraefixReq()))
+		v := f.verdictOf(id)
+		if v.View.TCP || !v.View.H3 || val(v.Fingerprints.TTLInitial) != 128 || v.Fingerprints.JA4T != nil {
+			t.Fatalf("h3 casado com o UDP do store: %+v %+v", v.View, v.Fingerprints)
+		}
+		if v.Subject.ConnID == nil || *v.Subject.ConnID != storeID {
+			t.Errorf("subject.conn_id: %v", v.Subject.ConnID)
+		}
+	})
+	t.Run("auth h3", func(t *testing.T) {
+		f := newFixture(t)
+		f.srv.Index().PutStore(udpStoreConn(f, storeID, "198.51.100.80", 50081), f.clock.Now())
+		_, _, v, b := f.authVerdict("internal", "", traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T81", 50081, "h3", uaChrome))
+		if v.View.TCP || !v.View.H3 || val(v.Fingerprints.TTLInitial) != 128 || v.Subject.ConnID == nil || *v.Subject.ConnID != storeID {
+			t.Fatalf("forwardAuth h3 com o UDP do store: %s", b)
+		}
+		if n := f.metrics.Get(authFPMetric("tcp", fpFromStore)); n != 1 {
+			t.Errorf("tcp/store = %v", n)
+		}
+	})
+	t.Run("tcp does not match udp", func(t *testing.T) {
+		f := newFixture(t)
+		f.srv.Index().PutStore(udpStoreConn(f, storeID, "198.51.100.80", 50082), f.clock.Now())
+		_, _, v, b := f.authVerdict("internal", "", traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T82", 50082, "h2", uaChrome))
+		if v.Subject.ConnID != nil || v.View.TCP || v.Fingerprints.TTLInitial != nil {
+			t.Fatalf("conexão h2 casou com o fluxo UDP: %s", b)
+		}
+		if n := f.metrics.Get(viewWaitMetric("tcp")); n != 1 {
+			t.Errorf("view_wait{missing=tcp} = %v", n)
+		}
+		// pelo ingest, a conexão h2 do traefix também não casa
+		const id = "01JC0X3K8V2T7Q9F4M6P1R5T83"
+		f.postIngest(traefixBatchJSON(t, id, "198.51.100.80", 50082, chromeConn(nil), chromeRequest()))
+		if v := f.verdictOf(id); v.Subject.ConnID != nil {
+			t.Errorf("ingest h2 casou com o fluxo UDP: %+v", v.Subject)
 		}
 	})
 }
