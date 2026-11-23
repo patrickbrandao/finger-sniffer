@@ -65,6 +65,11 @@ var uaCases = []struct {
 	{"yandex", "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", "crawler:yandexbot", "", "other", "", "crawler:yandexbot"},
 	{"generic bot", "Mozilla/5.0 (compatible; FooBar-Bot/1.0)", "crawler:other", "", "other", "", "crawler:other"},
 	{"generic spider", "my-spider 0.1", "crawler:other", "", "other", "", "crawler:other"},
+	// biblioteca com marcador de robô sem operador fica com a família de biblioteca (ADR 0072 item 2.2)
+	{"curl with bot token", "curl/8.23.0 mybot/1.0", "curl", "8", "other", "", "curl"},
+	{"python with crawler token", "python-requests/2.32.3 (+crawler)", "python", "2", "other", "", "python"},
+	{"python with claudebot", "python-requests/2.32.3 ClaudeBot/1.0", "python", "2", "other", "", "python"},
+	{"googlebot with python-requests", "python-requests/2.32.3 Googlebot/2.1", "crawler:googlebot", "", "other", "google", "crawler:googlebot"},
 	{"empty", "", "other", "", "other", "", "other"},
 	{"wget", "Wget/1.21.4", "other", "", "other", "", "other"},
 }
@@ -78,10 +83,29 @@ func TestParseUA(t *testing.T) {
 				t.Fatalf("ParseUA(%q) = %+v; quer família %q versão %q SO %q operador %q pilha %q", c.ua, got,
 					c.family, c.major, c.os, c.operator, c.stack)
 			}
-			if strings.HasPrefix(got.Family, FamilyCrawlerPrefix) != (got.Crawler != "") {
+			// robô ⇒ Crawler; Crawler fora de `crawler:` só com família de biblioteca e sem operador (ADR 0072 item 2.2)
+			isCrawler := strings.HasPrefix(got.Family, FamilyCrawlerPrefix)
+			if (isCrawler && got.Crawler == "") ||
+				(!isCrawler && got.Crawler != "" && (!IsLibraryFamily(got.Family) || got.Operator != "")) {
 				t.Fatalf("Crawler %q incoerente com a família %q", got.Crawler, got.Family)
 			}
 		})
+	}
+}
+
+// TestParseUALibraryCrawler: o nome do robô declarado num UA de biblioteca (ADR 0072 item 5).
+func TestParseUALibraryCrawler(t *testing.T) {
+	for _, c := range []struct{ ua, family, crawler string }{
+		{"curl/8.23.0 mybot/1.0", FamilyCurl, "other"},
+		{"python-requests/2.32.3 (+crawler)", FamilyPython, "other"},
+		{"python-requests/2.32.3 ClaudeBot/1.0", FamilyPython, "claudebot"},
+		{"python-requests/2.32.3 Googlebot/2.1", "crawler:googlebot", "googlebot"},
+		{"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", "crawler:yandexbot", "yandexbot"},
+		{"curl/8.23.0", FamilyCurl, ""},
+	} {
+		if got := ParseUA(c.ua); got.Family != c.family || got.Crawler != c.crawler {
+			t.Errorf("ParseUA(%q) = família %q robô %q; quer %q %q", c.ua, got.Family, got.Crawler, c.family, c.crawler)
+		}
 	}
 }
 
@@ -186,6 +210,8 @@ func FuzzParseUA(f *testing.F) {
 			}
 		} else if !validFamilies[ua.Family] {
 			t.Fatalf("família inválida %q", ua.Family)
+		} else if ua.Crawler != "" && (!IsLibraryFamily(ua.Family) || ua.Operator != "" || !validCrawlerName(ua.Crawler)) {
+			t.Fatalf("robô declarado fora de biblioteca %+v", ua)
 		}
 		if !validOS[ua.OS] {
 			t.Fatalf("SO inválido %q", ua.OS)

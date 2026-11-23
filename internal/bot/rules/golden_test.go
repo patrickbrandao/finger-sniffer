@@ -42,6 +42,9 @@ const (
 	uaSafariMac    = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
 	uaCriOS        = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1"
 	uaSafariIPhone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
+	// robôs sem operador (ADR 0072 item 2)
+	uaYandexBot  = "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"
+	uaExampleBot = "Mozilla/5.0 (compatible; ExampleBot/1.0; +https://example.com/bot)"
 )
 
 func deref[T any](p *T) T {
@@ -232,6 +235,11 @@ func goldenCases(t testing.TB) []goldenCase {
 		{"curl_ua_safari", inputFrom(e("curl", "h2"), uaSafariMac, ipResidential), false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
 		{"go_ua_crios", inputFrom(e("go", "h2"), uaCriOS, ipResidential), false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
 		{"go_ua_iphone_accept_language", goIPhoneAL, false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalIPCloud}},
+		// casos novos da v1.5 (ADR 0072 item 2): robô declarado sem operador
+		{"yandexbot_unverifiable", inputFrom(e("go", "h2"), uaYandexBot, ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalUADeclaresCrawler}},
+		{"curl_ua_bot_token", inputFrom(e("curl", "h2"), "curl/8.23.0 mybot/1.0", ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalUADeclaresCrawler}},
+		{"python_ua_crawler_token", inputFrom(e("python", "h1"), "python-requests/2.32.3 (+crawler)", ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalUADeclaresCrawler}},
+		{"crawler_other_chrome_stack", inputFrom(e("chrome", "h2"), uaExampleBot, ipResidential), false, ClassSuspect, []string{SignalUADeclaresCrawler}},
 	}
 }
 

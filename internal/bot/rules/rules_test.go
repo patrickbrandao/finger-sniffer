@@ -177,9 +177,11 @@ func TestCrawlerVerification(t *testing.T) {
 	if !hasSignal(got, SignalUAClaimsCrawler) || got.Class == ClassGoodBot {
 		t.Fatalf("sem IP: %+v", got)
 	}
-	// robô sem lista no catálogo (Yandex) não é conferido
+	// robô sem lista no catálogo (Yandex) não é conferido, mas se declara robô: com o JA4 de Go e o JA4H de
+	// biblioteca sai `bot` (ADR 0072 item 2)
 	got = en.Evaluate(inputFrom(go1, "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", ipResidential))
-	if hasSignal(got, SignalUAClaimsCrawler) {
+	if hasSignal(got, SignalUAClaimsCrawler) || got.Class != ClassBot || got.Score != 100 ||
+		!hasSignal(got, SignalUADeclaresCrawler) || !hasSignal(got, SignalLibraryClient) {
 		t.Fatalf("robô sem lista: %+v", got)
 	}
 	// good_bot prevalece sobre o score
@@ -267,8 +269,12 @@ func TestLibraryClient(t *testing.T) {
 		{"chrome com ja4 de curl", "curl", "h2", goldenUA["chrome"], false},
 		{"firefox com ja4 de go", "go", "h2", goldenUA["firefox"], false},
 		{"headless com ja4 de curl", "curl", "h2", goldenUA["headless"], false},
-		{"robô com ja4 de go", "go", "h2", uaGooglebot, false},
-		{"robô genérico com ja4 de go", "go", "h2", "Mozilla/5.0 (compatible; FooBar-Bot/1.0)", false},
+		{"robô com operador e ja4 de go", "go", "h2", uaGooglebot, false},
+		// robô sem operador: o JA4 que a base só viu em bibliotecas decide (ADR 0072 item 2.3)
+		{"robô genérico com ja4 de go", "go", "h2", "Mozilla/5.0 (compatible; FooBar-Bot/1.0)", true},
+		{"robô genérico com ja4 de chrome", "chrome", "h2", "Mozilla/5.0 (compatible; FooBar-Bot/1.0)", false},
+		{"yandex com ja4 de go", "go", "h2", "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", true},
+		{"biblioteca com marcador de robô", "curl", "h2", "curl/8.23.0 mybot/1.0", true},
 	}
 	for _, c := range cases {
 		got := en.Evaluate(inputFrom(base.entry(t, c.client, c.proto), c.ua, ipResidential))
@@ -320,19 +326,20 @@ func TestOSTCPMismatch(t *testing.T) {
 }
 
 func TestSignalTable(t *testing.T) {
-	if len(signalTable) != 20 {
-		t.Fatalf("%d sinais; a spec 018 (rules v1.4) tem 20", len(signalTable))
+	if len(signalTable) != 21 {
+		t.Fatalf("%d sinais; a spec 018 (rules v1.5) tem 21", len(signalTable))
 	}
 	// relay_rtt_gap (v1.4, ADR 0065 item 3) entra logo depois de tunnel_mss, incoerência de peso 15
 	if pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalTunnelMSS }); pos < 0 ||
 		signalTable[pos+1] != (signalDef{SignalRelayRTTGap, KindIncoherence, 15}) {
 		t.Fatalf("posição/peso de relay_rtt_gap: %+v", signalTable)
 	}
-	// os dois sinais da v1.1 entram logo antes de ja4db_match, com o tipo e o peso da ADR 0057 item 1
+	// os dois sinais da v1.1 (ADR 0057 item 1) e o ua_declares_crawler da v1.5 (ADR 0072 item 2.4, logo depois de
+	// library_client) entram antes de ja4db_match
 	pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalJA4DBMatch })
-	if want := []signalDef{{SignalUAAutomation, KindList, 70}, {SignalLibraryClient, KindList, 50}}; pos < 2 ||
-		!slices.Equal(signalTable[pos-2:pos], want) {
-		t.Fatalf("ordem/pesos dos sinais da v1.1: %+v", signalTable[max(pos-2, 0):pos])
+	if want := []signalDef{{SignalUAAutomation, KindList, 70}, {SignalLibraryClient, KindList, 50}, {SignalUADeclaresCrawler, KindList, 50}}; pos < 3 ||
+		!slices.Equal(signalTable[pos-3:pos], want) {
+		t.Fatalf("ordem/pesos dos sinais da v1.1 e v1.5: %+v", signalTable[max(pos-3, 0):pos])
 	}
 	seen := map[string]bool{}
 	for _, d := range signalTable {
