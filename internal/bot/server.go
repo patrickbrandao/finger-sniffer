@@ -88,6 +88,11 @@ type Server struct {
 	// refreshing marca um lists refresh pedido pela CLI em andamento; bg espera as goroutines dele na parada.
 	refreshing atomic.Bool
 	bg         sync.WaitGroup
+	// publicMax, perSource e idleHigh são os limites de conexão da 9002 (constantes; menores nos testes); trackers
+	// são os acompanhantes do ConnState de cada listener da 9002 (health public conns).
+	publicMax, perSource, idleHigh int
+	trackMu                        sync.Mutex
+	trackers                       []*connTracker
 }
 
 // New monta o serviço sem abrir portas.
@@ -101,7 +106,10 @@ func New(cfg Config, d Deps) *Server {
 	if d.Log == nil {
 		d.Log = slog.New(slog.DiscardHandler)
 	}
-	s := &Server{cfg: cfg, deps: d, reloadEvery: keyReload}
+	s := &Server{
+		cfg: cfg, deps: d, reloadEvery: keyReload,
+		publicMax: MaxPublicConns, perSource: MaxConnsPerSource, idleHigh: publicIdleHigh,
+	}
 	s.keys = NewKeyStore(d.DB)
 	s.limiter = NewLimiter(d.DB, d.Now)
 	s.index = NewIndex(cfg.ConnTTL, cfg.MaxConns, cfg.IndexMaxBytes, func(reason string, n int) {
@@ -115,6 +123,7 @@ func New(cfg Config, d Deps) *Server {
 		metricIngestRecords, metricIngestDropped, metricRateLimited, webhook.DroppedMetric,
 		metricIngestParseErrors + `{part="client_hello"}`, metricIngestParseErrors + `{part="h2_prefix"}`,
 		metricPurged + `{reason="age"}`, metricPurged + `{reason="size"}`,
+		publicClosedMetric(closedSource), publicClosedMetric(closedIdle),
 	} {
 		d.Metrics.Add(k, 0)
 	}
@@ -145,6 +154,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if t := s.index.LastBytesEviction(); !t.IsZero() && s.deps.Now().Sub(t) < indexBytesDegraded {
 		reasons = append(reasons, "index bytes")
+	}
+	if s.publicFull(s.deps.Now()) {
+		reasons = append(reasons, "public conns")
 	}
 	if s.store.silent(s.feed.LastMessage(), s.deps.Now()) {
 		reasons = append(reasons, "store feed silent")
@@ -272,7 +284,12 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	var servers []*http.Server
 	errc := make(chan error, len(public)+len(internal))
 	serve := func(l net.Listener, h http.Handler, tlsCfg *tls.Config) {
-		srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second, TLSConfig: tlsCfg}
+		srv := &http.Server{Handler: h, ReadHeaderTimeout: readHeaderTimeout, IdleTimeout: internalIdleTimeout, TLSConfig: tlsCfg}
+		if tlsCfg != nil {
+			// 9002: ociosas por 30 s e, perto do teto, as ociosas mais antigas fechadas (ADR 0073 item 1)
+			srv.IdleTimeout = publicIdleTimeout
+			srv.ConnState = s.track().state
+		}
 		servers = append(servers, srv)
 		go func() {
 			var err error
@@ -296,7 +313,9 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 			closeAll(internal)
 			return errors.New("bot: public port without TLS config")
 		}
-		serve(netutil.LimitListener(l, MaxPublicConns), s.Handler(false), tlsCfg.Clone())
+		// teto por origem por dentro do global: a recusada pela origem não ocupa vaga (ADR 0073 item 1.1)
+		src := newSourceListener(l, s.perSource, func() { s.deps.Metrics.Add(publicClosedMetric(closedSource), 1) })
+		serve(netutil.LimitListener(src, s.publicMax), s.Handler(false), tlsCfg.Clone())
 	}
 	s.deps.Log.Info("bot: listening", "public", addrs(public), "internal", addrs(internal))
 
@@ -340,6 +359,27 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 		s.deps.Log.Warn("bot: final aggregate flush", "err", err)
 	}
 	return runErr
+}
+
+// track cria o acompanhante das conexões de um listener da 9002.
+func (s *Server) track() *connTracker {
+	t := newConnTracker(s.idleHigh, s.publicMax, s.deps.Now, func() { s.deps.Metrics.Add(publicClosedMetric(closedIdle), 1) })
+	s.trackMu.Lock()
+	s.trackers = append(s.trackers, t)
+	s.trackMu.Unlock()
+	return t
+}
+
+// publicFull diz se algum listener da 9002 chegou ao teto de conexões nos últimos 60 s (health public conns).
+func (s *Server) publicFull(now time.Time) bool {
+	s.trackMu.Lock()
+	defer s.trackMu.Unlock()
+	for _, t := range s.trackers {
+		if t.fullSince(now, publicFullDegraded) {
+			return true
+		}
+	}
+	return false
 }
 
 // loops roda a recarga das chaves e os pedidos da CLI, o flush do uso, dos agregados e das métricas e o expurgo.
