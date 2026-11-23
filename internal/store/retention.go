@@ -92,6 +92,10 @@ func NewRetention(db *sql.DB, maxAge time.Duration, maxBytes int64) *Retention {
 func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 	start := r.now()
 	over := func() bool { return r.Budget > 0 && r.now().Sub(start) >= r.Budget }
+	// Probes apagados pelo DELETE primeiro (ADR 0068 item 3): têm prioridade sobre o expurgo por idade.
+	if did, err := r.purgeDeleted(ctx, over); err != nil || (did && over()) {
+		return 0, err
+	}
 	cut := now.Add(-r.maxAge).UnixNano()
 	var total int64
 	for {
@@ -147,6 +151,71 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 		return total, r.releaseFree(ctx, over) // devolve tudo ao tmpfs, não só o que sobrou de uma carga
 	}
 	return total, r.vacuum(ctx)
+}
+
+// purgeDeleted apaga as linhas dos probes apagados pelo DELETE (ADR 0068 item 3): conexões (com as filhas, em
+// cascata) e consultas DNS até o corte, em lotes de no máximo r.batch (com o prazo por passo de adapt), cada um
+// numa transação curta, e tira a linha de deleted_probes quando nada mais está abaixo do corte. Um DELETE novo do
+// mesmo probe durante o apagamento só sobe o corte: a linha sai só se o corte lido ainda for o mesmo.
+// did diz se havia algum probe apagado (sem nenhum, a rodada não gasta orçamento aqui).
+func (r *Retention) purgeDeleted(ctx context.Context, over func() bool) (did bool, err error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT probe_id, conn_cut, dns_cut FROM deleted_probes ORDER BY deleted_ns")
+	if err != nil {
+		return false, err
+	}
+	type cut struct {
+		id, conn string
+		dns      int64
+	}
+	var cuts []cut
+	for rows.Next() {
+		var c cut
+		if err := rows.Scan(&c.id, &c.conn, &c.dns); err != nil {
+			_ = rows.Close()
+			return false, err
+		}
+		cuts = append(cuts, c)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil || len(cuts) == 0 {
+		return false, err
+	}
+	for _, c := range cuts {
+		for {
+			batch := r.batch
+			t0 := time.Now()
+			n, err := r.exec(ctx, "DELETE FROM connections WHERE conn_id IN (SELECT conn_id FROM connections WHERE probe_id = ? AND conn_id <= ? LIMIT ?)", c.id, c.conn, batch)
+			if err != nil {
+				return true, err
+			}
+			r.adapt(time.Since(t0))
+			if n < int64(batch) {
+				break
+			}
+			if over() {
+				return true, nil
+			}
+		}
+		for {
+			n, err := r.exec(ctx, "DELETE FROM dns_queries WHERE id IN (SELECT id FROM dns_queries WHERE probe_id = ? AND id <= ? LIMIT ?)", c.id, c.dns, DefaultRetentionBatch)
+			if err != nil {
+				return true, err
+			}
+			if n < DefaultRetentionBatch {
+				break
+			}
+			if over() {
+				return true, nil
+			}
+		}
+		if _, err := r.exec(ctx, "DELETE FROM deleted_probes WHERE probe_id = ? AND conn_cut = ? AND dns_cut = ?", c.id, c.conn, c.dns); err != nil {
+			return true, err
+		}
+		if over() {
+			return true, nil
+		}
+	}
+	return true, nil
 }
 
 // Emergency é o expurgo de emergência depois de um SQLITE_FULL no ingest (ADR 0045 item 5): fora do orçamento da

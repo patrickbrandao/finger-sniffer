@@ -24,7 +24,7 @@ info:
     booleano novo é opcional: ausente = `false` (registros anteriores ao 0.6.0). 0.6.1 (documental, ADR 0038):
     servidor `finger-01.badblock.net.br`. 0.7.0 (ADR 0066, aditivo): `503` com `Retry-After` nas rotas finitas
     (orçamento de 256 MiB das respostas JSON em andamento e desligamento, inclusive `deleteProbe`, `/pcap` e
-    `/raw`) e corte por bytes (64 MiB por resposta).
+    `/raw`), corte por bytes (64 MiB por resposta) e a descrição do `DELETE` de probe (ADR 0068).
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -132,8 +132,9 @@ paths:
       operationId: deleteProbe
       summary: Apaga o probe, suas conexões e consultas DNS
       description: |
-        Apaga numa transação todas as conexões do probe (inclusive as ainda abertas), as consultas DNS e o probe;
-        tudo some na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo real). Pacotes e eventos
+        Apaga todas as conexões do probe (inclusive as ainda abertas), as consultas DNS e o probe; tudo some na
+        hora de todas as leituras (`/probes/{id}`, `/connections`, tempo real), e as linhas saem do banco em lotes
+        logo depois (ADR 0068). Pacotes e eventos
         que ainda chegarem para as conexões que estavam abertas são descartados até elas fecharem (ADR 0034).
         Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
       responses:
