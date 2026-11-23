@@ -1,0 +1,1 @@
+- bot: `ua_tls_mismatch` e `ua_h2_mismatch` acusam a pilha (JA4 stable ou Akamai) que a base própria só viu em bibliotecas, com qualquer UA de navegador, inclusive Safari e iOS, que a base não mede: curl/Go com UA de Safari ou `CriOS` saem `bot` 95 em vez de `human` 20 (rules `v1.5`, ADR 0072 item 3; task 334).

@@ -91,8 +91,8 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | Sinal | Tipo | Peso | O que quer dizer |
 | --- | --- | --- | --- |
 | `ua_missing` | incoherence | 30 | requisição HTTP sem `User-Agent` |
-| `ua_tls_mismatch` | incoherence | 45 | UA de navegador e JA4 stable (sem `padding`, `session_ticket` e `pre_shared_key`) fora do conjunto daquela família na base própria e, em TCP, também as cifras (parte b do JA4) fora dela; sem medida da família, o rótulo da ja4db: o TLS não é o do navegador declarado (ADR 0072) |
-| `ua_h2_mismatch` | incoherence | 30 | UA de navegador e Akamai (SETTINGS e ordem das pseudo-headers do h2) fora da família, ou HTTP/1.1 com ALPN sem `h2` |
+| `ua_tls_mismatch` | incoherence | 45 | UA de navegador com JA4 stable que a base própria só viu em bibliotecas (qualquer pilha, inclusive Safari e iOS); ou JA4 stable (sem `padding`, `session_ticket` e `pre_shared_key`) fora do conjunto daquela família na base própria e, em TCP, também as cifras (parte b do JA4) fora dela; sem medida da família, o rótulo da ja4db: o TLS não é o do navegador declarado (ADR 0072) |
+| `ua_h2_mismatch` | incoherence | 30 | UA de navegador e Akamai (SETTINGS e ordem das pseudo-headers do h2) que a base só viu em bibliotecas (qualquer pilha) ou fora da família medida, ou HTTP/1.1 com ALPN sem `h2` |
 | `ua_os_tcp_mismatch` | incoherence | 25 | SO do UA incompatível com o p0f ou o TTL inicial (ex.: Windows com TTL 64) |
 | `ua_alpn_mismatch` | incoherence | 15 | ALPN oferecido incompatível com a família (ex.: navegador sem `h2`) |
 | `ja4h_library` | incoherence | 20 | JA4H sem `Accept-Language` e com ordem de campos de biblioteca; compara também o JA4H sem `Origin` e `Referer`, para o probe (ADR 0060) |
@@ -119,6 +119,7 @@ do bot:
 | --- | --- | --- | --- |
 | curl, Go `net/http`, python-requests | `ja4h_library`, `library_client` | 70 | `bot` |
 | Chrome, Firefox | `known_client` | 0 | `human` |
+| curl ou Go `net/http` em h2 com UA de Safari ou de iPhone (`CriOS`) | `ua_tls_mismatch`, `ua_h2_mismatch`, `ja4h_library` | 95 | `bot` |
 | Chrome com a sessão TLS retomada (`pre_shared_key` no ClientHello) | `known_client` | 0 | `human` |
 | Chrome no Windows (JA4 do golden FoxIO, mesmas cifras do medido) | — | 0 | `human` |
 | Chrome no Windows atrás de VPN em nuvem (MSS 1360) | `tunnel_mss`, `ip_cloud` | 25 | `human` |
@@ -173,6 +174,10 @@ publicada é reconhecido pelo UA, mas fica sem operador e nunca dá `ua_claims_c
   retomada perde o `known_client`, sem ganhar incoerência, e o `ua_tls_mismatch` em TCP olha só as cifras (em h3
   sem stable não avalia). Com uma medida por navegador, outra versão ou plataforma do mesmo navegador (mesmas
   cifras, outras extensões) não dá `ua_tls_mismatch`.
+- **Safari sem medida na base.** A base própria ainda não tem Safari (macOS nem iOS), e no iOS todo navegador
+  (`CriOS`, `FxiOS`, `EdgiOS`) usa a pilha do Safari. Para esses UAs o TLS e o h2 só acusam a pilha que a base viu
+  apenas em bibliotecas (curl, Go, python...); Safari real ou uma pilha de navegador não medida ficam sem incoerência
+  TLS até o tester medir o Safari (ADR 0072 item 3.3).
 - **UA de um navegador com a pilha de outro navegador de mesmas cifras.** Em TCP, o Chrome e o Firefox medidos têm a
   mesma parte b do JA4: UA de Firefox com a pilha do Chrome não dá `ua_tls_mismatch`; em h2 o Akamai o acusa
   (`ua_h2_mismatch`, 30, `human`) (ADR 0072).

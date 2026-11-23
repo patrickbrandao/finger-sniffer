@@ -287,8 +287,16 @@ func (en Engine) browserChecks(ev *eval, in Input, ua UA) {
 		en.uaTLS(ev, tlsIdentity(in.TLS), ua)
 	}
 	isQUIC := in.TLS != nil && strings.HasPrefix(in.TLS.JA4, "q")
-	if in.H2 != nil && in.H2.Akamai != "" && known != nil && known.Measured(ua.Stack, KindAkamai) &&
-		!slices.Contains(known.Families(KindAkamai, in.H2.Akamai), ua.Stack) {
+	// ua_h2_mismatch, um sinal só: Akamai que a base só viu em bibliotecas (qualquer pilha, inclusive sem medida da
+	// família, ADR 0072 item 3.2); Akamai fora do conjunto da família medida; HTTP/1.1 sem h2 no ALPN
+	akamaiFams := []string(nil)
+	if in.H2 != nil && in.H2.Akamai != "" && known != nil {
+		akamaiFams = known.Families(KindAkamai, in.H2.Akamai)
+	}
+	if lib := libraryOnly(akamaiFams); lib != "" {
+		ev.add(SignalUAH2Mismatch, "ua "+ua.Family+", akamai of measured "+lib)
+	} else if in.H2 != nil && in.H2.Akamai != "" && known != nil && known.Measured(ua.Stack, KindAkamai) &&
+		!slices.Contains(akamaiFams, ua.Stack) {
 		ev.add(SignalUAH2Mismatch, "ua "+ua.Family+", akamai not in "+ua.Stack+" set")
 	} else if alpnKnown(in.TLS) && !isQUIC && strings.HasPrefix(in.HTTP.Version, "1") && !slices.Contains(in.TLS.ALPN, "h2") {
 		ev.add(SignalUAH2Mismatch, "ua "+ua.Family+", http/"+in.HTTP.Version+" without h2 in alpn")
@@ -298,12 +306,20 @@ func (en Engine) browserChecks(ev *eval, in Input, ua UA) {
 	}
 }
 
-// uaTLS avalia ua_tls_mismatch (ADR 0072 item 1.6), um sinal só. Fora do conjunto da família: a pilha tem medida,
+// uaTLS avalia ua_tls_mismatch (ADR 0072 item 1.6), um sinal só. Primeiro, a pilha só de biblioteca: o stable (o
+// JA4 completo, sem stable) que a base só viu em bibliotecas, em qualquer pilha declarada, inclusive a do Safari, que
+// a base não mede (item 3.1). Fora do conjunto da família: a pilha tem medida,
 // o stable visto não está no conjunto dela e, em TCP, as cifras (parte b) também não; em QUIC as cifras são as
 // mesmas em todas as pilhas medidas e vale só o stable. Sem stable, vale só a parte b em TCP (em QUIC não avalia).
 // Sem medida da pilha, o rótulo de navegador da ja4db (pelo JA4 completo) decide como na v1.4.
 func (en Engine) uaTLS(ev *eval, id tlsID, ua UA) {
 	known := en.Sources.Known
+	if known != nil {
+		if lib := libraryOnly(id.families(known)); lib != "" {
+			ev.add(SignalUATLSMismatch, "ua "+ua.Family+", ja4 of measured "+lib)
+			return
+		}
+	}
 	label, hasLabel := JA4DBLabel{}, false
 	if en.Sources.JA4DB != nil {
 		label, hasLabel = en.Sources.JA4DB.Label(id.ja4)
@@ -510,11 +526,17 @@ func (en Engine) automationAndLibrary(ev *eval, in Input, ua UA) {
 	if ua.Family != FamilyOther || in.TLS == nil || in.TLS.JA4 == "" || en.Sources.Known == nil {
 		return
 	}
-	fams := tlsIdentity(in.TLS).families(en.Sources.Known)
-	if len(fams) == 0 || !allLibrary(fams) {
-		return
+	if lib := libraryOnly(tlsIdentity(in.TLS).families(en.Sources.Known)); lib != "" {
+		ev.add(SignalLibraryClient, "ja4 of measured "+lib)
 	}
-	ev.add(SignalLibraryClient, "ja4 of measured "+firstLibrary(fams))
+}
+
+// libraryOnly devolve a primeira biblioteca (firstLibrary) quando há famílias e todas são de biblioteca; "" senão.
+func libraryOnly(families []string) string {
+	if len(families) == 0 || !allLibrary(families) {
+		return ""
+	}
+	return firstLibrary(families)
 }
 
 // allLibrary diz se todas as famílias são de biblioteca.

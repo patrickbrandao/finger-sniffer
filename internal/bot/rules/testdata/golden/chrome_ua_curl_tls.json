@@ -46,13 +46,13 @@
         "id": "ua_tls_mismatch",
         "kind": "incoherence",
         "weight": 45,
-        "detail": "ua chrome, ja4 stable t13d3012h2_1d37bd780c83_581742d1f3c4 not in chrome set"
+        "detail": "ua chrome, ja4 of measured curl"
       },
       {
         "id": "ua_h2_mismatch",
         "kind": "incoherence",
         "weight": 30,
-        "detail": "ua chrome, akamai not in chrome set"
+        "detail": "ua chrome, akamai of measured curl"
       },
       {
         "id": "ja4h_library",
