@@ -3,10 +3,12 @@ package store
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"sort"
@@ -301,6 +303,8 @@ func TestAPIErrorContract(t *testing.T) {
 	// e com o orçamento das respostas JSON esgotado (503, ADR 0066)
 	budgetFull := newAPIFixture(t)
 	budgetFull.q.budget = newJSONBudget(1)
+	// e no desligamento: sinal ligado e contexto da requisição cancelado (503, ADR 0066 item 3)
+	closing := shuttingDownServer(t)
 
 	var bodies [][]byte
 	for _, c := range tab.Cases {
@@ -318,6 +322,8 @@ func TestAPIErrorContract(t *testing.T) {
 				base = blobFull.srv.URL
 			case "json_budget_full":
 				base = budgetFull.srv.URL
+			case "shutting_down":
+				base = closing.URL
 			default:
 				t.Fatalf("fault desconhecida %q", c.Fault)
 			}
@@ -364,7 +370,7 @@ func TestParseOpenAPIOps(t *testing.T) {
 	}
 	for id, want := range map[string]string{
 		"getProbe":         "GET /api/v1/probes/{id} [200 400 404 500 503]",
-		"deleteProbe":      "DELETE /api/v1/probes/{id} [204 400 404 500]",
+		"deleteProbe":      "DELETE /api/v1/probes/{id} [204 400 404 500 503]",
 		"getConnectionRaw": "GET /api/v1/connections/{conn_id}/raw [200 400 404 500 503]",
 		"websocketEvents":  "GET /api/v1/ws [101 400 503]",
 	} {
@@ -377,4 +383,21 @@ func TestParseOpenAPIOps(t *testing.T) {
 		matchTemplate("/api/v1/connections/{conn_id}", "/api/v1/connections/X/pcap") {
 		t.Error("matchTemplate")
 	}
+}
+
+// shuttingDownServer é a API com o sinal de desligamento ligado e cada requisição já cancelada, como no Run depois
+// do sinal e do cancelamento do contexto base.
+func shuttingDownServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	f := newAPIFixture(t)
+	api := &API{OpenAPI: []byte("x"), Health: func(context.Context, time.Time) Health { return Health{} }, Now: time.Now, Q: f.q, W: f.q.db}
+	api.BeginShutdown()
+	h := api.Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithCancel(r.Context())
+		cancel()
+		h.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }
