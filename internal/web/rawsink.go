@@ -8,8 +8,40 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
 )
 
-// maxRawReads limita a lista reads_in do evento (cada item é pequeno; o resto só entra no fluxo in).
-const maxRawReads = 8192
+// Teto da lista reads_in (ADR 0070 item 7): as primeiras rawReadsFixed entradas são retenção fixa (16 KiB);
+// as seguintes, até maxRawReads, reservam do orçamento a capacidade que a lista ganha. Sem orçamento ou no
+// teto, a lista para e reads_in_truncated fica true; os bytes seguem inteiros no fluxo in.
+const (
+	maxRawReads   = 8192
+	rawReadsFixed = 1024
+	// timedLengthSize é o tamanho de uma entrada (dois float64).
+	timedLengthSize = 16
+)
+
+// timedLength é uma entrada [t_ms, bytes] de reads_in/writes_out, sem caixa (o mesmo tipo do raw); o JSON
+// é o mesmo de antes ([[t_ms, bytes], ...]).
+type timedLength [2]float64
+
+// appendRead acrescenta uma leitura à lista, reservando no hold o crescimento acima das entradas fixas;
+// false quando a lista não pode crescer (teto ou orçamento).
+func appendRead(list *[]timedLength, hold *budgetHold, e timedLength) bool {
+	l := *list
+	if len(l) >= maxRawReads {
+		return false
+	}
+	if len(l) == cap(l) {
+		newCap := min(max(2*cap(l), 64), maxRawReads)
+		if extra := newCap - max(cap(l), rawReadsFixed); newCap > rawReadsFixed && extra > 0 &&
+			!hold.reserveQuiet(int64(extra*timedLengthSize)) {
+			return false
+		}
+		grown := make([]timedLength, len(l), newCap)
+		copy(grown, l)
+		l = grown
+	}
+	*list = append(l, e)
+	return true
+}
 
 // serveRaw trata a conexão como TCP cru em modo sink (spec 005 RF-02, "raw/unknown"): lê e descarta até o
 // cliente fechar ou a ociosidade vencer, publica os bytes no fluxo in e, no fim, fs.v1.web.raw.session com
@@ -17,15 +49,16 @@ const maxRawReads = 8192
 func (c *conn) serveRaw(ic *idleConn, res detect.Result) {
 	s := c.srv
 	t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
-	sess := rawSession{Mode: probe.ModeSink, ReadsIn: [][2]any{}, WritesOut: [][2]any{}}
+	sess := rawSession{Mode: probe.ModeSink, ReadsIn: []timedLength{}, WritesOut: []timedLength{}}
+	hold := s.budget.newHold(0)
+	defer hold.releaseAll()
 	var first []byte
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := t.Read(buf)
 		if n > 0 {
-			if len(sess.ReadsIn) < maxRawReads {
-				sess.ReadsIn = append(sess.ReadsIn, [2]any{msSince(c.acceptAt, s.now()), n})
-			} else {
+			if sess.ReadsInTruncated ||
+				!appendRead(&sess.ReadsIn, hold, timedLength{msSince(c.acceptAt, s.now()), float64(n)}) {
 				sess.ReadsInTruncated = true
 			}
 			if len(first) < probe.MaxLineLen {

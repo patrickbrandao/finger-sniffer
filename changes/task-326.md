@@ -1,0 +1,1 @@
+- web: escritor h1 sai em pedaços de até 32 KiB com `hsize=` e `chunk=` grandes (bytes no fio iguais); conexão que não lê deixa de reter 1–2 MiB (task 326, ADR 0070 item 4).

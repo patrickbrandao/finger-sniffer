@@ -1,0 +1,1 @@
+- web: corpo h1 guardado (cru inline, lista de pedaços, extensões) reserva do orçamento de entrada pela requisição; sem orçamento para de guardar com `raw_truncated`/`chunks_truncated`, sem recusar (task 325, ADR 0070 item 7).

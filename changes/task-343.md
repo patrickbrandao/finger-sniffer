@@ -1,0 +1,1 @@
+- web: `reads_in` do sink em `[2]float64` (JSON igual), 1024 entradas fixas e o resto até 8192 reservado do orçamento, com `reads_in_truncated` sem orçamento (task 343, ADR 0070 item 7).

@@ -47,6 +47,8 @@ func (c *conn) serveHTTP1(t *tap, ic *idleConn, handshakeEnd time.Time) {
 	rd.MaxHeadBytes = c.srv.cfg.MaxHeadBytes
 	hold := c.srv.budget.newHold(0)
 	rd.Reserve = func(n int) bool { return hold.reserve(int64(n)) }
+	// O corpo guardado (cru, pedaços, extensões) reserva no mesmo hold, sem recusar (ADR 0070 item 7).
+	rd.ReserveBody = func(n int) bool { return hold.reserveQuiet(int64(n)) }
 	sess := &h1Session{
 		c: c, t: t, ic: ic, br: br, rd: rd,
 		w:            h1.NewResponseWriter(t, c.srv.cfg.EventInlineMax),

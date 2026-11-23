@@ -162,8 +162,13 @@ func hasField(fields []HeaderField, name string) bool {
 	return false
 }
 
-// Head monta o cabeçalho da resposta (linha de status até a linha vazia) sem escrever.
-func (r *Response) Head() []byte {
+// maxWriteChunk é o teto de cada escrita do escritor (ADR 0070 item 4): hsize, chunk e o corpo saem em
+// pedaços de até 32 KiB de um buffer por resposta; os bytes no fio não mudam, só a segmentação.
+const maxWriteChunk = 32 << 10
+
+// headParts monta a parte fixa do cabeçalho (linha de status e campos, sem a linha vazia) e devolve quantos
+// bytes de enchimento o campo PadFieldName leva (< 0 sem enchimento).
+func (r *Response) headParts() (fixed string, pad int) {
 	var b strings.Builder
 	b.WriteString(statusLine(r.Version, r.Status, r.Reason))
 	appendFields(&b, r.Fields)
@@ -179,15 +184,39 @@ func (r *Response) Head() []byte {
 	}
 	// hsize: o campo de enchimento entra por último para atingir o tamanho exato (com a linha vazia).
 	if missing := r.HeadSize - (b.Len() + 2); missing >= padOverhead {
-		appendFields(&b, []HeaderField{{PadFieldName, strings.Repeat("a", missing-padOverhead)}})
+		return b.String(), missing - padOverhead
 	}
-	b.WriteString("\r\n")
-	return []byte(b.String())
+	return b.String(), -1
 }
 
-// WriteHead escreve o cabeçalho da resposta.
+// Head monta o cabeçalho da resposta (linha de status até a linha vazia) sem escrever.
+func (r *Response) Head() []byte {
+	fixed, pad := r.headParts()
+	if pad < 0 {
+		return []byte(fixed + "\r\n")
+	}
+	return []byte(fixed + PadFieldName + ": " + strings.Repeat("a", pad) + "\r\n\r\n")
+}
+
+// WriteHead escreve o cabeçalho da resposta. O enchimento do hsize sai em pedaços de até maxWriteChunk,
+// sem montar o cabeçalho inteiro na memória (ADR 0070 item 4).
 func (w *ResponseWriter) WriteHead(r *Response) error {
-	return w.write(r.Head())
+	fixed, pad := r.headParts()
+	if pad < 0 {
+		return w.write([]byte(fixed + "\r\n"))
+	}
+	if err := w.write([]byte(fixed + PadFieldName + ": ")); err != nil {
+		return err
+	}
+	fill := []byte(strings.Repeat("a", min(pad, maxWriteChunk)))
+	for pad > 0 {
+		n := min(pad, len(fill))
+		if err := w.write(fill[:n]); err != nil {
+			return err
+		}
+		pad -= n
+	}
+	return w.write([]byte("\r\n\r\n"))
 }
 
 // WriteBody escreve o corpo lido de body conforme o enquadramento. Em FramingContentLength escreve
@@ -222,7 +251,7 @@ func (w *ResponseWriter) WriteBody(r *Response, body io.Reader) error {
 }
 
 func (w *ResponseWriter) copyBody(body io.Reader) (int64, error) {
-	buf := make([]byte, 32<<10)
+	buf := make([]byte, maxWriteChunk)
 	var total int64
 	for {
 		n, err := body.Read(buf)
@@ -246,12 +275,31 @@ func (w *ResponseWriter) writeChunked(r *Response, body io.Reader) error {
 	if size <= 0 {
 		size = DefaultChunkSize
 	}
+	var err error
+	if size > maxWriteChunk && r.BodyLen > 0 {
+		err = w.writeChunkedStream(size, r.BodyLen, body)
+	} else {
+		err = w.writeChunkedBuffered(size, body)
+	}
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("0\r\n")
+	appendFields(&b, r.Trailers)
+	b.WriteString("\r\n")
+	return w.write([]byte(b.String()))
+}
+
+// writeChunkedBuffered lê cada pedaço inteiro antes de escrever (pedaço de até maxWriteChunk, ou corpo sem
+// tamanho conhecido): o tamanho do último pedaço só se sabe depois de ler.
+func (w *ResponseWriter) writeChunkedBuffered(size int, body io.Reader) error {
 	buf := make([]byte, size)
+	chunk := make([]byte, 0, size+20)
 	for {
 		n, err := io.ReadFull(body, buf)
 		if n > 0 {
-			chunk := make([]byte, 0, n+20)
-			chunk = strconv.AppendInt(chunk, int64(n), 16)
+			chunk = strconv.AppendInt(chunk[:0], int64(n), 16)
 			chunk = append(chunk, '\r', '\n')
 			chunk = append(chunk, buf[:n]...)
 			chunk = append(chunk, '\r', '\n')
@@ -260,17 +308,49 @@ func (w *ResponseWriter) writeChunked(r *Response, body io.Reader) error {
 			}
 		}
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			break
+			return nil
 		}
 		if err != nil {
 			return err
 		}
 	}
-	var b strings.Builder
-	b.WriteString("0\r\n")
-	appendFields(&b, r.Trailers)
-	b.WriteString("\r\n")
-	return w.write([]byte(b.String()))
+}
+
+// writeChunkedStream escreve pedaços maiores que maxWriteChunk com o tamanho total conhecido (bodyLen): a
+// linha do tamanho sai antes e os dados em pedaços de até maxWriteChunk de um buffer só (ADR 0070 item 4).
+// Os bytes no fio são os mesmos do modo bufferizado quando o corpo tem os bodyLen bytes; um corpo mais curto
+// termina com io.ErrUnexpectedEOF no meio do pedaço.
+func (w *ResponseWriter) writeChunkedStream(size int, bodyLen int64, body io.Reader) error {
+	buf := make([]byte, maxWriteChunk)
+	line := make([]byte, 0, 20)
+	for left := bodyLen; left > 0; {
+		n := min(int64(size), left)
+		line = strconv.AppendInt(line[:0], n, 16)
+		line = append(line, '\r', '\n')
+		if err := w.write(line); err != nil {
+			return err
+		}
+		for rem := n; rem > 0; {
+			got, err := io.ReadFull(body, buf[:min(rem, int64(len(buf)))])
+			if got > 0 {
+				if werr := w.write(buf[:got]); werr != nil {
+					return werr
+				}
+				rem -= int64(got)
+			}
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					err = io.ErrUnexpectedEOF
+				}
+				return err
+			}
+		}
+		if err := w.write([]byte("\r\n")); err != nil {
+			return err
+		}
+		left -= n
+	}
+	return nil
 }
 
 // WriteResponse escreve as 1xx, o cabeçalho e o corpo de uma vez.

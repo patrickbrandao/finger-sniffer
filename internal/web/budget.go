@@ -148,6 +148,28 @@ func (h *budgetHold) reserve(n int64) bool {
 	return true
 }
 
+// reserveQuiet reserva como reserve, mas sem contar a recusa em MetricInputBudgetDenied: é dos dados só de
+// análise, que sem orçamento param de ser guardados em vez de recusar (ADR 0070 item 2).
+func (h *budgetHold) reserveQuiet(n int64) bool {
+	if n <= 0 {
+		return true
+	}
+	for {
+		cur := h.held.Load()
+		if h.limit > 0 && cur+n > h.limit {
+			return false
+		}
+		if h.held.CompareAndSwap(cur, cur+n) {
+			break
+		}
+	}
+	if !h.b.tryReserve(n) {
+		h.held.Add(-n)
+		return false
+	}
+	return true
+}
+
 // release devolve n bytes do hold (no máximo o que ele retém).
 func (h *budgetHold) release(n int64) {
 	for n > 0 {

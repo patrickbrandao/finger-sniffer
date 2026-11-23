@@ -301,6 +301,13 @@ type Reader struct {
 	// encerra a leitura com ErrHeadTooLarge (431 no cabeçalho, 400 nos trailers) sem guardar o pedaço. Quem
 	// define devolve a reserva ao fim da requisição.
 	Reserve func(n int) bool
+	// ReserveBody, quando definido, pede n bytes ao orçamento antes de guardar parte do corpo (bytes crus
+	// inline, lista de pedaços chunked e extensões; spec 009 RF-03, ADR 0070 item 7). false não recusa a
+	// requisição: o leitor para de guardar e marca raw_truncated/chunks_truncated. Quem define devolve a
+	// reserva ao fim da requisição.
+	ReserveBody func(n int) bool
+	// copyBuf é o buffer de cópia do corpo, alocado uma vez por Reader (ADR 0070 item 5).
+	copyBuf []byte
 	// consumed conta os bytes já consumidos de br, para o InOffset de cada requisição.
 	consumed int64
 }
