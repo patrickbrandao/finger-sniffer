@@ -590,7 +590,11 @@ func (ix *Index) StoreByProbe(probeID string, now time.Time) []StoreConn {
 }
 
 // MatchStore casa uma origem vista pelo fork com a conexão do store (spec 018 RF-04): mesma origem, mesma porta
-// de destino e início a menos de 5 s (first zero dispensa a conferência do início).
+// de destino e início a menos de 5 s. Com first zero (forwardAuth antes do registro de conexão do traefix) o
+// início não é conferido, e a entrada fechada não casa (task 364): a mesma 4-tupla só se repete depois do
+// fechamento da conexão anterior, que fica no índice até o TTL; casar com ela daria ao veredito o TCP e o conn_id
+// de outra conexão (atrás de CGNAT, de outro assinante). Sem casar, a espera continua até o opened da nova chegar
+// (ele substitui a fechada na chave) e, se não chegar, conta em bot_view_wait_total{missing="tcp"}.
 func (ix *Index) MatchStore(ip netip.Addr, port, dstPort int, first, now time.Time) (StoreConn, bool) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
@@ -598,7 +602,11 @@ func (ix *Index) MatchStore(ip netip.Addr, port, dstPort int, first, now time.Ti
 	if !ok {
 		return StoreConn{}, false
 	}
-	if !first.IsZero() && !c.Started.IsZero() {
+	if first.IsZero() {
+		if c.Stage == StageClosed {
+			return StoreConn{}, false
+		}
+	} else if !c.Started.IsZero() {
 		if d := first.Sub(c.Started); d > matchWindow || d < -matchWindow {
 			return StoreConn{}, false
 		}

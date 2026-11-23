@@ -380,6 +380,74 @@ func TestDailyQuota(t *testing.T) {
 	}
 }
 
+// TestMatchStoreClosedWithoutFirst: task 364 — sem o início do fork (forwardAuth antes do registro de conexão), a
+// entrada fechada da mesma origem não casa (é a conexão anterior da mesma 4-tupla); a aberta casa. Com o início,
+// vale só a janela de 5 s.
+func TestMatchStoreClosedWithoutFirst(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	ix := NewIndex(10*time.Minute, 100, 0, nil)
+	put := func(id, stage string, started time.Time) {
+		ix.PutStore(&StoreConn{
+			ConnID: id, Stage: stage, L4: "tcp", SrcIP: mustAddr("198.51.100.7"), SrcPort: 51234, DstPort: 443, Started: started,
+		}, now)
+	}
+	put("OLD", StageClosed, now.Add(-5*time.Minute))
+	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, time.Time{}, now); ok {
+		t.Fatalf("casou a conexão fechada sem o início: %+v", c)
+	}
+	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, now.Add(-5*time.Minute), now); !ok {
+		t.Error("com o início, a fechada dentro da janela devia casar (consulta depois do fim)")
+	}
+	put("NEW", StageOpened, now)
+	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, time.Time{}, now); !ok || c.ConnID != "NEW" {
+		t.Fatalf("a aberta não casou: %+v %v", c, ok)
+	}
+	put("NEW", StageUpdated, now)
+	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, time.Time{}, now); !ok || c.ConnID != "NEW" {
+		t.Fatalf("a atualizada não casou: %+v %v", c, ok)
+	}
+}
+
+// TestAuthIgnoresClosedSameOrigin: task 364 — com a conexão anterior da mesma origem fechada no índice, o
+// forwardAuth da primeira requisição da conexão nova espera o opened dela (que chega 50 ms depois) e o veredito leva
+// o conn_id da nova, não o da velha.
+func TestAuthIgnoresClosedSameOrigin(t *testing.T) {
+	f := newFixture(t)
+	f.srv.api.ViewWait = 300 * time.Millisecond
+	ix := f.srv.Index()
+	ix.PutStore(&StoreConn{
+		ConnID: "01JC0X3K8V2T7Q9N4M6P1R5OLD", Stage: StageClosed, L4: "tcp", SrcIP: mustAddr("198.51.100.7"), SrcPort: 51234,
+		DstIP: mustAddr("203.0.113.10"), DstPort: 443, Started: f.clock.Now().Add(-5 * time.Minute),
+	}, f.clock.Now())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		f.putStore()
+	}()
+	c, _, v, b := f.authVerdict("internal", "", forkHeadersFor())
+	if c != 200 {
+		t.Fatalf("%d %s", c, b)
+	}
+	if v.Subject.ConnID == nil || *v.Subject.ConnID != testStoreConnID || !v.View.TCP {
+		t.Fatalf("veredito sem a conexão nova: %s", b)
+	}
+	if n := f.metrics.Get(viewWaitMetric("tcp")); n != 0 {
+		t.Errorf("view_wait{missing=tcp} = %v com o opened chegando na espera", n)
+	}
+	// Sem o opened da nova, a velha não casa: o veredito sai sem visão TCP e a espera conta missing="tcp".
+	hdr := forkHeadersFor()
+	hdr["X-Fs-Src-Port"], hdr["X-Fs-Conn-Id"] = "51235", "01JC0X3K8V2T7Q9F4M6P1R5T70"
+	ix.PutStore(&StoreConn{
+		ConnID: "01JC0X3K8V2T7Q9N4M6P1R5OL2", Stage: StageClosed, L4: "tcp", SrcIP: mustAddr("198.51.100.7"), SrcPort: 51235,
+		DstIP: mustAddr("203.0.113.10"), DstPort: 443, Started: f.clock.Now().Add(-5 * time.Minute),
+	}, f.clock.Now())
+	if _, _, v, b := f.authVerdict("internal", "", hdr); v.View.TCP || v.Subject.ConnID != nil {
+		t.Errorf("casou a conexão fechada: %s", b)
+	}
+	if n := f.metrics.Get(viewWaitMetric("tcp")); n != 1 {
+		t.Errorf("view_wait{missing=tcp} = %v, esperado 1", n)
+	}
+}
+
 // TestIndex: TTL, teto com despejo da mais antiga, casamento pela origem (IPv4 mapeado) com janela de 5 s e
 // espera pela visão.
 func TestIndex(t *testing.T) {
