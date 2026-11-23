@@ -1,0 +1,52 @@
+{
+  "rules_version": "v1.5",
+  "ja4db": false,
+  "input": {
+    "IP": "192.0.2.10",
+    "TCP": null,
+    "TLS": {
+      "JA4": "q13d0313h3_55b375c5d22e_4156cdf64688",
+      "JA4R": "q13d0313h3_1301,1302,1303_0005,000a,000b,000d,0012,0017,002b,0032,0033,0039,ff01_0904,0905,0906,0804,0403,0807,0805,0806,0503,0603",
+      "ALPN": [
+        "h3"
+      ]
+    },
+    "H2": null,
+    "HTTP": {
+      "UserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+      "Version": "3",
+      "JA4H": "ge30nn020000_b89ce445e0b3_000000000000_000000000000",
+      "FieldOrder": null,
+      "HasAcceptLanguage": false
+    },
+    "Behavior": null,
+    "View": {
+      "tcp": false,
+      "tls": true,
+      "http": true,
+      "h2": false,
+      "h3": true,
+      "behavior": false
+    }
+  },
+  "result": {
+    "class": "suspect",
+    "score": 65,
+    "signals": [
+      {
+        "id": "ua_tls_mismatch",
+        "kind": "incoherence",
+        "weight": 45,
+        "detail": "ua chrome, ja4 stable q13d0313h3_55b375c5d22e_4156cdf64688 not in chrome set"
+      },
+      {
+        "id": "ja4h_library",
+        "kind": "incoherence",
+        "weight": 20,
+        "detail": "ja4h ge30nn020000_b89ce445e0b3 of go, no accept-language"
+      }
+    ],
+    "ua_family": "chrome",
+    "ua_os": "macos"
+  }
+}

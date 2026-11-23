@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/rules"
 )
 
 // ja4hCurl é o JA4H completo de um curl h2 (partes a e b medidas na base própria, sem cookies).
@@ -37,7 +39,7 @@ func TestAuthJA4HHeader(t *testing.T) {
 	if err := json.Unmarshal(b, &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.Fingerprints == nil || v.Fingerprints.JA4H == nil || *v.Fingerprints.JA4H != ja4hCurl || v.RulesVersion != "v1.4" {
+	if v.Fingerprints == nil || v.Fingerprints.JA4H == nil || *v.Fingerprints.JA4H != ja4hCurl || v.RulesVersion != rules.RulesVersion {
 		t.Errorf("fingerprints/versão: %+v %q", v.Fingerprints, v.RulesVersion)
 	}
 	if metric(ja4hFromHeader) != 1 || metric(ja4hFromIngest) != 0 || metric(ja4hNone) != 0 {

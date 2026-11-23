@@ -331,6 +331,7 @@ func analyzeClientHelloAs(raw []byte, truncated, quic bool) *ForkTLS {
 	c := &t.cost
 	t.JA3, t.JA3MD5, t.JA3N, t.JA3NMD5 = shared.str(j3.JA3, c), shared.str(j3.JA3MD5, c), shared.str(j3.JA3N, c), shared.str(j3.JA3NMD5, c)
 	t.JA4, t.JA4R, t.JA4O = shared.str(j4.JA4, c), shared.str(j4.JA4R, c), shared.str(j4.JA4O, c)
+	t.JA4Stable = shared.str(j4.Stable, c)
 	t.SNI, t.ALPN = shared.str(ch.SNI, c), shared.list(ch.ALPN, c)
 	return t
 }

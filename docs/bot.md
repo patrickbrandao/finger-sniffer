@@ -37,8 +37,8 @@ dá 401 nas duas portas.
 
 ## O veredito
 
-Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.4` das ADRs 0057,
-[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md), [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md) e [0065](../specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md)):
+Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.5` das ADRs 0057,
+[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md), [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md), [0065](../specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md) e [0072](../specs/decisions/0072-regras-v1-5-robo-declarado-pilha-de-biblioteca-e-ja4-stable.md)):
 
 ```json
 {
@@ -54,7 +54,7 @@ Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), re
                    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6", "p0f_os": "Mac OS X", "ttl_initial": 64,
                    "ua_family": "curl", "ua_os": "other"},
   "crawler": null,
-  "rules_version": "v1.4",
+  "rules_version": "v1.5",
   "lists_version": "91cc382c89a43660",
   "subject": {"kind": "request", "site": "www.example.com", "src": {"ip": "198.51.100.23", "port": 40000},
               "dst_port": 443, "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S10", "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S10",
@@ -80,18 +80,18 @@ mais indício de automação.
 (requisição), `h2`, `h3`, `behavior` (agregados do IP no site) e `parse_error` (bytes do traefix ilegíveis). Um
 `human` exige `tls` e `http`; sem eles, score baixo sai `unknown`.
 
-`rules_version` é a versão das regras (`v1.4`) e `lists_version` um hash das listas em uso (base própria e listas
+`rules_version` é a versão das regras (`v1.5`) e `lists_version` um hash das listas em uso (base própria e listas
 de IP; a ja4db só quando ligada). A mesma entrada com as mesmas duas versões dá sempre o mesmo veredito. Mudança de
 peso ou de regra é nova `rules_version`.
 
-### Sinais (rules v1.4)
+### Sinais (rules v1.5)
 
 Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga da F8).
 
 | Sinal | Tipo | Peso | O que quer dizer |
 | --- | --- | --- | --- |
 | `ua_missing` | incoherence | 30 | requisição HTTP sem `User-Agent` |
-| `ua_tls_mismatch` | incoherence | 45 | UA de navegador e JA4 fora do conjunto daquela família (base própria e ja4db): o TLS não é o do navegador declarado |
+| `ua_tls_mismatch` | incoherence | 45 | UA de navegador e JA4 stable (sem `padding`, `session_ticket` e `pre_shared_key`) fora do conjunto daquela família na base própria e, em TCP, também as cifras (parte b do JA4) fora dela; sem medida da família, o rótulo da ja4db: o TLS não é o do navegador declarado (ADR 0072) |
 | `ua_h2_mismatch` | incoherence | 30 | UA de navegador e Akamai (SETTINGS e ordem das pseudo-headers do h2) fora da família, ou HTTP/1.1 com ALPN sem `h2` |
 | `ua_os_tcp_mismatch` | incoherence | 25 | SO do UA incompatível com o p0f ou o TTL inicial (ex.: Windows com TTL 64) |
 | `ua_alpn_mismatch` | incoherence | 15 | ALPN oferecido incompatível com a família (ex.: navegador sem `h2`) |
@@ -100,10 +100,10 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `relay_rtt_gap` | incoherence | 15 | tempos do traefix (`headerDetail: full`): volta TLS bem maior que a TCP e espera longa pelo primeiro byte, sinal de relay SOCKS5/HTTP CONNECT entre o cliente e o traefix (rules `v1.4`, ADR 0065) |
 | `ua_claims_crawler` | incoherence | 60 | UA de robô conhecido vindo de IP fora da lista dele, ou com DNS reverso/direto falho |
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
-| `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 que a base própria só viu em bibliotecas |
+| `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 stable (o JA4 completo, sem stable) que a base própria só viu em bibliotecas |
 | `ua_declares_crawler` | list | 50 | UA que se declara robô (`…bot/`, `crawler`, `spider` ou nome da tabela) sem operador com lista publicada para provar; nunca dá `good_bot` (rules `v1.5`, ADR 0072) |
 | `ja4db_match` | list | 40 | JA4 rotulado como biblioteca ou ferramenta na ja4db (só com `FS_BOT_JA4DB_ENABLE=true`; desligada por padrão) |
-| `known_client` | list | −20 | JA4 + Akamai + JA4T sem o MSS (janela, opções e escala) coerentes com um cliente medido na base própria e com o UA; nunca com UA que declara automação |
+| `known_client` | list | −20 | JA4 stable (o JA4 completo, sem stable) + Akamai + JA4T sem o MSS (janela, opções e escala) coerentes com um cliente medido na base própria e com o UA; nunca com UA que declara automação |
 | `ip_verified_crawler` | list | — | define `good_bot` (`detail` diz `verified by ip list` quando a lista bastou) |
 | `ip_cloud` | list | 20 | IP em faixa de nuvem ou datacenter |
 | `ip_crawler_list_unverified` | list | 0 | IP numa lista de robô sem chegar a `good_bot` (informativo) |
@@ -119,6 +119,9 @@ do bot:
 | --- | --- | --- | --- |
 | curl, Go `net/http`, python-requests | `ja4h_library`, `library_client` | 70 | `bot` |
 | Chrome, Firefox | `known_client` | 0 | `human` |
+| Chrome com a sessão TLS retomada (`pre_shared_key` no ClientHello) | `known_client` | 0 | `human` |
+| Chrome no Windows (JA4 do golden FoxIO, mesmas cifras do medido) | — | 0 | `human` |
+| Chrome no Windows atrás de VPN em nuvem (MSS 1360) | `tunnel_mss`, `ip_cloud` | 25 | `human` |
 | Selenium/headless com pilha real de Chrome e UA com marcador de automação | `ua_automation` | 70 | `bot` |
 | Chrome headless | `ua_automation` | 70 | `bot` |
 | Googlebot falso (TLS de curl, IP fora da lista) | `ja4h_library`, `ua_claims_crawler` | 80 | `bot` |
@@ -164,6 +167,15 @@ publicada é reconhecido pelo UA, mas fica sem operador e nunca dá `ua_claims_c
   primeiro byte depois de 5 ms, dá `relay_rtt_gap` (peso 15). Relay perto do cliente ou VPN de camada 3 não aparecem
   (a VPN aparece no MSS); uma conexão só é ruidosa (no finger-01, 2 de 40 conexões diretas por Wi-Fi saíram com o
   sinal); com origem privada os tempos aparecem mas não alimentam o sinal.
+- **Identidade TLS pelo JA4 stable.** O stable vem do ClientHello cru do traefix, do `ja4_stable` do store ou, nas
+  fingerprints prontas e nos cabeçalhos, do `ja4_r` (`X-Traefix-Ja4r`, com `headerDetail` `full` ou `raw`); a base
+  própria o deriva do `ja4_r` de cada medida. Só com `X-Traefix-Ja4` (`headerDetail: basic`) não há stable: a sessão
+  retomada perde o `known_client`, sem ganhar incoerência, e o `ua_tls_mismatch` em TCP olha só as cifras (em h3
+  sem stable não avalia). Com uma medida por navegador, outra versão ou plataforma do mesmo navegador (mesmas
+  cifras, outras extensões) não dá `ua_tls_mismatch`.
+- **UA de um navegador com a pilha de outro navegador de mesmas cifras.** Em TCP, o Chrome e o Firefox medidos têm a
+  mesma parte b do JA4: UA de Firefox com a pilha do Chrome não dá `ua_tls_mismatch`; em h2 o Akamai o acusa
+  (`ua_h2_mismatch`, 30, `human`) (ADR 0072).
 - **JA4T medido com o MSS do caminho.** A base própria guarda o JA4T medido inteiro, mas o `known_client` compara
   sem o campo do MSS: um grampo de MSS no caminho (túnel, PPPoE) não tira o −20 de um navegador real; o MSS
   reduzido aparece só em `tunnel_mss`.
@@ -240,7 +252,7 @@ $ curl -s $BOT/bot/v1/health | jq '{status, version, rules_version, lists_versio
 {
   "status": "ok",
   "version": "v0.4.0-22-gd9a4703",
-  "rules_version": "v1.4",
+  "rules_version": "v1.5",
   "lists_version": "91cc382c89a43660",
   "lists": [
     {"name": "known_clients", "entries": 15, "fetched_at": null, "stale": false},

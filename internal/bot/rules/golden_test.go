@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4"
 )
 
 var update = flag.Bool("update", false, "regrava os goldens de veredito em testdata/golden")
@@ -137,6 +142,26 @@ func goldenCases(t testing.TB) []goldenCase {
 	curlRelay := inputFrom(e("curl", "h2"), ua["curl"], ipResidential)
 	curlRelay.Timing = relay
 
+	// v1.5 (ADR 0072 item 1): a retomada TLS 1.3 acrescenta pre_shared_key (0029) ao ClientHello; o JA4 muda, o
+	// stable não
+	chromeResumed := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
+	chromeResumed.TLS.JA4R = withExtension(t, chromeResumed.TLS.JA4R, "0029")
+	chromeResumed.TLS.JA4 = fromRaw(t, chromeResumed.TLS.JA4R)
+	chromeResumedHeader := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
+	chromeResumedHeader.TLS.JA4, chromeResumedHeader.TLS.JA4R = chromeResumed.TLS.JA4, ""
+	// Chrome no Windows do golden FoxIO (test/golden/pcaps/windows-foxio.ja4.jsonl): mesmas cifras do Chrome medido no
+	// macOS, outras extensões, sem o ja4_r
+	chromeWin := inputFrom(e("chrome", "h2"), uaChromeWin, ipResidential)
+	chromeWin.TLS.JA4, chromeWin.TLS.JA4R = ja4ChromeWindowsFoxIO, ""
+	chromeWin.TCP.P0fOS, chromeWin.TCP.TTLInitial = "", windowsTTL
+	chromeWinVPN := inputFrom(e("chrome", "h2"), uaChromeWin, ipCloud)
+	chromeWinVPN.TLS.JA4, chromeWinVPN.TLS.JA4R = ja4ChromeWindowsFoxIO, ""
+	chromeWinVPN.TCP.P0fOS, chromeWinVPN.TCP.TTLInitial = "", windowsTTL
+	chromeWinVPN.TCP.JA4T = "65535_2-1-3-1-1-8-4-0-0_1360_6"
+	chromeWinVPN.TCP.MSSReduction, chromeWinVPN.TCP.MTUImplied = ptr(100), ptr(1400)
+	curlUAChromeHeader := inputFrom(e("curl", "h2"), ua["chrome"], ipResidential)
+	curlUAChromeHeader.TLS.JA4R = ""
+
 	return []goldenCase{
 		// as classes da ADR 0057 item 1 (rules v1.1; ja4db desligada, ADR 0056 item 1)
 		{"curl", inputFrom(e("curl", "h2"), ua["curl"], ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient}},
@@ -187,6 +212,14 @@ func goldenCases(t testing.TB) []goldenCase {
 		// task 365: o ChatGPT-User da faixa própria (na Azure) é provado pela lista do marcador, não sai ua_claims_crawler
 		{"chatgpt_user_list", inputFrom(e("go", "h2"), uaChatGPTUser, ipChatGPTUser), false, ClassGoodBot, []string{SignalJA4HLibrary, SignalIPCloud, SignalIPVerifiedCrawler}},
 		{"curl_relay", curlRelay, false, ClassBot, []string{SignalJA4HLibrary, SignalRelayRTTGap, SignalLibraryClient}},
+		// casos novos da v1.5 (ADR 0072 item 5): identidade TLS pelo JA4 stable e, em TCP, pela parte b
+		{"chrome_resumed", chromeResumed, false, ClassHuman, []string{SignalKnownClient}},
+		{"chrome_resumed_header_only", chromeResumedHeader, false, ClassHuman, nil},
+		{"chrome_windows_foxio", chromeWin, false, ClassHuman, nil},
+		{"chrome_windows_foxio_vpn", chromeWinVPN, false, ClassHuman, []string{SignalTunnelMSS, SignalIPCloud}},
+		{"curl_ua_chrome_header_only", curlUAChromeHeader, false, ClassBot, []string{SignalUATLSMismatch, SignalUAH2Mismatch, SignalJA4HLibrary}},
+		{"go_h3_ua_chrome", inputFrom(e("go", "h3"), ua["chrome"], ipResidential), false, ClassSuspect, []string{SignalUATLSMismatch, SignalJA4HLibrary}},
+		{"firefox_ua_chrome_stack", inputFrom(e("chrome", "h2"), ua["firefox"], ipResidential), false, ClassHuman, []string{SignalUAH2Mismatch}},
 	}
 }
 
@@ -283,3 +316,34 @@ func compareGolden(t *testing.T, c goldenCase, got Result) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// ja4ChromeWindowsFoxIO é o JA4 do Chrome no Windows do golden FoxIO (test/golden/pcaps/windows-foxio.ja4.jsonl).
+const ja4ChromeWindowsFoxIO = "t13d1516h2_8daaf6152771_e5627efa2ab1"
+
+// withExtension acrescenta uma extensão ao JA4_r (na ordem, como o JA4_r guarda) e soma um na contagem da parte a.
+func withExtension(t testing.TB, raw, ext string) string {
+	t.Helper()
+	p := strings.Split(raw, "_")
+	if len(p) < 3 || len(p[0]) != 10 {
+		t.Fatalf("ja4_r %q", raw)
+	}
+	n, err := strconv.Atoi(p[0][6:8])
+	if err != nil {
+		t.Fatal(err)
+	}
+	p[0] = fmt.Sprintf("%s%02d%s", p[0][:6], n+1, p[0][8:])
+	exts := append(strings.Split(p[2], ","), ext)
+	slices.Sort(exts)
+	p[2] = strings.Join(exts, ",")
+	return strings.Join(p, "_")
+}
+
+// fromRaw devolve o JA4 recalculado do JA4_r (ja4.FromRaw).
+func fromRaw(t testing.TB, raw string) string {
+	t.Helper()
+	j, _, ok := ja4.FromRaw(raw)
+	if !ok {
+		t.Fatalf("ja4.FromRaw(%q)", raw)
+	}
+	return j
+}

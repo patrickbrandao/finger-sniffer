@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4"
 )
 
 // knownClientsPath é a base própria do tester (spec 018), lida pelo teste sem cópia.
@@ -76,6 +78,19 @@ func fieldOf(e knownEntry, kind FPKind) string {
 		p = e.JA4HAB
 	case KindJA4T:
 		p = e.JA4T
+	case KindJA4Stable:
+		// derivado do ja4_r como a base real (ADR 0072 item 1.1)
+		if e.JA4R != nil {
+			if _, st, ok := ja4.FromRaw(*e.JA4R); ok {
+				return st
+			}
+		}
+	case KindJA4Ciphers:
+		if e.JA4 != nil && strings.HasPrefix(*e.JA4, "t") {
+			if parts := strings.Split(*e.JA4, "_"); len(parts) == 3 {
+				return parts[1]
+			}
+		}
 	}
 	if p == nil {
 		return ""
@@ -118,10 +133,10 @@ func ja4tNoMSS(v string) string {
 	return p[0] + "_" + p[1] + "_" + p[3]
 }
 
-func (k fakeKnown) Coherent(ja4, akamai, ja4t string) []string {
+func (k fakeKnown) Coherent(kind FPKind, tls, akamai, ja4t string) []string {
 	var out []string
 	for _, e := range k.entries {
-		if (ja4 == "" || fieldOf(e, KindJA4) == ja4) && (akamai == "" || fieldOf(e, KindAkamai) == akamai) &&
+		if (tls == "" || fieldOf(e, kind) == tls) && (akamai == "" || fieldOf(e, KindAkamai) == akamai) &&
 			(ja4t == "" || fieldOf(e, KindJA4T) == "" || ja4tNoMSS(fieldOf(e, KindJA4T)) == ja4tNoMSS(ja4t)) {
 			out = addUnique(out, e.Client)
 		}

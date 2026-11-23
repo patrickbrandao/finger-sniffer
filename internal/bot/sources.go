@@ -82,6 +82,11 @@ func newKnownSource(k *lists.KnownClients) *knownSource {
 		add(rules.KindAkamai, m.Akamai, m.Client)
 		add(rules.KindJA4HAB, m.JA4HAB, m.Client)
 		add(rules.KindJA4T, m.JA4T, m.Client)
+		// stable derivado do ja4_r na carga e a parte b só de JA4 TCP (ADR 0072 item 1.4)
+		add(rules.KindJA4Stable, &m.JA4Stable, m.Client)
+		if p := strings.Split(m.JA4, "_"); len(p) == 3 && strings.HasPrefix(m.JA4, "t") {
+			add(rules.KindJA4Ciphers, &p[1], m.Client)
+		}
 	}
 	return s
 }
@@ -99,14 +104,19 @@ func (s *knownSource) Measured(family string, kind rules.FPKind) bool {
 	return s.measured[family][kind]
 }
 
-// Coherent implementa rules.KnownClients com o casamento da base (lists.KnownClients.Coherent).
-func (s *knownSource) Coherent(ja4, akamai, ja4t string) []string {
-	if ja4 == "" {
+// Coherent implementa rules.KnownClients com o casamento da base (lists.KnownClients.Coherent), pelo JA4 completo
+// (rules.KindJA4) ou pelo stable (rules.KindJA4Stable).
+func (s *knownSource) Coherent(kind rules.FPKind, tls, akamai, ja4t string) []string {
+	if tls == "" || (kind != rules.KindJA4 && kind != rules.KindJA4Stable) {
 		return nil
 	}
+	o := lists.Observed{JA4: tls, Akamai: akamai, JA4T: ja4t}
+	if kind == rules.KindJA4Stable {
+		o = lists.Observed{JA4Stable: tls, Akamai: akamai, JA4T: ja4t}
+	}
 	var out []string
-	for _, client := range s.byKind[rules.KindJA4][ja4] {
-		if _, ok := s.k.Coherent(client, lists.Observed{JA4: ja4, Akamai: akamai, JA4T: ja4t}); ok {
+	for _, client := range s.byKind[kind][tls] {
+		if _, ok := s.k.Coherent(client, o); ok {
 			out = append(out, client)
 		}
 	}

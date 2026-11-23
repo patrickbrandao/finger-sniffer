@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4"
 )
 
 // KnownClientsName é o nome da base própria no health, nas métricas e no lists_version.
@@ -39,6 +41,8 @@ type KnownClient struct {
 	ALPN          []string `json:"alpn"`
 	MeasuredAt    string   `json:"measured_at"`
 	Commit        string   `json:"commit"`
+	// JA4Stable é derivado do `ja4_r` na carga (ja4.FromRaw, ADR 0072 item 1.1); não é campo do arquivo.
+	JA4Stable string `json:"-"`
 }
 
 // Family é o conjunto das impressões medidas de uma família de cliente (o campo `client`).
@@ -55,6 +59,7 @@ type KnownClients struct {
 	Measured []KnownClient
 	families map[string]*Family
 	byJA4    map[string][]int
+	byStable map[string][]int
 }
 
 var (
@@ -87,12 +92,19 @@ func ParseKnownClients(b []byte) (*KnownClients, error) {
 	sum := sha256.Sum256(b)
 	k := &KnownClients{
 		Version: hex.EncodeToString(sum[:]), Measured: doc.Measured,
-		families: map[string]*Family{}, byJA4: map[string][]int{},
+		families: map[string]*Family{}, byJA4: map[string][]int{}, byStable: map[string][]int{},
 	}
 	for i, m := range doc.Measured {
 		if err := m.validate(); err != nil {
 			return nil, fmt.Errorf("lists: known_clients[%d]: %w", i, err)
 		}
+		// o ja4_r tem de reproduzir o ja4: o stable derivado é o do mesmo ClientHello (ADR 0072 item 1.3)
+		full, stable, ok := ja4.FromRaw(m.JA4R)
+		if !ok || full != m.JA4 {
+			return nil, fmt.Errorf("lists: known_clients[%d]: ja4_r does not reproduce ja4 %q", i, m.JA4)
+		}
+		m.JA4Stable = stable
+		k.Measured[i].JA4Stable = stable
 		f := k.families[m.Client]
 		if f == nil {
 			f = &Family{JA4: map[string]bool{}, Akamai: map[string]bool{}, JA4HAB: map[string]bool{}, JA4T: map[string]bool{}}
@@ -109,6 +121,7 @@ func ParseKnownClients(b []byte) (*KnownClients, error) {
 			f.JA4T[*m.JA4T] = true
 		}
 		k.byJA4[m.JA4] = append(k.byJA4[m.JA4], i)
+		k.byStable[stable] = append(k.byStable[stable], i)
 	}
 	return k, nil
 }
@@ -164,17 +177,22 @@ func (k *KnownClients) ByJA4(ja4 string) []KnownClient {
 	return out
 }
 
-// Observed são as impressões de uma requisição para o casamento com a base (vazio = ausente).
+// Observed são as impressões de uma requisição para o casamento com a base (vazio = ausente). Com JA4Stable, o
+// casamento é pelo stable e o JA4 não é comparado (ADR 0072 item 1.5).
 type Observed struct {
-	JA4, Akamai, JA4HAB, JA4T string
+	JA4, JA4Stable, Akamai, JA4HAB, JA4T string
 }
 
-// Coherent devolve a primeira medida da família cujas impressões presentes batem todas com as observadas (JA4
-// obrigatório; Akamai, JA4H a+b e JA4T só quando os dois lados têm o valor). O JA4T compara sem o campo do MSS
+// Coherent devolve a primeira medida da família cujas impressões presentes batem todas com as observadas (JA4 ou
+// JA4 stable obrigatório; Akamai, JA4H a+b e JA4T só quando os dois lados têm o valor). O JA4T compara sem o campo do MSS
 // (janela, opções e escala; rules v1.2, ADR 0058 item 4): o grampo de MSS no caminho não muda o cliente, e o MSS
 // reduzido é do sinal tunnel_mss. Sem medida coerente: ok=false.
 func (k *KnownClients) Coherent(client string, o Observed) (KnownClient, bool) {
-	for _, i := range k.byJA4[o.JA4] {
+	idx := k.byJA4[o.JA4]
+	if o.JA4Stable != "" {
+		idx = k.byStable[o.JA4Stable]
+	}
+	for _, i := range idx {
 		m := k.Measured[i]
 		if m.Client != client {
 			continue

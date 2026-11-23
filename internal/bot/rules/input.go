@@ -8,7 +8,7 @@ package rules
 import "net/netip"
 
 // RulesVersion é a versão das regras (ADR 0049 item 6: mudança de regra muda a versão e regrava os goldens).
-const RulesVersion = "v1.4"
+const RulesVersion = "v1.5"
 
 // Input é o que as regras leem. Cada parte é opcional (nil quando a visão não tinha aquela camada).
 type Input struct {
@@ -43,6 +43,10 @@ type TCP struct {
 type TLS struct {
 	JA4  string
 	JA4R string
+	// JA4Stable é o JA4 sem padding, session_ticket e pre_shared_key (spec 008 RF-03), que não muda na retomada TLS
+	// 1.3 (ADR 0072 item 1.1). Vazio com JA4R presente, as regras o derivam do JA4R (ja4.FromRaw). Omitido do JSON
+	// quando vazio: as entradas golden anteriores não mudam.
+	JA4Stable string `json:",omitempty"`
 	// ALPN oferecido no ClientHello, na ordem.
 	ALPN []string
 	// ALPNUnknown diz que o ALPN oferecido não é conhecido (visão TLS só dos cabeçalhos do forwardAuth, sem

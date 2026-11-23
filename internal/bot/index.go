@@ -121,13 +121,16 @@ func (f *ForkConn) ParseError() bool {
 // bytes (pkg/tlsparse, pkg/fingerprint), ou, sem os bytes crus, as prontas do traefix (Ready, ADR 0063 item 4).
 // Com ParseError, nenhuma fingerprint é preenchida.
 type ForkTLS struct {
-	JA3        string
-	JA3MD5     string
-	JA3N       string
-	JA3NMD5    string
-	JA4        string
-	JA4R       string
-	JA4O       string
+	JA3     string
+	JA3MD5  string
+	JA3N    string
+	JA3NMD5 string
+	JA4     string
+	JA4R    string
+	JA4O    string
+	// JA4Stable é o stable do ClientHello cru (ja4.Compute, ADR 0072 item 1.1); vazio nas prontas do traefix, em que
+	// as regras o derivam do JA4R.
+	JA4Stable  string
 	SNI        string
 	ALPN       []string // ALPN oferecido, na ordem do ClientHello
 	Truncated  bool

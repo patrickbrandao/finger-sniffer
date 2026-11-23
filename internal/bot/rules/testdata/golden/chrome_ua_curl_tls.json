@@ -1,5 +1,5 @@
 {
-  "rules_version": "v1.4",
+  "rules_version": "v1.5",
   "ja4db": false,
   "input": {
     "IP": "192.0.2.10",
@@ -46,7 +46,7 @@
         "id": "ua_tls_mismatch",
         "kind": "incoherence",
         "weight": 45,
-        "detail": "ua chrome, ja4 t13d3012h2_1d37bd780c83_581742d1f3c4 not in chrome set"
+        "detail": "ua chrome, ja4 stable t13d3012h2_1d37bd780c83_581742d1f3c4 not in chrome set"
       },
       {
         "id": "ua_h2_mismatch",

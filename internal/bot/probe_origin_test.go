@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/rules"
 )
 
 // TestProbeVerdictOriginNormalized: task 295 (ADR 0060 item 1) — o probe aberto pelo curl com Origin de um domínio
@@ -55,7 +57,7 @@ func TestProbeVerdictOriginNormalized(t *testing.T) {
 	if v.Fingerprints == nil || v.Fingerprints.JA4H == nil || *v.Fingerprints.JA4H != measured {
 		t.Errorf("JA4H publicado %v, quer o medido %s", v.Fingerprints, measured)
 	}
-	if v.RulesVersion != "v1.4" {
+	if v.RulesVersion != rules.RulesVersion {
 		t.Errorf("rules_version %q", v.RulesVersion)
 	}
 }
