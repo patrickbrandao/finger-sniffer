@@ -45,11 +45,12 @@ func TestAuthJA4HHeader(t *testing.T) {
 	if metric(ja4hFromHeader) != 1 || metric(ja4hFromIngest) != 0 || metric(ja4hNone) != 0 {
 		t.Errorf("bot_auth_ja4h_total: header %v ingest %v none %v", metric(ja4hFromHeader), metric(ja4hFromIngest), metric(ja4hNone))
 	}
-	// modo block: 403 com o veredito nos cabeçalhos
+	// modo block: 403 mínimo, sem o veredito (ADR 0074); o veredito segue na consulta
 	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", block, hdr, "")
-	if c != 403 || h.Get("X-Fs-Verdict") != ClassBot || h.Get("X-Fs-Score") != "70" ||
-		h.Get("X-Fs-Signals") != "ja4h_library,library_client" {
-		t.Fatalf("block com X-Fs-Ja4h: %d %v %s", c, h, b)
+	checkMinimal403(t, "block com X-Fs-Ja4h", c, h, b)
+	_, _, b = f.do(f.internal, "GET", "/bot/v1/verdict/conn/"+hdr["X-Fs-Conn-Id"], "", nil, "")
+	if err := json.Unmarshal(b, &v); err != nil || v.Class != ClassBot || v.Score != 70 || signalIDs(v.Signals) != "ja4h_library,library_client" {
+		t.Fatalf("veredito do block na consulta: %s", b)
 	}
 
 	// sem o cabeçalho e sem ingest: como antes, só library_client (suspect 50), passa no block
@@ -128,10 +129,8 @@ func TestAuthErrorsWithoutVerdict(t *testing.T) {
 	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", "fsk_"+strings.Repeat("c", 52), hdr, "")
 	noVerdict("401", c, 401, h, b)
 	// 429 (só na 9002, ADR 0073 item 4): o balde de 1 gasto na primeira (que é o 403 do block, com veredito)
-	c, h, _ = f.do(f.public, "GET", "/bot/v1/auth", limited, hdr, "")
-	if c != 403 || h.Get("X-Fs-Verdict") != ClassBot {
-		t.Fatalf("block: %d %v", c, h)
-	}
+	c, h, b = f.do(f.public, "GET", "/bot/v1/auth", limited, hdr, "")
+	checkMinimal403(t, "block", c, h, b)
 	c, h, b = f.do(f.public, "GET", "/bot/v1/auth", limited, hdr, "")
 	noVerdict("429", c, 429, h, b)
 	// 403 forbidden_origin na 9003

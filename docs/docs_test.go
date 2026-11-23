@@ -921,14 +921,14 @@ func TestBotDoc(t *testing.T) {
 		"7 dias e 1 hora", "`observe`", "`block`", "key create", "forget",
 		// forwardAuth do bot (ADRs 0058, 0062 e 0063): contrato 0.5.0, regras v1.4 (ADRs 0060 e 0065), perfil da spec 019
 		// com X-Traefix-*, fail-open de 4xx, visão TCP, latest e o processo de andar juntos, licença FoxIO
-		"versão\n0.6.0", "`v1.4`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook",
+		"versão\n0.7.0", "`v1.4`", "sem `Origin` e `Referer`", "O veredito por probe não vai ao feed nem ao webhook",
 		"X-Traefix-Ja4h", "X-Traefix-Ja4t", "X-Traefix-Alpn", "X-Traefix-Conn-Id",
 		"**Os backends leem só `X-Traefix-*`, nunca `X-Fs-*`.**", "fingerprint:\n      tcp: true", "rawBytes: true",
 		"timeout: 200ms", "authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]", "**nunca vazio**",
-		"requestHeaders:\n          Authorization: \"Bearer fsk_...\"", "denyRequiresResponseHeader: X-Traefix-Verdict",
+		"requestHeaders:\n          Authorization: \"Bearer fsk_...\"", "denyRequiresResponseHeader: X-Traefix-Deny",
 		"header: { name: X-Traefix-Verdict, value: unavailable }",
 		"address: https://finger-01.badblock.net.br:9002/bot/v1/auth", "traefik_forwardauth_failopen_total{reason=\"http_4xx\"}",
-		"4xx **sem** `X-Traefix-Verdict`", "403 **com** `X-Traefix-Verdict`", "o `Cookie` e o `Authorization` do visitante\nnunca vão ao bot",
+		"4xx **sem** `X-Traefix-Deny`", "403 **com** `X-Traefix-Deny`", "`forbidden`", "`busy`", "o `Cookie` e o `Authorization` do visitante\nnunca vão ao bot",
 		"`fs_bot_auth_ja4h_total{source}`", "`fs_bot_auth_fingerprint_total{kind,source}`",
 		"`fs_bot_ingest_fingerprint_mismatch_total{kind}`", "`traefik_fingerprint_export_dropped_total{entrypoint,reason}`",
 		"JA4T sem o MSS", "`traefix.fingerprint/v1`", "`TraefikIngestBatch`", "`traefix.fingerprint/v2`",

@@ -239,12 +239,9 @@ func TestAuthTraefixHeaderSets(t *testing.T) {
 	hdr = traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T53", 50053, "h2", "curl/8.7.1")
 	hdr["X-Traefix-Ja4h"] = ja4hCurl
 	delete(hdr, "Accept-Language")
-	c, h, v, b = f.authVerdict("internal", blk, hdr)
-	if c != 403 || v.Class != ClassBot || h.Get("X-Traefix-Verdict") != ClassBot {
-		t.Fatalf("block: %d %v %s", c, h, b)
-	}
-	sameSets(h)
-	vals.add(refVerdict, b)
+	c, h, _, b = f.authVerdict("internal", blk, hdr)
+	checkMinimal403(t, "block", c, h, b)
+	vals.add(refError, b)
 	// erro de chave: nenhum Verdict
 	c, h, _, b = f.authVerdict("public", "", traefixAuthHeaders("01JC0X3K8V2T7Q9F4M6P1R5T54", 50054, "h2", "x"))
 	if c != 401 {

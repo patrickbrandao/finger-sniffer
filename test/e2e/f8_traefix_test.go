@@ -539,9 +539,10 @@ func TestF8TraefixReal(t *testing.T) {
 		requireTraefix(t, traefixBlockURL, "FS_E2E_TRAEFIX_BLOCK_URL")
 		status, h, _ := traefixGet(t, traefixBlockURL)
 		firstAuths++
-		if status != http.StatusForbidden || h.Get("X-Traefix-Verdict") != "bot" {
-			t.Errorf("curl na primeira requisição em block: %d X-Traefix-Verdict %q, esperado 403 bot (spec 019 RF-04)",
-				status, h.Get("X-Traefix-Verdict"))
+		// 403 mínimo do bot devolvido pelo traefix com o perfil denyRequiresResponseHeader: X-Traefix-Deny (ADR 0074)
+		if status != http.StatusForbidden || h.Get("X-Traefix-Deny") != "1" || h.Get("X-Traefix-Verdict") != "" {
+			t.Errorf("curl na primeira requisição em block: %d X-Traefix-Deny %q X-Traefix-Verdict %q, esperado 403 com só o marcador (spec 019 RF-04, ADR 0074)",
+				status, h.Get("X-Traefix-Deny"), h.Get("X-Traefix-Verdict"))
 		}
 	})
 

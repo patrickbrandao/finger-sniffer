@@ -246,10 +246,8 @@ func TestContractResponses(t *testing.T) {
 	}
 	_, blk := f.createKey(KeyOptions{Name: "blk0", Domains: []string{"www.example.com"}, Mode: ModeBlock})
 	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", blk, ja4hHdr, "")
-	expect(403, c, refVerdict, b)
-	if h.Get("X-Fs-Verdict") != ClassBot || h.Get("X-Fs-Signals") != "ja4h_library,library_client" {
-		t.Errorf("X-Fs-Ja4h em block: %v", h)
-	}
+	expect(403, c, refError, b) // 403 mínimo do block (openapi 0.7.0, ADR 0074)
+	checkMinimal403(t, "X-Fs-Ja4h em block", c, h, b)
 	// Vereditos reais das rotas de consulta (task 282): pelo id do fork, pela origem, por probe e o 403 do block.
 	c, _, b = f.do(f.internal, "GET", "/bot/v1/verdict/conn/"+testForkConnID, "", nil, "")
 	expect(200, c, refVerdict, b)
@@ -266,6 +264,7 @@ func TestContractResponses(t *testing.T) {
 	c, _, b = f.do(f.internal, "GET", "/bot/v1/fingerprints/ja4/t13d1517h2_8daaf6152771_cb7bf5808d99", "", nil, "")
 	expect(200, c, refFPStats, b)
 	// Goldens ponta a ponta: lote e veredito de cada cliente.
+	var lastVerdict []byte
 	for i, vc := range verdictCases {
 		batch, _ := vc.build(t, i)
 		vals.add(refBatch, batch)
@@ -274,18 +273,19 @@ func TestContractResponses(t *testing.T) {
 		fsID, _, _ := goldenIDs(i)
 		c, _, b = g.do(g.internal, "GET", "/bot/v1/verdict/conn/"+fsID, "", nil, "")
 		expect(200, c, refVerdict, b)
-		// forwardAuth com chave em modo block: 403 com o Verdict para bot, 200 para os demais
+		lastVerdict = b
+		// forwardAuth com chave em modo block: 403 mínimo (Error) para bot, 200 com o Verdict para os demais
 		_, block := g.createKey(KeyOptions{Name: "blk", Domains: []string{"www.example.com"}, Mode: ModeBlock})
-		want := 200
+		want, ref := 200, refVerdict
 		if vc.wantClass == ClassBot {
-			want = 403
+			want, ref = 403, refError
 		}
 		c, _, b = g.do(g.internal, "GET", "/bot/v1/auth", block, authHeaders(i, vc.ua), "")
-		expect(want, c, refVerdict, b)
+		expect(want, c, ref, b)
 	}
 	// Evento do feed (o serializador é o mesmo do SSE).
 	var v Verdict
-	_ = json.Unmarshal(b, &v)
+	_ = json.Unmarshal(lastVerdict, &v)
 	ev, _ := json.Marshal(VerdictEvent{Kind: "verdict", Ts: v.Ts, Verdict: &v})
 	vals.add(refEvent, ev)
 	ev, _ = json.Marshal(VerdictEvent{Kind: "stream.dropped", Ts: v.Ts, Dropped: 3})
