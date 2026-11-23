@@ -66,7 +66,7 @@ func TestHeartbeatMetricsRF12(t *testing.T) {
 	s.syncWebhooks(ctx)
 	site := "example.com"
 	s.hub.Publish(&Verdict{Class: ClassBot, Signals: []Signal{}, Subject: Subject{Kind: "request", Site: &site}, Ts: "2026-11-16T12:00:00.000000000Z"})
-	for deadline := time.Now().Add(5 * time.Second); m.Get(`bot_webhook_sent_total{code="204"}`) == 0; {
+	for deadline := time.Now().Add(5 * time.Second); m.Get(`bot_webhook_sent_total{code="2xx"}`) == 0; {
 		if time.Now().After(deadline) {
 			t.Fatal("webhook não enviado")
 		}
