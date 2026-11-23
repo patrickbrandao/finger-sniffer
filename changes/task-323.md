@@ -1,0 +1,1 @@
+- web: captura do ClientHello remonta a mensagem (≤ 64 KiB) com qualquer fragmentação, guarda os registros crus só até 16 KiB (`client_hello_truncated` acima), reserva do `FS_WEB_INPUT_BUDGET` até publicar e fecha antes do handshake sem orçamento (task 323, ADR 0070).

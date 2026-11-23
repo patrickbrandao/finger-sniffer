@@ -7,34 +7,42 @@ import (
 	"testing"
 )
 
-// refCapture é a captura anterior à task 166 (Reassemble do buffer inteiro a cada Read), usada como
-// referência de equivalência.
-func refCapture(chunks [][]byte) ([]byte, error) {
-	var buf []byte
-	for _, p := range chunks {
-		buf = append(buf, p...)
-		r, err := Reassemble(buf)
-		switch {
-		case err == nil:
-			return buf[:r.Consumed], nil
-		case errors.Is(err, ErrIncomplete):
-			if len(buf) >= maxCapture {
-				return buf[:maxCapture], ErrTooLarge
-			}
-		default:
-			return buf, err
-		}
+// capResult é o que a captura expõe: registros crus, mensagem remontada e erro.
+type capResult struct {
+	records, msg []byte
+	err          error
+}
+
+// refCapture é a referência de equivalência: Reassemble do fluxo inteiro (task 166), com os registros crus
+// cortados em MaxCapturedRecords (task 323). A mensagem só é comparada quando não há erro definitivo.
+func refCapture(data []byte) capResult {
+	r, err := Reassemble(data)
+	if err != nil && !errors.Is(err, ErrIncomplete) {
+		return capResult{err: err}
 	}
-	return buf, ErrIncomplete
+	recs := data[:r.Consumed]
+	if err != nil {
+		// incompleto: tudo o que chegou é do ClientHello
+		recs = data
+	}
+	if len(recs) > MaxCapturedRecords {
+		recs = recs[:MaxCapturedRecords]
+	}
+	return capResult{records: recs, msg: r.Message, err: err}
 }
 
 // feed entrega os pedaços a uma Conn nova, como Reads sucessivos.
-func feed(chunks [][]byte) ([]byte, error) {
+func feed(chunks [][]byte) capResult {
 	c := NewConn(nil)
 	for _, p := range chunks {
 		c.capture(p)
 	}
-	return c.Records()
+	recs, err := c.Records()
+	if err != nil && !errors.Is(err, ErrIncomplete) {
+		return capResult{err: err}
+	}
+	ch, _ := c.ClientHello()
+	return capResult{records: recs, msg: ch.Raw, err: err}
 }
 
 // split corta data em pedaços cujos tamanhos vêm, em ciclo, de sizes (0 vira 1).
@@ -54,21 +62,12 @@ func split(data []byte, sizes []byte) [][]byte {
 
 func checkEquivalent(t *testing.T, name string, chunks [][]byte) {
 	t.Helper()
-	ref := chunks
-	if total := len(bytes.Join(chunks, nil)); total > 8<<10 && len(chunks) > 1 {
-		// A referência é quadrática: entradas grandes cortadas são comparadas com a remontagem do total,
-		// que dá o mesmo resultado quando ele não depende do corte (ClientHello completo ou teto de
-		// maxCapture, atingido no Read que passa dele, em qualquer corte de até 255 bytes).
-		all := bytes.Join(chunks, nil)
-		ref = [][]byte{all}
-		if len(all) > maxCapture {
-			ref = [][]byte{all[:maxCapture], all[maxCapture:]}
-		}
-	}
-	wantB, wantErr := refCapture(ref)
-	gotB, gotErr := feed(chunks)
-	if !bytes.Equal(gotB, wantB) || fmt.Sprint(gotErr) != fmt.Sprint(wantErr) {
-		t.Fatalf("%s: got %d bytes err %v, want %d bytes err %v", name, len(gotB), gotErr, len(wantB), wantErr)
+	want := refCapture(bytes.Join(chunks, nil))
+	got := feed(chunks)
+	if !bytes.Equal(got.records, want.records) || !bytes.Equal(got.msg, want.msg) ||
+		fmt.Sprint(got.err) != fmt.Sprint(want.err) {
+		t.Fatalf("%s: got %d/%d bytes err %v, want %d/%d bytes err %v", name, len(got.records), len(got.msg),
+			got.err, len(want.records), len(want.msg), want.err)
 	}
 }
 
@@ -108,7 +107,7 @@ func TestConnIncrementalEquivalent(t *testing.T) {
 		"other type mid":            append(append([]byte{0x16, 0x03, 0x01, 0, 10}, msg[:10]...), 0x17, 0x03, 0x03, 0, 1, 0),
 		"zero-length records":       append(bytes.Repeat([]byte{0x16, 0x03, 0x01, 0, 0}, 50), goRec...),
 		"later version not checked": append(append([]byte{0x16, 0x03, 0x01, 0, 10}, msg[:10]...), tinyRecords(msg[10:], 7)...),
-		"max capture":               tinyRecords(append([]byte{1, 0, 0xea, 0x60}, make([]byte, 60000)...), 1),
+		"60000 1-byte":              tinyRecords(append([]byte{1, 0, 0xea, 0x60}, make([]byte, 60000)...), 1),
 		"short":                     goRec[:3],
 	}
 	for name, data := range inputs {

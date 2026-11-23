@@ -12,6 +12,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -237,19 +238,89 @@ func TestConnNotTLS(t *testing.T) {
 	}
 }
 
-func TestConnTooLarge(t *testing.T) {
-	// ClientHello de 60000 bytes em registros de 1 byte: a captura para no teto
+// TestConnFragmentedBig (task 323): ClientHello de 60000 bytes em registros de 1 byte (360 KiB no fio) é
+// remontado inteiro, os registros crus param em MaxCapturedRecords e a captura reserva o que aloca.
+func TestConnFragmentedBig(t *testing.T) {
 	msg := append([]byte{1, 0, 0xea, 0x60}, make([]byte, 60000)...)
 	var stream []byte
 	for _, b := range msg {
 		stream = append(stream, 0x16, 0x03, 0x01, 0, 1, b)
 	}
 	c := NewConn(&chunkConn{data: stream, chunk: 1 << 16})
+	var held int
+	c.Reserve = func(n int) bool { held += n; return true }
+	c.Unreserve = func(n int) { held -= n }
 	if got := readAll(t, c); len(got) != len(stream) {
 		t.Fatal("Read alterou o fluxo")
 	}
 	recs, err := c.Records()
-	if !errors.Is(err, ErrTooLarge) || len(recs) != maxCapture {
-		t.Fatalf("err=%v len=%d", err, len(recs))
+	if err != nil || len(recs) != MaxCapturedRecords || cap(recs) != MaxCapturedRecords || !c.RecordsTruncated() {
+		t.Fatalf("err=%v len=%d cap=%d", err, len(recs), cap(recs))
+	}
+	ch, _ := c.ClientHello()
+	if !bytes.Equal(ch.Raw, msg) || ch.Records != len(msg) {
+		t.Fatalf("mensagem %d bytes, %d registros", len(ch.Raw), ch.Records)
+	}
+	if want := len(msg) + MaxCapturedRecords; held != want || c.Reserved() != want {
+		t.Fatalf("reservado %d, quer %d", held, want)
+	}
+	c.Release()
+	c.Release()
+	if recs, _ := c.Records(); recs != nil || held != 0 {
+		t.Fatalf("depois de Release: %d bytes, reservado %d", len(recs), held)
+	}
+}
+
+// TestConnNoBudget (task 323): reserva recusada encerra a leitura com ErrNoBudget, sem nada retido.
+func TestConnNoBudget(t *testing.T) {
+	c := NewConn(&chunkConn{data: readSample(t, "go"), chunk: 1 << 16})
+	c.Reserve = func(int) bool { return false }
+	if _, err := c.Read(make([]byte, 1<<16)); !errors.Is(err, ErrNoBudget) {
+		t.Fatalf("err=%v", err)
+	}
+	if recs, err := c.Records(); recs != nil || !errors.Is(err, ErrNoBudget) || c.Reserved() != 0 {
+		t.Fatalf("%d %v", len(recs), err)
+	}
+}
+
+// TestConnReserveCoversHeap (task 323, ADR 0036 item 2): com o ClientHello de 60000 bytes em registros de 1
+// byte parado antes do fim, a reserva cobre ao menos 90% do heap retido pela captura, e Release o devolve.
+func TestConnReserveCoversHeap(t *testing.T) {
+	msg := append([]byte{1, 0, 0xea, 0x60}, make([]byte, 60000)...)
+	var stream []byte
+	for _, b := range msg[:len(msg)-1] {
+		stream = append(stream, 0x16, 0x03, 0x01, 0, 1, b)
+	}
+	heap := func() int64 {
+		runtime.GC()
+		runtime.GC()
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return int64(m.HeapAlloc) //nolint:gosec // cabe em int64
+	}
+	const n = 32
+	conns := make([]*Conn, n)
+	var held int
+	before := heap()
+	for i := range conns {
+		c := NewConn(nil)
+		c.Reserve = func(k int) bool { held += k; return true }
+		c.Unreserve = func(k int) { held -= k }
+		for off := 0; off < len(stream); off += 1500 {
+			c.capture(stream[off:min(off+1500, len(stream))])
+		}
+		conns[i] = c
+	}
+	retained := heap() - before
+	ratio := float64(held) / float64(retained)
+	t.Logf("reservado %d, retido %d (%.1f%%), %d por conexão", held, retained, 100*ratio, retained/n)
+	if ratio < 0.9 || retained/n > 100<<10 {
+		t.Fatalf("reservado %d, retido %d", held, retained)
+	}
+	for _, c := range conns {
+		c.Release()
+	}
+	if held != 0 {
+		t.Fatalf("sobra %d", held)
 	}
 }

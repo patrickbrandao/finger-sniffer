@@ -168,6 +168,13 @@ func (c *conn) serveTLS(ic *idleConn) {
 	// Os bytes crus dos dois sentidos passam pelos leitores de alertas durante o handshake (ADR 0029).
 	ac := newAlertConn(ic)
 	tc := tlsparse.NewConn(ac)
+	// A captura do ClientHello reserva do orçamento até o fim do handshake (ADR 0070 item 7); sem orçamento,
+	// a conexão fecha antes do handshake e a recusa conta em web_input_budget_denied_total.
+	if b := s.budget; b != nil {
+		tc.Reserve = func(n int) bool { return b.reserve(int64(n)) }
+		tc.Unreserve = func(n int) { b.release(int64(n)) }
+	}
+	defer tc.Release()
 	published := false
 	publishHello := func() {
 		if published {
@@ -175,6 +182,7 @@ func (c *conn) serveTLS(ic *idleConn) {
 		}
 		published = true
 		c.publishClientHello(tc)
+		tc.Release()
 	}
 	cfg := s.deps.TLS.Clone()
 	cfg.NextProtos = []string{http2.NextProtoTLS, "http/1.1"}
@@ -201,6 +209,10 @@ func (c *conn) serveTLS(ic *idleConn) {
 	// Handshake que falhou antes do callback (ClientHello que o crypto/tls recusou): publica o que houver.
 	publishHello()
 	c.publishHandshake(ts, err, seen, start, end)
+	if errors.Is(err, tlsparse.ErrNoBudget) {
+		_ = c.raw.Close()
+		return
+	}
 	if err != nil {
 		// Sessão TLS morta: espera o cliente fechar (ou a ociosidade) sem fechar antes (RF-08).
 		drain(ic)
@@ -233,12 +245,16 @@ func (c *conn) serveTLS(ic *idleConn) {
 // publishClientHello publica fs.v1.web.tls.client_hello com JA3/JA4 (spec 008).
 func (c *conn) publishClientHello(tc *tlsparse.Conn) {
 	records, rerr := tc.Records()
-	ch, perr := tlsparse.Parse(records)
-	if ch == nil {
-		c.srv.log.Debug("web client hello", "records_err", rerr, "parse_err", perr)
+	if errors.Is(rerr, tlsparse.ErrNoBudget) {
 		return
 	}
+	// A mensagem vem remontada pela captura: os fingerprints saem com qualquer fragmentação, mesmo com os
+	// registros crus cortados em MaxCapturedRecords (task 323).
+	ch, perr := tc.ClientHello()
 	info := tlsparse.NewInfo(ch, records, c.srv.cfg.EventInlineMax)
+	if tc.RecordsTruncated() {
+		info.ClientHelloTruncated = true
+	}
 	if perr == nil {
 		ja3.Fill(info, ch)
 		ja4.Fill(info, ch, ja4.TCP)
