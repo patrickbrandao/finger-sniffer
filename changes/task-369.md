@@ -1,0 +1,1 @@
+- bot: o forwardAuth com uma chave que aponta `X-Traefix-Conn-Id`/`X-Fs-Conn-Id` para a conexão de um site fora dos domínios dela avalia só pelos cabeçalhos, sem ler as fingerprints nem gravar o veredito ou a vez de publicação na conexão; conferência comum com o ingest (`connAllowed`) (task 369).

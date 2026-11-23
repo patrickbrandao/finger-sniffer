@@ -483,8 +483,9 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 	})
 }
 
-// Auth avalia a requisição do forwardAuth com as visões que chegaram na espera e a registra (fonte auth).
-func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn) Verdict {
+// Auth avalia a requisição do forwardAuth com as visões que chegaram na espera e, com keep, a registra na conexão
+// (fonte auth); sem keep (conexão de site fora da chave, task 369) nada é gravado nem publicado.
+func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fork *ForkConn, store *StoreConn, keep bool) Verdict {
 	req, ja4hSource := httpFromAuth(h, &f, fork)
 	j.metrics.Add(authJA4HMetric(ja4hSource), 1)
 	var src fpSources
@@ -494,6 +495,10 @@ func (j *Judge) Auth(f forkHeaders, site, method, path string, h http.Header, fo
 	j.metrics.Add(authFPMetric("h2", src.h2), 1)
 	j.metrics.Add(authFPMetric("tcp", src.tcp), 1)
 	j.metrics.Add(authFPMetric("timing", src.timing), 1)
+	if !keep {
+		j.count(SourceAuth, v.Class)
+		return v
+	}
 	j.record(f.fsConnID, true, &v, res, published{ip: f.srcIP, site: site, path: path}, func(c *ForkConn) {
 		// conexão ainda sem registro do traefix: a origem vem dos cabeçalhos (o registro de conexão completa depois). First
 		// fica zero: o instante do forwardAuth não é o início da conexão, e numa conexão longa (keep-alive) ele
