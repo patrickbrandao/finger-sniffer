@@ -1,7 +1,7 @@
 # 0033 — Orçamento de memória de entrada do web
 
 Status: aceita (padrão, faixa, reserva do WebSocket e conta de memória: ver 0036; padrão 192 MiB, faixa 8–256 MiB
-e conta para 768M: ver 0039, 2026-11-15)
+e conta para 768M: ver 0039, 2026-11-15; regra completada pela 0070)
 Data: 2026-11-14
 
 ## Contexto

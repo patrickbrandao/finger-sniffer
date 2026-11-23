@@ -55,6 +55,11 @@ o Initial.
   `H3_EXCESSIVE_LOAD` (0x0107). A reserva é a capacidade do buffer (ADR 0036). Janelas de recepção do quic-go:
   iniciais no padrão (transport parameters sem mudança), máximas de 2 MiB por stream e 4 MiB por conexão. O
   socket UDP tem `SO_RCVBUF`/`SO_SNDBUF` de no máximo 1 MiB: o wrapper do web limita o pedido do quic-go (ADR 0037).
+  ADR 0070: o cabeçalho decodificado de cada stream reserva do mesmo hold de 2 MiB por conexão até o `publish` (sem
+  reserva, ou decodificado acima de 1 MiB, `H3_EXCESSIVE_LOAD`); os frames guardados do stream de controle têm teto
+  de 64 KiB e reservam do orçamento; só o primeiro stream de controle do cliente é analisado e o segundo fecha a
+  conexão com `H3_STREAM_CREATION_ERROR` (0x0103, RFC 9114 §6.2.1); a escrita do corpo usa pedaços de até 32 KiB e
+  prazo por stream igual à ociosidade corrente (vencido, `CancelWrite` e registro).
 - Frames h3: o web lê os bytes do stream de controle do cliente (tipo, SETTINGS na ordem; `h3_control_stream_seen`
   distingue "o cliente não abriu o stream de controle", comum no curl/nghttp3, de "SETTINGS vazio";
   entra no contrato junto com o produtor, task 073) e de cada stream de
@@ -95,3 +100,4 @@ o Initial.
 - specs/decisions/0029-campos-da-auditoria-de-requisitos.md
 - specs/decisions/0032-campos-da-auditoria-de-2026-11.md
 - specs/decisions/0033-orcamento-de-memoria-de-entrada-do-web.md
+- specs/decisions/0070-orcamento-de-entrada-por-cliente-anonimo-no-web-e-no-raw.md
