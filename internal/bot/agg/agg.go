@@ -34,7 +34,8 @@ const (
 // Constantes dos acumuladores.
 const (
 	// DefaultMaxEntries é o teto padrão de entradas em memória (comportamento por IP + site, horas abertas e
-	// fingerprints do dia); cheio, a observação é descartada e contada em bot_agg_dropped_total.
+	// fingerprints do dia); cheio, despeja os comportamentos menos recentes já gravados e, sem nenhum, descarta a
+	// observação e conta em bot_agg_dropped_total (ADR 0073 item 7.4).
 	DefaultMaxEntries = 200_000
 	// BehaviorHours é a janela do cache de comportamento (spec 018 RF-09): a hora corrente e as 23 anteriores.
 	BehaviorHours = 24
@@ -45,6 +46,20 @@ const (
 	// maxSiteLen e maxValueLen limitam o que entra como chave.
 	maxSiteLen  = 253
 	maxValueLen = 512
+	// MaxSitesPerOrigin é o teto de entradas de hora (IP + site) que uma origem (IPv4; IPv6 por /64) cria numa hora;
+	// MaxFingerprintsPerOrigin, o de fingerprints novas no dia (ADR 0073 item 7).
+	MaxSitesPerOrigin        = 32
+	MaxFingerprintsPerOrigin = 256
+	// evictFraction é a fração do teto despejada por passo com o teto global cheio (1%); emptyScanBackoff é o
+	// intervalo entre varreduras quando nada era despejável (tudo por gravar).
+	evictFraction    = 100
+	emptyScanBackoff = time.Second
+)
+
+// Motivos de bot_agg_limited_total.
+const (
+	LimitIPSites        = "ip_sites"
+	LimitIPFingerprints = "ip_fingerprints"
 )
 
 // Fingerprint é uma fingerprint vista na requisição.
@@ -117,6 +132,8 @@ type Config struct {
 	// MaxAge é a idade máxima de uma hora ainda não gravada (falha persistente do flush); passada, é descartada.
 	// Padrão 7 dias (ADR 0052 item 1).
 	MaxAge time.Duration
+	// Now é o relógio da marca de teto cheio (FullSince; time.Now se nil).
+	Now func() time.Time
 }
 
 // counters são os contadores de uma hora de ip_hourly.
@@ -193,10 +210,17 @@ type fpAcc struct {
 	ips                                       kmv
 }
 
+// originCount conta o que uma origem criou na hora (entradas de hora) e no dia (fingerprints novas).
+type originCount struct {
+	hour, sites int64
+	day, fps    int64
+}
+
 // Aggregator é o acumulador dos agregados e o cache de comportamento. Seguro para uso concorrente.
 type Aggregator struct {
 	maxEntries int
 	maxAge     time.Duration
+	now        func() time.Time
 	flushMu    sync.Mutex // serializa os flushes
 
 	mu      sync.Mutex
@@ -205,8 +229,14 @@ type Aggregator struct {
 	salt    [32]byte
 	sites   map[siteKey]*behavior
 	fps     map[fpKey]*fpAcc
+	origins map[[16]byte]*originCount
 
-	dropped atomic.Uint64
+	dropped      atomic.Uint64
+	evicted      atomic.Uint64
+	limitedSites atomic.Uint64
+	limitedFPs   atomic.Uint64
+	fullAt       atomic.Int64 // UnixNano do último despejo ou descarte pelo teto global
+	emptyScanAt  time.Time    // última varredura de despejo que não achou nada despejável
 }
 
 // New cria o acumulador.
@@ -217,10 +247,117 @@ func New(cfg Config) *Aggregator {
 	if cfg.MaxAge <= 0 {
 		cfg.MaxAge = 7 * 24 * time.Hour
 	}
-	return &Aggregator{
-		maxEntries: cfg.MaxEntries, maxAge: cfg.MaxAge, saltDay: math.MinInt64,
-		sites: map[siteKey]*behavior{}, fps: map[fpKey]*fpAcc{},
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
+	return &Aggregator{
+		maxEntries: cfg.MaxEntries, maxAge: cfg.MaxAge, now: cfg.Now, saltDay: math.MinInt64,
+		sites: map[siteKey]*behavior{}, fps: map[fpKey]*fpAcc{}, origins: map[[16]byte]*originCount{},
+	}
+}
+
+// Evicted devolve quantos comportamentos já gravados saíram da memória pelo teto global (bot_agg_evicted_total).
+func (a *Aggregator) Evicted() uint64 { return a.evicted.Load() }
+
+// Limited devolve quantas observações (ou fingerprints) foram cortadas pelo teto por origem do motivo dado
+// (bot_agg_limited_total{reason}).
+func (a *Aggregator) Limited(reason string) uint64 {
+	switch reason {
+	case LimitIPSites:
+		return a.limitedSites.Load()
+	case LimitIPFingerprints:
+		return a.limitedFPs.Load()
+	}
+	return 0
+}
+
+// FullSince diz se houve despejo ou descarte pelo teto global nos últimos d (health agg full).
+func (a *Aggregator) FullSince(now time.Time, d time.Duration) bool {
+	t := a.fullAt.Load()
+	return t != 0 && now.Sub(time.Unix(0, t)) < d
+}
+
+// originKey é a origem do teto por origem: o IPv4 ou o /64 do IPv6, em 16 bytes.
+func originKey(ip [16]byte) [16]byte {
+	a := netip.AddrFrom16(ip).Unmap()
+	if a.Is4() {
+		return ip
+	}
+	for i := 8; i < 16; i++ {
+		ip[i] = 0
+	}
+	return ip
+}
+
+// origin devolve os contadores da origem já trazidos para a hora e o dia dados (uma hora ou dia mais novo zera;
+// mais velho conta no corrente). Chamada com a.mu.
+func (a *Aggregator) origin(ip [16]byte, hour, day int64) *originCount {
+	o := a.origins[originKey(ip)]
+	if o == nil {
+		o = &originCount{hour: hour, day: day}
+		a.origins[originKey(ip)] = o
+	}
+	if hour > o.hour {
+		o.hour, o.sites = hour, 0
+	}
+	if day > o.day {
+		o.day, o.fps = day, 0
+	}
+	return o
+}
+
+// room garante espaço para n entradas novas: com o teto cheio, despeja os comportamentos menos recentes já gravados
+// (1% do teto por passo, sem tocar em skip); sem nada despejável, conta o descarte. Chamada com a.mu.
+func (a *Aggregator) room(n int, skip siteKey) bool {
+	if a.entries+n <= a.maxEntries {
+		return true
+	}
+	a.fullAt.Store(a.now().UnixNano())
+	if now := a.now(); now.Sub(a.emptyScanAt) >= emptyScanBackoff || now.Before(a.emptyScanAt) {
+		a.evictLocked(max(1, a.maxEntries/evictFraction), skip, now)
+	}
+	if a.entries+n <= a.maxEntries {
+		return true
+	}
+	a.dropped.Add(1)
+	return false
+}
+
+// evictLocked tira da memória até n comportamentos menos recentes com todas as horas gravadas (o histórico segue no
+// banco). Sem nada despejável, a próxima varredura espera emptyScanBackoff. Chamada com a.mu.
+func (a *Aggregator) evictLocked(n int, skip siteKey, now time.Time) {
+	type cand struct {
+		k    siteKey
+		last time.Time
+	}
+	var cs []cand
+	for k, b := range a.sites {
+		if k == skip || !b.flushed() {
+			continue
+		}
+		cs = append(cs, cand{k, b.last})
+	}
+	if len(cs) == 0 {
+		a.emptyScanAt = now
+		return
+	}
+	slices.SortFunc(cs, func(x, y cand) int { return x.last.Compare(y.last) })
+	for _, c := range cs[:min(n, len(cs))] {
+		b := a.sites[c.k]
+		a.entries -= 1 + len(b.open)
+		delete(a.sites, c.k)
+		a.evicted.Add(1)
+	}
+}
+
+// flushed diz se todas as horas abertas do comportamento já foram gravadas.
+func (b *behavior) flushed() bool {
+	for _, h := range b.open {
+		if h.cur != h.flushed {
+			return false
+		}
+	}
+	return true
 }
 
 // Dropped devolve quantas observações foram descartadas pelo teto de entradas ou por idade sem flush
@@ -251,24 +388,33 @@ func (a *Aggregator) Observe(r Request) {
 	defer a.mu.Unlock()
 	salt := a.saltFor(day)
 	b := a.sites[k]
-	if b == nil {
-		if a.entries+2 > a.maxEntries {
-			a.dropped.Add(1)
+	h := (*hourAcc)(nil)
+	if b != nil {
+		h = b.open[hour]
+	}
+	if h == nil {
+		// entrada de hora nova (com ou sem comportamento novo): teto por origem na hora e depois o global
+		o := a.origin(k.ip, hour, day)
+		if o.sites >= MaxSitesPerOrigin {
+			a.limitedSites.Add(1)
 			return
 		}
-		b = &behavior{open: map[int64]*hourAcc{}}
-		a.sites[k] = b
-		a.entries++
-	}
-	h := b.open[hour]
-	if h == nil {
-		if a.entries+1 > a.maxEntries {
-			a.dropped.Add(1)
+		need := 1
+		if b == nil {
+			need = 2
+		}
+		if !a.room(need, k) {
 			return
+		}
+		if b == nil {
+			b = &behavior{open: map[int64]*hourAcc{}}
+			a.sites[k] = b
+			a.entries++
 		}
 		h = &hourAcc{paths: map[uint64]struct{}{}}
 		b.open[hour] = h
 		a.entries++
+		o.sites++
 	}
 	c := &h.cur
 	c.requests++
@@ -313,13 +459,18 @@ func (a *Aggregator) Observe(r Request) {
 		fk := fpKey{kind: f.Kind, value: f.Value, day: day, ua: ua}
 		acc := a.fps[fk]
 		if acc == nil {
-			if a.entries+1 > a.maxEntries {
-				a.dropped.Add(1)
+			o := a.origin(k.ip, hour, day)
+			if o.fps >= MaxFingerprintsPerOrigin {
+				a.limitedFPs.Add(1)
+				continue
+			}
+			if !a.room(1, k) {
 				continue
 			}
 			acc = &fpAcc{}
 			a.fps[fk] = acc
 			a.entries++
+			o.fps++
 		}
 		acc.requests++
 		switch r.Class {
@@ -445,6 +596,12 @@ func (a *Aggregator) maintain(now time.Time) {
 		if len(b.open) == 0 && len(b.past) == 0 {
 			delete(a.sites, k)
 			a.entries--
+		}
+	}
+	// contadores por origem: só os da hora ou do dia correntes têm efeito
+	for k, o := range a.origins {
+		if o.hour < cur && o.day < day {
+			delete(a.origins, k)
 		}
 	}
 	oldestDay := floorDiv(now.Add(-a.maxAge).Unix(), 86400)

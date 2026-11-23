@@ -479,3 +479,108 @@ func BenchmarkObserve(b *testing.B) {
 		a.Observe(r)
 	}
 }
+
+// TestOriginSitesLimit: 100 000 sites de um IP não impedem Query de outro IP de ter Known=true e a taxa certa; a
+// origem fica com 32 entradas de hora e o resto conta em ip_sites, o que ela já tem segue acumulando, e outro IP do
+// mesmo /64 IPv6 divide o teto (task 363, ADR 0073 item 7.1).
+func TestOriginSitesLimit(t *testing.T) {
+	a := New(Config{Now: func() time.Time { return t0 }})
+	for i := range 100_000 {
+		a.Observe(Request{Time: t0, IP: netip.MustParseAddr("203.0.113.9"), Site: fmt.Sprintf("r%06d.example", i), Path: "/"})
+	}
+	if got := a.Limited(LimitIPSites); got != 100_000-MaxSitesPerOrigin {
+		t.Fatalf("ip_sites %d", got)
+	}
+	if a.Entries() != 2*MaxSitesPerOrigin || a.Dropped() != 0 {
+		t.Fatalf("entradas %d descartes %d", a.Entries(), a.Dropped())
+	}
+	a.Observe(Request{Time: t0, IP: netip.MustParseAddr("203.0.113.9"), Site: "r000000.example", Path: "/"})
+	if st := a.Query(netip.MustParseAddr("203.0.113.9"), "r000000.example", t0); st.HourRequests != 2 {
+		t.Fatalf("site já da origem não acumulou: %+v", st)
+	}
+	for i := range 200 {
+		a.Observe(Request{Time: t0.Add(time.Duration(i) * 100 * time.Millisecond), IP: netip.MustParseAddr("198.51.100.4"), Site: "site.example", Path: "/"})
+	}
+	st := a.Query(netip.MustParseAddr("198.51.100.4"), "site.example", t0.Add(20*time.Second))
+	if !st.Known || st.HourRequests != 200 || st.RequestsPerMin != 200 {
+		t.Fatalf("outro IP: %+v", st)
+	}
+	// IPv6: o /64 é a origem
+	for i := range 40 {
+		ip := netip.MustParseAddr(fmt.Sprintf("2001:db8:7:7::%x", i+1))
+		a.Observe(Request{Time: t0, IP: ip, Site: "v6.example", Path: "/"})
+	}
+	if got := a.Limited(LimitIPSites); got != 100_000-MaxSitesPerOrigin+8 {
+		t.Fatalf("ip_sites com o /64: %d", got)
+	}
+	// na hora seguinte a origem tem o teto de novo
+	a.Observe(Request{Time: t0.Add(time.Hour), IP: netip.MustParseAddr("203.0.113.9"), Site: "nova.example", Path: "/"})
+	if st := a.Query(netip.MustParseAddr("203.0.113.9"), "nova.example", t0.Add(time.Hour)); !st.Known {
+		t.Fatal("teto da origem não zerou na hora nova")
+	}
+}
+
+// TestOriginFingerprintsLimit: até 256 fingerprints novas por origem no dia; as existentes seguem contando; o dia
+// novo zera (ADR 0073 item 7.2).
+func TestOriginFingerprintsLimit(t *testing.T) {
+	a := New(Config{})
+	ip := netip.MustParseAddr("203.0.113.10")
+	for i := range 300 {
+		a.Observe(Request{Time: t0, IP: ip, Site: "s.example", Path: "/", Fingerprints: []Fingerprint{{Kind: "ja4", Value: fmt.Sprintf("v%d", i)}}})
+	}
+	if got := a.Limited(LimitIPFingerprints); got != 300-MaxFingerprintsPerOrigin || len(a.fps) != MaxFingerprintsPerOrigin {
+		t.Fatalf("ip_fingerprints %d fps %d", got, len(a.fps))
+	}
+	a.Observe(Request{Time: t0, IP: ip, Site: "s.example", Path: "/", Fingerprints: []Fingerprint{{Kind: "ja4", Value: "v0"}}})
+	if f := a.fps[fpKey{kind: "ja4", value: "v0", day: t0.Unix() / 86400, ua: "other"}]; f == nil || f.requests != 2 {
+		t.Fatalf("existente não contou: %+v", f)
+	}
+	// outro IP cria a sua
+	a.Observe(Request{Time: t0, IP: netip.MustParseAddr("198.51.100.5"), Site: "s.example", Path: "/", Fingerprints: []Fingerprint{{Kind: "ja4", Value: "w"}}})
+	if len(a.fps) != MaxFingerprintsPerOrigin+1 {
+		t.Fatalf("fps %d", len(a.fps))
+	}
+	a.Observe(Request{Time: t0.Add(24 * time.Hour), IP: ip, Site: "s.example", Path: "/", Fingerprints: []Fingerprint{{Kind: "ja4", Value: "z"}}})
+	if got := a.Limited(LimitIPFingerprints); got != 300-MaxFingerprintsPerOrigin {
+		t.Fatalf("dia novo ainda limitado: %d", got)
+	}
+}
+
+// TestEvictWhenFull: com o teto global cheio, os comportamentos menos recentes já gravados saem da memória (1% do
+// teto por passo, bot_agg_evicted_total) em vez de recusar o novo; sem nada gravado, o novo é descartado como antes.
+// As duas situações marcam o health (agg full) por 60 s (ADR 0073 item 7.4).
+func TestEvictWhenFull(t *testing.T) {
+	now := t0
+	a := New(Config{MaxEntries: 200, Now: func() time.Time { return now }})
+	obs := func(i int, at time.Time) {
+		a.Observe(Request{Time: at, IP: netip.AddrFrom4([4]byte{198, 18, byte(i >> 8), byte(i)}), Site: "s.example", Path: "/"})
+	}
+	for i := range 100 {
+		obs(i, t0.Add(time.Duration(i)*time.Millisecond))
+	}
+	if a.Entries() != 200 || a.FullSince(now, time.Minute) {
+		t.Fatalf("entradas %d", a.Entries())
+	}
+	obs(100, t0) // nada gravado: descarte
+	if a.Dropped() != 1 || a.Evicted() != 0 || !a.FullSince(now, time.Minute) {
+		t.Fatalf("descartes %d despejos %d", a.Dropped(), a.Evicted())
+	}
+	if err := a.Flush(context.Background(), openDB(t), t0); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second) // passa a espera da varredura vazia
+	obs(101, t0.Add(time.Second))
+	// 1% de 200 = 2 comportamentos despejados (os 2 mais antigos), o novo entra
+	if a.Evicted() != 2 || a.Dropped() != 1 || a.Entries() != 198 {
+		t.Fatalf("despejos %d descartes %d entradas %d", a.Evicted(), a.Dropped(), a.Entries())
+	}
+	if a.Query(netip.AddrFrom4([4]byte{198, 18, 0, 0}), "s.example", t0).Known || !a.Query(netip.AddrFrom4([4]byte{198, 18, 0, 2}), "s.example", t0).Known {
+		t.Fatal("despejou o comportamento errado")
+	}
+	if !a.Query(netip.AddrFrom4([4]byte{198, 18, 0, 101}), "s.example", t0.Add(time.Second)).Known {
+		t.Fatal("o novo não entrou")
+	}
+	if a.FullSince(now.Add(time.Minute), time.Minute) {
+		t.Fatal("marca de cheio não expirou")
+	}
+}

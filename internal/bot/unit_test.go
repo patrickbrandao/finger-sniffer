@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/agg"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -660,5 +663,49 @@ func BenchmarkIndexByOrigin(b *testing.B) {
 				ix.ForkByOrigin(src, 51234, now)
 			}
 		})
+	}
+}
+
+// TestIngestNoRouterOutOfAgg: registro request do ingest com authority aleatório, sem router e status 404 é
+// indexado e julgado, mas não cria entrada nos agregados; sem router com outro status (formato anterior) entra
+// (task 363, ADR 0073 item 7.3). Teto global cheio deixa o health degraded com "agg full" (item 7.4).
+func TestIngestNoRouterOutOfAgg(t *testing.T) {
+	f := newFixture(t)
+	noRouter := strings.Replace(strings.Replace(validBatch(), `"status":200,`, `"status":404,`, 1),
+		`,"router":"site@docker","service":"site@docker"`, ``, 1)
+	noRouter = strings.Replace(noRouter, `"authority":"www.example.com"`, `"authority":"r83412.example.com"`, 1)
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, noRouter); c != 202 || string(b) != `{"accepted":2,"rejected":0}`+"\n" {
+		t.Fatalf("ingest: %d %s", c, b)
+	}
+	fc, ok := f.srv.Index().Fork(testForkConnID, f.clock.Now())
+	if !ok || fc.LastVerdict == nil {
+		t.Fatal("requisição sem router não foi julgada")
+	}
+	if n := f.srv.Agg().Entries(); n != 0 {
+		t.Fatalf("%d entradas nos agregados", n)
+	}
+	// formato anterior sem router, status 200: entra
+	old := strings.Replace(validBatch(), `,"router":"site@docker","service":"site@docker"`, ``, 1)
+	old = strings.ReplaceAll(old, testForkConnID, "01JC0X3K8V2T7Q9N4M6P1R5S70")
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, old); c != 202 {
+		t.Fatalf("ingest sem router: %d %s", c, b)
+	}
+	if n := f.srv.Agg().Entries(); n == 0 {
+		t.Fatal("sem router e status 200 ficou fora dos agregados")
+	}
+	if _, reasons := f.srv.Status(); slices.Contains(reasons, "agg full") {
+		t.Fatalf("agg full cedo: %v", reasons)
+	}
+	small := New(testConfig(""), Deps{Now: f.clock.Now})
+	small.agg = agg.New(agg.Config{MaxEntries: 2, Now: f.clock.Now})
+	for i := range 3 {
+		small.agg.Observe(agg.Request{Time: f.clock.Now(), IP: netip.AddrFrom4([4]byte{198, 51, 100, byte(i)}), Site: "s.com", Path: "/"})
+	}
+	if st, reasons := small.Status(); st != "degraded" || !slices.Contains(reasons, "agg full") {
+		t.Fatalf("health: %s %v", st, reasons)
+	}
+	small.updateMetrics()
+	if small.deps.Metrics.Get(metricAggDropped) != 2 { // o primeiro ocupa as 2 entradas
+		t.Errorf("métricas %v", small.deps.Metrics.Snapshot())
 	}
 }

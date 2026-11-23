@@ -46,7 +46,7 @@ com a série ausente, e não `== 0` nem comparação com o valor anterior:
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total`, `fs_raw_input_budget_used_bytes`, `fs_raw_input_budget_denied_total`, `fs_raw_panics_total` (detalhes [abaixo](#raw)) |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
 | store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total`, `fs_store_packet_spills_total` (detalhes [abaixo](#store-heartbeat)) |
-| bot | `fs_bot_verdicts_total{class,source}`, `fs_bot_auth_seconds`, `fs_bot_auth_wait_seconds`, `fs_bot_view_wait_total{missing}`, `fs_bot_auth_ja4h_total{source}`, `fs_bot_auth_fingerprint_total{kind,source}`, `fs_bot_ingest_*`, `fs_bot_conns_evicted_total{reason}`, `fs_bot_index_bytes`, `fs_bot_list_*{list}`, `fs_bot_webhook_*`, `fs_bot_keys_active`, `fs_bot_rate_limited_total`, `fs_bot_purged_total{reason}`, `fs_bot_db_bytes`, `fs_bot_agg_dropped_total`, `fs_bot_store_feed_messages_total` (detalhes [abaixo](#bot)) |
+| bot | `fs_bot_verdicts_total{class,source}`, `fs_bot_auth_seconds`, `fs_bot_auth_wait_seconds`, `fs_bot_view_wait_total{missing}`, `fs_bot_auth_ja4h_total{source}`, `fs_bot_auth_fingerprint_total{kind,source}`, `fs_bot_ingest_*`, `fs_bot_conns_evicted_total{reason}`, `fs_bot_index_bytes`, `fs_bot_list_*{list}`, `fs_bot_webhook_*`, `fs_bot_keys_active`, `fs_bot_rate_limited_total`, `fs_bot_purged_total{reason}`, `fs_bot_db_bytes`, `fs_bot_agg_*`, `fs_bot_public_conns_closed_total{reason}`, `fs_bot_store_feed_messages_total` (detalhes [abaixo](#bot)) |
 | todos que publicam no NATS | `fs_published_events_total`, `fs_dropped_events_total`, `fs_buffered_events`, `fs_buffered_bytes` (detalhes [abaixo](#produtor-nats)) |
 | host (pelo store) | `fs_host_syncookies_sent` |
 
@@ -160,7 +160,9 @@ primeiro uso ou no primeiro ciclo do heartbeat.
 | `fs_bot_rate_limited_total` | contador | respostas 429 por limite de chave |
 | `fs_bot_purged_total{reason}` | contador | linhas de agregado expurgadas: `reason` = `age` (7 dias) ou `size` (banco acima de `FS_BOT_MAX_BYTES`, 2 GiB) |
 | `fs_bot_db_bytes` | gauge | tamanho do banco do bot |
-| `fs_bot_agg_dropped_total` | contador | observações descartadas pelo teto de entradas dos agregados em memória |
+| `fs_bot_agg_dropped_total` | contador | observações descartadas pelo teto global de entradas dos agregados em memória (200 000), quando não havia comportamento já gravado para despejar |
+| `fs_bot_agg_evicted_total` | contador | comportamentos (IP + site) já gravados tirados da memória com o teto global cheio, 1% do teto por passo, os menos recentes primeiro (o histórico segue no banco); despejo ou descarte nos últimos 60 s deixa o health `degraded` com `agg full` (ADR 0073 item 7.4) |
+| `fs_bot_agg_limited_total{reason}` | contador | observações cortadas pelo teto por origem (IPv4 ou /64 IPv6, ADR 0073 item 7): `reason` = `ip_sites` (33ª entrada de hora IP + site da origem na hora, observação descartada) ou `ip_fingerprints` (257ª fingerprint nova da origem no dia, sem entrada nova em `fp_daily`) |
 
 ```promql
 # p95 do forwardAuth inteiro e p95 só da espera da visão

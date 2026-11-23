@@ -285,7 +285,8 @@ $ curl -s $BOT/bot/v1/openapi.yaml | head -3
 (banco acima de 90% de `FS_BOT_MAX_BYTES`), `webhook backlog` (fila de webhook cheia por mais de 60 s),
 `store feed silent` (sem `fs.v1.store.connection` por mais de 60 s com o store `ok`) e
 `index bytes` (despejo do índice por bytes nos últimos 60 s), `block key limited` (chave em modo `block` com 429
-nos últimos 60 s) e `public conns` (9002 com as 200 conexões
+nos últimos 60 s), `agg full` (agregados em memória no teto de 200 000 entradas, com despejo ou descarte nos
+últimos 60 s) e `public conns` (9002 com as 200 conexões
 ocupadas nos últimos 60 s). O mesmo estado aparece em `services.bot` do
 `/api/v1/health` do store.
 
@@ -843,6 +844,13 @@ sobre base legal e controlador). O IP é dado pessoal.
 | agregados por fingerprint por dia (sem IP) | disco | 7 dias |
 | chaves e webhooks; uso diário das chaves | disco | enquanto a chave existir; uso diário 90 dias |
 | listas baixadas | disco | até a próxima atualização |
+
+Os agregados em memória têm teto por origem (IPv4 ou /64 IPv6): até 32 pares IP + site por hora e 256 fingerprints
+novas por dia; acima, a observação daquela origem é descartada (`fs_bot_agg_limited_total{reason}`), sem afetar as
+outras. Requisição do ingest sem router e com status 404 (o `Host` não tinha rota no traefik) recebe veredito mas não
+entra nos agregados. Com o teto global cheio, os comportamentos menos recentes já gravados saem da memória
+(`fs_bot_agg_evicted_total`) e voltam a acumular da hora corrente se aparecerem de novo
+([ADR 0073](../specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md) item 7).
 
 Expurgo de hora em hora: nada com IP passa de 7 dias e 1 hora. O bot não guarda corpo, query string, valores de
 cookie nem de `Authorization`; caminhos entram nos agregados só como contagem (hash com sal do dia, descartado com o

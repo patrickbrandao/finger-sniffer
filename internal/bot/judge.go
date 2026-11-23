@@ -436,11 +436,13 @@ func requestSubject(site string, ip netip.Addr, srcPort, dstPort int, fsConnID s
 	return s
 }
 
-// published é o que entra nos agregados quando o veredito de uma requisição é publicado.
+// published é o que entra nos agregados quando o veredito de uma requisição é publicado; noAgg tira a requisição
+// dos agregados (sem router e 404, ADR 0073 item 7.3).
 type published struct {
-	ip   netip.Addr
-	site string
-	path string
+	ip    netip.Addr
+	site  string
+	path  string
+	noAgg bool
 }
 
 // record guarda o veredito da requisição na conexão do fork e, se a requisição ainda não foi publicada pela outra
@@ -463,7 +465,7 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 		return
 	}
 	j.hub.Publish(v)
-	if j.agg == nil {
+	if j.agg == nil || p.noAgg {
 		return
 	}
 	fps := []agg.Fingerprint{}
@@ -546,7 +548,11 @@ func (j *Judge) Ingest(id string, allows func(string) bool) bool {
 		j.compareJA4T(fork.TCP, store)
 		init = func(c *ForkConn) { c.ja4tChecked = true }
 	}
-	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path}, init)
+	// requisição que nenhum router atendeu (404 sem router: Host sem rota no traefik) é indexada e julgada, mas não
+	// entra em ip_hourly nem em fp_daily (ADR 0073 item 7.3); os dois campos juntos, para não tirar os registros do
+	// formato anterior sem router
+	noAgg := req.Router == "" && req.Status != nil && *req.Status == http.StatusNotFound
+	j.record(id, false, &v, res, published{ip: ip, site: site, path: req.Path, noAgg: noAgg}, init)
 	return true
 }
 
