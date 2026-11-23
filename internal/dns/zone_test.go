@@ -1,6 +1,8 @@
 package dns
 
 import (
+	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"slices"
@@ -494,4 +496,106 @@ func TestZoneHTTPSWithout443(t *testing.T) {
 			t.Errorf("tcp %v udp %v: %v, want %v", tc.tcp, tc.udp, got, tc.want)
 		}
 	}
+}
+
+// acmeTestName devolve o i-ésimo nome _acme-challenge distinto dentro da zona de teste.
+func acmeTestName(i int) string {
+	return fmt.Sprintf("_acme-challenge.n%02d.finger-west-01.badblock.net.br.", i)
+}
+
+func TestZoneACMELimits(t *testing.T) {
+	t.Run("per name", func(t *testing.T) {
+		z, clk := newTestZone()
+		name := acmeTestName(0)
+		for i := range maxACMEValuesPerName {
+			if err := z.SetACME(name, fmt.Sprintf("v%d", i)); err != nil {
+				t.Fatalf("valor %d: %v", i, err)
+			}
+		}
+		// 9º valor no mesmo nome: recusado, nada guardado.
+		if err := z.SetACME(name, "extra"); !errors.Is(err, errACMELimit) {
+			t.Fatalf("9º valor: %v", err)
+		}
+		if got := z.ACMEValues(name); len(got) != maxACMEValuesPerName || slices.Contains(got, "extra") {
+			t.Fatalf("valores %v", got)
+		}
+		// Repetir um valor existente com o teto cheio só renova a expiração.
+		clk.advance(5 * time.Minute)
+		if err := z.SetACME(name, "v0"); err != nil {
+			t.Fatalf("repetir valor: %v", err)
+		}
+		// Outros nomes continuam aceitos.
+		if err := z.SetACME(acmeTestName(1), "x"); err != nil {
+			t.Fatal(err)
+		}
+		// Depois da expiração dos outros, v0 (renovado) segue e cabem valores novos.
+		clk.advance(5 * time.Minute)
+		if got := z.ACMEValues(name); !slices.Equal(got, []string{"v0"}) {
+			t.Fatalf("após expirar: %v", got)
+		}
+		if err := z.SetACME(name, "extra"); err != nil {
+			t.Fatalf("após expirar: %v", err)
+		}
+	})
+
+	t.Run("names", func(t *testing.T) {
+		z, clk := newTestZone()
+		for i := range maxACMENames {
+			if err := z.SetACME(acmeTestName(i), "v"); err != nil {
+				t.Fatalf("nome %d: %v", i, err)
+			}
+		}
+		// 17º nome: recusado.
+		if err := z.SetACME(acmeTestName(maxACMENames), "v"); !errors.Is(err, errACMELimit) {
+			t.Fatalf("17º nome: %v", err)
+		}
+		if len(z.acme) != maxACMENames {
+			t.Fatalf("nomes %d", len(z.acme))
+		}
+		// Valor novo num nome existente ainda cabe; repetido também.
+		if err := z.SetACME(acmeTestName(0), "w"); err != nil {
+			t.Fatal(err)
+		}
+		if err := z.SetACME(acmeTestName(1), "v"); err != nil {
+			t.Fatal(err)
+		}
+		clk.advance(ACMEValueTTL)
+		if err := z.SetACME(acmeTestName(maxACMENames), "v"); err != nil {
+			t.Fatalf("após expirar: %v", err)
+		}
+	})
+
+	t.Run("total", func(t *testing.T) {
+		z, clk := newTestZone()
+		names := maxACMEValues / maxACMEValuesPerName
+		for i := range names {
+			for j := range maxACMEValuesPerName {
+				if err := z.SetACME(acmeTestName(i), fmt.Sprintf("v%d", j)); err != nil {
+					t.Fatalf("nome %d valor %d: %v", i, j, err)
+				}
+			}
+		}
+		// 65º valor num nome novo (abaixo do teto de nomes): recusado.
+		if err := z.SetACME(acmeTestName(names), "v"); !errors.Is(err, errACMELimit) {
+			t.Fatalf("65º valor: %v", err)
+		}
+		if _, ok := z.acme[mdns.CanonicalName(acmeTestName(names))]; ok {
+			t.Fatal("nome recusado não pode ficar guardado")
+		}
+		// Repetir um valor existente com o total cheio é aceito.
+		if err := z.SetACME(acmeTestName(0), "v0"); err != nil {
+			t.Fatalf("repetir valor: %v", err)
+		}
+		// Liberar um valor abre espaço.
+		if err := z.ClearACME(acmeTestName(0), "v1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := z.SetACME(acmeTestName(names), "v"); err != nil {
+			t.Fatalf("após clear: %v", err)
+		}
+		clk.advance(ACMEValueTTL)
+		if err := z.SetACME(acmeTestName(names+1), "v"); err != nil {
+			t.Fatalf("após expirar: %v", err)
+		}
+	})
 }

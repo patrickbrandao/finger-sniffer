@@ -3,6 +3,7 @@ package dns
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,6 +98,35 @@ func TestACMERequestReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = nc.Flush()
+}
+
+// TestACMERequestReplyLimit cobre o erro acme limit pelo request/reply real.
+func TestACMERequestReplyLimit(t *testing.T) {
+	nc := startNATS(t)
+	z, _ := newTestZone()
+	if _, err := SubscribeACME(nc, z, nil); err != nil {
+		t.Fatal(err)
+	}
+	const name = "_acme-challenge.finger-west-01.badblock.net.br."
+	for i := range maxACMEValuesPerName {
+		if r := acmeCall(t, nc, SubjectACMESet, name, fmt.Sprintf("token%d", i)); !r.OK {
+			t.Fatalf("set %d: %+v", i, r)
+		}
+	}
+	r := acmeCall(t, nc, SubjectACMESet, name, "overflow")
+	if r.OK || r.Error == nil || *r.Error != "acme limit" {
+		t.Fatalf("teto: %+v", r)
+	}
+	// Resposta exata do contrato.
+	data, _ := json.Marshal(ACMERequest{Name: name, Value: "overflow"})
+	m, err := nc.Request(SubjectACMESet, data, 2*time.Second)
+	if err != nil || string(m.Data) != `{"ok":false,"error":"acme limit"}` {
+		t.Fatalf("resposta %v %s", err, m.Data)
+	}
+	// Repetir um valor existente continua ok.
+	if r := acmeCall(t, nc, SubjectACMESet, name, "token0"); !r.OK {
+		t.Fatalf("repetido: %+v", r)
+	}
 }
 
 func TestHandleACMEUnknownSubject(t *testing.T) {

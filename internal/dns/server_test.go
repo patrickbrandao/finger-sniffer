@@ -134,12 +134,12 @@ func TestServerEDNS(t *testing.T) {
 	}
 }
 
-// TestServerTruncation: 40 valores TXT longos não cabem em 512 bytes → TC=1 em UDP; inteiros em TCP.
+// TestServerTruncation: 8 valores TXT longos (o teto por nome) não cabem em 512 bytes → TC=1 em UDP; inteiros em TCP.
 func TestServerTruncation(t *testing.T) {
 	z, _ := newTestZone()
 	const name = "_acme-challenge.finger-west-01.badblock.net.br."
-	for i := range 40 {
-		if err := z.SetACME(name, strings.Repeat(string(rune('a'+i%26)), 60)+string(rune('A'+i/26))); err != nil {
+	for i := range maxACMEValuesPerName {
+		if err := z.SetACME(name, strings.Repeat(string(rune('a'+i)), 200)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -149,11 +149,11 @@ func TestServerTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !r.Truncated || len(r.Answer) == 40 {
+	if !r.Truncated || len(r.Answer) == maxACMEValuesPerName {
 		t.Fatalf("UDP sem TC: tc=%v n=%d", r.Truncated, len(r.Answer))
 	}
 	r = exchange(t, "tcp", tcp, query(name, mdns.TypeTXT))
-	if r.Truncated || len(r.Answer) != 40 {
+	if r.Truncated || len(r.Answer) != maxACMEValuesPerName {
 		t.Fatalf("TCP: tc=%v n=%d", r.Truncated, len(r.Answer))
 	}
 }
