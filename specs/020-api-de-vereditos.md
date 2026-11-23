@@ -6,7 +6,7 @@ Depende de: 018, 019
 ## Contexto
 O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, fora da captura (ADRs 0047 e 0051):
 9002 HTTPS pública com chave e 9003 HTTP interna para o traefik do finger-01. Contrato:
-[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.6.0).
+[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.7.0).
 
 ## Requisitos
 - RF-01: 9002 em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6` com TLS de `FS_CERT_DIR` (`pkg/certs`, A e B por SNI, recarga a
@@ -48,9 +48,11 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
     ADR 0065 item 4); tempos de `X-Traefix-Timing` e ALPN vazio pelo `00` do JA4 (ADR 0065 itens 2 e 5); espera a visão até
     `FS_BOT_VIEW_WAIT` só na 9003 (ADR 0063 item 7); 200 com `X-Traefix-Verdict`, `X-Traefix-Score`,
     `X-Traefix-Signals` (ids separados por vírgula, até 1 KiB), os `X-Fs-*` equivalentes (obsoletos) e corpo
-    `Verdict`; 403 com o mesmo corpo e os mesmos cabeçalhos quando a chave está em modo `block` e `class=bot`;
-    nenhuma resposta de erro traz `X-Traefix-Verdict` nem `X-Fs-Verdict` (é o que o traefix usa para o fail-open de
-    4xx, spec 019 RF-04; ADR 0058 item 3). Sem os cabeçalhos de origem do traefix → 400 `missing_fork_headers`;
+    `Verdict`; 403 quando a chave está em modo `block` e `class=bot`, com corpo mínimo `{"error":"forbidden"}`, sem
+    nenhum cabeçalho de veredito (`X-Traefix-Verdict`, `-Score`, `-Signals` nem os `X-Fs-*`) e só com o marcador
+    `X-Traefix-Deny: 1`, que o traefix usa para devolver o 403 ao visitante (ADR 0074); nenhuma outra resposta traz
+    `X-Traefix-Deny`, e nenhuma resposta de erro traz `X-Traefix-Verdict` nem `X-Fs-Verdict` (fail-open de 4xx,
+    spec 019 RF-04; ADR 0058 item 3). Sem os cabeçalhos de origem do traefix → 400 `missing_fork_headers`;
     com chave cujos domínios não casam com `X-Forwarded-Host` → 400 `bad_request` (erro de configuração do
     operador, ADR 0055 item 6).
   - `GET /bot/v1/verdict?src_ip=&src_port=&site=` e `GET /bot/v1/verdict/conn/{fs_conn_id}`: o último veredito da
@@ -72,8 +74,8 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
 - RF-06: webhook (ADR 0051 item 5): corpo `VerdictEvent`, cabeçalhos `X-Fs-Signature`, `X-Fs-Timestamp`,
   `X-Fs-Key-Prefix`; prazo de 5 s; novas tentativas 1 s, 5 s, 30 s; fila de 1000 por chave.
 - RF-07: erros JSON `{"error": "<código>", "detail": "..."}` com os códigos `invalid_key`, `rate_limited`,
-  `not_found`, `bad_request`, `missing_fork_headers`, `payload_too_large`, `forbidden_origin`, `internal` e `busy`
-  (503 de capacidade do ingest, ADR 0073 item 2).
+  `not_found`, `bad_request`, `missing_fork_headers`, `payload_too_large`, `forbidden_origin`, `internal`, `busy`
+  (503 de capacidade do ingest, ADR 0073 item 2) e `forbidden` (403 do modo `block`, ADR 0074).
 - RF-08: CORS: `Access-Control-Allow-Origin` só para os domínios da chave nas rotas `GET` (consulta pelo navegador
   não é o uso previsto; a chave fica no backend do site).
 
@@ -83,7 +85,7 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
 - [ ] Limites da ADR 0073: conexões ociosas de uma origem não impedem outra de responder `health`; upload lento no
       ingest não segura a vaga além de 10 s; uma chave não passa do seu balde de registros nem despeja conexões da
       9003; forwardAuth com chave na 9003 nunca dá 429.
-- [ ] forwardAuth com o traefix (spec 019) dá 200 com os `X-Traefix-*` (e os `X-Fs-*` obsoletos) e, em `block`, 403 para um
+- [ ] forwardAuth com o traefix (spec 019) dá 200 com os `X-Traefix-*` (e os `X-Fs-*` obsoletos) e, em `block`, 403 mínimo com `X-Traefix-Deny` e sem cabeçalhos de veredito (ADR 0074) para um
       cliente `bot`.
 - [ ] Webhook assinado verificável pelo exemplo do `docs/`; nova tentativa em 5xx; fila cheia conta descarte.
 
@@ -106,3 +108,4 @@ site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `
 - specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md
 - specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md
 - specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md
+- specs/decisions/0074-resposta-minima-do-403-no-modo-block.md

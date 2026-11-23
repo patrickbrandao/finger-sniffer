@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.6.0
+  version: 0.7.0
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -23,12 +23,16 @@ info:
     0.6.0 (ADR 0073, aditiva): código `busy`; 429 e 503 novos no ingest e 429 por chave no feed; tetos dos textos do
     ingest (cortados, não recusados); limites da 9003.
 
+    0.7.0 (ADR 0074, **não aditiva** no 403 do `/bot/v1/auth`, exceção aceita pelo humano): o 403 do modo `block`
+    passa a ter corpo `Error` `{"error":"forbidden"}`, sem os cabeçalhos de veredito, só com `X-Traefix-Deny: 1`;
+    código `forbidden`.
+
     Uso não comercial (ADR 0053): JA4 é BSD-3-Clause; JA4H e JA4T seguem a FoxIO License 1.1; uso comercial exige
     licença da FoxIO.
 
     Tempos em RFC 3339 UTC com nanossegundos. Compatibilidade (ADR 0001): `/bot/v1` só recebe mudanças aditivas.
     Erros (corpo `Error`): `invalid_key`, `rate_limited`, `not_found`, `bad_request`, `missing_fork_headers`,
-    `payload_too_large`, `forbidden_origin`, `internal`, `busy`.
+    `payload_too_large`, `forbidden_origin`, `internal`, `busy`, `forbidden`.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -92,10 +96,10 @@ paths:
         (erro de configuração do operador, ADR 0055). O JA4H vem de `X-Traefix-Ja4h` quando bem formado e, sem ele,
         da última requisição da conexão no ingest (ADR 0058). A visão TLS e h2 vem do registro de conexão do ingest
         e, antes dele, de `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn`; a TCP, do store, senão do registro do traefix,
-        senão de `X-Traefix-Ja4t` (ADRs 0062 e 0063). Cabeçalho malformado ou repetido é ignorado. O 200 e o 403
-        do modo `block` trazem `X-Traefix-Verdict`, `-Score`, `-Signals` e os `X-Fs-*` equivalentes (obsoletos);
-        nenhuma resposta de erro traz `X-Traefix-Verdict` nem `X-Fs-Verdict` (o traefix usa isso no fail-open de
-        4xx, spec 019 RF-04).
+        senão de `X-Traefix-Ja4t` (ADRs 0062 e 0063). Cabeçalho malformado ou repetido é ignorado. O 200 traz
+        `X-Traefix-Verdict`, `-Score`, `-Signals` e os `X-Fs-*` equivalentes (obsoletos); o 403 do modo `block` tem
+        corpo mínimo e só `X-Traefix-Deny` (ADR 0074); nenhuma resposta de erro traz `X-Traefix-Verdict` nem
+        `X-Fs-Verdict` (o traefix usa isso no fail-open de 4xx, spec 019 RF-04).
       parameters:
         - { name: X-Traefix-Src-Ip, in: header, required: false, schema: { type: string } }
         - { name: X-Traefix-Src-Port, in: header, required: false, schema: { type: integer, minimum: 0, maximum: 65535 } }
@@ -188,17 +192,17 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
         "403":
-          description: Modo `block` e `class=bot`.
+          description: |
+            Modo `block` e `class=bot` (ADR 0074): corpo mínimo `{"error":"forbidden"}`, sem `X-Traefix-Verdict`,
+            `X-Traefix-Score`, `X-Traefix-Signals` nem os `X-Fs-*`; só o marcador `X-Traefix-Deny`, que o traefix usa
+            (`failOpen.denyRequiresResponseHeader: X-Traefix-Deny`, spec 019 RF-04) para devolver o 403 ao visitante.
           headers:
-            X-Traefix-Verdict: { $ref: "#/components/headers/XFsVerdict" }
-            X-Traefix-Score: { $ref: "#/components/headers/XFsScore" }
-            X-Traefix-Signals: { $ref: "#/components/headers/XFsSignals" }
-            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdictDeprecated" }
-            X-Fs-Score: { $ref: "#/components/headers/XFsScoreDeprecated" }
-            X-Fs-Signals: { $ref: "#/components/headers/XFsSignalsDeprecated" }
+            X-Traefix-Deny:
+              description: Marcador do bloqueio; só nesta resposta.
+              schema: { type: string, const: "1" }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Verdict" }
+              schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/RateLimited" }
   /bot/v1/verdict:
     get:
@@ -484,7 +488,7 @@ components:
       properties:
         error:
           type: string
-          enum: [invalid_key, rate_limited, not_found, bad_request, missing_fork_headers, payload_too_large, forbidden_origin, internal, busy]
+          enum: [invalid_key, rate_limited, not_found, bad_request, missing_fork_headers, payload_too_large, forbidden_origin, internal, busy, forbidden]
         detail: { type: string }
     Timestamp:
       type: string
