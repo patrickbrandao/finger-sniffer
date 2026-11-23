@@ -31,6 +31,8 @@ type h3Conn struct {
 	probeID  string
 	requests int
 	ctlSeen  bool
+	// ctlStream: o cliente já abriu um stream de controle (só o primeiro é analisado; ADR 0070 item 7)
+	ctlStream bool
 	// ctlDeadline: fim da espera pelo SETTINGS, marcado pela primeira requisição que esperou
 	ctlDeadline time.Time
 	ctlReady    chan struct{} // fechado quando o SETTINGS do cliente foi lido
@@ -203,12 +205,24 @@ func (h *h3Conn) acceptUni() {
 
 func (h *h3Conn) readUni(str *quic.ReceiveStream) {
 	u := quicparse.NewUniStream()
+	// Os frames guardados do stream de controle reservam do hold da conexão (ADR 0070 item 7).
+	hold := h.headersHold
+	u.SetBudget(func(n int) bool { return hold.reserve(int64(n)) }, func(n int) { hold.release(int64(n)) })
+	defer func() { hold.release(int64(u.Held())) }()
 	buf := make([]byte, 4<<10)
-	reported := false
+	reported, typed := false, false
 	for {
 		n, err := str.Read(buf)
 		if n > 0 {
 			u.Feed(buf[:n])
+			if !typed && u.Typed {
+				typed = true
+				if u.StreamType == quicparse.StreamTypeControl && !h.claimControl() {
+					// RFC 9114 seção 6.2.1: segundo stream de controle é erro de conexão.
+					_ = h.qc.CloseWithError(h3StreamCreationError, "second control stream")
+					return
+				}
+			}
 			if !reported && u.Typed && u.StreamType == quicparse.StreamTypeControl && u.SettingsSeen {
 				reported = true
 				h.onSettings(u.Settings, u.SettingsTruncated)
@@ -218,6 +232,20 @@ func (h *h3Conn) readUni(str *quic.ReceiveStream) {
 			return
 		}
 	}
+}
+
+// h3StreamCreationError é o H3_STREAM_CREATION_ERROR (RFC 9114 seção 8.1).
+const h3StreamCreationError = 0x103
+
+// claimControl marca o stream de controle do cliente; false se já havia um.
+func (h *h3Conn) claimControl() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.ctlStream {
+		return false
+	}
+	h.ctlStream = true
+	return true
 }
 
 // onSettings guarda o SETTINGS do primeiro stream de controle do cliente e publica o segundo evento.

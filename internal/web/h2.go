@@ -67,6 +67,9 @@ type h2Conn struct {
 	// fieldsHold é a reserva dos campos HPACK guardados pelos dois parsers (até h2FieldsConnMax, dentro do
 	// orçamento global de entrada; ADR 0033), devolvida ao publicar cada stream e no fim da conexão.
 	fieldsHold *budgetHold
+	// decodedHold reserva o cabeçalho decodificado pela biblioteca de cada stream até o publish (até
+	// h2DecodedConnMax; ADR 0070 item 7).
+	decodedHold *budgetHold
 }
 
 // h2FieldsConnMax é o teto do custo dos campos HPACK guardados por conexão (spec 010 RF-02, ADR 0033).
@@ -101,9 +104,11 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 		out: h2passive.NewParser(h2passive.Options{
 			Dir: h2passive.DirOut, Limits: s.cfg.H2Limits, Reserve: reserve, Release: release,
 		}),
-		claimed:    map[uint32]bool{},
-		fieldsHold: hold,
+		claimed:     map[uint32]bool{},
+		fieldsHold:  hold,
+		decodedHold: s.budget.newHold(h2DecodedConnMax),
 	}
+	defer h.decodedHold.releaseAll()
 	var r io.Reader = t
 	if up != nil && len(up.buffered) > 0 {
 		// Esses bytes já passaram pelo tap (fluxo in) antes do observador: entram no parser à mão.
@@ -139,7 +144,9 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 	}
 	// IdleTimeout fica 0: a ociosidade é a do idleConn, que não corre com stream em atendimento e muda com
 	// idle= (o IdleTimeout do x/net é fixo por servidor).
-	(&http2.Server{MaxConcurrentStreams: h2MaxConcurrentStreams}).ServeConn(&h2NetConn{Conn: t, r: r}, opts) //nolint:staticcheck // ver acima
+	// MaxReadFrameSize anuncia MAX_FRAME_SIZE 16384 (o padrão do protocolo): limita o readBuf do Framer e o
+	// payload de cada frame recebido (retenção fixa por conexão, ADR 0070 item 7).
+	(&http2.Server{MaxConcurrentStreams: h2MaxConcurrentStreams, MaxReadFrameSize: h2MaxReadFrameSize}).ServeConn(&h2NetConn{Conn: t, r: r}, opts) //nolint:staticcheck // ver acima
 
 	// Espera os handlers que ainda estejam rodando (o x/net não espera) antes do evento final.
 	h.mu.Lock()
@@ -154,6 +161,9 @@ func (c *conn) serveH2(t *tap, ic *idleConn, mode string, up *h2Upgrade) {
 // h2MaxConcurrentStreams é o MAX_CONCURRENT_STREAMS anunciado no SETTINGS do servidor (spec 010 RF-05a,
 // ADR 0033): acima dele o x/net recusa o stream com RST_STREAM REFUSED_STREAM.
 const h2MaxConcurrentStreams = 100
+
+// h2MaxReadFrameSize é o SETTINGS_MAX_FRAME_SIZE anunciado (spec 010 RF-05a, ADR 0070 item 7).
+const h2MaxReadFrameSize = 16 << 10
 
 // h2UpgradeKey marca no contexto a requisição do Upgrade: h2c (stream 1).
 type h2UpgradeKey struct{}

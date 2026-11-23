@@ -53,8 +53,9 @@ func TestH2RetainedFields(t *testing.T) {
 	}
 	waitFor(t, 2*time.Second, func() bool { return pathInUse(h.srv.budget) > 3*300<<10 },
 		func() string { return fmt.Sprint("in use ", pathInUse(h.srv.budget)) })
-	if got := pathInUse(h.srv.budget); got > h2FieldsConnMax {
-		t.Fatalf("retained %d above %d", got, h2FieldsConnMax)
+	// campos do parser passivo (até h2FieldsConnMax) + cabeçalho decodificado dos streams (task 330)
+	if got := pathInUse(h.srv.budget); got > h2FieldsConnMax+h2DecodedConnMax {
+		t.Fatalf("retained %d above %d", got, h2FieldsConnMax+h2DecodedConnMax)
 	}
 	for i := range streams {
 		_ = r.fr.WriteData(uint32(2*i+1), true, nil)

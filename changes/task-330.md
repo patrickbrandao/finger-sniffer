@@ -1,0 +1,1 @@
+- web: cabeçalho decodificado de stream h2/h3 reserva de um hold de 2 MiB por conexão até o publish; sem reserva, 431 no h2 e `H3_EXCESSIVE_LOAD` no h3, também acima de 1 MiB decodificado (task 330, ADR 0070).
