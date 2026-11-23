@@ -101,6 +101,7 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `ua_claims_crawler` | incoherence | 60 | UA de robô conhecido vindo de IP fora da lista dele, ou com DNS reverso/direto falho |
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
 | `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 que a base própria só viu em bibliotecas |
+| `ua_declares_crawler` | list | 50 | UA que se declara robô (`…bot/`, `crawler`, `spider` ou nome da tabela) sem operador com lista publicada para provar; nunca dá `good_bot` (rules `v1.5`, ADR 0072) |
 | `ja4db_match` | list | 40 | JA4 rotulado como biblioteca ou ferramenta na ja4db (só com `FS_BOT_JA4DB_ENABLE=true`; desligada por padrão) |
 | `known_client` | list | −20 | JA4 + Akamai + JA4T sem o MSS (janela, opções e escala) coerentes com um cliente medido na base própria e com o UA; nunca com UA que declara automação |
 | `ip_verified_crawler` | list | — | define `good_bot` (`detail` diz `verified by ip list` quando a lista bastou) |
