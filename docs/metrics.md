@@ -217,6 +217,7 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_ingest_backlog_seconds` | gauge | parede menos o instante em que a última mensagem processada entrou no stream; volta a 0 quando um Fetch não traz mensagens (consumidor em dia) (ADR 0041) |
 | `fs_store_ingest_pending_messages` | gauge | `NumPending` do metadado da última mensagem processada (ADR 0041) |
 | `fs_store_stream_recreated_total` | contador | vezes que o store recriou o `FS_EVENTS` e o consumidor depois de eles sumirem (reinício do NATS com o stream em memória, ADR 0016); a perda entre a queda e a recriação não entra em `fs_store_stream_lost_total`, que recomeça a contar saltos do zero (task 320) |
+| `fs_store_app_events_dropped_total` | contador | eventos de aplicação de uma conexão aberta não gravados por passar do teto de bytes por conexão (`FS_PCAP_MAX_BYTES_PER_CONN`); a análise segue no registro (ADR 0067, task 318) |
 | `fs_store_dns_queries_total` | contador | consultas DNS gravadas |
 | `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção), `size` (teto do banco) ou `space` (livre do tmpfs do banco abaixo de 10%, ou expurgo de emergência depois de um `SQLITE_FULL`; ADR 0045) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |
