@@ -1,0 +1,1 @@
+- bot: a consulta só pela origem (`GET /bot/v1/verdict`) usa um índice por IP e porta de origem em vez de varrer todas as portas de destino vistas sob a trava do índice; o custo não cresce mais com portas injetadas pelo ingest ou pelo forwardAuth (task 366).
