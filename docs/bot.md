@@ -4,7 +4,7 @@ Derivado das specs [018](../specs/018-bot.md) (serviço bot), [019](../specs/019
 (traefix) e [020](../specs/020-api-de-vereditos.md) (API), das ADRs
 [0047](../specs/decisions/0047-fase-de-bots-servico-bot.md)–[0063](../specs/decisions/0063-cabecalhos-x-traefix-e-visao-tcp-do-traefix.md)
 e do contrato [cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão
-0.6.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
+0.7.0, também em `/bot/v1/openapi.yaml`). Em caso de divergência, valem as specs e o contrato.
 
 O serviço `finger-sniffer-bot` junta a visão IP/TCP do espelho (o que o store viu da conexão: SYN, JA4T, p0f, TTL,
 MSS) com a visão de aplicação do **traefix** (o traefik modificado, projeto externo do humano, imagem
@@ -231,7 +231,7 @@ webhook secret: 3f9c...
 | `--rate`, `--burst` | 20/s, 40 | balde de fichas por chave (só na 9002) |
 | `--daily` | 100 000 | cota diária por chave (só na 9002) |
 | `--ingest-rate`, `--ingest-burst` | 500/s, 2 048 | balde de **registros** do ingest por chave (só na 9002): o lote tira um registro por ficha, de uma vez |
-| `--mode` | `observe` | `observe` (forwardAuth sempre 200) ou `block` (403 para `class=bot`) |
+| `--mode` | `observe` | `observe` (forwardAuth sempre 200) ou `block` (403 mínimo para `class=bot`) |
 | `--webhook-url` | — | URL `https` do webhook; gera e imprime o segredo uma vez |
 | `--webhook-classes` | `bot,suspect` | classes enviadas ao webhook |
 
@@ -350,14 +350,14 @@ X-Traefix-Verdict: bot
 | Resposta | Quando |
 | --- | --- |
 | 200 | modo `observe` (padrão, e sempre sem chave), ou `block` com classe diferente de `bot`; cabeçalhos `X-Traefix-Verdict`, `X-Traefix-Score`, `X-Traefix-Signals` (ids separados por vírgula, até 1 KiB), os `X-Fs-*` equivalentes (obsoletos) e corpo `Verdict` |
-| 403 | chave em modo `block` e `class=bot`; mesmo corpo e sempre os cabeçalhos `X-Traefix-Verdict`, `X-Traefix-Score` e `X-Traefix-Signals` (e os `X-Fs-*` equivalentes) |
+| 403 `forbidden` | chave em modo `block` e `class=bot`: corpo mínimo `{"error":"forbidden"}`, **sem** nenhum cabeçalho de veredito (`X-Traefix-Verdict`, `-Score`, `-Signals` nem os `X-Fs-*`) e só com o marcador `X-Traefix-Deny: 1` ([ADR 0074](../specs/decisions/0074-resposta-minima-do-403-no-modo-block.md)): o traefix devolve essa resposta inteira ao visitante, que não fica sabendo a classe, o score nem os sinais que o pegaram. O veredito segue no feed, no webhook e na consulta (`/bot/v1/verdict/conn/{fs_conn_id}`) |
 | 400 `missing_fork_headers` | falta algum `X-Traefix-*` obrigatório (o pedido não veio do traefix ou a entrada não tem o bloco `fingerprint`) |
 | 400 `bad_request` | `X-Traefix-*` obrigatório inválido, ou chave cujos domínios não casam com `X-Forwarded-Host` |
 | 401 `invalid_key`, 403 `forbidden_origin`, 429 `rate_limited` | chave inválida ou revogada; origem fora da rede permitida na 9003; limite da chave |
 
-Nenhuma resposta de erro (400, 401, 403 `forbidden_origin`, 429, 5xx) traz `X-Traefix-Verdict` nem `X-Fs-Verdict`: é o que o traefix usa
-para separar o bloqueio (403 do modo `block`, que volta ao visitante) de uma falha de configuração (fail-open,
-[abaixo](#a-site-atrás-do-traefix-no-finger-01)).
+Nenhuma resposta de erro (400, 401, 403 `forbidden_origin`, 429, 5xx) traz `X-Traefix-Verdict` nem `X-Fs-Verdict`, e
+só o 403 do modo `block` traz `X-Traefix-Deny`: é o que o traefix usa para separar o bloqueio (que volta ao visitante)
+de uma falha de configuração (fail-open, [abaixo](#a-site-atrás-do-traefix-no-finger-01)).
 
 ### `GET /bot/v1/verdict?src_ip=&src_port=&site=`
 
@@ -502,6 +502,7 @@ Corpo `{"error": "<código>", "detail": "..."}`:
 | `payload_too_large` | 413 | lote do ingest acima de 4 MiB |
 | `forbidden_origin` | 403 | origem fora das redes permitidas na 9003 |
 | `internal` | 500, 503 | falha interna; 503 com mais de 64 clientes no feed |
+| `forbidden` | 403 | forwardAuth com chave em modo `block` e `class=bot`; corpo sem `detail`, só com `X-Traefix-Deny: 1` |
 | `busy` | 503 | ingest sem vaga entre os lotes simultâneos (8 no processo, 6 da 9002); `Retry-After: 1`, o corpo não é lido |
 
 ## Webhook
@@ -664,7 +665,7 @@ http:
           Authorization: "Bearer fsk_..."  # chave do site; para block, uma chave --mode block
         authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
         failOpen:
-          denyRequiresResponseHeader: X-Traefix-Verdict
+          denyRequiresResponseHeader: X-Traefix-Deny
           header: { name: X-Traefix-Verdict, value: unavailable }
   routers:
     meusite:
@@ -680,7 +681,7 @@ traefix, `forwardauth-failopen.md`) e `traefik.http.routers.meusite.middlewares=
 | `authRequestHeaders` | só os campos do visitante que o bot usa; **nunca vazio**: vazio mandaria o `Cookie` e o `Authorization` do visitante à auth. Os `X-Traefix-*` vão à auth sempre |
 | `requestHeaders.Authorization` | a chave, uma por middleware (cada site com os próprios domínios e modo). Na 9003 é opcional, mas sem ela o modo é sempre `observe`; na 9002 é obrigatória. O traefix recusa a carga com chave vazia (ou só `Bearer `) e com a chave num `http://` público |
 | `authResponseHeaders` | os três cabeçalhos do veredito copiados para o backend |
-| `failOpen.denyRequiresResponseHeader` | só uma negação que traz `X-Traefix-Verdict` volta ao visitante; qualquer outra falha segue ao backend |
+| `failOpen.denyRequiresResponseHeader` | `X-Traefix-Deny`: só a negação que traz o marcador (o 403 mínimo do `block`) volta ao visitante; qualquer outra falha segue ao backend. Com o valor antigo (`X-Traefix-Verdict`) o 403 sem cabeçalhos de veredito vira fail-open e o `block` não bloqueia: troque o perfil antes de ligar `block` ([ADR 0074](../specs/decisions/0074-resposta-minima-do-403-no-modo-block.md) item 4) |
 | `failOpen.header` | o cabeçalho posto pelo traefix quando não há veredito: `X-Traefix-Verdict: unavailable` |
 
 Os cabeçalhos do visitante na auth são só os de `authRequestHeaders`: o `Cookie` e o `Authorization` do visitante
@@ -693,8 +694,8 @@ O backend lê então `X-Traefix-Verdict` (`human`, `good_bot`, `bot`, `suspect`,
 | Resposta do bot | O que o traefix faz | O visitante vê |
 | --- | --- | --- |
 | 200 | copia `authResponseHeaders` e segue ao backend | o site |
-| 403 **com** `X-Traefix-Verdict` (modo `block`, `class=bot`) | devolve o 403 do bot | o 403 |
-| 4xx **sem** `X-Traefix-Verdict` (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) | segue com `X-Traefix-Verdict: unavailable`, conta `traefik_forwardauth_failopen_total{reason="http_4xx"}` e loga no máximo uma linha por minuto por middleware | o site |
+| 403 **com** `X-Traefix-Deny` (modo `block`, `class=bot`) | devolve o 403 mínimo do bot | o 403, com `{"error":"forbidden"}` e `X-Traefix-Deny: 1`, sem classe, score nem sinais |
+| 4xx **sem** `X-Traefix-Deny` (401 `invalid_key`, 403 `forbidden_origin`, 400, 429) | segue com `X-Traefix-Verdict: unavailable`, conta `traefik_forwardauth_failopen_total{reason="http_4xx"}` e loga no máximo uma linha por minuto por middleware | o site |
 | 5xx, erro de rede, prazo vencido | segue com `X-Traefix-Verdict: unavailable` (`reason` = `http_5xx`, `network`, `timeout`) | o site |
 
 Uma chave revogada, um domínio fora da chave ou o limite da chave estourado são falhas de quem opera o site, não
@@ -780,7 +781,7 @@ http:
           Authorization: "Bearer fsk_..."
         authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
         failOpen:
-          denyRequiresResponseHeader: X-Traefix-Verdict
+          denyRequiresResponseHeader: X-Traefix-Deny
           header: { name: X-Traefix-Verdict, value: unavailable }
 ```
 

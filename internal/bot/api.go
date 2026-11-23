@@ -35,7 +35,13 @@ const (
 	errInternal           = "internal"
 	// errBusy é o 503 de capacidade do ingest (ADR 0073 item 2.3).
 	errBusy = "busy"
+	// errForbidden é o 403 mínimo do modo block (ADR 0074).
+	errForbidden = "forbidden"
 )
+
+// denyHeader é o marcador do 403 do modo block para o traefix (failOpen.denyRequiresResponseHeader, ADR 0074 item
+// 3); nenhuma outra resposta o leva.
+const denyHeader = "X-Traefix-Deny"
 
 // Métricas do heartbeat (spec 018 RF-12) já existentes nesta entrega.
 const (
@@ -158,9 +164,9 @@ var verdictHeaders = [...]string{
 	"X-Traefix-Verdict", "X-Traefix-Score", "X-Traefix-Signals", "X-Fs-Verdict", "X-Fs-Score", "X-Fs-Signals",
 }
 
-// Nenhuma resposta de erro leva os cabeçalhos do veredito (X-Traefix-* nem X-Fs-*), nem os postos antes do erro:
-// o traefix separa pelo Verdict o bloqueio (403 do modo block) da falha de configuração ou de limite (fail-open de
-// 4xx, ADRs 0058 item 3 e 0063 item 1).
+// Nenhuma resposta de erro leva os cabeçalhos do veredito (X-Traefix-* nem X-Fs-*), nem os postos antes do erro;
+// o traefix separa pelo X-Traefix-Deny o bloqueio (403 do modo block) da falha de configuração ou de limite
+// (fail-open de 4xx, ADRs 0058 item 3, 0063 item 1 e 0074).
 func writeError(w http.ResponseWriter, status int, code, detail string) {
 	for _, k := range verdictHeaders {
 		w.Header().Del(k)
@@ -508,8 +514,8 @@ func cutPath(uri string) string {
 }
 
 // forwardAuth devolve o GET /bot/v1/auth da porta (spec 020 RF-05): espera as visões até FS_BOT_VIEW_WAIT, avalia
-// o veredito da requisição e responde 200 (ou 403 em modo block para `bot`) com os cabeçalhos do veredito nos dois
-// conjuntos e o Verdict. A verificação de robô nunca segura a resposta (cache ou desconhecido, com a verificação em
+// o veredito da requisição e responde 200 com os cabeçalhos do veredito nos dois conjuntos e o Verdict, ou, em modo
+// block para `bot`, o 403 mínimo só com X-Traefix-Deny (ADR 0074). A verificação de robô nunca segura a resposta (cache ou desconhecido, com a verificação em
 // segundo plano). Espera (ADR 0063 item 7): na 9002 (internal=false) o store nunca tem a conexão e não é esperado;
 // com X-Traefix-Ja4 (e -H2 em h2) a visão do traefix não é esperada.
 func (a *API) forwardAuth(internal bool) http.HandlerFunc {
@@ -569,15 +575,18 @@ func (a *API) forwardAuth(internal bool) http.HandlerFunc {
 			sp = &store
 		}
 		v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp, !foreign, p.owner())
-		vals := [3]string{v.Class, strconv.Itoa(v.Score), signalIDs(v.Signals)}
-		for i, k := range verdictHeaders {
-			w.Header().Set(k, vals[i%3])
-		}
-		status := http.StatusOK
 		if p.key != nil && p.key.Mode == ModeBlock && v.Class == ClassBot {
-			status = http.StatusForbidden
+			// 403 mínimo (ADR 0074): o traefix o devolve inteiro ao visitante, então nada do veredito (classe, score,
+			// sinais) vai nele, só o marcador do bloqueio; o veredito segue no feed, no webhook e na consulta
+			w.Header().Set(denyHeader, "1")
+			writeError(w, http.StatusForbidden, errForbidden, "")
+		} else {
+			vals := [3]string{v.Class, strconv.Itoa(v.Score), signalIDs(v.Signals)}
+			for i, k := range verdictHeaders {
+				w.Header().Set(k, vals[i%3])
+			}
+			writeJSON(w, http.StatusOK, v)
 		}
-		writeJSON(w, status, v)
 		a.Judge.authWait.Observe(waited)
 		a.Judge.authTime.Observe(time.Since(start))
 	}

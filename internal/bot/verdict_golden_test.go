@@ -289,13 +289,13 @@ func TestVerdictGoldens(t *testing.T) {
 			if got := h.Get("X-Fs-Signals"); got != joinIDs(c.wantSignals) {
 				t.Errorf("X-Fs-Signals %q", got)
 			}
-			// modo block: 403 com o mesmo corpo só para bot
+			// modo block: 403 mínimo só para bot (ADR 0074); os demais, 200 com o mesmo veredito
 			code, h, b = f.do(f.internal, "GET", "/bot/v1/auth", block, hdr, "")
-			want := 200
 			if c.wantClass == ClassBot {
-				want = 403
+				checkMinimal403(t, "block", code, h, b)
+				return
 			}
-			if code != want || h.Get("X-Fs-Verdict") != c.wantClass {
+			if code != 200 || h.Get("X-Fs-Verdict") != c.wantClass {
 				t.Fatalf("block: %d %v %s", code, h, b)
 			}
 			var vb Verdict

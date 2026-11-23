@@ -1476,12 +1476,23 @@ func TestF8Bot(t *testing.T) {
 		t.Run("block-ja4h", func(t *testing.T) {
 			id, o, tcp := newTraefixConn(t, block, a, used)
 			r := botDo(t, http.MethodGet, "/auth", block, traefixAuthHeaders(id, o, a, vpsHost, authOpts{ja4h: true, fp: true, tcp: tcp}), nil)
-			v := decodeVerdict(t, "auth", r)
-			t.Logf("auth block com X-Traefix-Ja4h: %d %s", r.status, v.String())
-			if r.status != http.StatusForbidden || v.Class != "bot" {
-				t.Errorf("block: %d %s; esperado 403 com o veredito bot (ADR 0058 itens 1 e 3)", r.status, v.String())
+			t.Logf("auth block com X-Traefix-Ja4h: %d %v %s", r.status, r.header, r.body)
+			// 403 mínimo (ADR 0074): corpo {"error":"forbidden"}, só X-Traefix-Deny, nenhum cabeçalho de veredito
+			if r.status != http.StatusForbidden || strings.TrimSpace(string(r.body)) != `{"error":"forbidden"}` || r.header.Get("X-Traefix-Deny") != "1" {
+				t.Errorf("block: %d %v %s; esperado o 403 mínimo com X-Traefix-Deny (ADR 0074)", r.status, r.header, r.body)
 			}
-			checkVerdictHeaders(t, "auth block", r, v)
+			for _, p := range []string{"X-Traefix-", "X-Fs-"} {
+				for _, n := range []string{"Verdict", "Score", "Signals"} {
+					if got := r.header.Get(p + n); got != "" {
+						t.Errorf("403 do block com %s%s: %q", p, n, got)
+					}
+				}
+			}
+			// o veredito bot segue na consulta
+			v := decodeVerdict(t, "verdict/conn", botDo(t, http.MethodGet, "/verdict/conn/"+id, block, nil, nil))
+			if v.Class != "bot" {
+				t.Errorf("consulta do block: %s; esperado bot (ADR 0074 item 2)", v.String())
+			}
 		})
 
 		t.Run("without-ja4h", func(t *testing.T) {

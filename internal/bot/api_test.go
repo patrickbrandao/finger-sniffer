@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -602,5 +603,68 @@ func TestStreamKeyShare(t *testing.T) {
 	c, hdr, b := f.do(f.public, "GET", "/bot/v1/stream", key, nil, "")
 	if c != 429 || errorCode(t, b) != errRateLimited || hdr.Get("Retry-After") != "15" {
 		t.Fatalf("feed acima da chave: %d %v %s", c, hdr, b)
+	}
+}
+
+// checkMinimal403 confere o 403 do modo block (ADR 0074): corpo {"error":"forbidden"} sem detail, X-Traefix-Deny: 1
+// e nenhum cabeçalho de veredito (X-Traefix-* nem X-Fs-*).
+func checkMinimal403(t *testing.T, what string, code int, h http.Header, b []byte) {
+	t.Helper()
+	if code != http.StatusForbidden || string(b) != `{"error":"forbidden"}`+"\n" || h.Get("X-Traefix-Deny") != "1" {
+		t.Fatalf("%s: %d %v %s", what, code, h, b)
+	}
+	for _, k := range verdictHeaders {
+		if _, ok := h[k]; ok {
+			t.Errorf("%s: 403 com %s: %v", what, k, h)
+		}
+	}
+}
+
+// TestBlockMinimal403: em modo block o 403 de um `bot` é mínimo e só ele leva X-Traefix-Deny; o 200 do observe e o
+// 200 do block para quem não é bot ficam com os cabeçalhos e o Verdict; o veredito do 403 segue no feed e na
+// consulta (task 367, ADR 0074).
+func TestBlockMinimal403(t *testing.T) {
+	f := newFixture(t)
+	_, obs := f.createKey(KeyOptions{Name: "o", Domains: []string{"www.example.com"}})
+	_, blk := f.createKey(KeyOptions{Name: "b", Domains: []string{"www.example.com"}, Mode: ModeBlock})
+	c := &streamClient{queue: make(chan *Verdict, 8)}
+	if err := f.srv.hub.add(c); err != nil {
+		t.Fatal(err)
+	}
+	curl := curlAuthHeaders()
+	curl["X-Fs-Ja4h"] = ja4hCurl
+	code, h, b := f.do(f.internal, "GET", "/bot/v1/auth", obs, curl, "")
+	var v Verdict
+	if err := json.Unmarshal(b, &v); code != 200 || err != nil || v.Class != ClassBot || h.Get("X-Traefix-Verdict") != ClassBot ||
+		h.Get("X-Fs-Score") != strconv.Itoa(v.Score) || h.Get("X-Traefix-Signals") != signalIDs(v.Signals) {
+		t.Fatalf("observe: %d %v %s", code, h, b)
+	}
+	if _, ok := h["X-Traefix-Deny"]; ok {
+		t.Fatalf("200 com X-Traefix-Deny: %v", h)
+	}
+	hdr := curlAuthHeaders()
+	hdr["X-Fs-Ja4h"] = ja4hCurl
+	hdr["X-Fs-Conn-Id"], hdr["X-Fs-Src-Port"] = "01JC0X3K8V2T7Q9N4M6P1R5S77", "51277"
+	code, h, b = f.do(f.internal, "GET", "/bot/v1/auth", blk, hdr, "")
+	checkMinimal403(t, "block", code, h, b)
+	if errorCode(t, b) != errForbidden {
+		t.Fatalf("código %s", b)
+	}
+	// o veredito do 403 vai ao feed e à consulta
+	var got *Verdict
+	for len(c.queue) > 0 {
+		got = <-c.queue
+	}
+	if got == nil || got.Class != ClassBot || got.Subject.FsConnID == nil || *got.Subject.FsConnID != hdr["X-Fs-Conn-Id"] {
+		t.Fatalf("feed: %+v", got)
+	}
+	_, _, b = f.do(f.internal, "GET", "/bot/v1/verdict/conn/"+hdr["X-Fs-Conn-Id"], blk, nil, "")
+	if err := json.Unmarshal(b, &v); err != nil || v.Class != ClassBot {
+		t.Fatalf("consulta: %s", b)
+	}
+	// erro do forwardAuth em block não leva o marcador
+	code, h, _ = f.do(f.internal, "GET", "/bot/v1/auth", blk, map[string]string{"X-Fs-Src-Ip": "1"}, "")
+	if _, ok := h["X-Traefix-Deny"]; code != 400 || ok {
+		t.Fatalf("400 com X-Traefix-Deny: %d %v", code, h)
 	}
 }
