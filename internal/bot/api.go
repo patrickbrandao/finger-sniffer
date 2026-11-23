@@ -502,7 +502,7 @@ func (a *API) forwardAuth(internal bool) http.HandlerFunc {
 				if hasFork {
 					first = fork.First
 				}
-				store, hasTCP = a.Index.MatchStore(f.srcIP, f.srcPort, f.dstPort, first, now)
+				store, hasTCP = a.Index.MatchStore(f.srcIP, f.srcPort, f.dstPort, l4OfProto(f.proto), first, now)
 			}
 			return (hasFork || !needFork) && (hasTCP || !needTCP)
 		})
@@ -584,7 +584,7 @@ type connResult struct {
 func (a *API) lookupFork(c *connResult, fork ForkConn, now time.Time) bool {
 	c.fork, c.hasFork = fork, true
 	if !c.hasTCP && fork.HasSrc {
-		c.store, c.hasTCP = a.Index.MatchStore(fork.SrcIP, fork.SrcPort, fork.DstPort, fork.First, now)
+		c.store, c.hasTCP = a.Index.MatchStore(fork.SrcIP, fork.SrcPort, fork.DstPort, fork.L4(), fork.First, now)
 	}
 	return fork.LastVerdict != nil || c.hasTCP
 }

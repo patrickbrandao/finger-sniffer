@@ -40,6 +40,9 @@ const (
 	fpNone       = "none"
 )
 
+// authFPMetric é a série de bot_auth_fingerprint_total{kind,source}. Em h3, kind="tcp" (com qualquer origem: o
+// fluxo UDP do store, o udp.ttl do registro de conexão ou o X-Traefix-Ttl) conta só a visão de transporte do QUIC,
+// o TTL inicial, sem JA4T nem p0f (ADR 0065 item 4, task 402): os rótulos são os da spec 018 RF-12.
 func authFPMetric(kind, source string) string {
 	return metricAuthFP + `{kind="` + kind + `",source="` + source + `"}`
 }
@@ -208,7 +211,9 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 	}()
 	// TCP: o store casado; sem ele, o registro de conexão do traefix; sem ele, o JA4T do cabeçalho (ADR 0063 item 5).
 	if vw.store != nil {
-		srcs.tcp = fpFromStore
+		// o fluxo UDP (QUIC) do store só dá o TTL do primeiro datagrama: h3 não tem visão TCP (spec 019 RF-13, ADR
+		// 0065 item 4), como nos ramos do traefix (task 402)
+		srcs.tcp, udpOnly = fpFromStore, vw.store.L4 == "udp" || vw.proto == "h3"
 		t := &rules.TCP{}
 		if rec.IP != nil && rec.IP.TTLInitial != nil {
 			t.TTLInitial = *rec.IP.TTLInitial
@@ -511,7 +516,7 @@ func (j *Judge) Ingest(id string, allows func(string) bool) bool {
 	req := &fork.Requests[len(fork.Requests)-1]
 	var store *StoreConn
 	if fork.HasSrc {
-		if s, ok := j.index.MatchStore(fork.SrcIP, fork.SrcPort, fork.DstPort, fork.First, now); ok {
+		if s, ok := j.index.MatchStore(fork.SrcIP, fork.SrcPort, fork.DstPort, fork.L4(), fork.First, now); ok {
 			store = &s
 		}
 	}

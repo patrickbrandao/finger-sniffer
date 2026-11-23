@@ -392,19 +392,55 @@ func TestMatchStoreClosedWithoutFirst(t *testing.T) {
 		}, now)
 	}
 	put("OLD", StageClosed, now.Add(-5*time.Minute))
-	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, time.Time{}, now); ok {
+	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, "", time.Time{}, now); ok {
 		t.Fatalf("casou a conexão fechada sem o início: %+v", c)
 	}
-	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, now.Add(-5*time.Minute), now); !ok {
+	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, "", now.Add(-5*time.Minute), now); !ok {
 		t.Error("com o início, a fechada dentro da janela devia casar (consulta depois do fim)")
 	}
 	put("NEW", StageOpened, now)
-	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, time.Time{}, now); !ok || c.ConnID != "NEW" {
+	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, "", time.Time{}, now); !ok || c.ConnID != "NEW" {
 		t.Fatalf("a aberta não casou: %+v %v", c, ok)
 	}
 	put("NEW", StageUpdated, now)
-	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, time.Time{}, now); !ok || c.ConnID != "NEW" {
+	if c, ok := ix.MatchStore(mustAddr("198.51.100.7"), 51234, 443, "", time.Time{}, now); !ok || c.ConnID != "NEW" {
 		t.Fatalf("a atualizada não casou: %+v %v", c, ok)
+	}
+}
+
+// TestMatchStoreL4: task 402 — o casamento confere o L4 esperado (h3 → udp, h1/h2 → tcp) sem mudar a chave do
+// índice; "" não filtra. ForkConn.L4 deduz o transporte da conexão do fork.
+func TestMatchStoreL4(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	ix := NewIndex(10*time.Minute, 100, 0, nil)
+	ix.PutStore(&StoreConn{ConnID: "U", Stage: StageOpened, L4: "udp", SrcIP: mustAddr("198.51.100.7"), SrcPort: 50000, DstPort: 443, Started: now}, now)
+	for l4, want := range map[string]bool{"udp": true, "tcp": false, "": true} {
+		if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 50000, 443, l4, now, now); ok != want {
+			t.Errorf("l4 %q: casou %v", l4, ok)
+		}
+	}
+	for proto, want := range map[string]string{"h1": "tcp", "h2": "tcp", "h3": "udp", "": ""} {
+		if got := l4OfProto(proto); got != want {
+			t.Errorf("l4OfProto(%q) = %q", proto, got)
+		}
+	}
+	for name, c := range map[string]struct {
+		f    ForkConn
+		want string
+	}{
+		"empty":       {ForkConn{}, ""},
+		"udp view":    {ForkConn{TCP: &ForkTCP{UDP: true}}, "udp"},
+		"tcp view":    {ForkConn{TCP: &ForkTCP{}}, "tcp"},
+		"quic timing": {ForkConn{Timing: &ForkTiming{QUIC: true}}, "udp"},
+		"ja4 q":       {ForkConn{TLS: &ForkTLS{JA4: "q13d0310h3_x_y"}}, "udp"},
+		"ja4 t":       {ForkConn{TLS: &ForkTLS{JA4: "t13d1516h2_x_y"}}, "tcp"},
+		"alpn h3":     {ForkConn{ALPN: "h3"}, "udp"},
+		"request h2":  {ForkConn{Requests: []ForkRequest{{Proto: "h2"}}}, "tcp"},
+		"request h3":  {ForkConn{Requests: []ForkRequest{{Proto: "h3"}}}, "udp"},
+	} {
+		if got := c.f.L4(); got != c.want {
+			t.Errorf("%s: L4 = %q, esperado %q", name, got, c.want)
+		}
 	}
 }
 
@@ -467,13 +503,13 @@ func TestIndex(t *testing.T) {
 	if _, ok := ix.StoreByID("B", now); ok {
 		t.Error("B devia ter sido despejada (a mais antiga)")
 	}
-	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 1, 443, now.Add(4*time.Second), now); !ok {
+	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 1, 443, "", now.Add(4*time.Second), now); !ok {
 		t.Error("casamento com IPv4 mapeado")
 	}
-	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 1, 443, now.Add(6*time.Second), now); ok {
+	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 1, 443, "", now.Add(6*time.Second), now); ok {
 		t.Error("casou fora da janela de 5 s")
 	}
-	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 1, 8443, time.Time{}, now); ok {
+	if _, ok := ix.MatchStore(mustAddr("198.51.100.7"), 1, 8443, "", time.Time{}, now); ok {
 		t.Error("casou com outra porta de destino")
 	}
 	if _, ok := ix.StoreByID("A", now.Add(11*time.Minute)); ok {
