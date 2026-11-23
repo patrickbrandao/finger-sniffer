@@ -148,6 +148,7 @@ primeiro uso ou no primeiro ciclo do heartbeat.
 | `fs_bot_ingest_fingerprint_mismatch_total{kind}` | contador | fingerprint pronta do traefix diferente da calculada pelo bot dos bytes crus (ou JA4T do traefix diferente do store), `kind` = `ja3`, `ja3n`, `ja4`, `ja4r`, `ja4o`, `akamai` ou `ja4t` (ADRs 0062 e 0063) |
 | `fs_bot_store_feed_messages_total` | contador | mensagens `fs.v1.store.connection` recebidas do store |
 | `fs_bot_conns_evicted_total{reason}` | contador | conexões despejadas do índice antes do TTL: `reason` = `count` (`FS_BOT_MAX_CONNS`, 100 000) ou `bytes` (`FS_BOT_INDEX_MAX_BYTES`, 384 MiB); o vencimento normal pelo TTL não conta |
+| `fs_bot_public_conns_closed_total{reason}` | contador | conexões da 9002 fechadas pelos limites da ADR 0073 item 1: `reason` = `source` (17ª conexão simultânea da mesma origem, IPv4 ou /64 IPv6, fechada no `accept`) ou `idle` (ociosa mais antiga fechada com 180 conexões ou mais); com as 200 ocupadas nos últimos 60 s o health fica `degraded` com `public conns` |
 | `fs_bot_index_bytes` | gauge | bytes contabilizados do índice (aproximação de ±25% do heap, ADR 0057 item 2); despejo por bytes nos últimos 60 s deixa o health `degraded` com `index bytes` |
 | `fs_bot_list_entries{list}` | gauge | entradas de cada lista (`known_clients`, `googlebot`, `bingbot`, `aws`, ...; `ja4db` só com `FS_BOT_JA4DB_ENABLE=true`) |
 | `fs_bot_list_age_seconds{list}` | gauge | idade da última atualização boa de cada lista baixada (sem nenhuma, desde a partida); acima de 72 h o health fica `degraded` com `list <nome> stale` |

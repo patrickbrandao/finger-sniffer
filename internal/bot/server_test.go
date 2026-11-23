@@ -1,13 +1,17 @@
 package bot
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -119,4 +123,165 @@ func TestStatusDBSpace(t *testing.T) {
 	if h := srv.Health(); h.Status != event.StatusDegraded || h.Lists == nil {
 		t.Fatalf("%+v", h)
 	}
+}
+
+// sourceTCPListener troca o endereço remoto de cada conexão aceita pelo próximo da fila (origens diferentes em
+// loopback, sem depender de 127.0.0.2 no sistema).
+type sourceTCPListener struct {
+	net.Listener
+	ips chan string
+}
+
+func (l *sourceTCPListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	ip := "127.0.0.1"
+	select {
+	case ip = <-l.ips:
+	default:
+	}
+	return &remoteConn{Conn: c, remote: &net.TCPAddr{IP: net.ParseIP(ip), Port: 40000}}, nil
+}
+
+type remoteConn struct {
+	net.Conn
+	remote net.Addr
+}
+
+func (c *remoteConn) RemoteAddr() net.Addr { return c.remote }
+
+// servePublic sobe o serviço com um listener da 9002 de origens falsas e devolve o endereço, a fila das origens e
+// as métricas.
+func servePublic(t *testing.T, tune func(*Server)) (*Server, string, chan string, *service.Metrics) {
+	t.Helper()
+	db, path := testDB(t)
+	log := slog.New(slog.DiscardHandler)
+	cs, err := certs.Open(certs.Config{Dir: t.TempDir(), NamesDNS01: []string{"localhost"}}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+	m := service.NewMetrics()
+	srv := New(testConfig(path), Deps{Log: log, Metrics: m, DB: db, TLS: cs.TLSConfig(), OpenAPI: []byte("openapi: 3.1.0\n"), Version: "test"})
+	tune(srv)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ips := make(chan string, 64)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- srv.Serve(ctx, []net.Listener{&sourceTCPListener{Listener: l, ips: ips}}, []net.Listener{in})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	return srv, l.Addr().String(), ips, m
+}
+
+// healthOnce faz um GET /bot/v1/health numa conexão nova, com prazo curto.
+func healthOnce(addr string) error {
+	client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{
+		DisableKeepAlives: true,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"}, //nolint:gosec // autoassinado do teste
+	}}
+	resp, err := client.Get("https://" + addr + "/bot/v1/health") //nolint:noctx // teste
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// TestPublicSourceLimit: com teto global 3 e por origem 2, três conexões ociosas da mesma origem não impedem uma
+// conexão de outra origem de responder health; a terceira é fechada no accept e contada (task 336, ADR 0073 item
+// 1.1). Sem o teto por origem a terceira ocupava a última vaga e o cliente seguinte esperava o prazo do handshake.
+func TestPublicSourceLimit(t *testing.T) {
+	srv, addr, ips, m := servePublic(t, func(s *Server) { s.publicMax, s.perSource, s.idleHigh = 3, 2, 1000 })
+	var idle []net.Conn
+	for range 3 {
+		ips <- "192.0.2.1"
+		c, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		idle = append(idle, c)
+	}
+	t.Cleanup(func() {
+		for _, c := range idle {
+			_ = c.Close()
+		}
+	})
+	// a terceira da mesma origem é fechada pelo servidor
+	_ = idle[2].SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := idle[2].Read(make([]byte, 1)); err == nil || isTimeout(err) {
+		t.Fatalf("terceira conexão da origem não foi fechada: %v", err)
+	}
+	ips <- "198.51.100.1"
+	if err := healthOnce(addr); err != nil {
+		t.Fatalf("outra origem: %v", err)
+	}
+	if got := m.Get(publicClosedMetric(closedSource)); got != 1 {
+		t.Errorf("source %v", got)
+	}
+	// duas ociosas + a da outra origem = teto global 3: health degraded com public conns
+	if _, reasons := srv.Status(); !slices.Contains(reasons, "public conns") {
+		t.Errorf("reasons %v", reasons)
+	}
+}
+
+// TestPublicIdleTrim: perto do teto (idleHigh), a conexão nova fecha a ociosa mais antiga da 9002 (ADR 0073 item
+// 1.3), contada em bot_public_conns_closed_total{reason="idle"}.
+func TestPublicIdleTrim(t *testing.T) {
+	_, addr, _, m := servePublic(t, func(s *Server) { s.publicMax, s.perSource, s.idleHigh = 10, 10, 3 })
+	open := func() (*tls.Conn, *bufio.Reader) {
+		c, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true, ServerName: "localhost", NextProtos: []string{"http/1.1"}}) //nolint:gosec // teste
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		br := bufio.NewReader(c)
+		if _, err := io.WriteString(c, "GET /bot/v1/health HTTP/1.1\r\nHost: localhost\r\n\r\n"); err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.ReadResponse(br, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		return c, br
+	}
+	c1, br1 := open()
+	time.Sleep(10 * time.Millisecond)
+	open()
+	if m.Get(publicClosedMetric(closedIdle)) != 0 {
+		t.Fatal("fechou com 2 abertas")
+	}
+	open() // terceira: fecha a ociosa mais antiga (c1)
+	_ = c1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := br1.ReadByte(); err == nil || isTimeout(err) {
+		t.Fatalf("a ociosa mais antiga não foi fechada: %v", err)
+	}
+	if got := m.Get(publicClosedMetric(closedIdle)); got != 1 {
+		t.Errorf("idle %v", got)
+	}
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }

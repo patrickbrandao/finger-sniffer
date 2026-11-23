@@ -244,6 +244,13 @@ configuração de quem opera o traefik, ADR 0055 item 6).
 **Limites.** Acima do balde ou da cota: 429 `rate_limited` com `Retry-After` em segundos. Globais: 200 conexões na
 9002, 64 clientes no feed (acima, 503), lote do ingest até 4 MiB (acima, 413 `payload_too_large`).
 
+**Conexões da 9002** ([ADR 0073](../specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md) item 1): no
+máximo 16 conexões simultâneas por origem (o IPv4, ou o /64 do IPv6); a 17ª é fechada logo no `accept`, sem ocupar
+uma das 200 vagas (`fs_bot_public_conns_closed_total{reason="source"}`). A conexão ociosa fecha em 30 s (na 9003,
+120 s) e o cabeçalho da requisição, como o handshake TLS, tem 5 s para chegar nas duas portas. Com 180 conexões ou
+mais na 9002, as ociosas mais antigas são fechadas até ficarem menos de 180 (`reason="idle"`); o cliente reabre a
+conexão na requisição seguinte. Chegar às 200 deixa o health `degraded` com `public conns` por 60 s.
+
 **CORS.** `Access-Control-Allow-Origin` só para os domínios da chave e só nas rotas `GET`. A chave fica no backend
 do site; consulta pelo navegador não é o uso previsto.
 
@@ -274,7 +281,8 @@ $ curl -s $BOT/bot/v1/openapi.yaml | head -3
 `status` vira `degraded` com `reasons`: `list <nome> stale` (lista sem atualização há mais de 72 h), `db space`
 (banco acima de 90% de `FS_BOT_MAX_BYTES`), `webhook backlog` (fila de webhook cheia por mais de 60 s),
 `store feed silent` (sem `fs.v1.store.connection` por mais de 60 s com o store `ok`) e
-`index bytes` (despejo do índice por bytes nos últimos 60 s). O mesmo estado aparece em `services.bot` do
+`index bytes` (despejo do índice por bytes nos últimos 60 s) e `public conns` (9002 com as 200 conexões
+ocupadas nos últimos 60 s). O mesmo estado aparece em `services.bot` do
 `/api/v1/health` do store.
 
 ### `GET /bot/v1/auth` (forwardAuth)
