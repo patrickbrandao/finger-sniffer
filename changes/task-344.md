@@ -1,0 +1,1 @@
+- web: `recover` em toda goroutine por conexão ou stream (conexão, `conn_id`, h2, h3), com log da pilha e `web_panics_total`; reservas do `tap` devolvidas em `defer` (task 344, ADR 0070 item 6).

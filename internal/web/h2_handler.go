@@ -60,6 +60,7 @@ func (h *h2Conn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// registro sai em segundo plano, quando o fim aparece no fio (instantes da resposta, ADR 0029).
 		go func() {
 			defer h.wg.Done()
+			defer h.c.srv.recoverConn("h2.finish", nil)
 			st.finish()
 		}()
 	}()

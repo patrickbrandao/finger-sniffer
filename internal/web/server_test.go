@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -151,6 +152,8 @@ type harnessOpts struct {
 	noStore bool
 	cfg     func(*Config)
 	deps    func(*Deps)
+	// panicHook vai para Server.panicHook antes do primeiro accept (task 344).
+	panicHook func(stage string)
 }
 
 func testConfig(htdocs string) Config {
@@ -221,6 +224,7 @@ func newHarness(t *testing.T, o harnessOpts) *harness {
 		o.deps(&d)
 	}
 	h.srv = NewServer(cfg, d)
+	h.srv.panicHook = o.panicHook
 	ctx, cancel := context.WithCancel(context.Background())
 	for _, a := range []*string{&h.addr80, &h.addr443} {
 		lc := testListenConfig()
@@ -792,5 +796,41 @@ func TestListenConfigNoKeepAlive(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
 	if lc := h.srv.listenConfig(); lc.KeepAlive >= 0 || lc.Control == nil {
 		t.Fatalf("listenConfig = %+v", lc)
+	}
+}
+
+// TestPanicRecovered (task 344, ADR 0070 item 6): um pânico no laço HTTP/1 fecha só aquela conexão, conta em
+// web_panics_total, devolve as reservas (cabeçalho e tap) e o servidor segue atendendo.
+func TestPanicRecovered(t *testing.T) {
+	var armed atomic.Bool
+	armed.Store(true)
+	h := newHarness(t, harnessOpts{panicHook: func(stage string) {
+		if stage == "http1.head" && armed.CompareAndSwap(true, false) {
+			panic("test panic")
+		}
+	}})
+	bad := dial(t, h.addr80)
+	cl := newClient(t, bad)
+	cl.send(get("/p/"+testProbe+"/", "x"))
+	_ = bad.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := cl.br.Peek(1); err == nil {
+		t.Fatal("connection that panicked answered")
+	}
+	ok := dial(t, h.addr80)
+	cl2 := newClient(t, ok)
+	cl2.send(get("/p/"+testProbe+"/", "x"))
+	if resp, _ := cl2.response("GET"); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	_ = ok.Close()
+	if got := h.srv.metrics.Get(MetricPanics); got != 1 {
+		t.Fatalf("web_panics_total = %v", got)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for h.srv.budget.inUse() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("budget in use %d after panic", h.srv.budget.inUse())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

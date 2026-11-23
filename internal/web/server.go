@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,9 @@ type Server struct {
 
 	// h3 são os listeners UDP e as conexões QUIC (h3.go).
 	h3 h3State
+
+	// panicHook, só em teste, é chamado em pontos do laço por conexão para provocar pânico (task 344).
+	panicHook func(stage string)
 }
 
 // NewServer cria o servidor.
@@ -248,6 +252,8 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 			defer s.wg.Done()
 			defer func() { <-s.sem }()
 			defer s.untrack(c)
+			// O recover roda antes dos defers de cima: a conexão fecha e a vaga volta (ADR 0070 item 6).
+			defer s.recoverConn("conn", func() { _ = c.Close() })
 			s.handle(ctx, c, at)
 		}()
 	}
@@ -399,4 +405,28 @@ func acmeListenHost(cfg Config) netip.Addr {
 		return cfg.ListenIPv4
 	}
 	return cfg.ListenIPv6
+}
+
+// MetricPanics conta os pânicos recuperados nas goroutines por conexão ou stream (ADR 0070 item 6).
+const MetricPanics = "web_panics_total"
+
+// recoverConn, chamado em defer, recupera um pânico da goroutine de uma conexão ou stream: registra com a
+// pilha, conta em web_panics_total e fecha só aquela conexão (closeFn, pode ser nil). Sem pânico, nada faz.
+func (s *Server) recoverConn(where string, closeFn func()) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	s.log.Error("web panic", "where", where, "panic", r, "stack", string(debug.Stack()))
+	s.metrics.Add(MetricPanics, 1)
+	if closeFn != nil {
+		closeFn()
+	}
+}
+
+// hook chama o panicHook de teste, se houver.
+func (s *Server) hook(stage string) {
+	if s.panicHook != nil {
+		s.panicHook(stage)
+	}
 }

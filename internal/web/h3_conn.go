@@ -117,6 +117,7 @@ func (s *Server) handleQUIC(ctx context.Context, qc *quic.Conn) {
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
+		defer h.srv.recoverConn("h3.stream", func() { _ = h.qc.CloseWithError(h3InternalError, "") })
 		h.acceptUni()
 	}()
 	h.acceptBidi()
@@ -194,6 +195,7 @@ func (h *h3Conn) acceptUni() {
 		h.wg.Add(1)
 		go func() {
 			defer h.wg.Done()
+			defer h.srv.recoverConn("h3.stream", func() { _ = h.qc.CloseWithError(h3InternalError, "") })
 			h.readUni(str)
 		}()
 	}
@@ -277,6 +279,7 @@ func (h *h3Conn) acceptBidi() {
 		h.wg.Add(1)
 		go func() {
 			defer h.wg.Done()
+			defer h.srv.recoverConn("h3.stream", func() { _ = h.qc.CloseWithError(h3InternalError, "") })
 			st := &h3Stream{h: h, str: str, index: index}
 			st.serve()
 		}()

@@ -126,12 +126,13 @@ func (s *Server) handle(ctx context.Context, raw net.Conn, at time.Time) {
 		c.serveTLS(ic)
 	case detect.HTTP1:
 		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
+		// Em defer: a reserva do pendente do tap volta em qualquer saída, pânico recuperado inclusive.
+		defer t.flush()
 		c.serveHTTP1(t, ic, at)
-		t.flush()
 	case detect.H2CPriorKnowledge:
 		t := newTap(ic, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
+		defer t.flush()
 		c.serveH2(t, ic, h2passive.ModePriorKnowledge, nil)
-		t.flush()
 	default:
 		c.serveRaw(ic, res)
 	}
@@ -146,6 +147,7 @@ func (s *Server) requestConnID(ctx context.Context, flow event.Flow, at time.Tim
 	}
 	go func() {
 		defer close(f.done)
+		defer s.recoverConn("conn_id", nil)
 		rctx, cancel := context.WithDeadline(ctx, f.deadline)
 		defer cancel()
 		id, err := s.deps.ConnID(rctx, flow, at)
@@ -227,6 +229,8 @@ func (c *conn) serveTLS(ic *idleConn) {
 	c.tlsOn = true
 	c.mu.Unlock()
 	t := newTap(ts, s.cfg.RawStreamMax, s.now, c.emitStream, s.budget)
+	// Em defer, para valer também no pânico; o flush é idempotente.
+	defer t.flush()
 	if ts.ConnectionState().NegotiatedProtocol == http2.NextProtoTLS {
 		c.serveH2(t, ic, h2passive.ModeALPN, nil)
 	} else {

@@ -36,7 +36,8 @@ info:
     o openapi 0.6.1, ADRs 0038 e 0039: stream de 128 MiB e zona `finger-west-01.badblock.net.br` nos exemplos;
     0.6.0, aditivo, ADR 0047: canal `fs.v1.store.connection` publicado pelo store e serviço `bot` no envelope e
     no heartbeat; nenhum payload do openapi do store mudou; 0.6.1, documental, ADR 0056: métricas com rótulos no
-    heartbeat; 0.6.2, documental, ADR 0057: o bucket `+Inf` dos histogramas não é enviado).
+    heartbeat; 0.6.2, documental, ADR 0057: o bucket `+Inf` dos histogramas não é enviado; 0.7.0, aditivo, com o
+    openapi 0.7.0, ADR 0070: `method_truncated`/`version_truncated` e `controls.truncated` no `HTTP1Request`).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes

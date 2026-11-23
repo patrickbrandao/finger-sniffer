@@ -28,6 +28,10 @@ const (
 	// recordMaxInvalid é o teto de nomes em invalid e de linhas do 400: o nome pode ser a chave crua do
 	// cliente (percent-encoding inválido), então a lista não pode crescer com a query (task 130).
 	recordMaxInvalid = 64
+	// maxFieldControls e maxInterimControls são os tetos de repetição de h= e de status= 1xx por requisição
+	// (ADR 0070 item 3, spec 005 RF-07): o excedente é ignorado e o nome vai para controls.clamped.
+	maxFieldControls   = 1024
+	maxInterimControls = 16
 )
 
 // Valores de frame=, conn=, close= e continue=.
@@ -383,6 +387,10 @@ func (c *Controls) applyStatus(v string) {
 	}
 	if n < 200 && n != 101 {
 		// 1xx (exceto 101) é sempre provisória: sai antes da final (103 Early Hints, 100, 102...).
+		if len(c.Interim) >= maxInterimControls {
+			c.clamp("status")
+			return
+		}
 		c.Interim = append(c.Interim, n)
 		return
 	}
@@ -420,6 +428,8 @@ func (c *Controls) applyField(v string) {
 		c.invalid("h", v, "must be Name:Value with a token name")
 	case strings.ContainsAny(value, "\r\n\x00"):
 		c.invalid("h", v, "value must not contain CR, LF or NUL")
+	case len(c.Fields) >= maxFieldControls:
+		c.clamp("h")
 	default:
 		c.Fields = append(c.Fields, h1.HeaderField{Name: name, Value: value})
 	}

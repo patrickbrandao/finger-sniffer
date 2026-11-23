@@ -110,6 +110,7 @@ func (s *Server) publishRaw(subject string, data []byte) {
 func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h1.Request) []byte {
 	req.LimitInline(s.cfg.EventInlineMax)
 	req.LimitTarget(s.cfg.EventInlineMax)
+	req.LimitLineTokens()
 	data := s.encode(ts, flow, probeID, req)
 	budget := event.MaxEventBytes / 2
 	inline := s.cfg.EventInlineMax
@@ -146,8 +147,15 @@ func (s *Server) fitHTTP1(ts time.Time, flow *event.Flow, probeID string, req *h
 			req.LimitInline(inline)
 			req.LimitTarget(inline)
 		}
+		// controls.params/invalid também encolhem (ADR 0070 item 3): o JSON escapa bytes de controle.
+		req.HalveControls()
 		budget /= 2
+		prev := len(data)
 		data = s.encode(ts, flow, probeID, req)
+		if data != nil && len(data) >= prev && budget < 512 {
+			// Uma volta sem redução depois do último recurso: nada mais encolhe (ADR 0070 item 5).
+			break
+		}
 	}
 	return data
 }

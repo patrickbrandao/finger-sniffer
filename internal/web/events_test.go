@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -361,4 +362,74 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// TestHTTP1HugeLineTokensRecorded (task 327, ADR 0070 item 3): versão de 900 KiB, método de 900 KiB (na
+// mesma conexão) e query de controles com bytes de controle saem no http1.request abaixo do teto, com a
+// marca de corte, em vez de sumirem com o evento.
+func TestHTTP1HugeLineTokensRecorded(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	cl := newClient(t, c)
+	pad := strings.Repeat("A", 900<<10)
+	cl.send("GET /p/" + testProbe + "/ HTTP/1.1" + pad + "\r\nHost: x\r\n\r\n")
+	cl.response("GET")
+	cl.send("GET /p/" + testProbe + "/ HTTP/1.1\r\nHost: x\r\n\r\n")
+	cl.response("GET")
+	cl.send("G" + pad + " /p/" + testProbe + "/ HTTP/1.1\r\nHost: x\r\n\r\n")
+	var q strings.Builder
+	for i := range 64 {
+		fmt.Fprintf(&q, "k%02d%s=%s&", i, strings.Repeat("%01", 1020), strings.Repeat("%01", 1020))
+		fmt.Fprintf(&q, "%%zz%02d%s=1&", i, strings.Repeat("\x01", 1020))
+	}
+	c2 := dial(t, h.addr80)
+	cl2 := newClient(t, c2)
+	cl2.send("GET /p/" + testProbe + "/r?" + q.String() + " HTTP/1.1\r\nHost: x\r\n\r\n")
+	cl2.response("GET")
+
+	evs := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 3)
+	rl0, _ := evs[0].Payload["request_line"].(map[string]any)
+	rl2, _ := evs[2].Payload["request_line"].(map[string]any)
+	if rl0["version_truncated"] != true || len(rl0["version"].(string)) > h1.MaxLineTokenEvent {
+		t.Fatalf("versão: %v", rl0["version_truncated"])
+	}
+	if rl2["method_truncated"] != true || len(rl2["method"].(string)) > h1.MaxLineTokenEvent {
+		t.Fatalf("método: %v", rl2["method_truncated"])
+	}
+	ev := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c2), 1)[0]
+	ctl, _ := ev.Payload["controls"].(map[string]any)
+	if ctl == nil || ctl["truncated"] != true {
+		t.Fatalf("controls %v", ctl)
+	}
+	if n := h.srv.metrics.Get(MetricEventsOversize); n != 0 {
+		t.Fatalf("%v eventos descartados", n)
+	}
+	checkContract(t, contractBlocks(t), evs[0])
+	checkContract(t, contractBlocks(t), ev)
+}
+
+// TestFitHTTP1FewEncodes (task 327): com método, versão e controles gigantes, o fitHTTP1 termina rápido.
+func TestFitHTTP1FewEncodes(t *testing.T) {
+	srv := NewServer(testConfig(t.TempDir()), Deps{})
+	params := map[string]string{}
+	invalid := []string{}
+	for i := range 64 {
+		params[fmt.Sprintf("k%02d%s", i, strings.Repeat("\x01", 1020))] = strings.Repeat("\x01", 1020)
+		invalid = append(invalid, fmt.Sprintf("%02d%s", i, strings.Repeat("\x01", 1020)))
+	}
+	req := &h1.Request{
+		RequestLine: h1.RequestLine{
+			Method: strings.Repeat("M", 900<<10), Target: "/", Version: "HTTP/1.1" + strings.Repeat("A", 900<<10),
+		},
+		Fields: []h1.Field{}, Duplicates: []string{},
+		Controls: &h1.Controls{Params: params, Invalid: invalid},
+	}
+	start := time.Now()
+	data := srv.fitHTTP1(time.Now(), &event.Flow{L4: "tcp"}, "", req)
+	if el := time.Since(start); el > raceSlow*50*time.Millisecond {
+		t.Fatalf("fitHTTP1 levou %v", el)
+	}
+	if data == nil || len(data) > event.MaxEventBytes {
+		t.Fatalf("%d bytes", len(data))
+	}
 }
