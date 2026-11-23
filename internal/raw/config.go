@@ -143,6 +143,8 @@ type Config struct {
 	TLS *tls.Config
 	// EventInlineMax é o teto do ClientHello inline no evento (FS_EVENT_INLINE_MAX, ADR 0018).
 	EventInlineMax int
+	// inputBudget troca o orçamento constante InputBudget nos testes (0 = InputBudget).
+	inputBudget int64
 }
 
 // LoadConfig lê a configuração das variáveis FS_*.

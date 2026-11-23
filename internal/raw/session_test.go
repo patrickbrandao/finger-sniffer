@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/patrickbrandao/finger-sniffer/pkg/service"
+
 	"github.com/nats-io/nats.go"
 
 	"github.com/patrickbrandao/finger-sniffer/internal/version"
@@ -124,10 +126,17 @@ func TestStreamChunksAndTruncation(t *testing.T) {
 }
 
 func TestAppendTimedCap(t *testing.T) {
+	b := newInputBudget(InputBudget, service.NewMetrics())
+	s := &session{hold: &hold{b: b}}
+	appendTimed := s.appendTimed
 	var l []TimedLength
 	cut := false
 	for range maxTimed {
 		l = appendTimed(l, &cut, 1.5, 3)
+	}
+	// Acima das fixedTimed entradas fixas, a capacidade além delas está reservada (≥ 90% do retido).
+	if held, extra := s.hold.held, int64(cap(l)-fixedTimed)*timedSize; held < extra*9/10 || held > extra {
+		t.Fatalf("reservado %d, retido acima do fixo %d", held, extra)
 	}
 	// Exatamente maxTimed itens cabem sem corte.
 	if len(l) != maxTimed || cut {

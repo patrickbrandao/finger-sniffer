@@ -43,7 +43,7 @@ com a série ausente, e não `== 0` nem comparação com o valor anterior:
 | --- | --- |
 | capture | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total`, `fs_capture_packets_in_total`, `fs_capture_packets_out_total`, `fs_capture_batches_total`, `fs_capture_queue_freezes_total`, `fs_capture_max_frame_bytes`, `fs_capture_filtered_userspace_total`, `fs_capture_offload_suspect_total`, `fs_capture_truncated_total`, `fs_dropped_events_total` (detalhes [abaixo](#capture)) |
 | web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening`, `fs_web_h3_init_table_full_total`, `fs_web_input_budget_used_bytes`, `fs_web_input_budget_denied_total`, `fs_web_events_oversize_total`, `fs_web_events_marshal_errors_total`, `fs_web_acme_issued_total`, `fs_web_acme_failures_total` (detalhes [abaixo](#web)) |
-| raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total` (detalhes [abaixo](#raw)) |
+| raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total`, `fs_raw_input_budget_used_bytes`, `fs_raw_input_budget_denied_total`, `fs_raw_panics_total` (detalhes [abaixo](#raw)) |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
 | store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total`, `fs_store_packet_spills_total` (detalhes [abaixo](#store-heartbeat)) |
 | bot | `fs_bot_verdicts_total{class,source}`, `fs_bot_auth_seconds`, `fs_bot_auth_wait_seconds`, `fs_bot_view_wait_total{missing}`, `fs_bot_auth_ja4h_total{source}`, `fs_bot_auth_fingerprint_total{kind,source}`, `fs_bot_ingest_*`, `fs_bot_conns_evicted_total{reason}`, `fs_bot_index_bytes`, `fs_bot_list_*{list}`, `fs_bot_webhook_*`, `fs_bot_keys_active`, `fs_bot_rate_limited_total`, `fs_bot_purged_total{reason}`, `fs_bot_db_bytes`, `fs_bot_agg_dropped_total`, `fs_bot_store_feed_messages_total` (detalhes [abaixo](#bot)) |
@@ -110,6 +110,9 @@ aparecem no primeiro uso.
 | --- | --- |
 | `fs_raw_sessions_total`, `fs_raw_active_sessions` | sessões aceitas desde a partida e abertas agora (gauge), somando todas as portas cruas |
 | `fs_raw_events_oversize_total` | eventos acima de 900 KiB descartados antes de publicar (ADR 0035) |
+| `fs_raw_input_budget_used_bytes` | bytes reservados agora no orçamento de entrada de 64 MiB do raw (gauge, ADR 0070) |
+| `fs_raw_input_budget_denied_total` | sessões fechadas antes do handshake TLS por falta de orçamento (ADR 0070 item 2) |
+| `fs_raw_panics_total` | pânicos recuperados numa sessão crua; só aquela conexão fecha (ADR 0070 item 6) |
 
 ### dns
 
