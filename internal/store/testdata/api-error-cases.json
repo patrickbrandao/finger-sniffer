@@ -1,11 +1,12 @@
 {
-  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (finger-01). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full, blob_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
+  "_doc": "Casos de erro da API conferidos contra o openapi.yaml (task 089). Lido por internal/store TestAPIErrorContract (httptest) e por test/e2e TestAPIErrorContractLive (finger-01). Campos: op = operationId (vazio para rota inexistente e OPTIONS); want = código esperado pela regra de erros (spec 004, openapi info.description), que precisa estar declarado na operação; fault = falha provocada só no teste unitário (db_closed, live_full, probe_wait_full, blob_full, json_budget_full); issue = desvio conhecido do store (o caso vira t.Skip enquanto o store devolver outra coisa). untestable: 'operationId código' declarado sem como provocar, com o motivo.",
   "cases": [
     {"name": "connection id not ULID", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/bad", "want": 400},
     {"name": "connection id lowercase", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01jc0000000000000000000000", "want": 400},
     {"name": "connection id with U", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01JC000000000000000000000U", "want": 400},
     {"name": "connection unknown", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000", "want": 404},
     {"name": "connection db error", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000", "want": 500, "fault": "db_closed"},
+    {"name": "connection json budget full", "op": "getConnection", "method": "GET", "path": "/api/v1/connections/01M6TY2FG00000000000000001", "want": 503, "fault": "json_budget_full"},
 
     {"name": "pcap id not ULID", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/bad/pcap", "want": 400},
     {"name": "pcap unknown", "op": "getConnectionPcap", "method": "GET", "path": "/api/v1/connections/01JC0000000000000000000000/pcap", "want": 404},
@@ -28,15 +29,18 @@
     {"name": "list dst_port negative", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?dst_port=-1", "want": 400},
     {"name": "list probe invalid", "op": "listConnections", "method": "GET", "path": "/api/v1/connections?probe=AB", "want": 400},
     {"name": "list db error", "op": "listConnections", "method": "GET", "path": "/api/v1/connections", "want": 500, "fault": "db_closed"},
+    {"name": "list json budget full", "op": "listConnections", "method": "GET", "path": "/api/v1/connections", "want": 503, "fault": "json_budget_full"},
 
     {"name": "dns limit 0", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns?limit=0", "want": 400},
     {"name": "dns since invalid", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns?since=x", "want": 400},
     {"name": "dns probe invalid", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns?probe=AB", "want": 400},
     {"name": "dns db error", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns", "want": 500, "fault": "db_closed"},
+    {"name": "dns json budget full", "op": "listDNSQueries", "method": "GET", "path": "/api/v1/dns", "want": 503, "fault": "json_budget_full"},
 
     {"name": "packets limit text", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets?limit=ten", "want": 400},
     {"name": "packets until invalid", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets?until=x", "want": 400},
     {"name": "packets db error", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets", "want": 500, "fault": "db_closed"},
+    {"name": "packets json budget full", "op": "listStrayPackets", "method": "GET", "path": "/api/v1/packets", "want": 503, "fault": "json_budget_full"},
 
     {"name": "probe id too short and uppercase", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/AB", "want": 400},
     {"name": "probe id 33 chars", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/abcdefghijklmnopqrstuvwxyz0123456", "want": 400},
@@ -47,6 +51,7 @@
     {"name": "probe unknown", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 404},
     {"name": "probe unknown after wait", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=200ms", "want": 404},
     {"name": "probe too many waits", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000?wait=10s", "want": 503, "fault": "probe_wait_full"},
+    {"name": "probe json budget full", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/t1a2b3c4", "want": 503, "fault": "json_budget_full"},
     {"name": "probe db error", "op": "getProbe", "method": "GET", "path": "/api/v1/probes/zz089unknown0000", "want": 500, "fault": "db_closed"},
 
     {"name": "delete probe id invalid", "op": "deleteProbe", "method": "DELETE", "path": "/api/v1/probes/AB", "want": 400},

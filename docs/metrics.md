@@ -229,6 +229,8 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_flows_dropped_total{reason}` | contador | tabela de fluxos cheia (8192 entradas): `reason` = `evicted` (entrada não estabelecida mais antiga despejada, sem registro nem avulso) ou `table_full` (pacote de 5-tupla nova recusado sem nada para despejar) |
 | `fs_store_api_requests_total{route,code}` | contador | requisições da API por rota e código |
 | `fs_store_api_request_duration_seconds{route}` | histograma | duração das requisições da API (meta p95 < 100 ms) |
+| `fs_store_api_json_bytes_in_flight` | gauge | bytes das respostas JSON finitas montadas e ainda não escritas (orçamento de 256 MiB, ADR 0066) |
+| `fs_store_api_rejected_total{route,reason}` | contador | `503` da API por orçamento esgotado (`busy`) ou desligamento (`shutting_down`) (ADR 0066) |
 | `fs_store_writer_seconds{op}` | histograma | duração das operações do escritor único do SQLite (task 248): `ingest_tx` (lote do ingest, do BEGIN ao fim do COMMIT), `ingest_commit` (só o COMMIT), `finalize_tx` (finalização com o pcap), `purge_delete` (um DELETE em lote do expurgo), `purge_vacuum` (`incremental_vacuum`), `wal_checkpoint` (checkpoint PASSIVE pela conexão própria, sem segurar o escritor) e `wal_restart` (última passada do checkpoint, com o escritor parado para o WAL recomeçar do início) |
 | `fs_store_wal_frames` | gauge | quadros (páginas de 4 KiB) no WAL do SQLite no último checkpoint; volta perto de 0 quando o WAL recomeça |
 | `fs_store_db_fs_bytes{kind}` | gauge | tamanho (`size`) e livre (`free`) do sistema de arquivos do banco (`statfs` do tmpfs de 4G, ADR 0045) |

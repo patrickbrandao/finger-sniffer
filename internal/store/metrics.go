@@ -62,6 +62,7 @@ type storeMetrics struct {
 	liveDelay   prometheus.Histogram
 	apiRequests *prometheus.CounterVec
 	apiDuration *prometheus.HistogramVec
+	apiReject   *prometheus.CounterVec
 	writer      *prometheus.HistogramVec
 	walFrames   prometheus.Gauge
 	dbFullErrs  prometheus.Counter
@@ -111,6 +112,10 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 			Name: "fs_store_api_request_duration_seconds", Help: "API request duration, by mux pattern.", Buckets: apiBuckets,
 		}, []string{"route"}),
 	}
+	m.apiReject = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "fs_store_api_rejected_total",
+		Help: "API requests refused with 503, by mux pattern and reason (busy: JSON response budget exhausted; shutting_down).",
+	}, []string{"route", "reason"})
 	m.writer = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "fs_store_writer_seconds",
 		Help:    "Duration of SQLite writer operations, by op (ingest_tx, ingest_commit, finalize_tx, purge_delete, purge_vacuum, wal_checkpoint, wal_restart).",
@@ -130,7 +135,7 @@ func newStoreMetrics(health func(context.Context) Health, open func() int, live 
 		Help: "Flow table cap (8192 entries): unestablished entries evicted, and packets of new 5-tuples refused with no entry to evict.",
 	}, []string{"reason"})
 	reg.MustRegister(m.ingested, m.ingestLag, m.connsTotal, m.degraded, m.stray, m.midflow, m.dnsQueries, m.purged, m.recordReady,
-		m.liveDelay, m.apiRequests, m.apiDuration, m.flowsDrop, m.writer, m.walFrames, m.dbFullErrs, m.dbFullDrop)
+		m.liveDelay, m.apiRequests, m.apiDuration, m.apiReject, m.flowsDrop, m.writer, m.walFrames, m.dbFullErrs, m.dbFullDrop)
 	for _, op := range writerOps {
 		m.writer.WithLabelValues(op)
 	}
@@ -189,6 +194,21 @@ func (c spaceCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 // registerSpace expõe o espaço do sistema de arquivos do banco (ADR 0045 item 5).
+// registerAPIBudget expõe os bytes reservados pelas respostas JSON em andamento (ADR 0066 item 4).
+func (m *storeMetrics) registerAPIBudget(b *jsonBudget) {
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "fs_store_api_json_bytes_in_flight", Help: "Bytes of finite JSON API responses built and not yet written (budget of 256 MiB).",
+	}, func() float64 { return float64(b.used.Load()) }))
+}
+
+// apiRejected conta um 503 do orçamento ou do desligamento (ADR 0066 item 4).
+func (m *storeMetrics) apiRejected(route, reason string) {
+	if m == nil {
+		return
+	}
+	m.apiReject.WithLabelValues(route, reason).Inc()
+}
+
 func (m *storeMetrics) registerSpace(sp *dbSpace) { m.reg.MustRegister(spaceCollector{sp: sp}) }
 
 // Os métodos abaixo aceitam receptor nil (ingest sem métricas, nos testes).
