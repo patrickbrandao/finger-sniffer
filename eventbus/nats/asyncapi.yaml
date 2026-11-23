@@ -37,7 +37,8 @@ info:
     0.6.0, aditivo, ADR 0047: canal `fs.v1.store.connection` publicado pelo store e serviço `bot` no envelope e
     no heartbeat; nenhum payload do openapi do store mudou; 0.6.1, documental, ADR 0056: métricas com rótulos no
     heartbeat; 0.6.2, documental, ADR 0057: o bucket `+Inf` dos histogramas não é enviado; 0.7.0, aditivo, com o
-    openapi 0.7.0, ADR 0070: `method_truncated`/`version_truncated` e `controls.truncated` no `HTTP1Request`).
+    openapi 0.7.0, ADRs 0070 e 0067: `method_truncated`/`version_truncated` e `controls.truncated` no `HTTP1Request`;
+    `http_truncated`, `streams_truncated` e `requests_truncated` no `Connection` de `fs.v1.store.connection`).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes

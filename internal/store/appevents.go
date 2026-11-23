@@ -94,6 +94,7 @@ type appState struct {
 	probeID      *string
 	rawTruncated [2]bool // in, out
 	events       int
+	eventBytes   int64 // bytes gravados em app_events (teto por conexão aberta, ADR 0067)
 	layers
 }
 

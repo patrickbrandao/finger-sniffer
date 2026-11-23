@@ -14,6 +14,10 @@ import (
 // de 900 KiB); além dele só conta frames_truncated.
 const wsMaxFrames = 1000
 
+// appMaxItems é o teto de itens de cada lista de requisições do registro (http, http2.streams, http3.requests)
+// de uma conexão (ADR 0067): guarda os primeiros; acima só conta, e requests continua o total.
+const appMaxItems = 1000
+
 // layers guarda as camadas de aplicação recebidas, na forma do contrato (spec 004, tabela de montagem).
 type layers struct {
 	clientHello  map[string]any // TLSInfo do ClientHello (substitui)
@@ -28,6 +32,9 @@ type layers struct {
 	http3        map[string]any // nível de conexão QUIC/h3 (última versão, sem requests)
 	h3Requests   []json.RawMessage
 	h3RequestIdx map[int64]int     // stream_id → posição em h3Requests
+	http1Extra   int               // requisições h1 acima de appMaxItems (só contadas)
+	h2Extra      int               // streams h2 acima de appMaxItems
+	h3Extra      int               // requisições h3 acima de appMaxItems
 	h3Close      *event.HTTP3Close // fim da conexão QUIC visto pelo web (ADR 0019)
 	h3CloseTs    int64             // ts do http3.connection com close
 	h3TLSDone    int64             // ts do primeiro http3.connection com negotiated
@@ -114,6 +121,10 @@ func (l *layers) addLayer(ev appEvent) {
 		if l.http1 == nil {
 			l.http1 = map[int]json.RawMessage{}
 		}
+		if _, ok := l.http1[h.Index]; !ok && len(l.http1) >= appMaxItems {
+			l.http1Extra++ // acima do teto: só conta (ADR 0067)
+			return
+		}
 		if len(l.http1) == 0 || h.Index < l.http1Index {
 			l.http1Index, l.http1Version = h.Index, h.RequestLine.Version
 		}
@@ -135,6 +146,8 @@ func (l *layers) addLayer(ev appEvent) {
 		// stream_id 0 é "stream não identificado" (spec 010 RF-02a, ADR 0032): sempre acrescenta.
 		if i, ok := l.h2StreamIdx[h.StreamID]; ok && h.StreamID != 0 {
 			l.h2Streams[i] = ev.env.Payload
+		} else if len(l.h2Streams) >= appMaxItems {
+			l.h2Extra++
 		} else {
 			if h.StreamID != 0 {
 				l.h2StreamIdx[h.StreamID] = len(l.h2Streams)
@@ -155,6 +168,8 @@ func (l *layers) addLayer(ev appEvent) {
 		}
 		if i, ok := l.h3RequestIdx[h.StreamID]; ok {
 			l.h3Requests[i] = ev.env.Payload
+		} else if len(l.h3Requests) >= appMaxItems {
+			l.h3Extra++
 		} else {
 			l.h3RequestIdx[h.StreamID] = len(l.h3Requests)
 			l.h3Requests = append(l.h3Requests, ev.env.Payload)
@@ -301,7 +316,8 @@ func (l *layers) applyApp(r *connectionJSON, start int64) {
 		for _, i := range idx {
 			r.HTTP = append(r.HTTP, l.http1[i])
 		}
-		requests += len(idx)
+		requests += len(idx) + l.http1Extra
+		r.HTTPTruncated = l.http1Extra > 0
 	}
 	if l.http2 != nil || len(l.h2Streams) > 0 {
 		h2 := map[string]any{}
@@ -313,8 +329,11 @@ func (l *layers) applyApp(r *connectionJSON, start int64) {
 			streams = []json.RawMessage{}
 		}
 		h2["streams"] = streams
+		if l.h2Extra > 0 {
+			h2["streams_truncated"] = true
+		}
 		r.HTTP2, _ = json.Marshal(h2)
-		requests += len(l.h2Streams)
+		requests += len(l.h2Streams) + l.h2Extra
 	}
 	if l.isQUIC() {
 		requests += l.applyHTTP3(r)
@@ -369,7 +388,7 @@ func (l *layers) applyHTTP3(r *connectionJSON) int {
 		}
 		r.Close = closeJSON{By: by, How: how, IdleBeforeCloseMs: r.Close.IdleBeforeCloseMs}
 	}
-	return len(l.h3Requests)
+	return len(l.h3Requests) + l.h3Extra
 }
 
 // h3Layer monta o http3 do registro: o nível de conexão (em cache até o próximo http3.connection) com as
@@ -390,7 +409,7 @@ func (l *layers) h3Layer() json.RawMessage {
 	for _, q := range l.h3Requests {
 		n += len(q) + 1
 	}
-	out := make([]byte, 0, n)
+	out := make([]byte, 0, n+32)
 	out = append(out, level[:len(level)-1]...)
 	if len(level) > 2 {
 		out = append(out, ',')
@@ -401,6 +420,9 @@ func (l *layers) h3Layer() json.RawMessage {
 			out = append(out, ',')
 		}
 		out = append(out, q...)
+	}
+	if l.h3Extra > 0 {
+		return append(out, `],"requests_truncated":true}`...)
 	}
 	return append(out, "]}"...)
 }

@@ -159,6 +159,8 @@ type HTTP3Info struct {
 	H3ControlStreamSeen bool           `json:"h3_control_stream_seen"`
 	Close               *HTTP3Close    `json:"close"`
 	Requests            []HTTP3Request `json:"requests"`
+	// RequestsTruncated: o store listou só as 1000 primeiras requisições da conexão (ADR 0067); o web não liga.
+	RequestsTruncated bool `json:"requests_truncated,omitempty"`
 }
 
 // HTTP3Close é o fim da conexão QUIC visto pelo web.

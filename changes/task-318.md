@@ -1,0 +1,1 @@
+- store: `http[]`, `http2.streams[]` e `http3.requests[]` guardam as 1000 primeiras por conexão, com `http_truncated`, `http2.streams_truncated` e `http3.requests_truncated` (`requests` segue o total); `app_events` de conexão aberta até `FS_PCAP_MAX_BYTES_PER_CONN`, excedente em `fs_store_app_events_dropped_total` (task 318, ADR 0067).
