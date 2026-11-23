@@ -25,13 +25,23 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 NoNewPrivileges=yes
 ProtectSystem=strict
+# Caminhos por unit (spec 016 RF-06, ADR 0075 item 2): grava só o JetStream (var/nats); o resto de var/ fica
+# inacessível (prefixo -: não falha se o diretório não existir).
 ReadWritePaths=/finger-sniffer/var/nats
+InaccessiblePaths=-/finger-sniffer/var/acme -/finger-sniffer/var/bot -/finger-sniffer/var/certs -/finger-sniffer/var/store
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+# ADR 0075 item 2: sem acesso a relógio, log do kernel e hostname; arquivos novos só do dono; /proc
+# sem os processos alheios (sem ProcSubset=pid: o health do store lê /proc/sys, /proc/net e /proc/modules).
+ProtectClock=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+UMask=0077
+ProtectProc=invisible
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
