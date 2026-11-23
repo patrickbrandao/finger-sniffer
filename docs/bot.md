@@ -242,7 +242,8 @@ não revela o que existe em outros sites. A exceção é o forwardAuth, que resp
 configuração de quem opera o traefik, ADR 0055 item 6).
 
 **Limites.** Acima do balde ou da cota: 429 `rate_limited` com `Retry-After` em segundos. Globais: 200 conexões na
-9002, 64 clientes no feed (acima, 503), lote do ingest até 4 MiB (acima, 413 `payload_too_large`).
+9002, 64 clientes no feed (acima, 503), lote do ingest até 4 MiB (acima, 413 `payload_too_large`) e até 8 lotes
+ao mesmo tempo (acima, 503 `busy`; [abaixo](#post-botv1ingesttraefik)).
 
 **Conexões da 9002** ([ADR 0073](../specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md) item 1): no
 máximo 16 conexões simultâneas por origem (o IPv4, ou o /64 do IPv6); a 17ª é fechada logo no `accept`, sem ocupar
@@ -451,6 +452,13 @@ rejeitar o lote.
 Responde 202 com `accepted` e `rejected`; registro inválido (ou, com chave, de site fora dela) é contado e ignorado
 sem rejeitar o lote. Lote acima de 4 MiB: 413. Não é chamado à mão; o traefix faz isso.
 
+Limites de lotes ([ADR 0073](../specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md) item 2): no máximo
+8 lotes em leitura e aplicação ao mesmo tempo no processo, dos quais até 6 da 9002 (2 ficam para a 9003), e até 2
+por chave da 9002. A vaga é pega antes de ler o corpo e nunca espera: sem vaga, 503 `busy` com `Retry-After: 1`;
+sem vaga da chave, 429 `rate_limited` com `Retry-After: 1`. O corpo tem 10 s para chegar desde o início da
+requisição; depois, 400 `bad_request` (`body read failed`) e a vaga volta. O traefix trata 429 e 503 como falha de
+envio e descarta o lote, sem atrasar requisição de site. Contados em `fs_bot_ingest_refused_total{reason}`.
+
 ```console
 $ curl -s -X POST http://10.249.255.254:9003/bot/v1/ingest/traefik -H 'Content-Type: application/json' \
     -d '{"schema":"traefix.fingerprint/v1","sender":"traefix/fork-point-218-g9f480d2e7",
@@ -465,13 +473,14 @@ Corpo `{"error": "<código>", "detail": "..."}`:
 | Código | Status | Quando |
 | --- | --- | --- |
 | `invalid_key` | 401 | chave ausente (9002), desconhecida ou revogada |
-| `rate_limited` | 429 | balde ou cota diária da chave; `Retry-After` em segundos |
+| `rate_limited` | 429 | balde ou cota diária da chave, ou 2 lotes do ingest da chave em andamento; `Retry-After` em segundos |
 | `not_found` | 404 | desconhecido, expirado (10 min) ou fora dos domínios da chave (indistinguíveis) |
 | `bad_request` | 400 | parâmetro inválido; no forwardAuth, também site fora da chave |
 | `missing_fork_headers` | 400 | forwardAuth sem os `X-Traefix-*` do traefix |
 | `payload_too_large` | 413 | lote do ingest acima de 4 MiB |
 | `forbidden_origin` | 403 | origem fora das redes permitidas na 9003 |
 | `internal` | 500, 503 | falha interna; 503 com mais de 64 clientes no feed |
+| `busy` | 503 | ingest sem vaga entre os lotes simultâneos (8 no processo, 6 da 9002); `Retry-After: 1`, o corpo não é lido |
 
 ## Webhook
 

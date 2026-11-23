@@ -220,6 +220,14 @@ func TestContractResponses(t *testing.T) {
 	expect(202, c, refIngestReply, b)
 	c, _, b = f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, strings.Repeat(" ", MaxIngestBytes+1))
 	expect(413, c, refError, b)
+	// 503 busy sem vaga entre os lotes simultâneos (ADR 0073 item 2, task 370)
+	busy := newFixture(t)
+	busy.srv.api.gate = newIngestGate(0, 0, 0)
+	c, h, b = busy.do(busy.internal, "POST", "/bot/v1/ingest/traefik", "", nil, batch)
+	expect(503, c, refError, b)
+	if errorCode(t, b) != errBusy || h.Get("Retry-After") != "1" {
+		t.Errorf("503 do ingest: %v %s", h, b)
+	}
 	// forwardAuth com as duas visões.
 	f.putStore()
 	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", "", forkHeadersFor(), "")
