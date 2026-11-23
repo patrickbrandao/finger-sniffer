@@ -27,6 +27,11 @@ type keyLimit struct {
 	last     time.Time
 	day      int64
 	requests int64 // atendidas no dia (gravadas + pendentes)
+	// records e recordsLast são o balde de registros do ingest da 9002 (ADR 0073 item 3.1); recordsInit marca que
+	// o balde já foi enchido na primeira vez.
+	records     float64
+	recordsLast time.Time
+	recordsInit bool
 }
 
 type usageKey struct {
@@ -34,7 +39,7 @@ type usageKey struct {
 	day   int64
 }
 
-type usage struct{ requests, limited int64 }
+type usage struct{ requests, limited, records int64 }
 
 // NewLimiter cria o limitador; db pode ser nil nos testes (sem persistência).
 func NewLimiter(db *sql.DB, now func() time.Time) *Limiter {
@@ -83,6 +88,54 @@ func (l *Limiter) Allow(ctx context.Context, k *Key) (bool, int) {
 	return true, 0
 }
 
+// AllowRecords tira n fichas do balde de registros da chave de uma vez (ingest da 9002, ADR 0073 item 3.1). Sem
+// fichas para o lote inteiro, nada é tirado, o 429 conta em limited e devolve os segundos até haver as n fichas.
+func (l *Limiter) AllowRecords(k *Key, n int) (bool, int) {
+	if n <= 0 {
+		return true, 0
+	}
+	now := l.now()
+	day := now.Unix() / 86400
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	kl := l.keys[k.ID]
+	if kl == nil {
+		kl = &keyLimit{tokens: float64(k.BurstSize()), last: now, day: -1}
+		l.keys[k.ID] = kl
+	}
+	rate, burst := float64(k.IngestRateOrDefault()), float64(k.IngestBurstOrDefault())
+	if !kl.recordsInit {
+		kl.records, kl.recordsLast, kl.recordsInit = burst, now, true
+	}
+	if el := now.Sub(kl.recordsLast).Seconds(); el > 0 {
+		kl.records = math.Min(burst, kl.records+el*rate)
+	}
+	kl.recordsLast = now
+	if kl.records < float64(n) {
+		uk := usageKey{k.ID, day}
+		u := l.pending[uk]
+		u.limited++
+		l.pending[uk] = u
+		return false, max(1, int(math.Ceil((float64(n)-kl.records)/rate)))
+	}
+	kl.records -= float64(n)
+	return true, 0
+}
+
+// AddRecords soma registros aceitos do ingest ao uso do dia da chave (key_usage_daily.records), nas duas portas.
+func (l *Limiter) AddRecords(k *Key, n int) {
+	if n <= 0 {
+		return
+	}
+	day := l.now().Unix() / 86400
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	uk := usageKey{k.ID, day}
+	u := l.pending[uk]
+	u.records += int64(n)
+	l.pending[uk] = u
+}
+
 // Count grava uma requisição da chave no uso do dia sem aplicar balde nem cota (9003, ADR 0073 item 4).
 func (l *Limiter) Count(k *Key) {
 	day := l.now().Unix() / 86400
@@ -123,6 +176,7 @@ func (l *Limiter) Flush(ctx context.Context) error {
 			p := l.pending[k]
 			p.requests += u.requests
 			p.limited += u.limited
+			p.records += u.records
 			l.pending[k] = p
 		}
 		l.mu.Unlock()
@@ -137,9 +191,10 @@ func (l *Limiter) write(ctx context.Context, batch map[usageKey]usage) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for k, u := range batch {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, requests, limited) VALUES (?, ?, ?, ?)
-			ON CONFLICT (key_id, day) DO UPDATE SET requests = requests + excluded.requests, limited = limited + excluded.limited`,
-			k.keyID, k.day, u.requests, u.limited); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, requests, limited, records)
+			VALUES (?, ?, ?, ?, ?) ON CONFLICT (key_id, day) DO UPDATE SET requests = requests + excluded.requests,
+			limited = limited + excluded.limited, records = records + excluded.records`,
+			k.keyID, k.day, u.requests, u.limited, u.records); err != nil {
 			return fmt.Errorf("bot: usage flush: %w", err)
 		}
 	}

@@ -12,15 +12,24 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 )
 
-// Limites do feed SSE (spec 020 RF-05 e RF-04).
+// Limites do feed SSE (spec 020 RF-05 e RF-04; partes da 9002 e por chave na ADR 0073 item 3.3).
 const (
 	MaxStreamClients = 64
-	streamQueue      = 1024
-	streamPing       = 15 * time.Second
+	// MaxStreamClientsPublic é quantos dos 64 a 9002 usa (16 ficam para a 9003); MaxStreamClientsPerKey, por chave
+	// da 9002.
+	MaxStreamClientsPublic = 48
+	MaxStreamClientsPerKey = 4
+	// streamKeyRetry é o Retry-After do 429 da parte da chave.
+	streamKeyRetry = 15
+	streamQueue    = 1024
+	streamPing     = 15 * time.Second
 )
 
-// errStreamFull indica o teto de clientes do feed.
-var errStreamFull = errors.New("bot: too many stream clients")
+// errStreamFull indica o teto de clientes do feed (ou da 9002); errStreamKey, o da chave da 9002.
+var (
+	errStreamFull = errors.New("bot: too many stream clients")
+	errStreamKey  = errors.New("bot: too many stream clients for the key")
+)
 
 // Hub distribui os vereditos aos clientes do feed: sem replay, fila por cliente com descarte contado e evento
 // `stream.dropped` (spec 020 RF-05).
@@ -38,6 +47,9 @@ type streamClient struct {
 	// encerra o feed na recarga seguinte das chaves (dropRevoked, task 368). cancel encerra o serve.
 	keyHash [32]byte
 	hasKey  bool
+	// public diz que o cliente veio pela 9002; owner é o id da chave dele na 9002 ("" na 9003).
+	public  bool
+	owner   string
 	cancel  context.CancelFunc
 	classes map[string]bool
 	site    string
@@ -99,6 +111,23 @@ func (h *Hub) add(c *streamClient) error {
 	defer h.mu.Unlock()
 	if len(h.clients) >= h.max {
 		return errStreamFull
+	}
+	if c.public {
+		public, key := 0, 0
+		for o := range h.clients {
+			if o.public {
+				public++
+				if c.owner != "" && o.owner == c.owner {
+					key++
+				}
+			}
+		}
+		if c.owner != "" && key >= MaxStreamClientsPerKey {
+			return errStreamKey
+		}
+		if public >= min(h.max, MaxStreamClientsPublic) {
+			return errStreamFull
+		}
 	}
 	h.clients[c] = struct{}{}
 	return nil

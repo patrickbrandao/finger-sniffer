@@ -3,6 +3,8 @@ package bot
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -465,5 +467,140 @@ func TestInternalKeyWithoutLimits(t *testing.T) {
 	f.clock.Advance(61 * time.Second)
 	if _, reasons := f.srv.Status(); slices.Contains(reasons, "block key limited") {
 		t.Fatalf("ainda marcado: %v", reasons)
+	}
+}
+
+// connBatch é um lote só de registros de conexão de www.example.com, com fs_conn_id e porta de origem distintos a
+// partir de first.
+func connBatch(first, n int) string {
+	var b strings.Builder
+	b.WriteString(`{"sender":"t","records":[`)
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"type":"connection","fs_conn_id":"01JC0X3K8V2T7Q9N4M6P%06d","ts":"2026-11-16T12:00:00.000000000Z",`+
+			`"src":{"ip":"198.51.100.%d","port":%d},"dst":{"ip":"10.249.0.2","port":443},"entry_point":"websecure",`+
+			`"sni":"www.example.com","alpn":"h2","tls_version":"1.3"}`, first+i, 1+(first+i)%200, 10000+first+i)
+	}
+	b.WriteString(`]}`)
+	return b.String()
+}
+
+// TestIngestKeyRecords: na 9002 uma chave não passa do balde de registros (task 371, ADR 0073 item 3.1): o lote
+// tira len(records) fichas de uma vez; sem fichas para o lote inteiro, 429 com Retry-After e nenhum registro
+// aplicado; os registros aceitos vão a key_usage_daily.records; na 9003 a mesma chave não tem esse limite.
+func TestIngestKeyRecords(t *testing.T) {
+	f := newFixture(t)
+	k, key := f.createKey(KeyOptions{Name: "r", Domains: []string{"www.example.com"}, Burst: 100, IngestRate: 10, IngestBurst: 20})
+	if c, _, b := f.do(f.public, "POST", "/bot/v1/ingest/traefik", key, nil, connBatch(0, 20)); c != 202 ||
+		string(b) != `{"accepted":20,"rejected":0}`+"\n" {
+		t.Fatalf("primeiro lote: %d %s", c, b)
+	}
+	c, h, b := f.do(f.public, "POST", "/bot/v1/ingest/traefik", key, nil, connBatch(100, 5))
+	if c != 429 || errorCode(t, b) != errRateLimited || h.Get("Retry-After") != "1" {
+		t.Fatalf("sem fichas: %d %v %s", c, h, b)
+	}
+	if _, ok := f.srv.Index().Fork("01JC0X3K8V2T7Q9N4M6P000100", f.clock.Now()); ok {
+		t.Fatal("registro aplicado no lote recusado")
+	}
+	f.clock.Advance(time.Second) // 10 fichas
+	if c, h, _ := f.do(f.public, "POST", "/bot/v1/ingest/traefik", key, nil, connBatch(200, 15)); c != 429 || h.Get("Retry-After") != "1" {
+		t.Fatalf("15 com 10 fichas: %d %v", c, h)
+	}
+	if c, _, b := f.do(f.public, "POST", "/bot/v1/ingest/traefik", key, nil, connBatch(300, 10)); c != 202 {
+		t.Fatalf("10 com 10 fichas: %d %s", c, b)
+	}
+	if got := f.metrics.Get(ingestRefusedMetric(refusedKeyRecords)); got != 2 {
+		t.Errorf("key_records %v", got)
+	}
+	// 9003: sem balde de registros
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", key, nil, connBatch(400, 50)); c != 202 {
+		t.Fatalf("9003: %d %s", c, b)
+	}
+	if err := f.srv.limiter.Flush(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var records, limited int64
+	if err := f.db.QueryRow(`SELECT records, limited FROM key_usage_daily WHERE key_id = ?`, k.ID).Scan(&records, &limited); err != nil ||
+		records != 80 || limited != 2 {
+		t.Fatalf("uso: records %d limited %d %v", records, limited, err)
+	}
+}
+
+// TestIngestKeyShare: as conexões da 9003 (sem chave) não são despejadas por um ingest de chave que passa da parte
+// dela no índice (10% de FS_BOT_MAX_CONNS): a chave despeja as próprias mais antigas (reason=key) (task 371, ADR
+// 0073 item 3.2).
+func TestIngestKeyShare(t *testing.T) {
+	f := newFixture(t) // MaxConns 1000: parte da chave 100
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", "", nil, connBatch(0, 50)); c != 202 {
+		t.Fatalf("9003: %d %s", c, b)
+	}
+	_, key := f.createKey(KeyOptions{Name: "s", Domains: []string{"www.example.com"}, Burst: 100, IngestBurst: 10_000, IngestRate: 10_000})
+	for i := range 3 {
+		if c, _, b := f.do(f.public, "POST", "/bot/v1/ingest/traefik", key, nil, connBatch(1000+i*1000, 1000)); c != 202 {
+			t.Fatalf("lote %d da chave: %d %s", i, c, b)
+		}
+	}
+	for i := range 50 {
+		if _, ok := f.srv.Index().Fork(fmt.Sprintf("01JC0X3K8V2T7Q9N4M6P%06d", i), f.clock.Now()); !ok {
+			t.Fatalf("conexão %d da 9003 despejada", i)
+		}
+	}
+	if _, fork := f.srv.Index().Len(); fork != 150 {
+		t.Fatalf("fork %d, quer 50 + 100 da chave", fork)
+	}
+	// as que ficaram da chave são as mais novas
+	if _, ok := f.srv.Index().Fork("01JC0X3K8V2T7Q9N4M6P003999", f.clock.Now()); !ok {
+		t.Fatal("a mais nova da chave saiu")
+	}
+	if got := f.metrics.Get(evictedMetric(evictKey)); got != 2900 {
+		t.Errorf("evicted key %v", got)
+	}
+	if f.metrics.Get(evictedMetric(evictCount)) != 0 {
+		t.Errorf("despejo global: %v", f.metrics.Get(evictedMetric(evictCount)))
+	}
+}
+
+// TestStreamKeyShare: dos 64 clientes do feed, a 9002 usa até 48 e cada chave da 9002 até 4 (429 com Retry-After
+// 15); a 9003 tem os 16 restantes (task 371, ADR 0073 item 3.3).
+func TestStreamKeyShare(t *testing.T) {
+	h := NewHub()
+	for range MaxStreamClientsPerKey {
+		if err := h.add(&streamClient{public: true, owner: "k1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.add(&streamClient{public: true, owner: "k1"}); !errors.Is(err, errStreamKey) {
+		t.Fatalf("quinto da chave: %v", err)
+	}
+	for i := MaxStreamClientsPerKey; i < MaxStreamClientsPublic; i++ {
+		if err := h.add(&streamClient{public: true, owner: fmt.Sprintf("k%d", 2+i/MaxStreamClientsPerKey)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.add(&streamClient{public: true, owner: "outra"}); !errors.Is(err, errStreamFull) {
+		t.Fatalf("49º da 9002: %v", err)
+	}
+	for range MaxStreamClients - MaxStreamClientsPublic {
+		if err := h.add(&streamClient{}); err != nil {
+			t.Fatalf("9003: %v", err)
+		}
+	}
+	if err := h.add(&streamClient{}); !errors.Is(err, errStreamFull) {
+		t.Fatalf("65º: %v", err)
+	}
+
+	// pela API: a quinta conexão da chave na 9002 recebe 429 com Retry-After 15
+	f := newFixture(t)
+	k, key := f.createKey(KeyOptions{Name: "feed", Domains: []string{"www.example.com"}, Burst: 100})
+	for range MaxStreamClientsPerKey {
+		if err := f.srv.hub.add(&streamClient{public: true, owner: k.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, hdr, b := f.do(f.public, "GET", "/bot/v1/stream", key, nil, "")
+	if c != 429 || errorCode(t, b) != errRateLimited || hdr.Get("Retry-After") != "15" {
+		t.Fatalf("feed acima da chave: %d %v %s", c, hdr, b)
 	}
 }

@@ -27,6 +27,7 @@ const (
 	refusedBusy          = "busy"
 	refusedKeyConcurrent = "key_concurrency"
 	refusedBodyTimeout   = "body_timeout"
+	refusedKeyRecords    = "key_records"
 )
 
 func ingestRefusedMetric(reason string) string {

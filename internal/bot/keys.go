@@ -32,6 +32,10 @@ const (
 	DefaultRatePerS   = 20
 	DefaultBurst      = 40
 	DefaultDailyQuota = 100000
+	// DefaultIngestRate e DefaultIngestBurst são o balde de registros do ingest da 9002 (ADR 0073 item 3.1): 500
+	// registros/s e rajada de dois lotes cheios.
+	DefaultIngestRate  = 500
+	DefaultIngestBurst = 2 * MaxIngestRecords
 )
 
 // Modos da chave.
@@ -57,6 +61,8 @@ type Key struct {
 	RatePerS       int // 0 = padrão
 	Burst          int // 0 = padrão
 	DailyQuota     int // 0 = padrão
+	IngestRate     int // 0 = padrão (registros por segundo do ingest da 9002)
+	IngestBurst    int // 0 = padrão
 	Mode           string
 	WebhookURL     string
 	WebhookClasses []string
@@ -78,6 +84,12 @@ func (k *Key) BurstSize() int { return orDefault(k.Burst, DefaultBurst) }
 // Quota devolve a cota diária efetiva.
 func (k *Key) Quota() int { return orDefault(k.DailyQuota, DefaultDailyQuota) }
 
+// IngestRateOrDefault devolve os registros por segundo efetivos do ingest.
+func (k *Key) IngestRateOrDefault() int { return orDefault(k.IngestRate, DefaultIngestRate) }
+
+// IngestBurstOrDefault devolve a rajada efetiva de registros do ingest.
+func (k *Key) IngestBurstOrDefault() int { return orDefault(k.IngestBurst, DefaultIngestBurst) }
+
 func orDefault(v, def int) int {
 	if v > 0 {
 		return v
@@ -92,6 +104,8 @@ type KeyOptions struct {
 	RatePerS       int
 	Burst          int
 	DailyQuota     int
+	IngestRate     int
+	IngestBurst    int
 	Mode           string
 	WebhookURL     string
 	WebhookClasses []string
@@ -139,7 +153,7 @@ func validateOptions(o *KeyOptions) error {
 	if o.Mode != ModeObserve && o.Mode != ModeBlock {
 		return fmt.Errorf("bot: --mode must be %s or %s", ModeObserve, ModeBlock)
 	}
-	if o.RatePerS < 0 || o.Burst < 0 || o.DailyQuota < 0 {
+	if o.RatePerS < 0 || o.Burst < 0 || o.DailyQuota < 0 || o.IngestRate < 0 || o.IngestBurst < 0 {
 		return errors.New("bot: limits must not be negative")
 	}
 	if o.WebhookURL != "" {
@@ -205,6 +219,7 @@ func CreateKey(ctx context.Context, db *sql.DB, o KeyOptions, now time.Time) (Ke
 	k := Key{
 		ID: ulid.Make().String(), Name: o.Name, Prefix: secret[len(keyPrefix) : len(keyPrefix)+keyPrefixShow],
 		Domains: o.Domains, RatePerS: o.RatePerS, Burst: o.Burst, DailyQuota: o.DailyQuota, Mode: o.Mode,
+		IngestRate: o.IngestRate, IngestBurst: o.IngestBurst,
 		WebhookURL: o.WebhookURL, WebhookClasses: o.WebhookClasses, CreatedAt: now.UTC().Truncate(time.Second),
 		hash: hash,
 	}
@@ -214,9 +229,10 @@ func CreateKey(ctx context.Context, db *sql.DB, o KeyOptions, now time.Time) (Ke
 		classes = strings.Join(k.WebhookClasses, ",")
 	}
 	_, err = db.ExecContext(ctx, `INSERT INTO api_keys (id, name, key_sha256, prefix, domains, rate_per_s, burst,
-		daily_quota, mode, webhook_url, webhook_secret, webhook_classes, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		daily_quota, mode, webhook_url, webhook_secret, webhook_classes, created_at, ingest_rate, ingest_burst)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		k.ID, k.Name, hash[:], k.Prefix, string(doms), nullInt(k.RatePerS), nullInt(k.Burst), nullInt(k.DailyQuota),
-		k.Mode, nullString(k.WebhookURL), whSecret, classes, k.CreatedAt.Unix())
+		k.Mode, nullString(k.WebhookURL), whSecret, classes, k.CreatedAt.Unix(), nullInt(k.IngestRate), nullInt(k.IngestBurst))
 	if err != nil {
 		return Key{}, "", nil, fmt.Errorf("bot: create key: %w", err)
 	}
@@ -224,7 +240,7 @@ func CreateKey(ctx context.Context, db *sql.DB, o KeyOptions, now time.Time) (Ke
 }
 
 const keyColumns = `id, name, key_sha256, prefix, domains, rate_per_s, burst, daily_quota, mode, webhook_url,
-	webhook_classes, created_at, revoked_at, webhook_secret`
+	webhook_classes, created_at, revoked_at, webhook_secret, ingest_rate, ingest_burst`
 
 func scanKey(sc interface{ Scan(...any) error }) (Key, error) {
 	var (
@@ -232,12 +248,13 @@ func scanKey(sc interface{ Scan(...any) error }) (Key, error) {
 		hash               []byte
 		doms               string
 		rate, burst, daily sql.NullInt64
+		ingRate, ingBurst  sql.NullInt64
 		whURL, whClasses   sql.NullString
 		createdAt          int64
 		revokedAt          sql.NullInt64
 	)
 	if err := sc.Scan(&k.ID, &k.Name, &hash, &k.Prefix, &doms, &rate, &burst, &daily, &k.Mode, &whURL, &whClasses,
-		&createdAt, &revokedAt, &k.webhookSecret); err != nil {
+		&createdAt, &revokedAt, &k.webhookSecret, &ingRate, &ingBurst); err != nil {
 		return Key{}, err
 	}
 	copy(k.hash[:], hash)
@@ -245,6 +262,7 @@ func scanKey(sc interface{ Scan(...any) error }) (Key, error) {
 		return Key{}, fmt.Errorf("bot: key %s: domains: %w", k.ID, err)
 	}
 	k.RatePerS, k.Burst, k.DailyQuota = int(rate.Int64), int(burst.Int64), int(daily.Int64)
+	k.IngestRate, k.IngestBurst = int(ingRate.Int64), int(ingBurst.Int64)
 	k.WebhookURL = whURL.String
 	if whClasses.String != "" {
 		k.WebhookClasses = strings.Split(whClasses.String, ",")

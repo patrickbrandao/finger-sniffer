@@ -115,6 +115,15 @@ type principal struct {
 	internal bool
 }
 
+// owner é o dono das conexões e dos agregados que a requisição cria: o id da chave na 9002, "" (interno) na 9003
+// com ou sem chave (ADR 0073 itens 3.2 e 4).
+func (p principal) owner() string {
+	if p.key == nil || p.internal {
+		return ""
+	}
+	return p.key.ID
+}
+
 func (p principal) allows(site string) bool {
 	return p.key == nil || MatchDomain(p.key.Domains, site)
 }
@@ -559,7 +568,7 @@ func (a *API) forwardAuth(internal bool) http.HandlerFunc {
 		if hasTCP {
 			sp = &store
 		}
-		v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp, !foreign)
+		v := a.Judge.Auth(f, site, r.Header.Get("X-Forwarded-Method"), cutPath(r.Header.Get("X-Forwarded-Uri")), r.Header, fp, sp, !foreign, p.owner())
 		vals := [3]string{v.Class, strconv.Itoa(v.Score), signalIDs(v.Signals)}
 		for i, k := range verdictHeaders {
 			w.Header().Set(k, vals[i%3])
@@ -883,6 +892,7 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	if p.key != nil {
 		c.domains, c.keyHash, c.hasKey = p.key.Domains, p.key.hash, true
 	}
+	c.public, c.owner = !p.internal, p.owner()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	c.cancel = cancel
@@ -895,6 +905,13 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := a.Hub.add(c); err != nil {
+		// acima da parte da chave da 9002, 429; acima dos 48 da 9002 ou dos 64, 503 (ADR 0073 item 3.3)
+		if errors.Is(err, errStreamKey) {
+			a.rateLimited(p.key)
+			w.Header().Set("Retry-After", strconv.Itoa(streamKeyRetry))
+			writeError(w, http.StatusTooManyRequests, errRateLimited, "too many stream clients for the key")
+			return
+		}
 		writeError(w, http.StatusServiceUnavailable, errInternal, "too many stream clients")
 		return
 	}
@@ -971,6 +988,18 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errBadRequest, err.Error())
 		return
 	}
+	// 9002: o lote tira len(records) fichas do balde de registros da chave de uma vez; sem fichas para o lote
+	// inteiro, 429 sem aplicar nenhum registro (ADR 0073 item 3.1). Na 9003 não há limite de chave (item 4).
+	owner := p.owner()
+	if owner != "" {
+		if ok, retry := a.Limiter.AllowRecords(p.key, len(batch.records)); !ok {
+			a.count(ingestRefusedMetric(refusedKeyRecords), 1)
+			a.rateLimited(p.key)
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			writeError(w, http.StatusTooManyRequests, errRateLimited, "key ingest records limit reached")
+			return
+		}
+	}
 	var env ingestEnv
 	if batch.schema == SchemaTraefixV1 && a.Judge != nil {
 		env.p0f = a.Judge.p0f.get()
@@ -1006,15 +1035,18 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		}
 		a.countMismatches(rec.mismatches, rec.r.FsConnID)
 		a.countClipped(rec.clipped)
-		a.Index.UpdateFork(rec.r.FsConnID, a.now(), rec.apply)
+		a.Index.UpdateForkOwned(rec.r.FsConnID, owner, a.now(), rec.apply)
 		if rec.r.Type == "request" {
 			// veredito por requisição na chegada do resumo (publicado se o forwardAuth ainda não o fez)
-			if !a.Judge.Ingest(rec.r.FsConnID, p.allows) {
+			if !a.Judge.IngestOwned(rec.r.FsConnID, owner, p.allows) {
 				rejected++
 				continue
 			}
 		}
 		accepted++
+	}
+	if p.key != nil {
+		a.Limiter.AddRecords(p.key, accepted)
 	}
 	a.count(metricIngestRecords, float64(accepted))
 	a.count(metricIngestDropped, float64(rejected))

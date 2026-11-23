@@ -208,6 +208,28 @@ func TestCLI(t *testing.T) {
 	if _, ok := ParseKey(secret); !ok || id == "" {
 		t.Fatalf("saída: %s", out.String())
 	}
+	if !strings.Contains(out.String(), "ingest: 500 records/s burst 2048\n") {
+		t.Fatalf("padrão do ingest na saída: %s", out.String())
+	}
+	// --ingest-rate e --ingest-burst vão ao banco (ADR 0073 item 3.1, task 371)
+	out.Reset()
+	if err := RunCLI(ctx, []string{"key", "create", "--name", "ing", "--domains", "example.net", "--ingest-rate", "50", "--ingest-burst", "1500"}, path, &out, &errOut, now); err != nil ||
+		!strings.Contains(out.String(), "ingest: 50 records/s burst 1500\n") {
+		t.Fatalf("ingest: %v %s", err, out.String())
+	}
+	if err := RunCLI(ctx, []string{"key", "create", "--name", "neg", "--domains", "example.net", "--ingest-rate", "-1"}, path, &out, &errOut, now); err == nil {
+		t.Error("--ingest-rate negativo aceito")
+	}
+	db, err := OpenDB(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := ListKeys(ctx, db)
+	_ = db.Close()
+	if err != nil || len(keys) != 2 || keys[1].IngestRate != 50 || keys[1].IngestBurst != 1500 || keys[0].IngestRateOrDefault() != DefaultIngestRate {
+		t.Fatalf("chaves: %+v %v", keys, err)
+	}
+	out.Reset()
 	out.Reset()
 	if err := RunCLI(ctx, []string{"key", "list"}, path, &out, &errOut, now); err != nil {
 		t.Fatal(err)
