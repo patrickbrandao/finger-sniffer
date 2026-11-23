@@ -33,9 +33,29 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - RF-05: `deploy/systemd/`: `finger-sniffer-net`, `-nats`, `-store`, `-capture`, `-web`, `-raw`, `-dns`, o target
   `finger-sniffer.target` e a fatia `finger-sniffer.slice` (`Slice=` em todas as units). Ordem: net → nats → store
   → demais. `Restart=always`, backoff.
-- RF-06: hardening: usuário de sistema `finger-sniffer`; `ProtectSystem=strict`, `ReadWritePaths=/finger-sniffer/var`,
-  `NoNewPrivileges`, `AmbientCapabilities` mínimas (NET_BIND_SERVICE para raw/dns; NET_RAW para capture;
-  nenhuma para web, com portas acima de 1024, e para store/nats), `EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env`.
+- RF-06: hardening: usuário de sistema `finger-sniffer` (o mesmo em todas as units; usuário por serviço fora, limite
+  conhecido da ADR 0075 item 2.3); `ProtectSystem=strict`, `NoNewPrivileges`, `AmbientCapabilities` mínimas
+  (NET_BIND_SERVICE para raw/dns; NET_RAW para capture; nenhuma para web, com portas acima de 1024, e para
+  store/nats/bot), `EnvironmentFile=/finger-sniffer/etc/finger-sniffer.env` (menos o NATS). **`ReadWritePaths` só
+  com o que a unit grava** e `InaccessiblePaths` (prefixo `-`) com o que ela nem lê (ADR 0075 item 2.1; `var/x` =
+  `/finger-sniffer/var/x`, "senhas x" = `/finger-sniffer/etc/nats/x.password`, `auth.conf` =
+  `/finger-sniffer/etc/nats/auth.conf`):
+
+  | Unit | `ReadWritePaths` | Lê | `InaccessiblePaths` |
+  | --- | --- | --- | --- |
+  | capture | — | — | `/finger-sniffer/var`, `auth.conf`, senhas web, raw, dns, store, bot |
+  | dns | — | — | `/finger-sniffer/var`, `auth.conf`, senhas capture, web, raw, store, bot |
+  | raw | — | `var/certs` | `var/acme`, `var/bot`, `var/store`, `var/nats`, `auth.conf`, senhas capture, web, dns, store, bot |
+  | web | `var/certs`, `var/acme` | — | `var/bot`, `var/store`, `var/nats`, `auth.conf`, senhas capture, raw, dns, store, bot |
+  | store | `var/store` | `var/certs` | `var/acme`, `var/bot`, `var/nats`, `auth.conf`, senhas capture, web, raw, dns, bot |
+  | bot | `var/bot` | `var/certs` | `var/acme`, `var/store`, `var/nats`, `auth.conf`, senhas capture, web, raw, dns, store |
+  | nats | `var/nats` | `auth.conf` | `var/acme`, `var/bot`, `var/certs`, `var/store`, todas as senhas |
+
+  Nas 7 units de longa duração (NATS e os 6 serviços), também `ProtectClock=yes`, `ProtectKernelLogs=yes`,
+  `ProtectHostname=yes`, `UMask=0077` e `ProtectProc=invisible`; sem `ProcSubset=pid` (o health do store lê
+  `/proc/sys`, `/proc/net/netstat` e `/proc/modules`). A unit de rede (oneshot, root) fica sem esses itens. Cada unit
+  de serviço leva `Environment=FS_NATS_USER=<svc> FS_NATS_PASSWORD_FILE=/finger-sniffer/etc/nats/<svc>.password`
+  (RF-09a).
 - RF-07: limites (ADRs 0039 e 0045): fatia `finger-sniffer.slice` com `MemoryMax=10G` e `CPUQuota=800%`; por unit
   `MemoryMax`/`GOMEMLIMIT`/`CPUQuota`: store 6G/1536MiB/400% (inclui o tmpfs do banco), nats 1G/896MiB/200%, web 768M/512MiB/400%, capture
   512M/384MiB/200%, raw 256M/192MiB/100%, dns 256M/192MiB/100%; todas com `MemorySwapMax=0` e
@@ -46,26 +66,42 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   resolvidos na instalação); o store com `RequiresMountsFor=/finger-sniffer/var/store`. O deploy nunca para nem
   reinicia a mount unit (mudança de tamanho por `mount -o remount`); a primeira instalação apaga o banco em disco
   antes de montar. O banco sobrevive ao reinício do store e some no do host.
-- RF-08: journald drop-in: `MaxRetentionSec=24h`, `SystemMaxUse=200M`.
+- RF-08: journal próprio do espelho (ADR 0075 item 3): as 8 units com processo (net, nats e os 6 serviços) com
+  `LogNamespace=finger-sniffer`; `deploy/journald/finger-sniffer.conf` instalado em
+  `/etc/systemd/journald@finger-sniffer.conf` com `MaxRetentionSec=24h`, `SystemMaxUse=200M` e `RuntimeMaxUse=200M`
+  (ADRs 0012 e 0052); mudança nele reinicia só `systemd-journald@finger-sniffer.service`. Nenhum arquivo do espelho em
+  `/etc/systemd/journald.conf.d/`: o deploy apaga o drop-in antigo `finger-sniffer.conf` de lá, se existir, e reinicia
+  o `systemd-journald` do sistema só nessa remoção. Leitura: `journalctl --namespace=finger-sniffer -u
+  'finger-sniffer-*'`.
 
 ### NATS
 - RF-09: binário oficial `nats-server` v2 estável, versão fixada em `deploy/versions.env`, baixado do GitHub com
-  verificação de checksum, em `/finger-sniffer/bin/nats-server`; config `eventbus/nats/nats.conf`.
+  verificação de checksum, em `/finger-sniffer/bin/nats-server`; config `eventbus/nats/nats.conf`, só em
+  `127.0.0.1:4222`, sem monitoração HTTP (`http:` fora; ADR 0075 item 1.5).
+- RF-09a: autenticação (ADR 0075 item 1): bloco `authorization` no `nats.conf` com os usuários `capture`, `web`,
+  `raw`, `dns`, `store` e `bot`, permissões da tabela da ADR 0075 item 1.1, sem `no_auth_user`; senhas de 32 bytes
+  aleatórios em hexadecimal geradas pelo deploy quando faltam, em `/finger-sniffer/etc/nats/<usuário>.password`
+  (diretório 0700, arquivos 0600, dono `finger-sniffer`; nunca reescritas; rotação = apagar e fazer o deploy
+  completo); o deploy deriva delas `/finger-sniffer/etc/nats/auth.conf` (0600, variáveis `FS_NATS_PW_<USUÁRIO>`),
+  incluído pelo `nats.conf` antes do `authorization`. Clientes: `FS_NATS_USER`, `FS_NATS_PASSWORD_FILE` e
+  `FS_NATS_PASSWORD` (testes) definidos por unit, nunca no env compartilhado; usuário vazio = sem autenticação; usuário
+  sem senha → o serviço não sobe. O smoke confere que uma conexão sem credencial ao 4222 é recusada.
 
 ### Layout no servidor
 ```
 /finger-sniffer/
   bin/        binários (5 serviços + nats-server)
   htdocs/     site estático
-  etc/        finger-sniffer.env (instalado de .env.example só se ausente), p0f.fp
-  var/        store/ (SQLite num tmpfs de 4G, ADR 0045), certs/, acme/, nats/   — nunca tocado pelo rsync
+  etc/        finger-sniffer.env (instalado de .env.example só se ausente), p0f.fp,
+              nats/ (<usuário>.password e auth.conf, 0600, gerados pelo deploy; ADR 0075)
+  var/        store/ (SQLite num tmpfs de 4G, ADR 0045), certs/, acme/, nats/, bot/   — nunca tocado pelo rsync
   (fontes do repositório, para referência)
 ```
 
 ### Deploy (`make deploy`, script `deploy/deploy.sh`)
 - RF-10: compila os 5 binários (linux/amd64, ldflags com versão/commit) → rsync do repositório inteiro para
   `root@finger-01.tmsoft.com.br:/finger-sniffer` (porta 48022), excluindo `.git/`, `tasks/`, `tmp/`, `var/`, `.grill/`,
-  `etc/*.env` → instala usuário, units, sysctl, journald, NATS → aplica rede → `systemctl daemon-reload` →
+  `etc/*.env` → instala usuário, senhas do NATS (se faltam), units, sysctl, `journald@finger-sniffer.conf`, NATS → aplica rede → `systemctl daemon-reload` →
   reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 5 serviços presentes e nenhum
   `down`; `degraded` só passa por motivo da lista de tolerados do smoke — hoje `cert_self_signed` e, só com
   `SVC=<svc>`, a versão desencontrada (`version X differs from store Y`, que o store marca em quem roda outra
@@ -76,7 +112,7 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
   `ss -Hlun` no finger-01; com um cliente h3 disponível no Mac, também um `GET` por h3; `GET
   https://finger-01.badblock.net.br/` pelo traefik com a página do espelho, quando a rota do traefik existir).
 - RF-11: idempotente; trava remota `flock /run/finger-sniffer/deploy.lock` (espera até 5 min). O deploy grava, por
-  unit, o hash da configuração aplicada (unit + env ou `nats.conf`); um deploy com `SVC` reinicia só o serviço
+  unit, o hash da configuração aplicada (unit + env, ou `nats.conf` + `etc/nats/auth.conf` para o NATS); um deploy com `SVC` reinicia só o serviço
   pedido, e a configuração que ele instalou para os demais é aplicada no deploy completo seguinte, que reinicia
   toda unit cujo hash mudou.
 - RF-12: sem aprovação (servidor de testes), dentro do que é do espelho (ADR 0038 item 9).
@@ -107,6 +143,9 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
       `make deploy` deixa tudo no ar sem passo manual.
 - [ ] Depois de reboot, offloads continuam desligados e sysctls aplicados (conferido pelo health).
 - [ ] `make deploy` duas vezes seguidas não muda nada no segundo (idempotente).
+- [ ] Nenhum arquivo do espelho em `/etc/systemd/journald.conf.d/`; `journalctl --namespace=finger-sniffer
+      --disk-usage` ≤ 200 MB (ADR 0075).
+- [ ] Conexão sem credencial ao NATS recusada; nenhuma unit além do bot alcança `var/bot` (ADR 0075).
 
 ## Fora de escopo
 - Docker para o espelho (o Docker do host é do humano; o traefix tem imagem própria no projeto dele, ADR 0054), Kubernetes,
@@ -122,3 +161,4 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
 - specs/decisions/0054-traefix-projeto-externo.md
+- specs/decisions/0075-isolamento-do-espelho-no-host-compartilhado.md

@@ -32,7 +32,7 @@ analisa IP/TCP, guarda em SQLite e serve a API.
 | Unit systemd | Binário | Responsabilidade | Portas | Capabilities | Spec |
 | --- | --- | --- | --- | --- | --- |
 | finger-sniffer-net.service (oneshot) | script | offloads, sysctls, antes de tudo | — | root | 016 |
-| finger-sniffer-nats.service | nats-server (oficial, fixado) | barramento + JetStream | 127.0.0.1:4222, :8222 | — | 016 |
+| finger-sniffer-nats.service | nats-server (oficial, fixado) | barramento + JetStream | 127.0.0.1:4222 (usuário por serviço, ADR 0075) | — | 016 |
 | finger-sniffer-capture.service | finger-sniffer-capture | captura AF_PACKET de todos os pacotes da ens192 (exceto portas excluídas) e publica | — | NET_RAW | 003 |
 | finger-sniffer-store.service | finger-sniffer-store | ingest, correlação `conn_id`/probe, análise IP/TCP, retenção, SQLite, API, SSE/WS, métricas agregadas | 9000, 9001 | NET_BIND_SERVICE não necessário | 004, 013 |
 | finger-sniffer-web.service | finger-sniffer-web | HTTP/1, h2, h2c, h3, WS, TLS, htdocs, controles de resposta, ACME | TCP 8080/8443, UDP 8443 | nenhuma (portas > 1024, ADR 0038) | 005, 008–012, 014, 015 |
@@ -95,6 +95,8 @@ implementer-store (base de serviço/envelope), conforme spec 002.
   `fs.v1.dns.query`, `fs.v1.svc.heartbeat`); request/reply NATS core `fs.v1.dns.acme.set`/`.clear` para o TXT do
   DNS-01 e `fs.v1.store.conn_id` para o web saber o `conn_id` da conexão (ADR 0017); NATS core
   `fs.v1.store.connection` do store para o bot (ADR 0047), fora do stream.
+- Acesso: um usuário NATS por serviço com permissões mínimas de publicação e assinatura, sem conexão anônima
+  (ADR 0075 item 1; tabela na ADR e em `eventbus/nats/nats.conf`).
 - Envelope comum (JSON): `schema_version`, `service`, `service_version`, `ts` (ns UTC), `flow` (5-tupla),
   `probe_id`, `payload`. Exceção: o lote de pacotes `fs.v1.capture.packet` é binário (FSPB v1, envelope nos
   cabeçalhos NATS — ADR 0015).
@@ -154,7 +156,8 @@ NATS oficial fixado (ADR 0003).
 | tmpfs do banco cheio por BLOBs (ADR 0045) | teto `FS_STORE_MAX_BYTES`, expurgo do mais antigo e pelo livre do tmpfs, `SQLITE_FULL` → expurgo de emergência e modo banco cheio, health `db full` | teste de retenção e de `SQLITE_FULL` |
 | Parser travando/estourando com entrada maliciosa | `go test -fuzz` em todos os parsers | fuzz no verify-full (tempo curto), longo sob pedido |
 | DNS usado para amplificação | sem recursão, só zona própria, REFUSED fora dela, rate limit de respostas UDP por IP (IPv6 por /64, balde de transbordo com a tabela cheia; TCP fora do RRL, ADR 0035) | teste do dns |
-| Privilégios | capabilities mínimas, ProtectSystem=strict, usuário dedicado | revisão das units |
+| Privilégios | capabilities mínimas, ProtectSystem=strict, usuário dedicado; `ReadWritePaths` só do que cada unit grava e `InaccessiblePaths` do resto de `var/` e das senhas NATS alheias (banco do bot e conta ACME fora do alcance de capture, dns, raw e store), `ProtectClock`, `ProtectKernelLogs`, `ProtectHostname`, `UMask=0077`, `ProtectProc=invisible` (ADR 0075 item 2). Limite conhecido: o mesmo usuário Unix em todas as units, então execução de código num serviço ainda lê a memória dos outros | tabela unit → caminhos em `deploy/config_test.go`; `systemd-analyze security` no deploy |
+| Processo local de terceiros no barramento NATS (host compartilhado, ADR 0038: outro usuário, container com a rede do host, agente local): TXT ACME forjado e certificado curinga da zona dos probes, `fs.v1.store.connection` forjado, stream apagado | `authorization` no `nats.conf` com um usuário por serviço e permissões mínimas (só o `store` na API do JetStream, só o `web` pede `fs.v1.dns.acme.*`), senhas aleatórias em `/finger-sniffer/etc/nats/` (0600), sem monitoração HTTP; teto do conjunto ACME no dns (ADR 0075 item 1) | teste com nats-server embutido (sem credencial recusado, `capture` sem `fs.v1.dns.acme.set` nem `$JS.API.STREAM.DELETE.FS_EVENTS`); smoke do deploy |
 | Dependências vulneráveis | govulncheck no verify-full e CI | CI |
 | Dados de terceiros expostos (inclusive visitantes dos sites atrás do traefik, ADR 0038) | aceito (ADR 0007); retenção curta; proposta de ocultar o tráfego dos sites na API aberta à espera do humano (ADR 0052 item 6) | — |
 | Chave de API vazada ou abusada | só o SHA-256 no banco, chave mostrada uma vez, domínios por chave, balde e cota diária, `revoke`/`rotate` na CLI (ADR 0051) | testes de 401/404/429 |
@@ -193,3 +196,4 @@ NATS oficial fixado (ADR 0003).
 - specs/decisions/0047-fase-de-bots-servico-bot.md
 - specs/decisions/0048-fork-do-traefik.md
 - specs/decisions/0054-traefix-projeto-externo.md
+- specs/decisions/0075-isolamento-do-espelho-no-host-compartilhado.md

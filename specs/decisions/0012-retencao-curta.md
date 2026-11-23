@@ -1,6 +1,6 @@
 # 0012 — Retenção curta, logs e sem backup
 
-Status: aceita (agregados do bot por 7 dias em disco: ver 0052)
+Status: aceita (agregados do bot por 7 dias em disco: ver 0052; 24 h / 200 MB num journal próprio do espelho: ver 0075)
 Data: 2026-11-07
 
 ## Contexto
