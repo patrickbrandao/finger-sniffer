@@ -35,8 +35,9 @@ func TestWebhookFromHub(t *testing.T) {
 	defer close(block)
 
 	f := newFixture(t)
-	f.srv.hooks = webhook.New(webhook.Options{Client: rcv.Client(), Now: f.clock.Now, Count: f.metrics.Add})
-	k, _, whSecret := f.createWebhookKey(KeyOptions{Name: "site", Domains: []string{"*.example.com"}, WebhookURL: rcv.URL + "/hook"})
+	hc, hookURL := hookReceiver(t, rcv, "/hook")
+	f.srv.hooks = webhook.New(webhook.Options{Client: hc, Now: f.clock.Now, Count: f.metrics.Add})
+	k, _, whSecret := f.createWebhookKey(KeyOptions{Name: "site", Domains: []string{"*.example.com"}, WebhookURL: hookURL})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() { cancel(); f.srv.hooks.Wait() }()
 	f.srv.syncWebhooks(ctx)

@@ -54,9 +54,10 @@ func TestHeartbeatMetricsRF12(t *testing.T) {
 	// Um envio de webhook (bot_webhook_sent_total{code}).
 	rcv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer rcv.Close()
-	s.hooks = webhook.New(webhook.Options{Client: rcv.Client(), Now: clock.Now, Count: m.Add})
+	hc, hookURL := hookReceiver(t, rcv, "/h")
+	s.hooks = webhook.New(webhook.Options{Client: hc, Now: clock.Now, Count: m.Add})
 	defer func() { cancel(); s.hooks.Wait() }()
-	if _, _, _, err := CreateKey(ctx, db, KeyOptions{Name: "x", Domains: []string{"example.com"}, WebhookURL: rcv.URL + "/h"}, clock.Now()); err != nil {
+	if _, _, _, err := CreateKey(ctx, db, KeyOptions{Name: "x", Domains: []string{"example.com"}, WebhookURL: hookURL}, clock.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.keys.Reload(ctx); err != nil {

@@ -1,6 +1,7 @@
 // Package webhook entrega os vereditos às URLs das chaves de API (spec 020 RF-06, ADR 0051 item 5): fila de 1000
 // por chave com descarte contado, filtro por classe e domínio, POST JSON assinado com HMAC-SHA256, prazo de 5 s e
-// novas tentativas em 1 s, 5 s e 30 s para 5xx ou erro de rede (4xx não repete).
+// novas tentativas em 1 s, 5 s e 30 s para 5xx ou erro de rede (4xx não repete). Redirecionamento não é seguido
+// (3xx é resposta final) e o cliente próprio recusa, depois da resolução, destinos internos (task 372).
 package webhook
 
 import (
@@ -8,10 +9,14 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -82,6 +87,127 @@ func ValidURL(s string) bool {
 	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
+// ErrBlockedDestination é o erro do dial para um destino interno (loopback, privado, link-local, CGNAT etc.).
+var ErrBlockedDestination = errors.New("webhook: destination address not allowed")
+
+// blockedPrefixes completa os testes de netip.Addr em BlockedAddr com faixas sem método próprio.
+var blockedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),       // "esta rede"
+	netip.MustParsePrefix("100.64.0.0/10"),   // CGNAT (RFC 6598)
+	netip.MustParsePrefix("192.0.0.0/24"),    // atribuições do protocolo IETF
+	netip.MustParsePrefix("198.18.0.0/15"),   // testes de desempenho
+	netip.MustParsePrefix("240.0.0.0/4"),     // reservada, inclui o broadcast
+	netip.MustParsePrefix("64:ff9b:1::/48"),  // NAT64 de uso local
+	netip.MustParsePrefix("fec0::/10"),       // site-local (obsoleta)
+	netip.MustParsePrefix("2001:db8::/32"),   // documentação
+	netip.MustParsePrefix("100::/64"),        // descarte
+	netip.MustParsePrefix("192.0.2.0/24"),    // documentação
+	netip.MustParsePrefix("198.51.100.0/24"), // documentação
+	netip.MustParsePrefix("203.0.113.0/24"),  // documentação
+}
+
+// BlockedAddr diz se o webhook não pode chamar o endereço: inválido, não especificado, loopback, privado (RFC 1918
+// e ULA), link-local, multicast, CGNAT e as faixas reservadas de blockedPrefixes. IPv4 mapeado em IPv6 conta como
+// IPv4. Os IPs do próprio host ficam no cliente (localAddrs), porque mudam com a máquina.
+func BlockedAddr(a netip.Addr) bool {
+	a = a.Unmap()
+	if !a.IsValid() || a.IsUnspecified() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() ||
+		a.IsMulticast() || a.IsLinkLocalMulticast() || a.IsInterfaceLocalMulticast() {
+		return true
+	}
+	for _, p := range blockedPrefixes {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// blockedOrLocal é a política padrão do cliente: BlockedAddr ou um dos IPs das interfaces do host.
+func blockedOrLocal(a netip.Addr) bool {
+	if BlockedAddr(a) {
+		return true
+	}
+	a = a.Unmap()
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		// sem a lista, recusa: melhor perder o envio que chamar o próprio host
+		return true
+	}
+	for _, ia := range addrs {
+		if n, ok := ia.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok && ip.Unmap() == a {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ClientConfig ajusta o cliente próprio do webhook (resolvedor e política falsos nos testes).
+type ClientConfig struct {
+	// Lookup resolve o host (net.DefaultResolver.LookupNetIP por padrão).
+	Lookup func(ctx context.Context, host string) ([]netip.Addr, error)
+	// Blocked diz se o destino é recusado (BlockedAddr e os IPs do host por padrão).
+	Blocked func(netip.Addr) bool
+	// TLS é a configuração TLS do cliente (padrão do Go quando nil).
+	TLS *tls.Config
+}
+
+// NewClient cria o cliente HTTP do webhook: sem proxy, sem seguir redirecionamento e com um dial que resolve o
+// nome, recusa os destinos que Blocked aponta e conecta ao IP conferido (o mesmo resolvido, o que também cobre DNS
+// rebinding entre a conferência e a conexão).
+func NewClient(c ClientConfig) *http.Client {
+	if c.Lookup == nil {
+		c.Lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		}
+	}
+	if c.Blocked == nil {
+		c.Blocked = blockedOrLocal
+	}
+	d := &net.Dialer{Timeout: RequestTimeout}
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		var ips []netip.Addr
+		if ip, err := netip.ParseAddr(host); err == nil {
+			ips = []netip.Addr{ip}
+		} else if ips, err = c.Lookup(ctx, host); err != nil {
+			return nil, err
+		}
+		lastErr := fmt.Errorf("%w: %s resolves to no address", ErrBlockedDestination, host)
+		for _, ip := range ips {
+			if c.Blocked(ip) {
+				lastErr = fmt.Errorf("%w: %s", ErrBlockedDestination, ip)
+				continue
+			}
+			conn, err := d.DialContext(ctx, network, net.JoinHostPort(ip.Unmap().String(), port))
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+		}
+		return nil, lastErr
+	}
+	tr := &http.Transport{
+		Proxy:                 nil,
+		DialContext:           dial,
+		TLSClientConfig:       c.TLS,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          16,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   RequestTimeout,
+		ExpectContinueTimeout: time.Second,
+	}
+	return &http.Client{Transport: tr, CheckRedirect: noRedirect}
+}
+
+// noRedirect faz o 3xx ser a resposta final (contado como resposta sem nova tentativa).
+func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 // Target é o webhook de uma chave.
 type Target struct {
 	KeyID   string
@@ -110,6 +236,8 @@ func (t *Target) accepts(class, site string) bool {
 
 // Options são as dependências do despachante (relógio e cliente falsos nos testes).
 type Options struct {
+	// Client faz os envios (NewClient(ClientConfig{}) por padrão). Um cliente dado também deixa de seguir
+	// redirecionamento: New troca o CheckRedirect de uma cópia dele.
 	Client *http.Client
 	Now    func() time.Time
 	// After espera d (time.After por padrão).
@@ -138,7 +266,11 @@ type worker struct {
 // New cria o despachante.
 func New(o Options) *Dispatcher {
 	if o.Client == nil {
-		o.Client = &http.Client{}
+		o.Client = NewClient(ClientConfig{})
+	} else {
+		c := *o.Client
+		c.CheckRedirect = noRedirect
+		o.Client = &c
 	}
 	if o.Now == nil {
 		o.Now = time.Now

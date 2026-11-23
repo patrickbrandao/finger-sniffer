@@ -490,6 +490,11 @@ X-Fs-Key-Prefix: fsk_abcdefgh
 - Prazo de 5 s por envio. Erro de rede ou 5xx: até 3 novas tentativas, depois de 1 s, 5 s e 30 s; 4xx não repete;
   qualquer 2xx confirma. Fila de 1000 eventos por chave: cheia, o evento é descartado e contado
   (`fs_bot_webhook_dropped_total`); cheia por mais de 60 s, o health fica `degraded` com `webhook backlog`.
+- Redirecionamento não é seguido: um 3xx é a resposta final do envio, contada como 4xx (não repete). Aponte a URL
+  direto para o endpoint que recebe o `POST`.
+- Destinos internos são recusados: o bot resolve o nome e não conecta a loopback, redes privadas (RFC 1918 e ULA),
+  link-local, CGNAT (`100.64.0.0/10`), não especificado, multicast, faixas reservadas nem aos IPs do próprio host
+  (conta como erro de rede, `code="error"`). `key create` já recusa `--webhook-url` com IP literal nessas faixas.
 
 ### Verificar a assinatura
 
