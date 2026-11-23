@@ -381,3 +381,53 @@ func TestUnitHardeningADR0075(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0075 item 3 (task 352): as 8 units com processo escrevem no journal próprio do espelho; a mount unit do banco
+// (sem processo) fica de fora.
+func TestUnitLogNamespaceADR0075(t *testing.T) {
+	units, err := filepath.Glob(filepath.Join("systemd", "finger-sniffer-*.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(units) != 8 {
+		t.Fatalf("%d units finger-sniffer-*.service, quer 8: %v", len(units), units)
+	}
+	for _, u := range units {
+		if got := strings.Join(unitDirectives(t, filepath.Base(u))["LogNamespace"], ","); got != "finger-sniffer" {
+			t.Errorf("%s: LogNamespace = %q, quer finger-sniffer", filepath.Base(u), got)
+		}
+	}
+}
+
+// ADR 0075 item 3 (task 352): o arquivo do journal do espelho tem os tetos das ADRs 0012 e 0052.
+func TestJournaldNamespaceConf(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("journald", "finger-sniffer.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	section := ""
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			section = line
+			continue
+		}
+		k, v, _ := strings.Cut(line, "=")
+		got[section+k] = v
+	}
+	want := map[string]string{
+		"[Journal]MaxRetentionSec": "24h", "[Journal]SystemMaxUse": "200M", "[Journal]RuntimeMaxUse": "200M",
+	}
+	if len(got) != len(want) {
+		t.Errorf("chaves = %v, quer %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, quer %q", k, got[k], v)
+		}
+	}
+}
