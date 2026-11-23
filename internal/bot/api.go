@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -101,6 +102,8 @@ type API struct {
 	gateOnce    sync.Once
 	gate        *ingestGate
 	bodyTimeout time.Duration
+	// blockLimited é quando (UnixNano) uma chave em modo block recebeu 429 pela última vez.
+	blockLimited atomic.Int64
 }
 
 type ctxKey struct{}
@@ -235,8 +238,11 @@ func (a *API) authenticate(internal bool, next http.HandlerFunc) http.Handler {
 			return
 		}
 		if p.key != nil {
-			if ok, retry := a.Limiter.Allow(r.Context(), p.key); !ok {
-				a.count(metricRateLimited, 1)
+			// Na 9003 a chave só escolhe domínios e modo: o uso é gravado, sem balde nem cota (ADR 0073 item 4).
+			if internal {
+				a.Limiter.Count(p.key)
+			} else if ok, retry := a.Limiter.Allow(r.Context(), p.key); !ok {
+				a.rateLimited(p.key)
 				w.Header().Set("Retry-After", strconv.Itoa(retry))
 				writeError(w, http.StatusTooManyRequests, errRateLimited, "key limit reached")
 				return
@@ -245,6 +251,21 @@ func (a *API) authenticate(internal bool, next http.HandlerFunc) http.Handler {
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
+}
+
+// rateLimited conta um 429 de limite da chave e, se a chave está em modo block, marca o health (block key limited,
+// ADR 0073 item 4).
+func (a *API) rateLimited(k *Key) {
+	a.count(metricRateLimited, 1)
+	if k != nil && k.Mode == ModeBlock {
+		a.blockLimited.Store(a.now().UnixNano())
+	}
+}
+
+// BlockKeyLimited diz se uma chave em modo block recebeu 429 nos últimos d.
+func (a *API) BlockKeyLimited(now time.Time, d time.Duration) bool {
+	t := a.blockLimited.Load()
+	return t != 0 && now.Sub(time.Unix(0, t)) < d
 }
 
 // bearerKey extrai o token de "Authorization: Bearer <token>"; present diz se havia o cabeçalho.
@@ -908,7 +929,7 @@ func (a *API) admitBatch(w http.ResponseWriter, p principal) func() {
 		writeError(w, http.StatusServiceUnavailable, errBusy, "too many batches in progress")
 		return nil
 	}
-	a.count(metricRateLimited, 1)
+	a.rateLimited(p.key)
 	writeError(w, http.StatusTooManyRequests, errRateLimited, "too many batches of the key in progress")
 	return nil
 }
