@@ -426,7 +426,7 @@ func TestFitHTTP1FewEncodes(t *testing.T) {
 	}
 	start := time.Now()
 	data := srv.fitHTTP1(time.Now(), &event.Flow{L4: "tcp"}, "", req)
-	if el := time.Since(start); el > 50*time.Millisecond {
+	if el := time.Since(start); el > raceSlow*50*time.Millisecond {
 		t.Fatalf("fitHTTP1 levou %v", el)
 	}
 	if data == nil || len(data) > event.MaxEventBytes {
