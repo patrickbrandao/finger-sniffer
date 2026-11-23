@@ -24,8 +24,9 @@ const (
 // Teto da tabela de fluxos (ADR 0034 item 1, spec 004 RF-11a): no máximo maxFlows entradas; TCP que não completou
 // o handshake sai por ociosidade em halfOpenIdle, não na ociosidade do TCP estabelecido.
 const (
-	maxFlows     = 8192
-	halfOpenIdle = 10 * time.Second
+	maxFlows       = 8192
+	maxAnsweredUDP = 2048 // UDP não-QUIC respondido na tabela (ADR 0069 item 2)
+	halfOpenIdle   = 10 * time.Second
 )
 
 // Motivos de fs_store_flows_dropped_total.
@@ -90,6 +91,7 @@ type conn struct {
 	// Estado da tabela de fluxos (com a trava): halfEl = posição na fila de não estabelecidas (despejo);
 	// countedLive = conta em liveLim (TCP/QUIC vivas do modo degradado).
 	halfEl      *list.Element
+	ansEl       *list.Element // posição na fila de UDP não-QUIC respondido (ADR 0069 item 2)
 	countedLive bool
 	// suspect: o fluxo estava aberto quando um salto de sequência do stream revelou mensagens perdidas e não viu
 	// pacote desde então; vence na ociosidade do meio-aberto (ADR 0041 item 4). Um pacote novo tira a marca.
@@ -252,14 +254,19 @@ func (c *conn) noteQUICCIDs(fi frameInfo) {
 // closing informa se a conexão já viu o fechamento (FIN dos dois lados ou RST).
 func (c *conn) closing() bool { return c.closeAt != 0 }
 
-// evictable informa se a entrada pode ser despejada com a tabela cheia (ADR 0034 item 1): TCP sem o ACK do
-// cliente depois do SYN-ACK, ou UDP que não é QUIC e não teve resposta. A transição é de mão única.
+// evictable informa se a entrada pode ser despejada com a tabela cheia (ADR 0034 item 1, ADR 0069): TCP sem o
+// ACK do cliente depois do SYN-ACK, ou UDP sem resposta do espelho (inclusive o que parece Initial QUIC: o
+// formato do datagrama do cliente não basta). A transição é de mão única.
 func (c *conn) evictable() bool {
 	if c.l4 == protoTCP {
 		return c.established == 0
 	}
 	return !c.limited && !c.serverSeen
 }
+
+// answeredUDP informa se a entrada é UDP não-QUIC respondido (DNS e afins): teto próprio e segunda fila de
+// despejo (ADR 0069 item 2). Deixa de valer se o fluxo virar QUIC (evento h3).
+func (c *conn) answeredUDP() bool { return c.l4 == protoUDP && c.serverSeen && !c.limited }
 
 // isStray decide o que vira pacote avulso em vez de conexão (spec 004 RF-03): TCP que nunca completou o
 // handshake (SYN sem resposta, SYN recusado com RST, varreduras) e UDP sem nenhuma resposta.
@@ -281,22 +288,26 @@ type flowTable struct {
 	finalizing map[string]*conn
 	// hidden são as conexões abertas de um probe apagado pelo DELETE (ADR 0034 item 8): a linha já saiu do banco
 	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
-	hidden     map[string]struct{}
-	reserved   map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
-	newID      func(ts int64) string
-	grace      time.Duration
-	tcpIdle    time.Duration // TCP estabelecido
-	quicIdle   time.Duration // UDP com evento h3 e sem close
-	udpIdle    time.Duration
-	maxFlows   int        // teto de entradas (maxFlows; testes trocam)
-	half       *list.List // entradas despejáveis (evictable), da mais antiga para a mais nova
-	liveLim    int        // TCP e QUIC vivas na tabela (ver overloaded), mantido incrementalmente
-	maxOpen    int
-	maxNewPerS int
-	newTokens  float64 // balde das novas/s (overloaded)
-	tokensAt   int64   // instante (captura) da última recarga; 0 = balde cheio
-	fullSince  int64   // instante (captura) em que as vivas chegaram a maxOpen; 0 = abaixo do limite
-	segTracked int
+	hidden   map[string]struct{}
+	reserved map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
+	newID    func(ts int64) string
+	grace    time.Duration
+	tcpIdle  time.Duration // TCP estabelecido
+	quicIdle time.Duration // UDP com evento h3 e sem close
+	udpIdle  time.Duration
+	maxFlows int        // teto de entradas (maxFlows; testes trocam)
+	half     *list.List // entradas despejáveis (evictable), da mais antiga para a mais nova
+	// answered são os fluxos UDP não-QUIC respondidos (answeredUDP), do mais antigo para o mais novo, até
+	// maxAnswered (ADR 0069 item 2).
+	answered    *list.List
+	maxAnswered int
+	liveLim     int // TCP e QUIC vivas na tabela (ver overloaded), mantido incrementalmente
+	maxOpen     int
+	maxNewPerS  int
+	newTokens   float64 // balde das novas/s (overloaded)
+	tokensAt    int64   // instante (captura) da última recarga; 0 = balde cheio
+	fullSince   int64   // instante (captura) em que as vivas chegaram a maxOpen; 0 = abaixo do limite
+	segTracked  int
 	// space é o estado do espaço do banco: no modo banco cheio toda conexão nova sai degradada (ADR 0045 item 5).
 	space   *dbSpace
 	p0f     *p0f.DB
@@ -318,7 +329,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 		quicIdle = cfg.TCPIdle
 	}
 	return &flowTable{
-		quicIdle: quicIdle, maxFlows: maxFlows, half: list.New(),
+		quicIdle: quicIdle, maxFlows: maxFlows, half: list.New(), answered: list.New(), maxAnswered: maxAnsweredUDP,
 		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]*conn{}, hidden: map[string]struct{}{},
 		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
@@ -401,6 +412,7 @@ func (t *flowTable) add(k flowKey, c *conn) {
 	if c.evictable() {
 		c.halfEl = t.half.PushBack(k)
 	}
+	t.syncAnswered(k, c)
 	t.syncLive(c, true)
 }
 
@@ -412,16 +424,67 @@ func (t *flowTable) drop(k flowKey, c *conn) {
 		t.half.Remove(c.halfEl)
 		c.halfEl = nil
 	}
+	if c.ansEl != nil {
+		t.answered.Remove(c.ansEl)
+		c.ansEl = nil
+	}
 	t.syncLive(c, false)
 }
 
-// refresh atualiza a fila de despejo e a contagem de vivas depois de um pacote ou evento (com a trava).
+// refresh atualiza as filas de despejo e a contagem de vivas depois de um pacote ou evento (com a trava).
 func (t *flowTable) refresh(c *conn) {
 	if c.halfEl != nil && !c.evictable() {
 		t.half.Remove(c.halfEl)
 		c.halfEl = nil
 	}
+	t.syncAnswered(keyOf(c.l4, c.client, c.server), c)
 	t.syncLive(c, true)
+}
+
+// syncAnswered põe ou tira a entrada da fila de UDP não-QUIC respondido (com a trava).
+func (t *flowTable) syncAnswered(k flowKey, c *conn) {
+	switch want := c.answeredUDP(); {
+	case want && c.ansEl == nil:
+		c.ansEl = t.answered.PushBack(k)
+	case !want && c.ansEl != nil:
+		t.answered.Remove(c.ansEl)
+		c.ansEl = nil
+	}
+}
+
+// evictAnswered despeja o UDP não-QUIC respondido mais antigo, exceto keep (nil se não há).
+func (t *flowTable) evictAnswered(keep *conn) *conn {
+	e := t.answered.Front()
+	if e == nil {
+		return nil
+	}
+	k, _ := e.Value.(flowKey)
+	c := t.conns[k]
+	if c == nil {
+		t.answered.Remove(e) // não acontece: drop tira da fila
+		return nil
+	}
+	if c == keep {
+		return nil
+	}
+	t.drop(k, c)
+	return c
+}
+
+// establishQUIC marca o fluxo UDP como QUIC estabelecido (resposta do espelho com cabeçalho longo ou evento h3,
+// ADR 0069 item 1): só então conta nas simultâneas e gasta a ficha das novas/s. O degradado continua o decidido
+// na criação (com o limite já passado, a conexão nova sai degradada como antes).
+func (t *flowTable) establishQUIC(c *conn, ts int64) {
+	if c.l4 != protoUDP || c.limited {
+		return
+	}
+	c.limited = true
+	if !t.space.isFull() {
+		t.refill(ts)
+		if t.newTokens >= 1 {
+			t.newTokens--
+		}
+	}
 }
 
 // syncLive mantém liveLim: conta a conexão TCP/QUIC que está na tabela e ainda não fechou.
@@ -438,12 +501,13 @@ func (t *flowTable) syncLive(c *conn, inTable bool) {
 	}
 }
 
-// evictOldest despeja a entrada não estabelecida mais antiga e a devolve (nil se não há). A ficha das novas/s
-// volta, como na tentativa que vira avulso.
+// evictOldest despeja a entrada não estabelecida mais antiga e a devolve; sem nenhuma, o UDP não-QUIC
+// respondido mais antigo (ADR 0069 item 2); nil se não há nenhum dos dois. A ficha das novas/s volta, como na
+// tentativa que vira avulso.
 func (t *flowTable) evictOldest() *conn {
 	e := t.half.Front()
 	if e == nil {
-		return nil
+		return t.evictAnswered(nil)
 	}
 	k, _ := e.Value.(flowKey)
 	c := t.conns[k]
@@ -513,7 +577,8 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
 			ana: newAnalysis(), app: newAppState(),
 		}
-		c.limited = fi.proto == protoTCP || isInitial
+		// UDP (inclusive o que parece Initial QUIC) só é limited depois da resposta do espelho (ADR 0069).
+		c.limited = fi.proto == protoTCP
 		c.degraded = t.overloaded(ts, c.limited)
 		t.add(k, c)
 		res.created = true
@@ -523,10 +588,17 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 	}
 	if fi.proto == protoUDP {
 		c.noteQUICCIDs(fi)
+		if len(c.quicSCIDs) > 0 {
+			t.establishQUIC(c, ts)
+		}
 	}
 	c.observe(fi, ts, t.grace)
 	c.analyze(fi, ts, c.fromClient(fi), t)
 	t.refresh(c)
+	// Teto do UDP não-QUIC respondido: o que acabou de entrar despeja o mais antigo do tipo (ADR 0069 item 2).
+	if res.evicted == nil && t.answered.Len() > t.maxAnswered {
+		res.evicted = t.evictAnswered(c)
+	}
 	// SYN recusado (RST do espelho sem SYN-ACK, porta fechada ou varredura): não é conexão, devolve a ficha.
 	if c.l4 == protoTCP && c.synAck == 0 && c.serverRst != 0 {
 		t.refund(c)

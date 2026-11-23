@@ -83,6 +83,9 @@ func (t *flowTable) addApp(id string, ev appEvent) (probeSet bool, before, after
 	l4 := l4Name(c.l4)
 	before = c.app.proto(l4)
 	probeSet = c.app.add(ev)
+	if c.l4 == protoUDP && c.app.isQUIC() {
+		t.establishQUIC(c, ev.ts) // evento h3: QUIC estabelecido (ADR 0069 item 1)
+	}
 	// Fim da conexão QUIC visto pelo web: fecha o fluxo depois da mesma folga do TCP (FS_TCP_CLOSE_GRACE, task
 	// 090); datagramas que chegarem depois vão para o registro gravado (flowTable.closed).
 	if c.l4 == protoUDP && c.closeAt == 0 && c.app.h3Close != nil {
