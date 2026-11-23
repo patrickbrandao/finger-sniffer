@@ -25,12 +25,12 @@ const (
 
 // rawSession é o payload de fs.v1.web.raw.session (schema RawInfo do openapi, modo sink).
 type rawSession struct {
-	Mode      string   `json:"mode"`
-	TLS       bool     `json:"tls"`
-	Banner    *string  `json:"banner"`
-	ProbeLine *string  `json:"probe_line"`
-	ReadsIn   [][2]any `json:"reads_in"`
-	WritesOut [][2]any `json:"writes_out"`
+	Mode      string        `json:"mode"`
+	TLS       bool          `json:"tls"`
+	Banner    *string       `json:"banner"`
+	ProbeLine *string       `json:"probe_line"`
+	ReadsIn   []timedLength `json:"reads_in"`
+	WritesOut []timedLength `json:"writes_out"`
 	// ReadsInTruncated indica que só as primeiras maxRawReads leituras estão em ReadsIn (ADR 0018).
 	ReadsInTruncated bool `json:"reads_in_truncated"`
 	// WritesOutTruncated fica sempre false no web: o modo sink não escreve.

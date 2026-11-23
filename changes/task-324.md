@@ -1,0 +1,1 @@
+- web: corpo chunked lido com um buffer de cópia por leitor e linha do pedaço sem cópia; pedaços de 1 byte alocam ~5 B por byte recebido em vez de ~5,4 KB (task 324, ADR 0070 item 5).

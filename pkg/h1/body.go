@@ -1,6 +1,8 @@
 package h1
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -8,6 +10,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unsafe"
 )
 
 // Enquadramentos do corpo (schema HTTP1Request.body.framing).
@@ -123,36 +126,98 @@ func parseDecimal(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
-// bodySink acumula tamanho, hash do conteúdo e os bytes crus do fio até o teto.
+// chunkSize é o tamanho de um Chunk na fatia; chunkOverhead estima o que cada pedaço guardado aloca além
+// da fatia (o literal do tamanho, a string da extensão e o ponteiro para ela).
+const (
+	chunkSize     = int(unsafe.Sizeof(Chunk{}))
+	chunkOverhead = 48
+	// minRawBuf é a menor capacidade alocada para Body.Raw.
+	minRawBuf = 4 << 10
+)
+
+// bodySink acumula tamanho, hash do conteúdo e os bytes crus do fio até o teto. Com reserve, o crescimento da
+// capacidade de Raw e da lista de pedaços é reservado antes de alocar; sem orçamento, para de guardar
+// (ADR 0070 item 7).
 type bodySink struct {
-	body   *Body
-	hash   hash.Hash
-	rawMax int
+	body    *Body
+	hash    hash.Hash
+	rawMax  int
+	reserve func(n int) bool
+	// rawDenied: o orçamento recusou o crescimento de Raw; nada mais é guardado.
+	rawDenied bool
 }
 
-func newBodySink(b *Body, rawMax int) *bodySink {
-	return &bodySink{body: b, hash: sha256.New(), rawMax: rawMax}
+func newBodySink(b *Body, rawMax int, reserve func(n int) bool) *bodySink {
+	return &bodySink{body: b, hash: sha256.New(), rawMax: rawMax, reserve: reserve}
+}
+
+func (s *bodySink) ok(n int) bool { return n <= 0 || s.reserve == nil || s.reserve(n) }
+
+// growRaw garante capacidade para mais n bytes em Raw (dobra até rawMax, reservando o crescimento).
+func (s *bodySink) growRaw(n int) bool {
+	raw := s.body.Raw
+	need := len(raw) + n
+	if need <= cap(raw) {
+		return true
+	}
+	newCap := min(max(2*cap(raw), need, minRawBuf), max(s.rawMax, need))
+	if !s.ok(newCap - cap(raw)) {
+		s.rawDenied = true
+		return false
+	}
+	grown := make([]byte, len(raw), newCap)
+	copy(grown, raw)
+	s.body.Raw = grown
+	return true
 }
 
 // wire registra bytes do fio (enquadramento e conteúdo).
 func (s *bodySink) wire(p []byte) {
 	s.body.WireSize += int64(len(p))
-	if s.rawMax <= 0 {
+	if s.rawMax <= 0 || len(p) == 0 {
 		return
 	}
 	room := s.rawMax - len(s.body.Raw)
-	if room <= 0 {
-		if len(p) > 0 {
-			s.body.RawTruncated = true
-		}
-		return
-	}
-	if len(p) > room {
-		s.body.Raw = append(s.body.Raw, p[:room]...)
+	if room <= 0 || s.rawDenied {
 		s.body.RawTruncated = true
 		return
 	}
-	s.body.Raw = append(s.body.Raw, p...)
+	keep := p
+	if len(p) > room {
+		keep = p[:room]
+	}
+	if !s.growRaw(len(keep)) {
+		s.body.RawTruncated = true
+		return
+	}
+	s.body.Raw = append(s.body.Raw, keep...)
+	if len(keep) < len(p) {
+		s.body.RawTruncated = true
+	}
+}
+
+// addChunk guarda um pedaço na lista, reservando o crescimento da fatia e o que o pedaço aloca; false sem
+// orçamento (sem guardar).
+func (s *bodySink) addChunk(ch Chunk) bool {
+	b := s.body
+	cost := chunkOverhead
+	if ch.Ext != nil {
+		cost += len(*ch.Ext)
+	}
+	if len(b.Chunks) == cap(b.Chunks) {
+		newCap := max(2*cap(b.Chunks), 8)
+		cost += (newCap - cap(b.Chunks)) * chunkSize
+		if !s.ok(cost) {
+			return false
+		}
+		grown := make([]Chunk, len(b.Chunks), newCap)
+		copy(grown, b.Chunks)
+		b.Chunks = grown
+	} else if !s.ok(cost) {
+		return false
+	}
+	b.Chunks = append(b.Chunks, ch)
+	return true
 }
 
 // content registra bytes de conteúdo (que também estão no fio).
@@ -189,7 +254,7 @@ func (r *Reader) ReadBodyFraming(req *Request, framing string, length int64, opt
 	if rawMax == 0 {
 		rawMax = DefaultRawBodyMax
 	}
-	sink := newBodySink(b, rawMax)
+	sink := newBodySink(b, rawMax, r.ReserveBody)
 	var err error
 	switch framing {
 	case FramingNone:
@@ -209,7 +274,10 @@ func (r *Reader) ReadBodyFraming(req *Request, framing string, length int64, opt
 
 // copyContent copia n bytes (ou até o EOF, com n < 0) do leitor para o sink.
 func (r *Reader) copyContent(sink *bodySink, n int64) error {
-	buf := make([]byte, 32<<10)
+	if r.copyBuf == nil {
+		r.copyBuf = make([]byte, 32<<10)
+	}
+	buf := r.copyBuf
 	for n != 0 {
 		want := len(buf)
 		if n > 0 && int64(want) > n {
@@ -248,18 +316,7 @@ func (r *Reader) readChunked(req *Request, sink *bodySink, opts BodyOptions) err
 	}
 	extTotal := 0
 	for {
-		line, err := r.readLine(maxChunkLine, false)
-		sink.wire(line)
-		if err != nil {
-			if errors.Is(err, ErrHeadTooLarge) {
-				return ErrBadChunk
-			}
-			if errors.Is(err, io.EOF) {
-				return io.ErrUnexpectedEOF
-			}
-			return err
-		}
-		ch, err := parseChunkLine(line)
+		ch, err := r.readChunkLine(sink)
 		if err != nil {
 			return err
 		}
@@ -268,9 +325,8 @@ func (r *Reader) readChunked(req *Request, sink *bodySink, opts BodyOptions) err
 			if ch.Ext != nil {
 				ext = len(*ch.Ext)
 			}
-			if len(b.Chunks) < maxChunks && extTotal+ext <= maxChunkExtTotal {
+			if len(b.Chunks) < maxChunks && extTotal+ext <= maxChunkExtTotal && sink.addChunk(ch) {
 				extTotal += ext
-				b.Chunks = append(b.Chunks, ch)
 			} else {
 				// A lista fica no prefixo: nenhum pedaço posterior entra depois do corte.
 				b.ChunksTruncated = true
@@ -317,28 +373,62 @@ func (r *Reader) readChunkEnd(sink *bodySink) error {
 	return nil
 }
 
+// readChunkLine lê e interpreta a linha do tamanho de um pedaço. A linha que cabe no bufio é lida sem
+// cópia (ADR 0070 item 5: no máximo ~3 alocações pequenas por pedaço); só a linha mais longa que o buffer
+// passa por readLine.
+func (r *Reader) readChunkLine(sink *bodySink) (Chunk, error) {
+	line, err := r.br.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		// Linha maior que o buffer: junta o resto com readLine (cópia nova), no teto de maxChunkLine.
+		head := append([]byte(nil), line...)
+		r.consumed += int64(len(head))
+		var rest []byte
+		if len(head) < maxChunkLine {
+			rest, err = r.readLine(maxChunkLine-len(head), false)
+		} else {
+			err = ErrHeadTooLarge
+		}
+		line = append(head, rest...)
+	} else {
+		r.consumed += int64(len(line))
+	}
+	sink.wire(line)
+	if err != nil {
+		if errors.Is(err, ErrHeadTooLarge) {
+			return Chunk{}, ErrBadChunk
+		}
+		if errors.Is(err, io.EOF) {
+			return Chunk{}, io.ErrUnexpectedEOF
+		}
+		return Chunk{}, err
+	}
+	return parseChunkLine(line)
+}
+
 // parseChunkLine separa os dígitos hexadecimais literais do resto da linha.
 func parseChunkLine(line []byte) (Chunk, error) {
 	content, _ := splitTerm(line)
-	s := string(content)
 	i := 0
-	for i < len(s) && isHex(s[i]) {
+	for i < len(content) && isHex(content[i]) {
 		i++
 	}
 	if i == 0 || i > maxChunkHexDigits {
 		return Chunk{}, ErrBadChunk
 	}
-	size, err := strconv.ParseInt(s[:i], 16, 64)
+	// O literal e a extensão viram strings próprias: a lista não segura a linha inteira.
+	lit := string(content[:i])
+	size, err := strconv.ParseInt(lit, 16, 64)
 	if err != nil {
 		return Chunk{}, ErrBadChunk
 	}
-	ch := Chunk{Size: size, SizeLiteral: s[:i]}
-	if rest := s[i:]; rest != "" {
+	ch := Chunk{Size: size, SizeLiteral: lit}
+	if rest := content[i:]; len(rest) > 0 {
 		// Só espaços (BWS) e extensões iniciadas por ";" são válidos depois do tamanho.
-		if t := strings.TrimLeft(rest, " \t"); t != "" && t[0] != ';' {
+		if t := bytes.TrimLeft(rest, " \t"); len(t) > 0 && t[0] != ';' {
 			return Chunk{}, ErrBadChunk
 		}
-		ch.Ext = &rest
+		ext := string(rest)
+		ch.Ext = &ext
 	}
 	return ch, nil
 }
