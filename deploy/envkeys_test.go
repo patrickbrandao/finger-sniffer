@@ -15,6 +15,14 @@ var notEnvKeys = map[string]string{
 	"FS_EVENTS": "nome do stream JetStream (internal/store/bus.go)",
 }
 
+// unitEnvKeys são chaves FS_* lidas pelo código mas definidas por unit (Environment=), nunca no env compartilhado
+// (ADR 0075 item 1.3): uma chave vazia no EnvironmentFile venceria o valor da unit.
+var unitEnvKeys = map[string]string{
+	"FS_NATS_USER":          "usuário NATS do serviço (unit)",
+	"FS_NATS_PASSWORD_FILE": "arquivo da senha NATS do serviço (unit)",
+	"FS_NATS_PASSWORD":      "senha NATS direta, só testes e desenvolvimento",
+}
+
 var fsKeyLiteral = regexp.MustCompile(`"(FS_[A-Z0-9_]+)"`)
 
 // codeEnvKeys extrai as chaves FS_* citadas como literal no código de produção (cmd/, internal/, pkg/,
@@ -66,6 +74,13 @@ func TestEnvExampleMatchesCodeKeys(t *testing.T) {
 	example, _ := envMap(t, "../.env.example")
 	var missing, extra []string
 	for k, where := range code {
+		if _, unit := unitEnvKeys[k]; unit {
+			// Chave de unit: só em comentário no .env.example; ativa ali, apagaria o valor de todas as units.
+			if _, ok := example[k]; ok {
+				t.Errorf("%s é chave de unit (%s) e não pode estar ativa no .env.example", k, unitEnvKeys[k])
+			}
+			continue
+		}
 		if _, ok := example[k]; !ok {
 			missing = append(missing, k+" ("+where+")")
 		}
@@ -103,6 +118,11 @@ func TestNotEnvKeysStillInCode(t *testing.T) {
 	for k, why := range notEnvKeys {
 		if !seen[k] {
 			t.Errorf("%s (%s) não aparece mais no código: tire de notEnvKeys", k, why)
+		}
+	}
+	for k, why := range unitEnvKeys {
+		if !seen[k] {
+			t.Errorf("%s (%s) não aparece mais no código: tire de unitEnvKeys", k, why)
 		}
 	}
 }
