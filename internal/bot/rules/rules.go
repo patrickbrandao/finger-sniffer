@@ -39,6 +39,7 @@ const (
 	SignalUAClaimsCrawler         = "ua_claims_crawler"
 	SignalUAAutomation            = "ua_automation"
 	SignalLibraryClient           = "library_client"
+	SignalUADeclaresCrawler       = "ua_declares_crawler"
 	SignalJA4DBMatch              = "ja4db_match"
 	SignalKnownClient             = "known_client"
 	SignalIPVerifiedCrawler       = "ip_verified_crawler"
@@ -70,6 +71,7 @@ var signalTable = []signalDef{
 	{SignalUAClaimsCrawler, KindIncoherence, 60},
 	{SignalUAAutomation, KindList, 70},
 	{SignalLibraryClient, KindList, 50},
+	{SignalUADeclaresCrawler, KindList, 50},
 	{SignalJA4DBMatch, KindList, 40},
 	{SignalKnownClient, KindList, -20},
 	{SignalIPVerifiedCrawler, KindList, 0},
@@ -509,7 +511,8 @@ func (en Engine) lists(ev *eval, in Input, ua UA) (good bool, crawler string) {
 	return false, ""
 }
 
-// automationAndLibrary avalia `ua_automation` e `library_client` (ADR 0057 item 1).
+// automationAndLibrary avalia `ua_automation`, `library_client` (ADR 0057 item 1) e `ua_declares_crawler` (ADR 0072
+// item 2.1).
 func (en Engine) automationAndLibrary(ev *eval, in Input, ua UA) {
 	if in.HTTP == nil {
 		return
@@ -517,13 +520,20 @@ func (en Engine) automationAndLibrary(ev *eval, in Input, ua UA) {
 	if ua.Automation != "" {
 		ev.add(SignalUAAutomation, ua.Automation)
 	}
+	// robô declarado sem operador: não há lista a conferir, nunca é good_bot; o robô com operador fica com
+	// ua_claims_crawler e a verificação
+	if ua.Crawler != "" && ua.Operator == "" {
+		ev.add(SignalUADeclaresCrawler, "ua declares crawler "+ua.Crawler)
+	}
 	if IsLibraryFamily(ua.Family) {
 		ev.add(SignalLibraryClient, "ua declares "+ua.Family)
 		return
 	}
-	// UA vazio ou desconhecido: o JA4 stable (ou o completo, sem stable; ADR 0072 item 1.7) decide quando a base
-	// própria só o viu em bibliotecas. Navegador, headless e robô nunca chegam aqui (família diferente de `other`).
-	if ua.Family != FamilyOther || in.TLS == nil || in.TLS.JA4 == "" || en.Sources.Known == nil {
+	// UA vazio, desconhecido ou de robô sem operador (ADR 0072 item 2.3): o JA4 stable (ou o completo, sem stable;
+	// item 1.7) decide quando a base própria só o viu em bibliotecas. Navegador, headless e robô com operador nunca
+	// chegam aqui.
+	crawlerNoOp := strings.HasPrefix(ua.Family, FamilyCrawlerPrefix) && ua.Operator == ""
+	if (ua.Family != FamilyOther && !crawlerNoOp) || in.TLS == nil || in.TLS.JA4 == "" || en.Sources.Known == nil {
 		return
 	}
 	if lib := libraryOnly(tlsIdentity(in.TLS).families(en.Sources.Known)); lib != "" {

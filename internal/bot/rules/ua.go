@@ -49,7 +49,8 @@ type UA struct {
 	Major string
 	// OS é o SO declarado (OSOther quando o UA não diz).
 	OS string
-	// Crawler é o nome do robô (o que vem depois de `crawler:`), "" para não robôs.
+	// Crawler é o nome do robô declarado (o que vem depois de `crawler:`, ou `other` para os marcadores genéricos),
+	// também com família de biblioteca (robô sem operador num UA de biblioteca, ADR 0072 item 2.2); "" para não robôs.
 	Crawler string
 	// Operator é o dono do robô verificável (OperatorGoogle...), "" quando o robô não tem lista nem DNS a conferir.
 	Operator string
@@ -207,7 +208,16 @@ func ParseUA(raw string) UA {
 		return ua
 	}
 	if name, op, ok := matchCrawler(s); ok {
-		ua.Family, ua.Crawler, ua.Operator = FamilyCrawlerPrefix+name, name, op
+		ua.Crawler, ua.Operator = name, op
+		// robô sem operador num UA de biblioteca (`curl/8.23.0 mybot/1.0`): a família de biblioteca não se apaga pelo
+		// marcador (ADR 0072 item 2.2); o robô com operador fica `crawler:<nome>`, para a verificação
+		if op == "" {
+			if fam, major := matchFamily(s); IsLibraryFamily(fam) {
+				ua.Family, ua.Major, ua.Stack = fam, major, fam
+				return ua
+			}
+		}
+		ua.Family = FamilyCrawlerPrefix + name
 		ua.Stack = ua.Family
 		return ua
 	}

@@ -100,7 +100,7 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `relay_rtt_gap` | incoherence | 15 | tempos do traefix (`headerDetail: full`): volta TLS bem maior que a TCP e espera longa pelo primeiro byte, sinal de relay SOCKS5/HTTP CONNECT entre o cliente e o traefix (rules `v1.4`, ADR 0065) |
 | `ua_claims_crawler` | incoherence | 60 | UA de robô conhecido vindo de IP fora da lista dele, ou com DNS reverso/direto falho |
 | `ua_automation` | list | 70 | UA declara automação (`HeadlessChrome`, `PhantomJS`, `SlimerJS`, `Selenium`, `WebDriver`, `Puppeteer`, `Playwright`, `Cypress`, `HtmlUnit`, sem diferenciar maiúsculas) |
-| `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), ou UA vazio/desconhecido com JA4 stable (o JA4 completo, sem stable) que a base própria só viu em bibliotecas |
+| `library_client` | list | 50 | UA de biblioteca (`curl`, `go`, `python`, `java`, `node`), mesmo com um marcador de robô sem operador (`curl/8.23.0 mybot/1.0`), ou UA vazio, desconhecido ou de robô sem operador com JA4 stable (o JA4 completo, sem stable) que a base própria só viu em bibliotecas |
 | `ua_declares_crawler` | list | 50 | UA que se declara robô (`…bot/`, `crawler`, `spider` ou nome da tabela) sem operador com lista publicada para provar; nunca dá `good_bot` (rules `v1.5`, ADR 0072) |
 | `ja4db_match` | list | 40 | JA4 rotulado como biblioteca ou ferramenta na ja4db (só com `FS_BOT_JA4DB_ENABLE=true`; desligada por padrão) |
 | `known_client` | list | −20 | JA4 stable (o JA4 completo, sem stable) + Akamai + JA4T sem o MSS (janela, opções e escala) coerentes com um cliente medido na base própria e com o UA; nunca com UA que declara automação |
@@ -129,10 +129,14 @@ do bot:
 | GPTBot de IP da lista da OpenAI | `ja4h_library`, `ip_verified_crawler` | — | `good_bot` |
 | ChatGPT-User de IP da lista própria (`chatgpt-user.json`, faixas na Azure) | `ja4h_library`, `ip_cloud`, `ip_verified_crawler` | — | `good_bot` |
 | python-requests sem UA | `ua_missing`, `ja4h_library`, `library_client` | 100 | `bot` |
+| Go com UA do YandexBot (robô sem operador) | `ja4h_library`, `library_client`, `ua_declares_crawler` | 100 | `bot` |
+| curl ou python-requests com marcador de robô no UA (`mybot/1.0`, `(+crawler)`) | `ja4h_library`, `library_client`, `ua_declares_crawler` | 100 | `bot` |
+| Robô sem operador com a pilha inteira de um navegador (TLS, h2 e `Accept-Language` do Chrome) | `ua_declares_crawler` | 50 | `suspect` |
 
 Listas de robôs do catálogo (fixo no código, ADR 0050 item 3; URL trocável por `FS_BOT_LIST_<NOME>_URL`). Para
 OpenAI e DuckDuckGo, provados só pela lista, cada robô precisa da lista do próprio marcador; robô sem lista
-publicada é reconhecido pelo UA, mas fica sem operador e nunca dá `ua_claims_crawler`:
+publicada é reconhecido pelo UA, mas fica sem operador: nunca dá `ua_claims_crawler` nem `good_bot`, e sim
+`ua_declares_crawler` (ADR 0072):
 
 | Operador | Listas | Robôs |
 | --- | --- | --- |
