@@ -83,6 +83,17 @@ func (l *Limiter) Allow(ctx context.Context, k *Key) (bool, int) {
 	return true, 0
 }
 
+// Count grava uma requisição da chave no uso do dia sem aplicar balde nem cota (9003, ADR 0073 item 4).
+func (l *Limiter) Count(k *Key) {
+	day := l.now().Unix() / 86400
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	uk := usageKey{k.ID, day}
+	u := l.pending[uk]
+	u.requests++
+	l.pending[uk] = u
+}
+
 // storedRequests lê o uso já gravado da chave no dia (0 sem banco ou em erro).
 func (l *Limiter) storedRequests(ctx context.Context, keyID string, day int64) int64 {
 	if l.db == nil {

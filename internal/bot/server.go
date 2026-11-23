@@ -39,6 +39,8 @@ const (
 	shutdownTimeout = 5 * time.Second
 	// indexBytesDegraded é por quanto tempo um despejo por bytes deixa o health degraded (spec 018 RF-11).
 	indexBytesDegraded = 60 * time.Second
+	// blockLimitedDegraded é por quanto tempo um 429 a uma chave em modo block deixa o health degraded (ADR 0073 item 4).
+	blockLimitedDegraded = 60 * time.Second
 	// metricIndexBytes é o total contabilizado do índice (spec 018 RF-12, ADR 0057 item 2).
 	metricIndexBytes = "bot_index_bytes"
 	// metricAggDropped conta as observações descartadas pelo teto de entradas dos agregados (ADR 0056).
@@ -157,6 +159,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if s.publicFull(s.deps.Now()) {
 		reasons = append(reasons, "public conns")
+	}
+	if s.api.BlockKeyLimited(s.deps.Now(), blockLimitedDegraded) {
+		reasons = append(reasons, "block key limited")
 	}
 	if s.store.silent(s.feed.LastMessage(), s.deps.Now()) {
 		reasons = append(reasons, "store feed silent")

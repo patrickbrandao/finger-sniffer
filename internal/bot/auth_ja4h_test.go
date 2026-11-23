@@ -127,12 +127,12 @@ func TestAuthErrorsWithoutVerdict(t *testing.T) {
 	// 401 invalid_key
 	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", "fsk_"+strings.Repeat("c", 52), hdr, "")
 	noVerdict("401", c, 401, h, b)
-	// 429: o balde de 1 gasto na primeira (que é o 403 do block, com veredito)
-	c, h, _ = f.do(f.internal, "GET", "/bot/v1/auth", limited, hdr, "")
+	// 429 (só na 9002, ADR 0073 item 4): o balde de 1 gasto na primeira (que é o 403 do block, com veredito)
+	c, h, _ = f.do(f.public, "GET", "/bot/v1/auth", limited, hdr, "")
 	if c != 403 || h.Get("X-Fs-Verdict") != ClassBot {
 		t.Fatalf("block: %d %v", c, h)
 	}
-	c, h, b = f.do(f.internal, "GET", "/bot/v1/auth", limited, hdr, "")
+	c, h, b = f.do(f.public, "GET", "/bot/v1/auth", limited, hdr, "")
 	noVerdict("429", c, 429, h, b)
 	// 403 forbidden_origin na 9003
 	req := httptest.NewRequest("GET", "/bot/v1/auth", nil)

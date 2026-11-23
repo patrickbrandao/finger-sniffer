@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -417,5 +418,52 @@ func TestStreamEndsOnRevokeAndRotate(t *testing.T) {
 				t.Errorf("requisição nova com a chave antiga: %d", c)
 			}
 		})
+	}
+}
+
+// TestInternalKeyWithoutLimits: na 9003 a chave só escolhe domínios e modo (task 408, ADR 0073 item 4): com balde
+// de 1, 50 forwardAuth seguidos dão 200 e o uso é gravado; na 9002 a mesma chave dá 429, e o 429 de uma chave em
+// modo block deixa o health degraded com "block key limited" por 60 s.
+func TestInternalKeyWithoutLimits(t *testing.T) {
+	f := newFixture(t)
+	k, key := f.createKey(KeyOptions{Name: "s", Domains: []string{"www.example.com"}, RatePerS: 1, Burst: 1, DailyQuota: 10})
+	if c, _, b := f.do(f.internal, "POST", "/bot/v1/ingest/traefik", key, nil, validBatch()); c != 202 {
+		t.Fatalf("ingest: %d %s", c, b)
+	}
+	f.putStore()
+	for i := range 50 {
+		if c, _, b := f.do(f.internal, "GET", "/bot/v1/auth", key, forkHeadersFor(), ""); c != 200 {
+			t.Fatalf("forwardAuth %d na 9003: %d %s", i, c, b)
+		}
+	}
+	if f.metrics.Get(metricRateLimited) != 0 {
+		t.Fatalf("429 na 9003: %v", f.metrics.Get(metricRateLimited))
+	}
+	if err := f.srv.limiter.Flush(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	if err := f.db.QueryRow(`SELECT requests FROM key_usage_daily WHERE key_id = ?`, k.ID).Scan(&n); err != nil || n != 51 {
+		t.Fatalf("uso gravado: %d %v", n, err)
+	}
+	// na 9002 o balde vale; chave em observe não marca o health
+	f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", key, nil, "")
+	if c, _, _ := f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", key, nil, ""); c != 429 {
+		t.Fatalf("9002: %d", c)
+	}
+	if _, reasons := f.srv.Status(); slices.Contains(reasons, "block key limited") {
+		t.Fatalf("observe marcou o health: %v", reasons)
+	}
+	_, blk := f.createKey(KeyOptions{Name: "b", Domains: []string{"www.example.com"}, Mode: ModeBlock, RatePerS: 1, Burst: 1})
+	f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", blk, nil, "")
+	if c, _, _ := f.do(f.public, "GET", "/bot/v1/ip/192.0.2.1", blk, nil, ""); c != 429 {
+		t.Fatalf("9002 block: %d", c)
+	}
+	if st, reasons := f.srv.Status(); st != "degraded" || !slices.Contains(reasons, "block key limited") {
+		t.Fatalf("health: %s %v", st, reasons)
+	}
+	f.clock.Advance(61 * time.Second)
+	if _, reasons := f.srv.Status(); slices.Contains(reasons, "block key limited") {
+		t.Fatalf("ainda marcado: %v", reasons)
 	}
 }

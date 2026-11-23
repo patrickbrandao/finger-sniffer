@@ -28,7 +28,9 @@ documentados no projeto traefix; aqui fica só o perfil de configuração usado 
 | `http://10.249.255.254:9003` | interna, HTTP, só para o traefik do finger-01 e os containers da bridge `br-net-public` (`10.249.0.0/16`) e loopback | opcional |
 
 As duas ficam fora da captura. Na 9003 qualquer origem fora do loopback e de `FS_BOT_INTERNAL_ALLOW` recebe 403
-`forbidden_origin`. Sem chave na 9003, o `site` vale para qualquer domínio e os limites são só os globais; um
+`forbidden_origin`. Sem chave na 9003, o `site` vale para qualquer domínio; com ou sem chave, os limites da 9003 são
+só os globais (a chave escolhe domínios e modo, sem balde nem cota; [ADR 0073](../specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md)
+item 4); um
 `Authorization` que não seja `Bearer fsk_...` é ignorado ali, porque um forwardAuth comum repassa os cabeçalhos do
 visitante (um `Basic` do próprio site não pode virar 401; [ADR 0055](../specs/decisions/0055-ajustes-da-primeira-onda-da-f8.md)
 item 5). O forwardAuth do perfil ([abaixo](#a-site-atrás-do-traefix-no-finger-01)) já não manda o `Authorization`
@@ -225,8 +227,8 @@ webhook secret: 3f9c...
 | --- | --- | --- |
 | `--name` | — | nome do cliente (obrigatório) |
 | `--domains` | — | domínios autorizados, separados por vírgula: `example.com` (só ele) ou `*.example.com` (subdomínios, sem o próprio `example.com`) |
-| `--rate`, `--burst` | 20/s, 40 | balde de fichas por chave |
-| `--daily` | 100 000 | cota diária por chave |
+| `--rate`, `--burst` | 20/s, 40 | balde de fichas por chave (só na 9002) |
+| `--daily` | 100 000 | cota diária por chave (só na 9002) |
 | `--mode` | `observe` | `observe` (forwardAuth sempre 200) ou `block` (403 para `class=bot`) |
 | `--webhook-url` | — | URL `https` do webhook; gera e imprime o segredo uma vez |
 | `--webhook-classes` | `bot,suspect` | classes enviadas ao webhook |
@@ -282,7 +284,8 @@ $ curl -s $BOT/bot/v1/openapi.yaml | head -3
 `status` vira `degraded` com `reasons`: `list <nome> stale` (lista sem atualização há mais de 72 h), `db space`
 (banco acima de 90% de `FS_BOT_MAX_BYTES`), `webhook backlog` (fila de webhook cheia por mais de 60 s),
 `store feed silent` (sem `fs.v1.store.connection` por mais de 60 s com o store `ok`) e
-`index bytes` (despejo do índice por bytes nos últimos 60 s) e `public conns` (9002 com as 200 conexões
+`index bytes` (despejo do índice por bytes nos últimos 60 s), `block key limited` (chave em modo `block` com 429
+nos últimos 60 s) e `public conns` (9002 com as 200 conexões
 ocupadas nos últimos 60 s). O mesmo estado aparece em `services.bot` do
 `/api/v1/health` do store.
 
@@ -680,6 +683,9 @@ decisões sobre o visitante: o site continua no ar, sem veredito, e o contador `
 Trate `unavailable` como "sem veredito", nunca como `human`. Sem `failOpen`, o forwardAuth se comporta como no
 traefik upstream (qualquer falha volta ao visitante), o que serve para outro servidor de auth, não para o bot.
 
+Na 9003 a chave do forwardAuth não tem limite: balde e cota diária não se aplicam ali (o uso é gravado, sem
+recusar), e o `block` não cai em fail-open por um 429.
+
 O 403 sai só para uma chave em modo `block` (`key create --mode block`) posta em `requestHeaders.Authorization`;
 ligar forwardAuth ou `block` nos sites do humano é decisão e ação do humano (spec 019, "Fora de escopo"), não um
 passo deste guia.
@@ -763,6 +769,11 @@ Na 9002 a chave é obrigatória. Com o `failOpen`, um 401 de chave revogada ou u
 `X-Traefix-Verdict: unavailable` (`http_4xx`) e não chegam ao visitante; só o 403 do modo `block` volta a ele. Na
 9002 o bot não espera o store. O prazo de 200 ms inclui a ida e volta pela internet até o finger-01: meça antes de
 ligar `block`.
+
+**Na 9002 a chave do forwardAuth gasta uma ficha por requisição do site: crie-a com `--rate`/`--burst` acima do pico
+e `--daily` acima do volume diário; na 9003 a chave não tem limite.** Com os padrões (20/s, rajada 40, 100 000 por
+dia) um site acima disso recebe 429, que o traefix trata como fail-open. Um 429 a uma chave em modo `block` deixa o
+health `degraded` com `block key limited` por 60 s.
 
 ### Visão TCP do traefix
 
