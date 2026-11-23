@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.5.0
+  version: 0.7.0
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -14,12 +14,25 @@ info:
     deles responde 404, igual a recurso inexistente. Limites por chave (balde e cota diária) respondem 429 com
     `Retry-After`.
 
+    Limites de entrada (spec 020 RF-04, ADR 0073): na 9002, por chave, balde e cota por requisição, balde de
+    registros no ingest (padrão 500/s, rajada 2 048), até 2 lotes do ingest e 4 clientes do feed ao mesmo tempo
+    (429 com `Retry-After`); 200 conexões, até 16 por origem (IPv4 ou /64), ociosas fechadas em 30 s. Na 9003 a chave
+    só escolhe domínios e modo: nenhum limite de chave vale ali, só os globais. Globais: lote de 4 MiB (413), até 8
+    lotes simultâneos e prazo de 10 s para o corpo (503 `busy`, 400), 64 clientes do feed (503).
+
+    0.6.0 (ADR 0073, aditiva): código `busy`; 429 e 503 novos no ingest e 429 por chave no feed; tetos dos textos do
+    ingest (cortados, não recusados); limites da 9003.
+
+    0.7.0 (ADR 0074, **não aditiva** no 403 do `/bot/v1/auth`, exceção aceita pelo humano): o 403 do modo `block`
+    passa a ter corpo `Error` `{"error":"forbidden"}`, sem os cabeçalhos de veredito, só com `X-Traefix-Deny: 1`;
+    código `forbidden`.
+
     Uso não comercial (ADR 0053): JA4 é BSD-3-Clause; JA4H e JA4T seguem a FoxIO License 1.1; uso comercial exige
     licença da FoxIO.
 
     Tempos em RFC 3339 UTC com nanossegundos. Compatibilidade (ADR 0001): `/bot/v1` só recebe mudanças aditivas.
     Erros (corpo `Error`): `invalid_key`, `rate_limited`, `not_found`, `bad_request`, `missing_fork_headers`,
-    `payload_too_large`, `forbidden_origin`, `internal`.
+    `payload_too_large`, `forbidden_origin`, `internal`, `busy`, `forbidden`.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -83,10 +96,10 @@ paths:
         (erro de configuração do operador, ADR 0055). O JA4H vem de `X-Traefix-Ja4h` quando bem formado e, sem ele,
         da última requisição da conexão no ingest (ADR 0058). A visão TLS e h2 vem do registro de conexão do ingest
         e, antes dele, de `X-Traefix-Ja4`, `-Ja3`, `-H2` e `-Alpn`; a TCP, do store, senão do registro do traefix,
-        senão de `X-Traefix-Ja4t` (ADRs 0062 e 0063). Cabeçalho malformado ou repetido é ignorado. O 200 e o 403
-        do modo `block` trazem `X-Traefix-Verdict`, `-Score`, `-Signals` e os `X-Fs-*` equivalentes (obsoletos);
-        nenhuma resposta de erro traz `X-Traefix-Verdict` nem `X-Fs-Verdict` (o traefix usa isso no fail-open de
-        4xx, spec 019 RF-04).
+        senão de `X-Traefix-Ja4t` (ADRs 0062 e 0063). Cabeçalho malformado ou repetido é ignorado. O 200 traz
+        `X-Traefix-Verdict`, `-Score`, `-Signals` e os `X-Fs-*` equivalentes (obsoletos); o 403 do modo `block` tem
+        corpo mínimo e só `X-Traefix-Deny` (ADR 0074); nenhuma resposta de erro traz `X-Traefix-Verdict` nem
+        `X-Fs-Verdict` (o traefix usa isso no fail-open de 4xx, spec 019 RF-04).
       parameters:
         - { name: X-Traefix-Src-Ip, in: header, required: false, schema: { type: string } }
         - { name: X-Traefix-Src-Port, in: header, required: false, schema: { type: integer, minimum: 0, maximum: 65535 } }
@@ -179,17 +192,17 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
         "403":
-          description: Modo `block` e `class=bot`.
+          description: |
+            Modo `block` e `class=bot` (ADR 0074): corpo mínimo `{"error":"forbidden"}`, sem `X-Traefix-Verdict`,
+            `X-Traefix-Score`, `X-Traefix-Signals` nem os `X-Fs-*`; só o marcador `X-Traefix-Deny`, que o traefix usa
+            (`failOpen.denyRequiresResponseHeader: X-Traefix-Deny`, spec 019 RF-04) para devolver o 403 ao visitante.
           headers:
-            X-Traefix-Verdict: { $ref: "#/components/headers/XFsVerdict" }
-            X-Traefix-Score: { $ref: "#/components/headers/XFsScore" }
-            X-Traefix-Signals: { $ref: "#/components/headers/XFsSignals" }
-            X-Fs-Verdict: { $ref: "#/components/headers/XFsVerdictDeprecated" }
-            X-Fs-Score: { $ref: "#/components/headers/XFsScoreDeprecated" }
-            X-Fs-Signals: { $ref: "#/components/headers/XFsSignalsDeprecated" }
+            X-Traefix-Deny:
+              description: Marcador do bloqueio; só nesta resposta.
+              schema: { type: string, const: "1" }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Verdict" }
+              schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/RateLimited" }
   /bot/v1/verdict:
     get:
@@ -288,7 +301,8 @@ paths:
       summary: Feed SSE de vereditos
       description: |
         Cada evento SSE tem `event: verdict` (ou `stream.dropped`) e `data: <VerdictEvent>`. Sem replay; fila de
-        1024 por cliente com descarte; ping a cada 15 s; até 64 clientes.
+        1024 por cliente com descarte; ping a cada 15 s; até 64 clientes, dos quais no máximo 48 da 9002 e 4 por
+        chave da 9002 (acima da parte da chave, 429 com `Retry-After: 15`; ADR 0073 item 3.3).
       parameters:
         - { name: class, in: query, schema: { type: string }, description: "Classes separadas por vírgula." }
         - { name: site, in: query, schema: { type: string } }
@@ -301,7 +315,7 @@ paths:
         "401": { $ref: "#/components/responses/InvalidKey" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "503":
-          description: Acima de 64 clientes do feed.
+          description: Acima de 64 clientes do feed, ou dos 48 da 9002 (`internal`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -314,6 +328,20 @@ paths:
         Dois esquemas, escolhidos pelo campo `schema` do lote (ADR 0062 item 2): `traefix.fingerprint/v1`
         (`TraefixFingerprintBatch`, cópia do esquema do traefix) ou ausente (`TraefikIngestBatch`, formato anterior mantido
         em `/bot/v1`). Outro valor de `schema` → 400 `bad_request`.
+
+        Limites (spec 020 RF-04, ADR 0073 itens 2, 3 e 6): até 8 lotes em leitura e aplicação no processo, no máximo 6
+        da 9002 (acima, 503 `busy` sem ler o corpo); na 9002, até 2 lotes por chave e balde de registros da chave
+        (o lote tira `len(records)` fichas de uma vez; sem fichas, 429 e nenhum registro aplicado); o corpo tem 10 s
+        para chegar (senão 400). Na 9003 não há limite de chave.
+
+        Tetos dos textos do registro, em bytes (nos dois esquemas): o bot **corta** acima deles, sem recusar o
+        registro, e conta em `bot_ingest_clipped_total{field}`. `method` 32; `http_version`/`httpVersion` 16;
+        `authority` e `sni`/`tls.sni` 255; `entry_point`/`entryPoint`, `router`, `service` 128;
+        `tls_version`/`tls.version` e `cipher`/`tls.cipher` 64; `alpn` e cada item de `alpn_offered`/`tls.alpnOffered`
+        255, até 16 itens; cada item de `field_names`/`fieldNames` e `cookie_names`/`cookieNames` 64, até 128 itens;
+        nome de campo em `fields` 64 (acima, o valor é descartado); valor de campo permitido 512; `ja4h` 128 (acima,
+        tratado como ausente). `path` acima de 256 continua recusando o registro (`rejected`). Os tetos ficam neste
+        texto e não como `maxLength` nos esquemas: o formato do traefix não fica mais estreito neste contrato.
       requestBody:
         required: true
         content:
@@ -333,7 +361,11 @@ paths:
                 properties:
                   accepted: { type: integer, minimum: 0 }
                   rejected: { type: integer, minimum: 0 }
-        "400": { $ref: "#/components/responses/BadRequest" }
+        "400":
+          description: Lote inválido, `schema` desconhecido ou corpo que não chegou em 10 s (`bad_request`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/InvalidKey" }
         "403":
           description: Origem fora das redes permitidas na 9003 (`forbidden_origin`).
@@ -345,7 +377,26 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "429": { $ref: "#/components/responses/RateLimited" }
+        "429":
+          description: |
+            Limite da chave, só na 9002 (`rate_limited`): balde ou cota por requisição, balde de registros sem fichas
+            para o lote inteiro, ou 2 lotes da chave já em andamento.
+          headers:
+            Retry-After:
+              description: Segundos até tentar de novo.
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Sem vaga entre os lotes simultâneos (`busy`); o corpo não é lido.
+          headers:
+            Retry-After:
+              description: Sempre 1.
+              schema: { type: integer, minimum: 1 }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
 webhooks:
   verdict:
@@ -437,7 +488,7 @@ components:
       properties:
         error:
           type: string
-          enum: [invalid_key, rate_limited, not_found, bad_request, missing_fork_headers, payload_too_large, forbidden_origin, internal]
+          enum: [invalid_key, rate_limited, not_found, bad_request, missing_fork_headers, payload_too_large, forbidden_origin, internal, busy, forbidden]
         detail: { type: string }
     Timestamp:
       type: string
@@ -606,7 +657,7 @@ components:
       required: [type, fs_conn_id, ts]
       description: |
         `type=connection`: dados da conexão (TLS e h2), uma vez por conexão; `type=request`: resumo de uma
-        requisição (spec 019 RF-03 e RF-04).
+        requisição (spec 019 RF-03 e RF-04). Tetos dos textos (cortados pelo bot): ver `ingestTraefik`.
       properties:
         type: { type: string, enum: [connection, request] }
         fs_conn_id: { $ref: "#/components/schemas/ULID" }
@@ -680,7 +731,7 @@ components:
       description: |
         Uma vez por conexão, na primeira requisição ou no fechamento sem requisição. Com `tls.clientHello`,
         `http2.prefix` e `tcp.syn` (`rawBytes`) o bot calcula as fingerprints; sem eles usa as prontas (ADRs 0062
-        item 3 e 0063 itens 4 e 5).
+        item 3 e 0063 itens 4 e 5). Tetos dos textos (cortados pelo bot): ver `ingestTraefik`.
       properties:
         type: { type: string, const: connection }
         connId: { $ref: "#/components/schemas/ULID" }
@@ -764,7 +815,9 @@ components:
     TraefixRequestRecord:
       type: object
       required: [type, start, end, entryPoint, proto, method, path, httpVersion, status]
-      description: Uma por requisição, no fim da resposta.
+      description: |
+        Uma por requisição, no fim da resposta. Tetos dos textos (cortados pelo bot): ver `ingestTraefik`. Sem
+        `router` e com `status` 404, fica fora dos agregados (ADR 0073 item 7.3).
       properties:
         type: { type: string, const: request }
         connId: { $ref: "#/components/schemas/ULID" }

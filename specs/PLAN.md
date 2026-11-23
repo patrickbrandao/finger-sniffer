@@ -238,9 +238,9 @@ seguinte em `./tasks/` nesse momento. Frentes marcadas ‖ rodam em paralelo, ca
   - task 296 (probe h3 sem registro, 1 em 21 000 na carga da F8), prioridade baixa;
   - task 256 (gerador de carga fora do Mac, ressalva da ADR 0046), prioridade baixa;
   - task 221 (carga contra o teto da tabela de fluxos do store), bloqueada com o humano;
-  - questão aberta ao humano: no modo `block`, o 403 do forwardAuth devolve o corpo `Verdict` completo (ADR 0051
-    item 1: classe, score e sinais) ao visitante bloqueado; manter assim ou responder com corpo mínimo é decisão
-    dele, por nova ADR, antes de ligar `block` nos sites.
+  - questão do 403 do modo `block` respondida pelo humano em 2026-11-23 (ADR 0074, task 367): corpo mínimo
+    `{"error":"forbidden"}` e nenhum cabeçalho de veredito; o traefix reconhece o bloqueio por `X-Traefix-Deny`
+    (perfil da spec 019 trocado antes de ligar `block`).
 - **Pendências para o humano** (detalhe na spec 018): P4 termos da ja4db; P5 base legal (LGPD); P6 controlador,
   encarregado e canal do titular. Respondidas em 2026-11-16 (ADR 0054): P1 e P2 (traefix externo), P3 (os dois
   casos de clientes externos), P7 (tráfego dos sites segue visível), P8 (troca só observando, task 273).

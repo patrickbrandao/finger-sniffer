@@ -70,12 +70,13 @@ Termos: **entrada coberta** = entrada (`entryPoint`) com o bloco `fingerprint`; 
             Authorization: "Bearer fsk_..."  # chave da auth (modo block exige chave --mode block); vazia falha na carga
           authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
           failOpen:
-            denyRequiresResponseHeader: X-Traefix-Verdict
+            denyRequiresResponseHeader: X-Traefix-Deny   # ADR 0074; trocar antes de ligar block
             header: { name: X-Traefix-Verdict, value: unavailable }
   ```
   Comportamento esperado (o da ADR 0058 com os nomes da ADR 0063): rede, prazo vencido e 5xx seguem ao backend com
   `X-Traefix-Verdict: unavailable`; 4xx sem `X-Traefix-Verdict` (401 `invalid_key`, 403 `forbidden_origin`, 400,
-  429) segue com `unavailable`; só o 403 do modo `block`, que traz `X-Traefix-Verdict`, volta ao cliente; `Cookie`
+  429) segue com `unavailable`; só o 403 do modo `block`, que traz `X-Traefix-Deny` (e nenhum cabeçalho de veredito,
+  ADR 0074), volta ao cliente; `Cookie`
   e `Authorization` do visitante não vão à auth (fora de `authRequestHeaders`); os `X-Traefix-*` do fingerprint vão à
   auth sempre; `X-Traefix-*` forjados pelo cliente nunca chegam ao backend; `requestHeaders` num `http://` público
   falha na carga (use IP privado ou https), e chave vazia ou só `Bearer ` também.
@@ -194,8 +195,10 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
   pacotes dele).
 - Na primeira requisição de cada conexão, o registro de conexão ainda não chegou (sai com a requisição e espera o
   lote); o veredito do forwardAuth usa os `X-Traefix-Ja4`/`-H2`/`-Alpn`/`-Ja4t`/`-Ja4h` da própria requisição.
-- O 403 do modo `block` traz sempre `X-Traefix-Verdict`; nenhuma resposta de erro do bot traz `X-Traefix-Verdict`
-  nem `X-Fs-Verdict` (spec 020).
+- O 403 do modo `block` traz sempre `X-Traefix-Deny: 1`, corpo `{"error":"forbidden"}` e nenhum cabeçalho de
+  veredito (ADR 0074); nenhuma outra resposta do bot traz `X-Traefix-Deny`, e nenhuma resposta de erro traz
+  `X-Traefix-Verdict` nem `X-Fs-Verdict` (spec 020). Com o perfil antigo (`denyRequiresResponseHeader:
+  X-Traefix-Verdict`) o 403 do `block` vira fail-open: o perfil troca antes de ligar `block`.
 - No finger-01 o traefix entra primeiro num container de teste à parte e no router de teste; a troca do
   `traefik-app` é só observando (ingest e `X-Traefix-*` ligados, sem forwardAuth nos sites do humano; ADR 0054 item
   9), depois da task 273.
@@ -223,7 +226,7 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
       `X-Fs-*` forjados não mudam o veredito.
 - [ ] Um `curl` puro na primeira requisição de uma conexão sai `bot` pelo forwardAuth com
       `bot_auth_fingerprint_total{kind="tls",source="header"}` subindo e, com chave `--mode block`, recebe 403 com
-      `X-Traefix-Verdict`; chave revogada não derruba o site (fail-open `http_4xx`).
+      `X-Traefix-Deny` e sem `X-Traefix-Verdict`/`-Score`/`-Signals`; chave revogada não derruba o site (fail-open `http_4xx`).
 - [ ] Sem a visão do store (registro do traefix com `src` fora do finger-01, simulado), `ua_os_tcp_mismatch` e
       `known_client` avaliam pela visão TCP do traefix.
 - [ ] CPU do traefix medida no finger-01 (RF-11) e registrada no PR da task 273.
