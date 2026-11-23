@@ -133,6 +133,85 @@ func assemble(a, ciphers, exts, sigs string) (hashed, raw string) {
 	return a + "_" + hash12(ciphers) + "_" + hash12(c), a + "_" + ciphers + "_" + c
 }
 
+// FromRaw recalcula o JA4 e o JA4 stable a partir do JA4_r (`a_cifras_extensões[_assinaturas]`, cifras e
+// extensões já ordenadas, sem GREASE e as extensões sem SNI e ALPN), com as mesmas regras de Compute (ADR 0072
+// item 1.2). O stable tira padding, session_ticket e pre_shared_key da lista e desconta da contagem de extensões
+// da parte a quantas tirou. ok=false quando o texto não tem o formato, quando a contagem de extensões é 99 (o
+// teto: a contagem real não se recupera) ou quando a contagem ficaria negativa.
+func FromRaw(raw string) (ja4, stable string, ok bool) {
+	parts := strings.Split(raw, "_")
+	if len(parts) != 3 && len(parts) != 4 {
+		return "", "", false
+	}
+	a, ciphers, exts := parts[0], parts[1], parts[2]
+	sigs := ""
+	if len(parts) == 4 {
+		sigs = parts[3]
+		if sigs == "" {
+			// assemble só põe o separador das assinaturas quando há assinaturas
+			return "", "", false
+		}
+	}
+	if !rawHead(a) || !rawList(ciphers) || !rawList(exts) || !rawList(sigs) {
+		return "", "", false
+	}
+	nExts := int(a[6]-'0')*10 + int(a[7]-'0')
+	if nExts == 99 {
+		return "", "", false
+	}
+	var kept []string
+	removed := 0
+	if exts != "" {
+		for _, e := range strings.Split(exts, ",") {
+			switch e {
+			case "0015", "0023", "0029":
+				removed++
+			default:
+				kept = append(kept, e)
+			}
+		}
+	}
+	nStable := nExts - removed
+	if nStable < 0 {
+		return "", "", false
+	}
+	ja4, _ = assemble(a, ciphers, exts, sigs)
+	stable, _ = assemble(fmt.Sprintf("%s%02d%s", a[:6], nStable, a[8:]), ciphers, strings.Join(kept, ","), sigs)
+	return ja4, stable, true
+}
+
+// rawHead confere a parte a do JA4 (transporte, versão, SNI, duas contagens de dois dígitos e o ALPN).
+func rawHead(a string) bool {
+	if len(a) != 10 || (a[0] != byte(TCP) && a[0] != byte(QUIC) && a[0] != byte(DTLS)) || (a[3] != 'd' && a[3] != 'i') {
+		return false
+	}
+	for i := 4; i < 8; i++ {
+		if a[i] < '0' || a[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// rawList confere uma lista do JA4_r: vazia ou valores de 4 dígitos hexadecimais minúsculos separados por vírgula.
+func rawList(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, v := range strings.Split(s, ",") {
+		if len(v) != 4 {
+			return false
+		}
+		for i := range 4 {
+			c := v[i]
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func ephemeral(e uint16) bool {
 	return e == extPadding || e == extSessionTicket || e == extPreSharedKey
 }

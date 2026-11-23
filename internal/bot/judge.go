@@ -171,12 +171,14 @@ type storeRecord struct {
 }
 
 type recordTLS struct {
-	JA4     *string  `json:"ja4"`
-	JA4R    *string  `json:"ja4_r"`
-	JA4O    *string  `json:"ja4_o"`
-	JA3MD5  *string  `json:"ja3_md5"`
-	JA3NMD5 *string  `json:"ja3n_md5"`
-	ALPN    []string `json:"alpn"`
+	JA4  *string `json:"ja4"`
+	JA4R *string `json:"ja4_r"`
+	// JA4Stable é o stable calculado pelo web do espelho (spec 008 RF-03); sem ele, as regras o derivam do JA4R.
+	JA4Stable *string  `json:"ja4_stable"`
+	JA4O      *string  `json:"ja4_o"`
+	JA3MD5    *string  `json:"ja3_md5"`
+	JA3NMD5   *string  `json:"ja3n_md5"`
+	ALPN      []string `json:"alpn"`
 }
 
 // views é o que se sabe do sujeito: as duas visões (qualquer uma pode faltar) e a requisição.
@@ -267,12 +269,13 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 		if len(alpn) == 0 {
 			alpn = f.ALPNOffered
 		}
-		in.TLS = &rules.TLS{JA4: f.TLS.JA4, JA4R: f.TLS.JA4R, ALPN: alpn}
+		in.TLS = &rules.TLS{JA4: f.TLS.JA4, JA4R: f.TLS.JA4R, JA4Stable: f.TLS.JA4Stable, ALPN: alpn}
 		fps.JA3, fps.JA3N, fps.JA4O = optString(f.TLS.JA3MD5), optString(f.TLS.JA3NMD5), optString(f.TLS.JA4O)
 		srcs.tls = fpFromIngest
 	case h != nil && h.ja4 != "":
 		// sem X-Traefix-Alpn (e sem o `00` do JA4) o ALPN oferecido é desconhecido e as regras de ALPN não avaliam
-		// (ADR 0063 item 6, ADR 0065 item 5); os cabeçalhos de detalhe completam o Fingerprints (ADR 0065 item 6)
+		// (ADR 0063 item 6, ADR 0065 item 5); os cabeçalhos de detalhe completam o Fingerprints (ADR 0065 item 6); o
+		// stable sai do X-Traefix-Ja4r nas regras (ADR 0072 item 1.1)
 		in.TLS = &rules.TLS{JA4: h.ja4, JA4R: h.ja4r, ALPN: h.alpn, ALPNUnknown: !h.alpnKnown}
 		fps.JA3, fps.JA3N, fps.JA4O = optString(h.ja3), optString(h.ja3n), optString(h.ja4o)
 		srcs.tls = fpFromHeader
@@ -282,7 +285,7 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 			t = rec.HTTP3.ClientHello
 		}
 		if t != nil && deref(t.JA4) != "" {
-			in.TLS = &rules.TLS{JA4: *t.JA4, JA4R: deref(t.JA4R), ALPN: t.ALPN}
+			in.TLS = &rules.TLS{JA4: *t.JA4, JA4R: deref(t.JA4R), JA4Stable: deref(t.JA4Stable), ALPN: t.ALPN}
 			fps.JA3, fps.JA3N, fps.JA4O = t.JA3MD5, t.JA3NMD5, t.JA4O
 			srcs.tls = fpFromStore
 		}

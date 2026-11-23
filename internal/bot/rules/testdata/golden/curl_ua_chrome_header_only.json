@@ -1,0 +1,67 @@
+{
+  "rules_version": "v1.5",
+  "ja4db": false,
+  "input": {
+    "IP": "192.0.2.10",
+    "TCP": {
+      "P0fOS": "Mac OS X",
+      "TTLInitial": 64,
+      "JA4T": "65535_2-1-3-1-1-8-4-0-0_1430_6",
+      "MSSReduction": null,
+      "MTUImplied": null
+    },
+    "TLS": {
+      "JA4": "t13d3012h2_1d37bd780c83_581742d1f3c4",
+      "JA4R": "",
+      "ALPN": [
+        "h2",
+        "http/1.1"
+      ]
+    },
+    "H2": {
+      "Akamai": "3:100;4:65536;2:0|1048510465|0|m,s,a,p"
+    },
+    "HTTP": {
+      "UserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+      "Version": "2",
+      "JA4H": "ge20nn020000_5594a17e7e7e_000000000000_000000000000",
+      "FieldOrder": null,
+      "HasAcceptLanguage": false
+    },
+    "Behavior": null,
+    "View": {
+      "tcp": true,
+      "tls": true,
+      "http": true,
+      "h2": true,
+      "h3": false,
+      "behavior": false
+    }
+  },
+  "result": {
+    "class": "bot",
+    "score": 95,
+    "signals": [
+      {
+        "id": "ua_tls_mismatch",
+        "kind": "incoherence",
+        "weight": 45,
+        "detail": "ua chrome, ja4 t13d3012h2_1d37bd780c83_581742d1f3c4 ciphers not in chrome set"
+      },
+      {
+        "id": "ua_h2_mismatch",
+        "kind": "incoherence",
+        "weight": 30,
+        "detail": "ua chrome, akamai not in chrome set"
+      },
+      {
+        "id": "ja4h_library",
+        "kind": "incoherence",
+        "weight": 20,
+        "detail": "ja4h ge20nn020000_5594a17e7e7e of curl, no accept-language"
+      }
+    ],
+    "ua_family": "chrome",
+    "ua_os": "macos"
+  }
+}

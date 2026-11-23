@@ -56,14 +56,15 @@ func TestDetailsHaveNoIPOrUA(t *testing.T) {
 	}
 }
 
-// TestNoImportOfBot: o pacote não importa internal/bot (sem ciclo) nem nada fora da stdlib.
+// TestNoImportOfBot: o pacote não importa internal/bot (sem ciclo) nem nada fora da stdlib, salvo o
+// pkg/fingerprint/ja4 do espelho (derivação do JA4 stable, ADR 0072 item 1.2).
 func TestNoImportOfBot(t *testing.T) {
 	pkg, err := build.ImportDir(".", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, imp := range pkg.Imports {
-		if strings.Contains(imp, ".") {
+		if strings.Contains(imp, ".") && imp != "github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4" {
 			t.Errorf("import fora da stdlib: %s", imp)
 		}
 	}
@@ -346,7 +347,7 @@ func TestSignalTable(t *testing.T) {
 	if _, ok := SignalWeight("nope"); ok {
 		t.Fatal("id desconhecido com peso")
 	}
-	if RulesVersion != "v1.4" {
+	if RulesVersion != "v1.5" {
 		t.Fatalf("RulesVersion %q", RulesVersion)
 	}
 }
@@ -421,5 +422,37 @@ func TestRelayRTTGap(t *testing.T) {
 		if got := hasSignal(res, SignalRelayRTTGap); got != c.want {
 			t.Errorf("%s: %v; quer %v (%+v)", c.name, got, c.want, res.Signals)
 		}
+	}
+}
+
+// TestTLSIdentity: o stable vem da entrada ou do JA4_r que reproduz o JA4 visto (ADR 0072 item 1.1); a parte b só
+// em TCP.
+func TestTLSIdentity(t *testing.T) {
+	base := loadKnownClients(t)
+	ch := base.entry(t, "chrome", "h2")
+	id := tlsIdentity(&TLS{JA4: *ch.JA4, JA4R: *ch.JA4R})
+	if id.stable == "" || id.stable == *ch.JA4 || id.ciphers != "8daaf6152771" || id.quic {
+		t.Fatalf("chrome h2: %+v", id)
+	}
+	// o stable da entrada prevalece
+	if id := tlsIdentity(&TLS{JA4: *ch.JA4, JA4R: *ch.JA4R, JA4Stable: "x"}); id.stable != "x" {
+		t.Fatalf("stable da entrada: %+v", id)
+	}
+	// JA4_r de outro ClientHello (não reproduz o JA4 visto): sem stable
+	other := base.entry(t, "curl", "h2")
+	if id := tlsIdentity(&TLS{JA4: *ch.JA4, JA4R: *other.JA4R}); id.stable != "" {
+		t.Fatalf("ja4_r de outro ClientHello: %+v", id)
+	}
+	// QUIC: sem a parte b
+	q := base.entry(t, "chrome", "h3")
+	if id := tlsIdentity(&TLS{JA4: *q.JA4}); id.ciphers != "" || !id.quic || id.stable != "" {
+		t.Fatalf("chrome h3 sem ja4_r: %+v", id)
+	}
+	// QUIC sem stable não avalia ua_tls_mismatch: Go h3 só com o JA4 e UA de Chrome
+	g := base.entry(t, "go", "h3")
+	in := inputFrom(g, goldenUA["chrome"], ipResidential)
+	in.TLS.JA4R = ""
+	if got := goldenEngine(t, false).Evaluate(in); slices.Contains(signalIDs(got), SignalUATLSMismatch) {
+		t.Fatalf("QUIC sem stable: %v", signalIDs(got))
 	}
 }

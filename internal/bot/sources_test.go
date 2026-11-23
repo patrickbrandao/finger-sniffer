@@ -43,3 +43,39 @@ func TestCrawlerTableMatchesCatalog(t *testing.T) {
 		}
 	}
 }
+
+// TestKnownSourceStable: a base própria indexa o stable (derivado do ja4_r) e a parte b dos JA4 TCP, e o casamento
+// pelo stable devolve a mesma família do JA4 completo (ADR 0072 item 1.4).
+func TestKnownSourceStable(t *testing.T) {
+	k, err := lists.LoadKnownClients()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newKnownSource(k)
+	for _, m := range k.Measured {
+		if !slices.Contains(s.Families(rules.KindJA4Stable, m.JA4Stable), m.Client) || !s.Measured(m.Client, rules.KindJA4Stable) {
+			t.Errorf("%s/%s: stable %q sem a família", m.Client, m.Proto, m.JA4Stable)
+		}
+		akamai, ja4t := "", ""
+		if m.Akamai != nil {
+			akamai = *m.Akamai
+		}
+		if m.JA4T != nil {
+			ja4t = *m.JA4T
+		}
+		if !slices.Contains(s.Coherent(rules.KindJA4Stable, m.JA4Stable, akamai, ja4t), m.Client) ||
+			!slices.Contains(s.Coherent(rules.KindJA4, m.JA4, akamai, ja4t), m.Client) {
+			t.Errorf("%s/%s: Coherent pelo stable ou pelo JA4", m.Client, m.Proto)
+		}
+	}
+	// parte b só de JA4 TCP: as cifras do Chrome e do Firefox medidos são as mesmas; o QUIC não entra
+	if got := s.Families(rules.KindJA4Ciphers, "8daaf6152771"); !slices.Contains(got, "chrome") || !slices.Contains(got, "firefox") {
+		t.Errorf("cifras do chrome: %v", got)
+	}
+	if got := s.Families(rules.KindJA4Ciphers, "55b375c5d22e"); len(got) != 0 {
+		t.Errorf("parte b do QUIC indexada: %v", got)
+	}
+	if got := s.Coherent(rules.KindJA4Ciphers, "8daaf6152771", "", ""); got != nil {
+		t.Errorf("Coherent por cifras: %v", got)
+	}
+}

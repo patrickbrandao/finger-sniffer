@@ -1,0 +1,61 @@
+{
+  "rules_version": "v1.5",
+  "ja4db": false,
+  "input": {
+    "IP": "203.0.113.40",
+    "TCP": {
+      "P0fOS": "",
+      "TTLInitial": 128,
+      "JA4T": "65535_2-1-3-1-1-8-4-0-0_1360_6",
+      "MSSReduction": 100,
+      "MTUImplied": 1400
+    },
+    "TLS": {
+      "JA4": "t13d1516h2_8daaf6152771_e5627efa2ab1",
+      "JA4R": "",
+      "ALPN": [
+        "h2",
+        "http/1.1"
+      ]
+    },
+    "H2": {
+      "Akamai": "1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p"
+    },
+    "HTTP": {
+      "UserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+      "Version": "2",
+      "JA4H": "ge20nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+      "FieldOrder": null,
+      "HasAcceptLanguage": true
+    },
+    "Behavior": null,
+    "View": {
+      "tcp": true,
+      "tls": true,
+      "http": true,
+      "h2": true,
+      "h3": false,
+      "behavior": false
+    }
+  },
+  "result": {
+    "class": "human",
+    "score": 25,
+    "signals": [
+      {
+        "id": "tunnel_mss",
+        "kind": "incoherence",
+        "weight": 5,
+        "detail": "mss reduced by 100"
+      },
+      {
+        "id": "ip_cloud",
+        "kind": "list",
+        "weight": 20,
+        "detail": "cloud aws"
+      }
+    ],
+    "ua_family": "chrome",
+    "ua_os": "windows"
+  }
+}

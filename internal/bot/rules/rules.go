@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4"
 )
 
 // Classes do veredito (ADR 0049 item 3).
@@ -48,7 +50,7 @@ const (
 	SignalRouteBreadth            = "route_breadth"
 )
 
-// signalDef é uma linha da tabela de pesos (rules v1.4, provisórios; ADRs 0049, 0057, 0058, 0060 e 0065).
+// signalDef é uma linha da tabela de pesos (rules v1.5, provisórios; ADRs 0049, 0057, 0058, 0060, 0065 e 0072).
 type signalDef struct {
 	id     string
 	kind   string
@@ -123,7 +125,7 @@ type Result struct {
 	UAOS     string `json:"ua_os,omitempty"`
 }
 
-// Engine avalia as regras v1.4 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
+// Engine avalia as regras v1.5 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
 type Engine struct {
 	Sources Sources
 	// RateHigh é FS_BOT_RATE_HIGH; 0 usa DefaultRateHigh.
@@ -142,7 +144,7 @@ func (e *eval) add(id, detail string) {
 	e.present[id] = detail
 }
 
-// Evaluate aplica as regras v1.4 (ADRs 0049, 0057, 0058, 0060 e 0065). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
+// Evaluate aplica as regras v1.5 (ADRs 0049, 0057, 0058, 0060, 0065 e 0072). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
 // resultado.
 func (en Engine) Evaluate(in Input) Result {
 	ev := &eval{present: map[string]string{}}
@@ -248,21 +250,41 @@ func outOfRange(us int64) bool { return us > 1<<40 || us < -(1<<40) }
 // ms escreve microssegundos em milissegundos com uma casa.
 func ms(us int64) string { return strconv.FormatFloat(float64(us)/1000, 'f', 1, 64) }
 
+// tlsID é a identidade TLS que as regras comparam com a base própria (ADR 0072 item 1): o JA4 completo, o stable
+// (da entrada ou derivado do JA4_r) e a parte b do JA4 (cifras), esta só em TCP.
+type tlsID struct {
+	ja4, stable, ciphers string
+	quic                 bool
+}
+
+// tlsIdentity monta a identidade TLS da entrada. O stable derivado do JA4_r só vale quando o JA4_r reproduz o JA4
+// visto (o mesmo ClientHello, como a validação da base, ADR 0072 item 1.3).
+func tlsIdentity(t *TLS) tlsID {
+	id := tlsID{ja4: t.JA4, stable: t.JA4Stable, quic: strings.HasPrefix(t.JA4, "q")}
+	if id.stable == "" && t.JA4R != "" {
+		if full, st, ok := ja4.FromRaw(t.JA4R); ok && full == t.JA4 {
+			id.stable = st
+		}
+	}
+	if p := strings.Split(t.JA4, "_"); len(p) == 3 && strings.HasPrefix(t.JA4, "t") {
+		id.ciphers = p[1]
+	}
+	return id
+}
+
+// families devolve as famílias da base com o stable (ou com o JA4 completo, sem stable).
+func (id tlsID) families(known KnownClients) []string {
+	if id.stable != "" {
+		return known.Families(KindJA4Stable, id.stable)
+	}
+	return known.Families(KindJA4, id.ja4)
+}
+
 // browserChecks avalia TLS, h2 e ALPN de um UA de navegador contra a pilha esperada.
 func (en Engine) browserChecks(ev *eval, in Input, ua UA) {
 	known := en.Sources.Known
 	if in.TLS != nil && in.TLS.JA4 != "" {
-		ja4 := in.TLS.JA4
-		measured := known != nil && known.Measured(ua.Stack, KindJA4)
-		inBase := measured && slices.Contains(known.Families(KindJA4, ja4), ua.Stack)
-		label, hasLabel := JA4DBLabel{}, false
-		if en.Sources.JA4DB != nil {
-			label, hasLabel = en.Sources.JA4DB.Label(ja4)
-		}
-		inDB := hasLabel && label.Kind == JA4DBBrowser && labelNames(label.Name, ua.Stack)
-		if (measured || hasLabel) && !inBase && !inDB {
-			ev.add(SignalUATLSMismatch, "ua "+ua.Family+", ja4 "+ja4+" not in "+ua.Stack+" set")
-		}
+		en.uaTLS(ev, tlsIdentity(in.TLS), ua)
 	}
 	isQUIC := in.TLS != nil && strings.HasPrefix(in.TLS.JA4, "q")
 	if in.H2 != nil && in.H2.Akamai != "" && known != nil && known.Measured(ua.Stack, KindAkamai) &&
@@ -273,6 +295,36 @@ func (en Engine) browserChecks(ev *eval, in Input, ua UA) {
 	}
 	if alpnKnown(in.TLS) && !isQUIC && !slices.Contains(in.TLS.ALPN, "h2") {
 		ev.add(SignalUAALPNMismatch, "ua "+ua.Family+", alpn ["+strings.Join(in.TLS.ALPN, ",")+"] without h2")
+	}
+}
+
+// uaTLS avalia ua_tls_mismatch (ADR 0072 item 1.6), um sinal só. Fora do conjunto da família: a pilha tem medida,
+// o stable visto não está no conjunto dela e, em TCP, as cifras (parte b) também não; em QUIC as cifras são as
+// mesmas em todas as pilhas medidas e vale só o stable. Sem stable, vale só a parte b em TCP (em QUIC não avalia).
+// Sem medida da pilha, o rótulo de navegador da ja4db (pelo JA4 completo) decide como na v1.4.
+func (en Engine) uaTLS(ev *eval, id tlsID, ua UA) {
+	known := en.Sources.Known
+	label, hasLabel := JA4DBLabel{}, false
+	if en.Sources.JA4DB != nil {
+		label, hasLabel = en.Sources.JA4DB.Label(id.ja4)
+	}
+	inDB := hasLabel && label.Kind == JA4DBBrowser && labelNames(label.Name, ua.Stack)
+	if inDB {
+		return
+	}
+	if known != nil && known.Measured(ua.Stack, KindJA4Stable) {
+		stableOut := id.stable != "" && !slices.Contains(known.Families(KindJA4Stable, id.stable), ua.Stack)
+		ciphersOut := id.ciphers != "" && !slices.Contains(known.Families(KindJA4Ciphers, id.ciphers), ua.Stack)
+		switch {
+		case id.stable != "" && stableOut && (id.quic || ciphersOut):
+			ev.add(SignalUATLSMismatch, "ua "+ua.Family+", ja4 stable "+id.stable+" not in "+ua.Stack+" set")
+		case id.stable == "" && ciphersOut:
+			ev.add(SignalUATLSMismatch, "ua "+ua.Family+", ja4 "+id.ja4+" ciphers not in "+ua.Stack+" set")
+		}
+		return
+	}
+	if hasLabel {
+		ev.add(SignalUATLSMismatch, "ua "+ua.Family+", ja4 "+id.ja4+" not in "+ua.Stack+" set")
 	}
 }
 
@@ -387,7 +439,12 @@ func (en Engine) lists(ev *eval, in Input, ua UA) (good bool, crawler string) {
 		if in.TCP != nil {
 			ja4t = in.TCP.JA4T
 		}
-		if slices.Contains(src.Known.Coherent(in.TLS.JA4, akamai, ja4t), ua.Stack) {
+		// pelo stable (a retomada TLS não muda a pilha, ADR 0072 item 1.5); sem ele, pelo JA4 completo como na v1.4
+		kind, value := KindJA4, in.TLS.JA4
+		if id := tlsIdentity(in.TLS); id.stable != "" {
+			kind, value = KindJA4Stable, id.stable
+		}
+		if slices.Contains(src.Known.Coherent(kind, value, akamai, ja4t), ua.Stack) {
 			ev.add(SignalKnownClient, "coherent with measured "+ua.Stack)
 		}
 	}
@@ -448,12 +505,12 @@ func (en Engine) automationAndLibrary(ev *eval, in Input, ua UA) {
 		ev.add(SignalLibraryClient, "ua declares "+ua.Family)
 		return
 	}
-	// UA vazio ou desconhecido: o JA4 decide quando a base própria só o viu em bibliotecas. Navegador, headless e
-	// robô nunca chegam aqui (família diferente de `other`).
+	// UA vazio ou desconhecido: o JA4 stable (ou o completo, sem stable; ADR 0072 item 1.7) decide quando a base
+	// própria só o viu em bibliotecas. Navegador, headless e robô nunca chegam aqui (família diferente de `other`).
 	if ua.Family != FamilyOther || in.TLS == nil || in.TLS.JA4 == "" || en.Sources.Known == nil {
 		return
 	}
-	fams := en.Sources.Known.Families(KindJA4, in.TLS.JA4)
+	fams := tlsIdentity(in.TLS).families(en.Sources.Known)
 	if len(fams) == 0 || !allLibrary(fams) {
 		return
 	}
@@ -514,7 +571,7 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// SignalWeight devolve o peso v1.4 do sinal (false para id desconhecido).
+// SignalWeight devolve o peso v1.5 do sinal (false para id desconhecido).
 func SignalWeight(id string) (int, bool) {
 	for _, d := range signalTable {
 		if d.id == id {

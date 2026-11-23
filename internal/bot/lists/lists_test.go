@@ -137,7 +137,7 @@ func TestKnownClientsCoherentJA4TWithoutMSS(t *testing.T) {
 
 // Formato errado da base própria é rejeitado.
 func TestParseKnownClientsInvalid(t *testing.T) {
-	good := `{"client":"curl","client_version":"8","os":"linux","proto":"h1","ja4":"t13d3012h1_1d37bd780c83_581742d1f3c4","ja4_r":"x","akamai":null,"ja4h_ab":null,"ja4t":null,"p0f_os":null,"ttl_initial":64,"alpn":["http/1.1"],"measured_at":"2026-11-16T17:18:37Z","commit":"abc"}`
+	good := `{"client":"curl","client_version":"8","os":"linux","proto":"h1","ja4":"t13d3012h1_1d37bd780c83_581742d1f3c4","ja4_r":"t13d3012h1_002f,0033,0035,0039,003c,003d,0067,006b,009c,009d,009e,009f,1301,1302,1303,c009,c00a,c013,c014,c023,c024,c027,c028,c02b,c02c,c02f,c030,cca8,cca9,ccaa_000a,000b,000d,0016,0017,002b,002d,0031,0033,ff01_0905,0906,0904,0403,0503,0603,0807,0808,081a,081b,081c,0809,080a,080b,0804,0805,0806,0401,0501,0601,0303,0301,0302,0402,0502,0602,0911,0912,0913,0914,0915,0916,0917,0918,0919,091a,091b,091c,0708","akamai":null,"ja4h_ab":null,"ja4t":null,"p0f_os":null,"ttl_initial":64,"alpn":["http/1.1"],"measured_at":"2026-11-16T17:18:37Z","commit":"abc"}`
 	if _, err := ParseKnownClients([]byte(`{"version":1,"measured":[` + good + `]}`)); err != nil {
 		t.Fatalf("válida rejeitada: %v", err)
 	}
@@ -149,7 +149,10 @@ func TestParseKnownClientsInvalid(t *testing.T) {
 		"proto":         `{"version":1,"measured":[` + strings.Replace(good, `"h1"`, `"h9"`, 1) + `]}`,
 		"h2 sem akamai": `{"version":1,"measured":[` + strings.Replace(good, `"proto":"h1"`, `"proto":"h2"`, 1) + `]}`,
 		"data":          `{"version":1,"measured":[` + strings.Replace(good, "2026-11-16T17:18:37Z", "ontem", 1) + `]}`,
-		"json":          `{`,
+		// o ja4_r tem de reproduzir o ja4 (ADR 0072 item 1.3)
+		"ja4_r de outro ClientHello": `{"version":1,"measured":[` + strings.Replace(good, "_000a,000b,", "_000b,", 1) + `]}`,
+		"ja4_r fora do formato":      `{"version":1,"measured":[` + strings.Replace(good, `"ja4_r":"t13d`, `"ja4_r":"x13d`, 1) + `]}`,
+		"json":                       `{`,
 	}
 	for name, doc := range cases {
 		if _, err := ParseKnownClients([]byte(doc)); err == nil {

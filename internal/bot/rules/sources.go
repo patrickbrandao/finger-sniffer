@@ -12,6 +12,10 @@ const (
 	// KindJA4HAB são as partes a e b do JA4H (`ja4h_ab`, sem cookies).
 	KindJA4HAB FPKind = "ja4h_ab"
 	KindJA4T   FPKind = "ja4t"
+	// KindJA4Stable é o JA4 stable de cada medida, derivado do `ja4_r` (ADR 0072 item 1.4).
+	KindJA4Stable FPKind = "ja4_stable"
+	// KindJA4Ciphers é a parte b do JA4 (hash das cifras), só de JA4 TCP (prefixo `t`; ADR 0072 item 1.4).
+	KindJA4Ciphers FPKind = "ja4_ciphers"
 )
 
 // KnownClients é a base própria (`internal/bot/lists/known_clients.json`, ADR 0050 item 1). Implementação na
@@ -22,9 +26,10 @@ type KnownClients interface {
 	// Measured diz se a família tem ao menos uma medida com valor não nulo desse tipo (sem medida, a regra não
 	// conclui nada sobre a família).
 	Measured(family string, kind FPKind) bool
-	// Coherent devolve as famílias com uma mesma medida cujos ja4, akamai e ja4t são os dados; valor "" não é
-	// comparado, e o ja4t compara sem o campo do MSS (janela, opções e escala; v1.2, ADR 0058 item 4).
-	Coherent(ja4, akamai, ja4t string) []string
+	// Coherent devolve as famílias com uma mesma medida cujos ja4, akamai e ja4t são os dados; kind diz se o ja4 é o
+	// JA4 completo (KindJA4) ou o stable (KindJA4Stable, ADR 0072 item 1.4); valor "" não é comparado, e o ja4t
+	// compara sem o campo do MSS (janela, opções e escala; v1.2, ADR 0058 item 4).
+	Coherent(kind FPKind, ja4, akamai, ja4t string) []string
 }
 
 // JA4DBLabel é o rótulo da ja4db para um JA4.

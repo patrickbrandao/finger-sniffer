@@ -87,7 +87,8 @@ func TestIngestFingerprintsGolden(t *testing.T) {
 			}
 			web := webTLS(t, raw)
 			if got.JA3 != web.JA3 || got.JA3MD5 != web.JA3MD5 || got.JA3N != web.JA3N || got.JA3NMD5 != web.JA3NMD5 ||
-				got.JA4 != web.JA4 || got.JA4R != web.JA4R || got.JA4O != web.JA4O || !slices.Equal(got.ALPN, web.ALPN) {
+				got.JA4 != web.JA4 || got.JA4R != web.JA4R || got.JA4O != web.JA4O || got.JA4Stable != web.JA4Stable ||
+				got.JA4Stable == "" || !slices.Equal(got.ALPN, web.ALPN) {
 				t.Errorf("diferente do web:\n bot %+v\n web ja3=%s ja3n=%s ja4=%s ja4_o=%s alpn=%v", got, web.JA3, web.JA3N,
 					web.JA4, web.JA4O, web.ALPN)
 			}
