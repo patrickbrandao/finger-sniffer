@@ -1,0 +1,1 @@
+- ADRs 0066–0071 da revisão de 2026-11-21: orçamento e 503 das respostas JSON do store, teto do registro de conexão aberta, `DELETE` de probe em lotes, despejo do UDP na tabela de fluxos, regra única do orçamento de entrada no web e no raw, carga da F8 sem Docker; openapi 0.7.0 e asyncapi 0.7.0 (aditivos) (task 411).

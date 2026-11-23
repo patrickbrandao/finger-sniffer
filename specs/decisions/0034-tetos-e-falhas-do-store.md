@@ -1,6 +1,6 @@
 # 0034 — Tetos de recursos e caminhos de falha do store (auditoria de 2026-11, agrupados)
 
-Status: aceita
+Status: aceita (item 1, despejo do UDP: ver 0069; item 8, `DELETE` em lotes: ver 0068)
 Data: 2026-11-14
 
 ## Contexto

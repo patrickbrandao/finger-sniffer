@@ -1,6 +1,6 @@
 # 0032 — Campos e limites de contrato da auditoria de 2026-11 (agrupados)
 
-Status: aceita
+Status: aceita (`streams_truncated` do item 8: ver 0067; respostas JSON finitas: ver 0066)
 Data: 2026-11-14
 
 ## Contexto

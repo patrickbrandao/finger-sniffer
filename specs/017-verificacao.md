@@ -125,7 +125,10 @@ repetidas do mesmo cliente.
   consulta) e por probe; o traefix simulado manda `traefix.fingerprint/v1`; JA4/Akamai do traefix iguais aos do web
   (`bot_ingest_fingerprint_mismatch_total` Δ 0); casamento traefix ↔ store ≥ 99%; fail-open com o bot parado; `X-Traefix-*` forjado não chega ao
   backend. Sem o traefix no finger-01, os casos dele pulam com aviso e os de probe e consulta rodam. Carga da F8: forwardAuth a 200
-  requisições/s por 10 min com a carga oficial 400/100 do espelho ao mesmo tempo (RNF da spec 018).
+  requisições/s por 10 min com a carga oficial 400/100 do espelho ao mesmo tempo (RNF da spec 018). O gerador do bot
+  roda no finger-01 como unit transitória `finger-sniffer-load-f8-*` (`systemd-run`, `CPUQuota=100%`,
+  `MemoryMax=1G`, fora de `finger-sniffer.slice`) contra `http://10.249.255.254:9003`, nunca no Docker do host
+  (ADR 0071).
 
 ## Critérios de aceite
 - [ ] `make verify-quick` sem mudanças termina em < 10 s com tudo "pulado".
@@ -142,3 +145,4 @@ repetidas do mesmo cliente.
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md
 - specs/decisions/0054-traefix-projeto-externo.md
+- specs/decisions/0071-carga-da-f8-sem-docker.md

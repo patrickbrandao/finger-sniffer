@@ -11,7 +11,10 @@ TLS (web e raw) e para o ClientHello dentro do QUIC Initial (spec 011). Técnica
 ## Requisitos
 - RF-01: captura do **ClientHello cru** (registro TLS completo, base64) por wrapper de `net.Conn` antes do
   `crypto/tls`; informa se veio em mais de um registro TLS e em mais de um segmento TCP (este último vem do store).
-- RF-02: parser próprio (`pkg/tlsparse`) — campos, sem normalizar:
+- RF-02: parser próprio (`pkg/tlsparse`) — campos, sem normalizar (captura dos bytes: a mensagem de handshake é
+  remontada até `MaxClientHelloLen`, 64 KiB, com qualquer fragmentação, e os registros crus são guardados até 16 KiB,
+  com `client_hello_truncated` acima; a captura é solta depois de publicar o ClientHello e reserva do orçamento do
+  serviço enquanto o handshake não termina, ADR 0070):
   versão do registro e do handshake, random, tamanho do session ID, cipher suites na ordem (GREASE marcado),
   compressão, **extensões na ordem com os dados crus (hex)**, SNI, ALPN, supported_groups, ec_point_formats,
   signature_algorithms, supported_versions, key_share (grupos e tamanhos), psk_key_exchange_modes,
@@ -58,3 +61,4 @@ Pertencem ao registro da conexão (store).
 - specs/decisions/0009-stack-go-estatico.md
 - specs/decisions/0029-campos-da-auditoria-de-requisitos.md
 - specs/decisions/0032-campos-da-auditoria-de-2026-11.md
+- specs/decisions/0070-orcamento-de-entrada-por-cliente-anonimo-no-web-e-no-raw.md
