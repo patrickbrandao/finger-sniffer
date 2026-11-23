@@ -21,7 +21,10 @@ HOST="${FS_VPS_SSH:-root@finger-01.tmsoft.com.br}"
 PORT="${FS_VPS_PORT:-48022}"
 SVC="${SVC:-}"
 FORCE="${FORCE:-0}"
-STAGING="/var/tmp/finger-sniffer-deploy/$(whoami)-$(hostname -s)-$$"
+# Staging criado no servidor por mktemp -d (atômico, 0700 do root) depois do build; nunca um caminho fixo em /var/tmp,
+# que outro usuário local poderia criar antes ou trocar por link simbólico (task 354).
+STAGING_PREFIX=/var/tmp/finger-sniffer-deploy.
+STAGING=""
 SSH=(ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 
 case "$SVC" in
@@ -53,9 +56,25 @@ fi
 echo "== build"
 make -s build
 
+# Remove o staging remoto ao sair, inclusive em erro antes da instalação (a instalação já o apaga ao terminar).
+cleanup_staging() {
+	if [ -n "$STAGING" ]; then
+		"${SSH[@]}" "rm -rf '$STAGING'" || true
+	fi
+}
+trap cleanup_staging EXIT
+
+STAGING=$("${SSH[@]}" "umask 077; mktemp -d '${STAGING_PREFIX}XXXXXXXXXX'")
+# confere o caminho devolvido, como o verify.sh (task 174): só o prefixo e os 10 caracteres do mktemp
+if ! [[ "$STAGING" =~ ^/var/tmp/finger-sniffer-deploy\.[A-Za-z0-9]{10}$ ]]; then
+	echo "staging remoto inesperado: '$STAGING'" >&2
+	STAGING=""
+	exit 1
+fi
 echo "== rsync → $HOST:$STAGING"
-"${SSH[@]}" "mkdir -p '$STAGING'"
-rsync -a --delete -e "ssh -p $PORT -o BatchMode=yes" \
+# -rlptD é o -a sem dono nem grupo: o receptor (root) fica dono de tudo, e não o uid do Mac, que no servidor pode
+# ser de outro usuário; go-w para nada no staging ter escrita de outros (task 354).
+rsync -rlptD --chmod=go-w --delete -e "ssh -p $PORT -o BatchMode=yes" \
 	--exclude='/.git' --exclude='/tasks/' --exclude='/tmp/' --exclude='/var/' --exclude='/.grill/' \
 	--exclude='/etc/' --exclude='.DS_Store' --exclude='/.env' --exclude='/.claude/' \
 	./ "$HOST:$STAGING/"
@@ -64,6 +83,7 @@ echo "== instalação remota (com trava)"
 "${SSH[@]}" "mkdir -p /run/finger-sniffer && flock -w 300 /run/finger-sniffer/deploy.lock \
 	env SVC='$SVC' FORCE='$FORCE' FORCE_DURING_LOAD='$FORCE_DURING_LOAD' FS_LOAD_LOCK='$LOAD_LOCK' \
 	bash '$STAGING/deploy/remote-install.sh' '$STAGING'; rc=\$?; rm -rf '$STAGING'; exit \$rc"
+STAGING="" # já apagado pela instalação remota
 
 # GET por h3 a partir do Mac (spec 016 RF-10): só com o web anunciando h3 e um curl local com HTTP3.
 # O smoke remoto já confere Alt-Svc, o listener UDP e um GET por h3 de dentro do servidor.

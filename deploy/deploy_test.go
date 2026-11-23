@@ -81,7 +81,7 @@ func deployDuringLoad(t *testing.T, lockPresent bool, env ...string) (int, strin
 	}
 	log := filepath.Join(dir, "calls.log")
 	writeFile(t, filepath.Join(bin, "ssh"), fakeSSHLocal, 0o755)
-	writeFile(t, filepath.Join(bin, "make"), "#!/bin/sh\necho make >>\"$FAKE_LOG\"\nexit 1\n", 0o755)
+	writeFile(t, filepath.Join(bin, "make"), "#!/bin/sh\necho make >>\"$FAKE_LOG\"\nexit \"${FAKE_MAKE_RC:-1}\"\n", 0o755)
 	writeFile(t, filepath.Join(bin, "rsync"), "#!/bin/sh\necho rsync >>\"$FAKE_LOG\"\nexit 1\n", 0o755)
 	lock := filepath.Join(dir, "fs-load-running")
 	if lockPresent {
@@ -160,5 +160,99 @@ func TestLoadLockRefuse(t *testing.T) {
 	i, j := strings.Index(s, "load_lock_refuse"), strings.Index(s, "missing_packages")
 	if i < 0 || j < 0 || i > j {
 		t.Errorf("remote-install.sh precisa chamar load_lock_refuse antes do bootstrap (%d, %d)", i, j)
+	}
+}
+
+// O staging do deploy não é um caminho fixo de /var/tmp criado com mkdir -p (outro usuário local poderia criá-lo
+// antes ou deixá-lo como link): vem de mktemp -d no servidor, com o caminho devolvido conferido (task 354).
+func TestDeployStagingMktemp(t *testing.T) {
+	b, err := os.ReadFile("deploy.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, bad := range []string{"mkdir -p '$STAGING'", "/var/tmp/finger-sniffer-deploy/"} {
+		if strings.Contains(s, bad) {
+			t.Errorf("deploy.sh ainda usa %q", bad)
+		}
+	}
+	if strings.Contains(s, "rsync -a ") {
+		t.Errorf("o rsync para o staging não pode levar o dono do Mac (-a)")
+	}
+	for _, want := range []string{"umask 077; mktemp -d", "staging remoto inesperado", "rsync -rlptD --chmod=go-w"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("deploy.sh sem %q", want)
+		}
+	}
+}
+
+// Com o build ok e o rsync falhando, o staging criado por mktemp -d aparece no log e é apagado na saída (task 354).
+func TestDeployStagingRemovedOnFailure(t *testing.T) {
+	code, out, calls := deployDuringLoad(t, false, "FAKE_MAKE_RC=0")
+	if code == 0 || !strings.Contains(calls, "rsync") {
+		t.Fatalf("quer falha no rsync: código %d, chamadas %q\n%s", code, calls, out)
+	}
+	const marker = "== rsync → root@deploy-test.invalid:"
+	i := strings.Index(out, marker)
+	if i < 0 {
+		t.Fatalf("sem a linha do rsync\n%s", out)
+	}
+	staging := strings.TrimSpace(strings.SplitN(out[i+len(marker):], "\n", 2)[0])
+	if !strings.HasPrefix(staging, "/var/tmp/finger-sniffer-deploy.") {
+		t.Errorf("staging %q fora do prefixo", staging)
+	}
+	if _, err := os.Lstat(staging); !os.IsNotExist(err) {
+		_ = os.RemoveAll(staging)
+		t.Errorf("staging %q ficou depois da falha (%v)", staging, err)
+	}
+}
+
+// remote-install.sh recusa (saída 4) um staging que não seja diretório do root sem escrita para outros, antes de
+// carregar qualquer arquivo dele: o versions.env de teste grava um marcador se for carregado (task 354).
+func TestRemoteInstallRefusesUnsafeStaging(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "sourced")
+	mk := func(name string, mode os.FileMode) string {
+		st := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Join(st, "deploy"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(st, "deploy", "versions.env"), "touch '"+marker+"'\n", 0o644)
+		if err := os.Chmod(st, mode); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	cases := map[string]string{
+		"escrita para outros": mk("world", 0o777),
+		"escrita do grupo":    mk("group", 0o770),
+		"inexistente":         filepath.Join(dir, "nao-existe"),
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(mk("alvo", 0o700), link); err != nil {
+		t.Fatal(err)
+	}
+	cases["link simbólico"] = link
+	if os.Geteuid() != 0 {
+		cases["de outro dono"] = mk("mine", 0o700)
+	}
+	for name, st := range cases {
+		out, err := exec.Command("bash", "remote-install.sh", st).CombinedOutput()
+		ee, ok := err.(*exec.ExitError)
+		if !ok || ee.ExitCode() != 4 || !strings.Contains(string(out), "staging recusado") {
+			t.Errorf("%s: %v, quer saída 4 com a recusa\n%s", name, err, out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Errorf("%s: versions.env carregado antes da recusa", name)
+			_ = os.Remove(marker)
+		}
+	}
+	b, err := os.ReadFile("remote-install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	if i, j := strings.Index(s, "staging recusado"), strings.Index(s, `. "$STAGING/`); i < 0 || j < 0 || i > j {
+		t.Errorf("a conferência do staging precisa vir antes do primeiro . dele (%d, %d)", i, j)
 	}
 }

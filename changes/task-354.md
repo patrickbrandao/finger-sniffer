@@ -1,0 +1,1 @@
+- infra: o staging do `make deploy` é criado no servidor por `mktemp -d` (`/var/tmp/finger-sniffer-deploy.XXXXXXXXXX`, 0700 do root, caminho conferido) e apagado na saída mesmo em erro; o `remote-install.sh` recusa staging que não seja diretório do root sem escrita para outros antes de carregar qualquer arquivo dele (task 354).
