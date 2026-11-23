@@ -211,3 +211,97 @@ func BenchmarkHandleNewConn(b *testing.B) {
 		})
 	}
 }
+
+// feedUDP manda um datagrama UDP com os dados dados.
+func feedUDP(ft *flowTable, cli, srv netip.AddrPort, ms int64, fromCli bool, data []byte) result {
+	src, dst := cli, srv
+	if !fromCli {
+		src, dst = srv, cli
+	}
+	return ft.handle(parseFrame(udpFrame(src, dst, data)), base+ms*1e6)
+}
+
+// TestFlowTableFakeQUICInitialEvictable (task 321, ADR 0069 item 1): a tabela cheia de falsos Initials QUIC sem
+// resposta não recusa o SYN legítimo; eles não contam nas simultâneas nem gastam ficha das novas/s.
+func TestFlowTableFakeQUICInitialEvictable(t *testing.T) {
+	ft := newLimitTable()
+	fake := []byte{0xc0, 0, 0, 0, 1, 0, 0} // 7 bytes: cabeçalho longo, versão 1, DCID vazio
+	srv := netip.MustParseAddrPort("170.247.40.86:9999")
+	for i := range maxFlows {
+		if r := feedUDP(ft, srcN(i), srv, int64(i)*30_000/maxFlows, true, fake); r.dropped {
+			t.Fatalf("fake initial %d refused", i)
+		}
+	}
+	if ft.open() != maxFlows || ft.liveLimited() != 0 || ft.half.Len() != maxFlows {
+		t.Fatalf("open %d live %d half %d", ft.open(), ft.liveLimited(), ft.half.Len())
+	}
+	if ft.newTokens < float64(ft.maxNewPerS) {
+		t.Fatalf("tokens spent: %v", ft.newTokens)
+	}
+	r := feed(ft, srcN(maxFlows+1), mirror, protoTCP, 30_000, true, tcpSYN)
+	if r.dropped || r.conn == nil || r.evicted == nil || r.conn.degraded {
+		t.Fatalf("legit SYN: %+v", r)
+	}
+}
+
+// TestFlowTableFakeQUICDoesNotDegrade (task 321): com os padrões de produção, 1 100 falsos Initials em 30 s não
+// degradam o SYN legítimo.
+func TestFlowTableFakeQUICDoesNotDegrade(t *testing.T) {
+	ft := newFlowTable(IngestConfig{TCPIdle: 150 * time.Second, UDPIdle: 30 * time.Second, CloseGrace: 100 * time.Millisecond, MaxOpen: DefaultMaxConns, MaxNewPerS: DefaultMaxNewConnsPerS})
+	fake := quicInitial([]byte{1, 2, 3, 4})
+	for i := range 1100 {
+		feedUDP(ft, srcN(i), mirror, int64(i)*30_000/1100, true, fake)
+	}
+	if ft.liveLimited() != 0 {
+		t.Fatalf("live %d", ft.liveLimited())
+	}
+	if r := feed(ft, srcN(5000), mirror, protoTCP, 30_000, true, tcpSYN); r.conn == nil || r.conn.degraded {
+		t.Fatalf("legit SYN degraded: %+v", r)
+	}
+}
+
+// TestFlowTableQUICEstablishedByReply (task 321): o Initial só vira QUIC (limited, fora da fila half) com a
+// resposta do espelho com cabeçalho longo.
+func TestFlowTableQUICEstablishedByReply(t *testing.T) {
+	ft := newLimitTable()
+	r := feedUDP(ft, client, mirror, 0, true, quicInitial([]byte{1, 2, 3, 4}))
+	if r.conn.limited || r.conn.halfEl == nil || ft.liveLimited() != 0 {
+		t.Fatal("initial without reply must be evictable")
+	}
+	feedUDP(ft, client, mirror, 5, false, quicLong(0, []byte{9}, []byte{5, 5, 5, 5}, 1200))
+	if !r.conn.limited || r.conn.halfEl != nil || r.conn.ansEl != nil || ft.liveLimited() != 1 {
+		t.Fatalf("reply must establish: limited %v live %d", r.conn.limited, ft.liveLimited())
+	}
+}
+
+// TestFlowTableAnsweredUDPCap (task 321, ADR 0069 item 2): consultas DNS respondidas ficam no teto de 2048 (a
+// nova despeja a mais antiga do tipo) e, com a tabela cheia, o SYN legítimo despeja a respondida mais antiga.
+func TestFlowTableAnsweredUDPCap(t *testing.T) {
+	ft := newLimitTable()
+	dns := netip.MustParseAddrPort("170.247.40.86:53")
+	q := make([]byte, 40)
+	var first string
+	evicted := 0
+	for i := range maxFlows {
+		r := feedUDP(ft, srcN(i), dns, int64(i)*30_000/maxFlows, true, q)
+		if i == 0 {
+			first = r.conn.id
+		}
+		a := feedUDP(ft, srcN(i), dns, int64(i)*30_000/maxFlows, false, q)
+		if a.evicted != nil {
+			if evicted == 0 && a.evicted.id != first {
+				t.Fatal("must evict the oldest answered")
+			}
+			evicted++
+		}
+	}
+	if ft.open() != maxAnsweredUDP || ft.answered.Len() != maxAnsweredUDP || evicted != maxFlows-maxAnsweredUDP {
+		t.Fatalf("open %d answered %d evicted %d", ft.open(), ft.answered.Len(), evicted)
+	}
+	// Tabela cheia só de respondidas: o SYN despeja a mais antiga em vez de ser recusado.
+	ft.maxFlows = maxAnsweredUDP
+	r := feed(ft, srcN(maxFlows+1), mirror, protoTCP, 30_000, true, tcpSYN)
+	if r.dropped || r.conn == nil || r.evicted == nil || r.evicted.l4 != protoUDP {
+		t.Fatalf("legit SYN: %+v", r)
+	}
+}

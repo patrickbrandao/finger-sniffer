@@ -1,0 +1,1 @@
+- store: UDP só sai da fila de despejo quando o espelho responde; QUIC só conta nas simultâneas e gasta ficha das novas/s com resposta de cabeçalho longo ou evento h3; UDP não-QUIC respondido com teto de 2048 e despejado antes da recusa `table_full` (task 321, ADR 0069).
