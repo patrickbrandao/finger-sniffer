@@ -39,6 +39,15 @@ func (s *session) startTLS(prefix []byte) bool {
 	start := time.Now()
 	s.info.TLS = true
 	tcp := s.conn
+	// A captura do ClientHello reserva do orçamento até o fim do handshake; sem orçamento, a sessão fecha
+	// antes do handshake (spec 006 RF-07b, exceção à RF-07; ADR 0070 item 8).
+	if s.hold != nil {
+		if !s.hold.reserve(helloReserve, true) {
+			s.em.log.Warn("raw: input budget exhausted, closing before tls handshake", "port", s.port.Port)
+			return false
+		}
+		defer s.hold.release(helloReserve)
+	}
 	under := tcp
 	if len(prefix) > 0 {
 		under = &prefixConn{Conn: tcp, pending: append([]byte(nil), prefix...)}
@@ -69,7 +78,7 @@ func (s *session) startTLS(prefix []byte) bool {
 	s.publishHandshake(ts, err, ac.stop(), start, end)
 	if err != nil {
 		// Sessão TLS morta: espera o cliente fechar (ou a ociosidade), sem fechar antes (RF-07).
-		drainUntilIdle(tcp, s.cfg.Idle)
+		drainUntilIdle(tcp, s.cfg.Idle, s.readBuf())
 		return false
 	}
 	s.conn = ts
@@ -239,8 +248,7 @@ func alertFromError(err error) (event.TLSAlert, bool) {
 }
 
 // drainUntilIdle lê e descarta até o cliente fechar, um erro ou idle sem atividade.
-func drainUntilIdle(c net.Conn, idle time.Duration) {
-	buf := make([]byte, 16<<10)
+func drainUntilIdle(c net.Conn, idle time.Duration, buf []byte) {
 	for {
 		_ = c.SetReadDeadline(time.Now().Add(idle))
 		if _, err := c.Read(buf); err != nil {

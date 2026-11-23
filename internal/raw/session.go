@@ -61,7 +61,16 @@ type session struct {
 
 	in, out stream
 	info    Info
+
+	// hold guarda as reservas da sessão no orçamento de entrada (RF-07b); devolvidas em defer no serve. O
+	// servidor sempre o preenche; nil (só em testes de unidade) não limita.
+	hold *hold
+	// buf é o único buffer de leitura da sessão (retenção fixa de 32 KiB, ADR 0070 item 1).
+	buf []byte
 }
+
+// testHook, nos testes, roda a cada leitura com dados (permite provocar um pânico no meio da sessão).
+var testHook func(data []byte)
 
 func newSession(conn net.Conn, cfg *Config, port PortSpec, start time.Time, em *emitter) *session {
 	return &session{
@@ -90,7 +99,7 @@ func (s *session) run() {
 			return
 		}
 	}
-	buf := make([]byte, readBufSize)
+	buf := s.readBuf()
 	for {
 		deadline := time.Now().Add(s.cfg.Idle)
 		// No modo source o servidor só espera a linha PROBE por ProbeWait; depois começa a mandar.
@@ -112,6 +121,9 @@ func (s *session) run() {
 				continue
 			}
 			if len(data) > 0 {
+				if testHook != nil {
+					testHook(data)
+				}
 				s.recordRead(data)
 				data = s.feed(data)
 				if s.mode == probe.ModeSource && s.lineDone {
@@ -263,7 +275,7 @@ func (s *session) runSource() {
 	if closeWrite(s.conn) != nil {
 		return
 	}
-	buf := make([]byte, readBufSize)
+	buf := s.readBuf()
 	_ = s.conn.SetReadDeadline(time.Now().Add(drainAfterSource))
 	for {
 		n, err := s.conn.Read(buf)
@@ -282,7 +294,7 @@ func (s *session) write(b []byte) error {
 	n, err := s.conn.Write(b)
 	if n > 0 {
 		now := time.Now()
-		s.info.WritesOut = appendTimed(s.info.WritesOut, &s.info.WritesOutTruncated, s.elapsedMS(now), n)
+		s.info.WritesOut = s.appendTimed(s.info.WritesOut, &s.info.WritesOutTruncated, s.elapsedMS(now), n)
 		s.out.write(s.em, now, s.probeID, b[:n])
 	}
 	return err
@@ -290,7 +302,7 @@ func (s *session) write(b []byte) error {
 
 func (s *session) recordRead(b []byte) {
 	now := time.Now()
-	s.info.ReadsIn = appendTimed(s.info.ReadsIn, &s.info.ReadsInTruncated, s.elapsedMS(now), len(b))
+	s.info.ReadsIn = s.appendTimed(s.info.ReadsIn, &s.info.ReadsInTruncated, s.elapsedMS(now), len(b))
 	s.in.write(s.em, now, s.probeID, b)
 }
 
@@ -299,11 +311,37 @@ func (s *session) elapsedMS(t time.Time) float64 {
 	return float64(t.Sub(s.start).Nanoseconds()) / 1e6
 }
 
-// appendTimed acrescenta [ms, n] até maxTimed itens; dali em diante descarta e liga *cut.
-func appendTimed(list []TimedLength, cut *bool, ms float64, n int) []TimedLength {
-	if len(list) >= maxTimed {
+// readBuf devolve o buffer de leitura da sessão, criado uma vez.
+func (s *session) readBuf() []byte {
+	if s.buf == nil {
+		s.buf = make([]byte, readBufSize)
+	}
+	return s.buf
+}
+
+// appendTimed acrescenta [ms, n] até maxTimed itens; dali em diante descarta e liga *cut. A capacidade cresce
+// sob controle: até fixedTimed entradas é retenção fixa; acima, cada crescimento reserva antes do orçamento de
+// entrada e, sem ele, a lista para com a marca (spec 006 RF-06 e RF-07b).
+func (s *session) appendTimed(list []TimedLength, cut *bool, ms float64, n int) []TimedLength {
+	if *cut || len(list) >= maxTimed {
 		*cut = true
 		return list
+	}
+	if len(list) == cap(list) {
+		c := cap(list)
+		var next int
+		if c < fixedTimed {
+			next = min(max(2*c, 16), fixedTimed)
+		} else {
+			next = min(2*c, maxTimed)
+			if s.hold != nil && !s.hold.reserve(int64(next-c)*timedSize, false) {
+				*cut = true
+				return list
+			}
+		}
+		grown := make([]TimedLength, len(list), next)
+		copy(grown, list)
+		list = grown
 	}
 	return append(list, TimedLength{ms, float64(n)})
 }

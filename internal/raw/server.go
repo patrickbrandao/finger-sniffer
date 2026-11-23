@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -31,6 +32,7 @@ type Server struct {
 	log     *slog.Logger
 	metrics *service.Metrics
 	probes  *probe.Extractor
+	budget  *inputBudget
 
 	mu        sync.Mutex
 	listeners []listener
@@ -57,8 +59,14 @@ func New(cfg Config, pub Publisher, log *slog.Logger, metrics *service.Metrics) 
 		log.Warn("raw: FS_MAX_CONNS <= 0, using default", "value", cfg.MaxConns, "default", DefaultMaxConns)
 		cfg.MaxConns = DefaultMaxConns
 	}
+	limit := cfg.inputBudget
+	if limit <= 0 {
+		limit = InputBudget
+	}
+	metrics.Add(MetricPanics, 0)
 	return &Server{
-		cfg: cfg, pub: pub, log: log, metrics: metrics, probes: probe.NewExtractor(),
+		budget: newInputBudget(limit, metrics),
+		cfg:    cfg, pub: pub, log: log, metrics: metrics, probes: probe.NewExtractor(),
 		conns: map[net.Conn]struct{}{},
 		sem:   make(chan struct{}, cfg.MaxConns), done: make(chan struct{}),
 	}
@@ -185,6 +193,7 @@ func (s *Server) acceptLoop(ln listener) {
 		s.wg.Go(func() {
 			defer func() { <-s.sem }()
 			defer s.untrack(c)
+			defer s.recoverSession(c)
 			s.serve(c, ln.spec, start)
 		})
 	}
@@ -218,11 +227,26 @@ func (s *Server) closeListeners() {
 	s.listeners = nil
 }
 
+// recoverSession recupera um pânico da sessão: registra com a pilha, conta em raw_panics_total e fecha só
+// aquela conexão; as outras sessões e o processo seguem (spec 006 RF-07b, ADR 0070 item 6). As reservas já
+// voltaram ao orçamento pelos defers da sessão.
+func (s *Server) recoverSession(c net.Conn) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	_ = c.Close()
+	s.metrics.Add(MetricPanics, 1)
+	s.log.Error("raw: session panic", "panic", fmt.Sprint(r), "remote", c.RemoteAddr().String(), "stack", string(debug.Stack()))
+}
+
 // serve atende uma conexão aceita.
 func (s *Server) serve(c net.Conn, spec PortSpec, start time.Time) {
 	em := &emitter{pub: s.pub, log: s.log, flow: flowOf(c), metrics: s.metrics}
 	sess := newSession(c, &s.cfg, spec, start, em)
 	sess.probes = s.probes
+	sess.hold = &hold{b: s.budget}
+	defer sess.hold.releaseAll()
 	sess.run()
 }
 
