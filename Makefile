@@ -24,7 +24,7 @@ GOVULNCHECK_VERSION   := v1.9.0
 # Servidor ACME de teste (spec 015; usado pelos testes da task 027 via FS_TEST_PEBBLE)
 PEBBLE_VERSION        := v2.10.1
 
-.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy release repro-check clean
+.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy release repro-check clean clean-worktrees
 
 all: build
 
@@ -88,3 +88,7 @@ repro-check:
 
 clean:
 	rm -rf $(BIN) dist
+
+# Worktrees e branches task/* de tarefas com PR mergeado (task 374): só lista; ARGS=--apply remove
+clean-worktrees:
+	scripts/clean-worktrees.sh $(ARGS)

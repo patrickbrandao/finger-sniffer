@@ -1,0 +1,1 @@
+- `make clean-worktrees` (`scripts/clean-worktrees.sh`): lista os worktrees limpos e as branches `task/*` com PR mergeado (squash) e só os remove com `ARGS=--apply`; worktree com alteração, travado ou sem PR mergeado fica numa lista à parte (task 374).
