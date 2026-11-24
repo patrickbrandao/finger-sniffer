@@ -1,0 +1,1 @@
+- web: ACME não emite de novo quando guardar o par em `FS_ACME_DIR` falha (o par fica pendente, é exportado para `FS_CERT_DIR` e gravado na tentativa seguinte) e tem teto de 3 emissões de produção por slot em 7 dias (registro em `FS_ACME_DIR`, `web_acme_capped_total`, `ACMEManager.Reasons`); Pebble, loopback e LE staging sem teto (task 351, spec 015 RF-06).

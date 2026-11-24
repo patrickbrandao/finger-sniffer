@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,13 +46,23 @@ const (
 	acmeRSABits = 2048
 	// acmeStoragePrefix é a pasta, dentro de FS_ACME_DIR, dos certificados A e B emitidos (por CA).
 	acmeStoragePrefix = "finger-sniffer"
+	// acmeProdIssueLimit e acmeProdIssueWindow são o teto de emissões de produção por slot (spec 015 RF-06,
+	// spec 002 "Escalonamento" item 4): acima de 3 em 7 dias, só com o humano.
+	acmeProdIssueLimit  = 3
+	acmeProdIssueWindow = 7 * 24 * time.Hour
 )
 
 // Métricas do ACME.
 const (
 	MetricACMEIssued   = "web_acme_issued_total"
 	MetricACMEFailures = "web_acme_failures_total"
+	// MetricACMECapped conta as emissões de produção recusadas pelo teto da RF-06 (task 351).
+	MetricACMECapped = "web_acme_capped_total"
 )
+
+// ReasonACMECapped é o prefixo do motivo de degradação de um slot no teto de emissões de produção
+// ("acme_issue_capped:dns01"), devolvido por ACMEManager.Reasons (task 351).
+const ReasonACMECapped = "acme_issue_capped"
 
 // ACMEConfig é a configuração do ACME do web (spec 015).
 type ACMEConfig struct {
@@ -146,11 +157,41 @@ func tlsALPNPort(ports []int) int {
 	return 0
 }
 
+// acmeIssuer é o que o ciclo usa do emissor do certmagic (um falso nos testes).
+type acmeIssuer interface {
+	Issue(ctx context.Context, csr *x509.CertificateRequest) (*certmagic.IssuedCertificate, error)
+	IssuerKey() string
+}
+
+// acmePairStorage é onde os pares emitidos e o registro das emissões ficam guardados (FS_ACME_DIR pelo
+// certmagic; um falso nos testes).
+type acmePairStorage interface {
+	Load(ctx context.Context, key string) ([]byte, error)
+	Store(ctx context.Context, key string, value []byte) error
+}
+
+// acmePair é um par emitido.
+type acmePair struct {
+	crtPEM, keyPEM []byte
+	leaf           *x509.Certificate
+}
+
 // acmeSlot é um dos dois certificados gerenciados.
 type acmeSlot struct {
 	name   string // certs.SlotDNS01 ou certs.SlotHTTP01
 	names  []string
-	issuer *certmagic.ACMEIssuer
+	issuer acmeIssuer
+
+	// Os campos abaixo são protegidos por ACMEManager.issueMu.
+	// pending é o par emitido que ainda não foi guardado em FS_ACME_DIR (gravação falhou): as tentativas
+	// seguintes só gravam e exportam esse par, sem emitir outro (task 351).
+	pending *acmePair
+	// issued são os instantes das emissões dentro da janela do teto (só com CA de produção); issuedLoaded diz se
+	// o registro guardado em FS_ACME_DIR já foi lido.
+	issued       []time.Time
+	issuedLoaded bool
+	// capped diz que a última tentativa parou no teto de emissões de produção.
+	capped bool
 }
 
 // ACMEManager emite e renova os certificados A (DNS-01) e B (TLS-ALPN-01 e, com a porta 80, HTTP-01) com o
@@ -168,9 +209,13 @@ type ACMEManager struct {
 	now     func() time.Time
 
 	storage *certmagic.FileStorage
-	cache   *certmagic.Cache
-	cmCfg   *certmagic.Config
-	slots   []*acmeSlot
+	// pairs guarda os pares emitidos e o registro das emissões (o próprio storage fora dos testes).
+	pairs acmePairStorage
+	// production diz se FS_ACME_CA é uma CA de produção (teto da RF-06; isProductionCA).
+	production bool
+	cache      *certmagic.Cache
+	cmCfg      *certmagic.Config
+	slots      []*acmeSlot
 
 	// issueMu serializa as emissões (A e B dividem a mesma conta ACME).
 	issueMu sync.Mutex
@@ -205,8 +250,10 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 	}
 	m := &ACMEManager{
 		cfg: cfg, log: log, metrics: metrics, now: time.Now,
-		storage: &certmagic.FileStorage{Path: cfg.Dir},
+		storage:    &certmagic.FileStorage{Path: cfg.Dir},
+		production: isProductionCA(cfg.CA),
 	}
+	m.pairs = m.storage
 
 	var cmCfg *certmagic.Config
 	m.cache = certmagic.NewCache(certmagic.CacheOptions{
@@ -257,6 +304,41 @@ func NewACMEManager(cfg ACMEConfig, nc natsRequester, log *slog.Logger, metrics 
 		m.slots = append(m.slots, &acmeSlot{name: certs.SlotHTTP01, names: cfg.NamesHTTP01, issuer: httpIssuer})
 	}
 	return m, nil
+}
+
+// isProductionCA diz se o diretório ACME é de produção, para o teto da RF-06. Só são de teste o Pebble e afins
+// em loopback (localhost, 127.0.0.0/8, ::1) e as CAs com "staging" no nome do host (LE staging); qualquer outra
+// conta como produção, inclusive um endereço que não dá para ler.
+func isProductionCA(ca string) bool {
+	u, err := url.Parse(ca)
+	if err != nil || u.Hostname() == "" {
+		return true
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.Contains(host, "staging") {
+		return false
+	}
+	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
+		return false
+	}
+	return true
+}
+
+// Reasons devolve os motivos de degradação do ACME para o heartbeat: um por slot parado no teto de emissões de
+// produção ("acme_issue_capped:<slot>"). nil sem nenhum.
+func (m *ACMEManager) Reasons() []string {
+	if m == nil {
+		return nil
+	}
+	m.issueMu.Lock()
+	defer m.issueMu.Unlock()
+	var out []string
+	for _, s := range m.slots {
+		if s.capped {
+			out = append(out, ReasonACMECapped+":"+s.name)
+		}
+	}
+	return out
 }
 
 // Close para o cache do certmagic.
@@ -327,6 +409,10 @@ func (m *ACMEManager) Ensure(ctx context.Context, slot string) (time.Time, error
 	if s == nil {
 		return time.Time{}, fmt.Errorf("web: acme: unknown slot %q", slot)
 	}
+	// Par emitido e não guardado (gravação falhou): só grava e exporta, sem nova emissão (task 351).
+	if renewAt, ok, err := m.retryPending(ctx, s); ok {
+		return renewAt, err
+	}
 	crtPEM, keyPEM, leaf, err := m.loadStored(ctx, s)
 	if err == nil {
 		renewAt := m.renewAt(leaf)
@@ -366,10 +452,10 @@ func (m *ACMEManager) storageKey(s *acmeSlot, ext string) string {
 
 // loadStored lê o par guardado; fs.ErrNotExist quando não há.
 func (m *ACMEManager) loadStored(ctx context.Context, s *acmeSlot) (crtPEM, keyPEM []byte, leaf *x509.Certificate, err error) {
-	if crtPEM, err = m.storage.Load(ctx, m.storageKey(s, ".crt")); err != nil {
+	if crtPEM, err = m.pairs.Load(ctx, m.storageKey(s, ".crt")); err != nil {
 		return nil, nil, nil, err
 	}
-	if keyPEM, err = m.storage.Load(ctx, m.storageKey(s, ".key")); err != nil {
+	if keyPEM, err = m.pairs.Load(ctx, m.storageKey(s, ".key")); err != nil {
 		return nil, nil, nil, err
 	}
 	pair, err := tls.X509KeyPair(crtPEM, keyPEM)
@@ -400,7 +486,85 @@ func sameNames(a, b []string) bool {
 	return slices.Equal(slices.Compact(x), slices.Compact(y))
 }
 
-// issue emite um certificado novo para o slot, guarda no FS_ACME_DIR e exporta para FS_CERT_DIR.
+// retryPending grava e exporta o par pendente do slot, se houver um ainda válido; ok false sem pendente (ou com
+// um pendente vencido, descartado), e então o Ensure segue o caminho normal.
+func (m *ACMEManager) retryPending(ctx context.Context, s *acmeSlot) (time.Time, bool, error) {
+	m.issueMu.Lock()
+	defer m.issueMu.Unlock()
+	p := s.pending
+	if p == nil {
+		return time.Time{}, false, nil
+	}
+	if !m.now().Before(p.leaf.NotAfter) {
+		s.pending = nil
+		return time.Time{}, false, nil
+	}
+	m.log.Info("acme storing the pending certificate again", "slot", s.name, "serial", p.leaf.SerialNumber.Text(16))
+	if err := m.persist(ctx, s, p); err != nil {
+		return time.Time{}, true, err
+	}
+	return m.renewAt(p.leaf), true, nil
+}
+
+// persist exporta o par para FS_CERT_DIR (o certificado novo entra em uso mesmo se FS_ACME_DIR falhar) e o
+// guarda em FS_ACME_DIR; o par fica pendente no slot até as duas coisas darem certo. Chamado com issueMu.
+func (m *ACMEManager) persist(ctx context.Context, s *acmeSlot, p *acmePair) error {
+	s.pending = p
+	exportErr := m.export(s, p.crtPEM, p.keyPEM)
+	// A chave antes do certificado: um .crt novo nunca fica guardado ao lado de uma chave velha.
+	if err := m.pairs.Store(ctx, m.storageKey(s, ".key"), p.keyPEM); err != nil {
+		return errors.Join(fmt.Errorf("web: acme: store: %w", err), exportErr)
+	}
+	if err := m.pairs.Store(ctx, m.storageKey(s, ".crt"), p.crtPEM); err != nil {
+		return errors.Join(fmt.Errorf("web: acme: store: %w", err), exportErr)
+	}
+	if exportErr != nil {
+		return exportErr
+	}
+	s.pending = nil
+	return nil
+}
+
+// issuedKey é a chave do registro das emissões de produção do slot (instantes, um por linha, RFC 3339).
+func (m *ACMEManager) issuedKey(s *acmeSlot) string {
+	return m.storageKey(s, ".issued")
+}
+
+// recentIssued devolve as emissões do slot dentro da janela do teto, lendo uma vez o registro guardado.
+// Chamado com issueMu.
+func (m *ACMEManager) recentIssued(ctx context.Context, s *acmeSlot) []time.Time {
+	if !s.issuedLoaded {
+		s.issuedLoaded = true
+		data, err := m.pairs.Load(ctx, m.issuedKey(s))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			m.log.Warn("acme issuance record unreadable, counting only this process", "slot", s.name, "err", err)
+		}
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if t, err := time.Parse(time.RFC3339, strings.TrimSpace(line)); err == nil && !slices.ContainsFunc(s.issued, t.Equal) {
+				s.issued = append(s.issued, t)
+			}
+		}
+		slices.SortFunc(s.issued, time.Time.Compare)
+	}
+	from := m.now().Add(-acmeProdIssueWindow)
+	s.issued = slices.DeleteFunc(s.issued, func(t time.Time) bool { return !t.After(from) })
+	return s.issued
+}
+
+// recordIssued registra uma emissão de produção (em memória e, se der, em FS_ACME_DIR). Chamado com issueMu.
+func (m *ACMEManager) recordIssued(ctx context.Context, s *acmeSlot, at time.Time) {
+	s.issued = append(m.recentIssued(ctx, s), at)
+	var b strings.Builder
+	for _, t := range s.issued {
+		b.WriteString(t.UTC().Format(time.RFC3339) + "\n")
+	}
+	if err := m.pairs.Store(ctx, m.issuedKey(s), []byte(b.String())); err != nil {
+		m.log.Warn("acme issuance record not stored, kept in memory", "slot", s.name, "err", err)
+	}
+}
+
+// issue emite um certificado novo para o slot, exporta para FS_CERT_DIR e guarda no FS_ACME_DIR. Com CA de
+// produção, recusa acima de acmeProdIssueLimit emissões em acmeProdIssueWindow (RF-06).
 func (m *ACMEManager) issue(ctx context.Context, s *acmeSlot) (time.Time, error) {
 	m.issueMu.Lock()
 	defer m.issueMu.Unlock()
@@ -410,6 +574,18 @@ func (m *ACMEManager) issue(ctx context.Context, s *acmeSlot) (time.Time, error)
 	if err := m.challengeListenersUp(s); err != nil {
 		return time.Time{}, err
 	}
+	if m.production {
+		if recent := m.recentIssued(ctx, s); len(recent) >= acmeProdIssueLimit {
+			s.capped = true
+			m.metrics.Add(MetricACMECapped, 1)
+			m.log.Error("acme production issuance limit reached, not issuing (ask the human, spec 002)",
+				"slot", s.name, "names", s.names, "ca", m.cfg.CA, "limit", acmeProdIssueLimit,
+				"window", acmeProdIssueWindow.String(), "issued", recent)
+			return time.Time{}, fmt.Errorf("web: acme: %s: %d production issuances in %s, limit reached",
+				s.name, len(recent), acmeProdIssueWindow)
+		}
+	}
+	s.capped = false
 	m.log.Info("acme issuing", "slot", s.name, "names", s.names, "ca", m.cfg.CA)
 	key, err := rsa.GenerateKey(rand.Reader, acmeRSABits)
 	if err != nil {
@@ -427,6 +603,9 @@ func (m *ACMEManager) issue(ctx context.Context, s *acmeSlot) (time.Time, error)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("web: acme: issue %s: %w", s.name, err)
 	}
+	if m.production {
+		m.recordIssued(ctx, s, m.now())
+	}
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("web: acme: key: %w", err)
@@ -437,20 +616,16 @@ func (m *ACMEManager) issue(ctx context.Context, s *acmeSlot) (time.Time, error)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("web: acme: issued pair: %w", err)
 	}
-	// A chave antes do certificado: um .crt novo nunca fica guardado ao lado de uma chave velha.
-	if err := m.storage.Store(ctx, m.storageKey(s, ".key"), keyPEM); err != nil {
-		return time.Time{}, fmt.Errorf("web: acme: store: %w", err)
-	}
-	if err := m.storage.Store(ctx, m.storageKey(s, ".crt"), crtPEM); err != nil {
-		return time.Time{}, fmt.Errorf("web: acme: store: %w", err)
-	}
-	if err := m.export(s, crtPEM, keyPEM); err != nil {
-		return time.Time{}, err
-	}
-	m.metrics.Add(MetricACMEIssued, 1)
 	leaf := pair.Leaf
+	// Falha ao gravar não descarta o par: ele fica pendente e a próxima tentativa só grava (task 351).
+	perr := m.persist(ctx, s, &acmePair{crtPEM: crtPEM, keyPEM: keyPEM, leaf: leaf})
+	m.metrics.Add(MetricACMEIssued, 1)
 	m.log.Info("acme certificate obtained", "slot", s.name, "names", leaf.DNSNames,
-		"issuer", leaf.Issuer.CommonName, "serial", leaf.SerialNumber.Text(16), "not_after", leaf.NotAfter)
+		"issuer", leaf.Issuer.CommonName, "serial", leaf.SerialNumber.Text(16), "not_after", leaf.NotAfter,
+		"stored", perr == nil)
+	if perr != nil {
+		return time.Time{}, perr
+	}
 	return m.renewAt(leaf), nil
 }
 
