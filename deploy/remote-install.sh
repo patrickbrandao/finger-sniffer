@@ -12,6 +12,16 @@ ENV_CHANGED=0
 
 log() { echo "[deploy] $*"; }
 
+# O staging tem de ser um diretório (não link) do root sem escrita para grupo nem outros, conferido antes do primeiro
+# "." dele: senão outro usuário local poderia trocar o que o root executa (task 354). stat do GNU; o do BSD (macOS)
+# só nos testes.
+staging_owner_mode=$(stat -c '%U %a' -- "$STAGING" 2>/dev/null || stat -f '%Su %Lp' -- "$STAGING" 2>/dev/null) || true
+if [ -L "$STAGING" ] || [ ! -d "$STAGING" ] || [ "${staging_owner_mode%% *}" != root ] ||
+	[ $((0${staging_owner_mode##* } & 022)) -ne 0 ]; then
+	log "staging recusado: '$STAGING' ($staging_owner_mode) precisa ser diretório do root sem escrita para outros"
+	exit 4
+fi
+
 # shellcheck disable=SC1091
 . "$STAGING/deploy/versions.env"
 # shellcheck disable=SC1091
