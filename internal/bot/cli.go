@@ -190,8 +190,8 @@ func cliForget(ctx context.Context, db *sql.DB, args []string, out, errOut io.Wr
 	if r.Error != "" {
 		return fmt.Errorf("bot: forget in the service: %s", r.Error)
 	}
-	_, _ = fmt.Fprintf(out, "service memory: reached (%d connections, %d aggregate entries, %d robot checks; "+
-		"%d more rows deleted)\n", r.Index, r.Agg, r.Verify, r.Rows)
+	_, _ = fmt.Fprintf(out, "service memory: reached (%d connections, %d aggregate entries, %d robot checks, "+
+		"%d webhook events; %d more rows deleted)\n", r.Index, r.Agg, r.Verify, r.Webhook, r.Rows)
 	return nil
 }
 

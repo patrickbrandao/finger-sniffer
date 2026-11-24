@@ -33,11 +33,13 @@ var errRefreshFailed = errors.New("bot: lists refresh failed")
 
 // forgetResult é o result de um forget: o que saiu da memória do serviço e do disco na segunda passada.
 type forgetResult struct {
-	Index  int    `json:"index"`
-	Agg    int    `json:"aggregates"`
-	Verify int    `json:"robot_checks"`
-	Rows   int64  `json:"rows"`
-	Error  string `json:"error,omitempty"`
+	Index  int `json:"index"`
+	Agg    int `json:"aggregates"`
+	Verify int `json:"robot_checks"`
+	// Webhook são os eventos com IP do prefixo tirados das filas do webhook (task 299).
+	Webhook int    `json:"webhook"`
+	Rows    int64  `json:"rows"`
+	Error   string `json:"error,omitempty"`
 }
 
 // refreshResult é o result de um lists refresh: "ok" ou a mensagem de erro por lista.
@@ -161,9 +163,10 @@ func (s *Server) controlForget(ctx context.Context, r controlRequest) error {
 
 // ForgetMemory apaga da memória do serviço tudo do prefixo (ADR 0052 item 5, ADR 0056 item 2): as duas visões do
 // índice (com os vereditos guardados nas conexões), os acumuladores, contadores de caminhos e o cache de
-// comportamento dos agregados e o cache da verificação de robô.
+// comportamento dos agregados, o cache da verificação de robô e os eventos do prefixo nas filas do webhook
+// (inclusive o que espera nova tentativa; um POST já em andamento termina, sem nova tentativa).
 func (s *Server) ForgetMemory(p netip.Prefix) forgetResult {
-	res := forgetResult{Index: s.index.Forget(p), Agg: s.agg.Forget(p)}
+	res := forgetResult{Index: s.index.Forget(p), Agg: s.agg.Forget(p), Webhook: s.hooks.Forget(p)}
 	if s.lists != nil && s.lists.Verifier() != nil {
 		res.Verify = s.lists.Verifier().Forget(p)
 	}

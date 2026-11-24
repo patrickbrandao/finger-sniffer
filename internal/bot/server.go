@@ -477,7 +477,11 @@ func (s *Server) publishWebhook(v *Verdict, site string) {
 	if !s.hooks.Active() {
 		return
 	}
-	s.hooks.Publish(v.Class, site, func() []byte {
+	var src netip.Addr
+	if v.Subject.Src != nil {
+		src, _ = netip.ParseAddr(v.Subject.Src.IP) // guardado com o evento para o forget (task 299)
+	}
+	s.hooks.PublishFrom(v.Class, site, src, func() []byte {
 		b, err := json.Marshal(VerdictEvent{Kind: "verdict", Ts: v.Ts, Verdict: v})
 		if err != nil {
 			return nil

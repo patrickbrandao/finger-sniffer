@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -354,5 +356,60 @@ func TestSentMetricByClass(t *testing.T) {
 			}
 		}
 		srv.Close()
+	}
+}
+
+// TestForgetQueue: fila com eventos de dois IPs; Forget de um prefixo tira os dele, inclusive o que espera nova
+// tentativa (que não é repetido), e os do outro IP são entregues em ordem (task 299).
+func TestForgetQueue(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, string(b))
+		mu.Unlock()
+		if string(b) == "a1" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer srv.Close()
+	retrying := make(chan struct{}, 1)
+	release := make(chan time.Time)
+	c := newCounter()
+	d := New(Options{Client: srv.Client(), Count: c.Add, After: func(time.Duration) <-chan time.Time {
+		retrying <- struct{}{}
+		return release
+	}})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		d.Wait()
+	})
+	d.SetTargets(ctx, []Target{target(srv.URL)})
+	a, b := netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("198.51.100.20")
+	d.PublishFrom("bot", "example.com", a, body("a1"))
+	<-retrying // a1 recebeu 503 e espera a nova tentativa
+	d.PublishFrom("bot", "example.com", a, body("a2"))
+	d.PublishFrom("bot", "example.com", b, body("b1"))
+	d.PublishFrom("bot", "example.com", netip.MustParseAddr("::ffff:192.0.2.11"), body("a3"))
+	d.PublishFrom("bot", "example.com", b, body("b2"))
+	if n := d.Forget(netip.MustParsePrefix("192.0.2.0/24")); n != 3 {
+		t.Fatalf("Forget tirou %d eventos, quer 3 (a1 em espera, a2 e a3 na fila)", n)
+	}
+	close(release)
+	waitFor(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) == 3
+	})
+	time.Sleep(50 * time.Millisecond) // nada mais chega
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(got, ",") != "a1,b1,b2" {
+		t.Fatalf("entregues %v, quer a1 (uma vez), b1, b2", got)
+	}
+	if n := d.Forget(netip.MustParsePrefix("192.0.2.0/24")); n != 0 {
+		t.Fatalf("segundo Forget tirou %d", n)
 	}
 }

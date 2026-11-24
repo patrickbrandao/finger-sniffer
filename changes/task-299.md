@@ -1,0 +1,1 @@
+- bot: `forget` tira das filas do webhook os vereditos com IP do prefixo, inclusive o que espera nova tentativa (POST em andamento termina sem repetir), e a CLI mostra a contagem em `webhook events` (ADR 0052 item 5, task 299).
