@@ -1,6 +1,7 @@
 package ja4
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/internal/pcaptest"
@@ -45,6 +46,11 @@ func TestGoldenFoxIO(t *testing.T) {
 				if c[1] != c[2] {
 					t.Errorf("%s stream %d %s:\n got %s\nwant %s", file, g.Stream, c[0], c[1], c[2])
 				}
+			}
+			// a parte a (com o trecho ALPN da definição publicada, spec 008 RF-03) bate com o tshark 4.4 em
+			// todos os pcaps; o hash das assinaturas do tshark difere do ja4 0.18.6 em alguns, por isso só a parte a
+			if a, _, _ := strings.Cut(f.JA4, "_"); g.TsharkJA4 != "" && !strings.HasPrefix(g.TsharkJA4, a+"_") {
+				t.Errorf("%s stream %d parte a x tshark: got %s, tshark %s", file, g.Stream, f.JA4, g.TsharkJA4)
 			}
 			total++
 		}

@@ -3,12 +3,14 @@
 // JA4 (só o fingerprint do cliente TLS) é da FoxIO sob BSD 3-Clause (LICENSE-FoxIO-BSD3 neste diretório);
 // os demais métodos JA4+ ficam em pkg/fingerprint/ja4plus (FoxIO License 1.1, ADR 0010). A estrutura vem do
 // fingerproxy (Apache-2.0); o comportamento segue a ferramenta oficial `ja4` (Rust, 0.18.6), conferida nos
-// pcaps de pkg/fingerprint/internal/pcaptest/testdata/tls:
+// pcaps de pkg/fingerprint/internal/pcaptest/testdata/tls, exceto no trecho ALPN, que segue a definição publicada
+// (technical_details/JA4.md da FoxIO, igual ao tshark 4.4; spec 008 RF-03):
 //
 //   - versão: maior valor não GREASE do supported_versions, se a extensão existir; senão o legacy_version;
 //   - contagens de cifras e extensões sem GREASE, com teto 99 (SNI e ALPN contam);
-//   - ALPN: primeiro e último caractere do primeiro protocolo do ALPN, como o tshark exibe a string; um
-//     caractere fora do ASCII vira '9'; sem ALPN ou protocolo vazio, "00";
+//   - ALPN: primeiro e último byte do primeiro protocolo do ALPN; se algum dos dois não for [0-9A-Za-z], o
+//     primeiro e o último caractere do hex minúsculo do protocolo; sem ALPN ou protocolo vazio, "00". Aqui o
+//     `ja4` 0.18.6 diverge da definição: troca só o byte não ASCII por '9' e deixa o ASCII cru;
 //   - algoritmos de assinatura só da primeira extensão signature_algorithms, sem GREASE e na ordem recebida;
 //   - lista vazia vira "000000000000" no lugar do hash.
 //
@@ -22,7 +24,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/iana"
 	"github.com/patrickbrandao/finger-sniffer/pkg/tlsparse"
@@ -268,28 +269,24 @@ func version(ch *tlsparse.ClientHello, exts []uint16) string {
 	return "00"
 }
 
-// alpn devolve o primeiro e o último caractere do primeiro protocolo do ALPN. Os bytes são lidos como o
-// tshark exibe a string: UTF-8 válido vira o caractere, cada byte inválido vira um caractere de troca; o
-// ja4 oficial troca qualquer caractere fora do ASCII por '9'.
+// alpn devolve o trecho ALPN da parte a pela definição publicada da FoxIO (spec 008 RF-03): primeiro e último
+// byte do primeiro protocolo do ALPN; se algum dos dois não for [0-9A-Za-z], o primeiro e o último caractere do
+// hex minúsculo dos bytes do protocolo; sem ALPN ou protocolo vazio, "00".
 func alpn(ch *tlsparse.ClientHello) string {
 	if len(ch.ALPN) == 0 || ch.ALPN[0] == "" {
 		return "00"
 	}
 	s := ch.ALPN[0]
-	first, n := utf8.DecodeRuneInString(s)
-	last, m := utf8.DecodeLastRuneInString(s)
-	if n == len(s) || m == len(s) {
-		// um só caractere: vale como primeiro e último
-		last = first
+	first, last := s[0], s[len(s)-1]
+	if alnum(first) && alnum(last) {
+		return string([]byte{first, last})
 	}
-	return string([]rune{ascii9(first), ascii9(last)})
+	h := hex.EncodeToString([]byte(s))
+	return string([]byte{h[0], h[len(h)-1]})
 }
 
-func ascii9(r rune) rune {
-	if r >= utf8.RuneSelf {
-		return '9'
-	}
-	return r
+func alnum(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // signatureAlgorithms lê a primeira extensão signature_algorithms, sem GREASE.

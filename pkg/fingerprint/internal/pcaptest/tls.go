@@ -240,11 +240,32 @@ func TLSGolden() (map[string]map[string]TLSStream, error) {
 				s = TLSStream{Stream: t.Stream, Src: t.Src, Dst: t.Dst, SrcPort: t.SrcPort, DstPort: t.DstPort}
 			}
 			s.JA3, s.JA3MD5, s.TsharkJA4 = t.JA3, t.JA3MD5, t.TsharkJA4
-			m[k] = s
+			m[k] = alpnFromTshark(s)
 		}
 		out["testdata/tls/"+path.Base(file)] = m
 	}
 	return out, nil
+}
+
+// alpnFromTshark aplica a exceção da spec 008 RF-03: no trecho ALPN da parte a vale a definição publicada da
+// FoxIO (hex quando o primeiro ou o último byte não é [0-9A-Za-z]), que o tshark 4.4 segue, e não o ja4 0.18.6
+// ('9' no não ASCII, ASCII cru). Quando o ja4 e o tshark discordam só nesse trecho (pcaps de ALPN não ASCII), o
+// gabarito do JA4, JA4_r, JA4_o e JA4_ro passa a ser o do tshark; o resto segue com o ja4 0.18.6. O
+// ja4.golden.json já está gravado assim (task 387); a troca aqui mantém o gabarito certo se o regen.sh voltar a
+// gravar a saída crua do ja4.
+func alpnFromTshark(s TLSStream) TLSStream {
+	t := s.TsharkJA4
+	if len(t) < 10 || len(s.JA4) != len(t) || s.JA4[:8] != t[:8] || s.JA4[10:] != t[10:] || s.JA4[8:10] == t[8:10] {
+		return s
+	}
+	fix := func(v string) string {
+		if len(v) < 10 || v[8:10] != s.JA4[8:10] {
+			return v
+		}
+		return v[:8] + t[8:10] + v[10:]
+	}
+	s.JA4, s.JA4R, s.JA4O, s.JA4RO = fix(s.JA4), fix(s.JA4R), fix(s.JA4O), fix(s.JA4RO)
+	return s
 }
 
 func readJSON(name string, v any) error {
