@@ -49,8 +49,15 @@ func LoadConfig() (Config, error) {
 	if c.BufferMaxBytes, err = EnvInt("FS_PRODUCER_BUFFER_MAX_BYTES", 16<<20); err != nil {
 		return c, err
 	}
+	if c.BufferMaxAge < 0 || c.BufferMaxBytes < 0 {
+		return c, errors.New("service: FS_PRODUCER_BUFFER_MAX_AGE e FS_PRODUCER_BUFFER_MAX_BYTES não podem ser negativos")
+	}
 	if c.HeartbeatInterval, err = EnvDuration("FS_HEARTBEAT_INTERVAL", 5*time.Second); err != nil {
 		return c, err
+	}
+	// time.NewTicker entra em pânico com intervalo <= 0, na goroutine do heartbeat.
+	if c.HeartbeatInterval <= 0 {
+		return c, errors.New("service: FS_HEARTBEAT_INTERVAL precisa ser maior que zero")
 	}
 	if c.EventInlineMax, err = EnvInt(event.EnvEventInlineMax, event.DefaultEventInlineMax); err != nil {
 		return c, err

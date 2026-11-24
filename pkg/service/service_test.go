@@ -62,6 +62,26 @@ func TestLoadConfigErrors(t *testing.T) {
 			}
 		})
 	}
+	// task 377: intervalo zero ou negativo fazia time.NewTicker entrar em pânico; buffer negativo não tem sentido.
+	for _, kv := range [][2]string{
+		{"FS_HEARTBEAT_INTERVAL", "0"},
+		{"FS_HEARTBEAT_INTERVAL", "-5s"},
+		{"FS_PRODUCER_BUFFER_MAX_AGE", "-1s"},
+		{"FS_PRODUCER_BUFFER_MAX_BYTES", "-1"},
+	} {
+		t.Run(kv[0]+"="+kv[1], func(t *testing.T) {
+			t.Setenv(kv[0], kv[1])
+			if _, err := LoadConfig(); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
+	// Zero no buffer continua valendo (descarta assim que o NATS cai).
+	t.Setenv("FS_PRODUCER_BUFFER_MAX_AGE", "0s")
+	t.Setenv("FS_PRODUCER_BUFFER_MAX_BYTES", "0")
+	if _, err := LoadConfig(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestMetrics(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -249,7 +250,7 @@ func TestLoadConfig(t *testing.T) {
 	}
 	c, err := LoadConfig()
 	if err != nil || c.Iface != "ens192" || c.Snaplen != 65535 || c.BatchMax != 256 || c.BatchWait != 5*time.Millisecond ||
-		c.BlockTimeout != 10*time.Millisecond || len(c.Exclude) != 4 {
+		c.BlockTimeout != 10*time.Millisecond || !slices.Equal(c.Exclude, []uint16{48022, 48161, 9000, 9001, 9002, 9003}) {
 		t.Fatalf("%+v %v", c, err)
 	}
 	for k, v := range map[string]string{
@@ -263,6 +264,22 @@ func TestLoadConfig(t *testing.T) {
 			}
 		})
 	}
+	// Valores que passavam e travavam o laço ou fechavam um lote por pacote (task 377).
+	for _, kv := range [][2]string{
+		{"FS_CAPTURE_BATCH_WAIT", "500us"},
+		{"FS_CAPTURE_BATCH_WAIT", "-1ms"},
+		{"FS_CAPTURE_BATCH_WAIT", "0"},
+		{"FS_CAPTURE_BATCH_MAX", "0"},
+		{"FS_CAPTURE_BATCH_MAX", "-3"},
+	} {
+		k, v := kv[0], kv[1]
+		t.Run(k+"="+v, func(t *testing.T) {
+			t.Setenv(k, v)
+			if _, err := LoadConfig(); err == nil {
+				t.Fatal("expected error")
+			}
+		})
+	}
 	for _, v := range []string{"0", "63", "262145"} {
 		t.Setenv("FS_CAPTURE_SNAPLEN", v)
 		if _, err := LoadConfig(); err == nil {
@@ -270,7 +287,14 @@ func TestLoadConfig(t *testing.T) {
 		}
 	}
 	t.Setenv("FS_CAPTURE_SNAPLEN", "128")
-	if c, err := LoadConfig(); err != nil || c.Snaplen != 128 {
+	t.Setenv("FS_CAPTURE_BATCH_WAIT", "1ms")
+	t.Setenv("FS_CAPTURE_BATCH_MAX", "1")
+	if c, err := LoadConfig(); err != nil || c.Snaplen != 128 || c.BatchWait != time.Millisecond || c.BatchMax != 1 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	// "," é o jeito de não excluir porta nenhuma (o BPF ainda descarta o ARP, ADR 0040).
+	t.Setenv("FS_CAPTURE_EXCLUDE_PORTS", ",")
+	if c, err := LoadConfig(); err != nil || len(c.Exclude) != 0 {
 		t.Fatalf("%+v %v", c, err)
 	}
 }

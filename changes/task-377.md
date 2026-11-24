@@ -1,0 +1,1 @@
+- capture: padrão de `FS_CAPTURE_EXCLUDE_PORTS` igual à spec 003 RF-02 (`48022,48161,9000,9001,9002,9003`, a API do bot fora da captura); `FS_CAPTURE_BATCH_WAIT < 1ms` e `FS_CAPTURE_BATCH_MAX < 1` recusados no start. Todos os serviços recusam `FS_HEARTBEAT_INTERVAL <= 0` (antes, pânico) e buffer do produtor negativo (task 377).
