@@ -12,7 +12,8 @@ import (
 
 // Limiter aplica o balde de fichas e a cota diária de cada chave (ADR 0051 item 4). O uso do dia fica em memória
 // e vai ao banco (key_usage_daily) no Flush; ao ver a chave pela primeira vez no dia, lê o que já foi gravado,
-// para a cota sobreviver ao reinício.
+// para a cota sobreviver ao reinício. O uso da 9003 (Count) é gravado em requests e também em internal_requests, e
+// fica fora da cota da 9002 nos dois caminhos (ADR 0073 item 4, task 413).
 type Limiter struct {
 	db  *sql.DB
 	now func() time.Time
@@ -26,7 +27,7 @@ type keyLimit struct {
 	tokens   float64
 	last     time.Time
 	day      int64
-	requests int64 // atendidas no dia (gravadas + pendentes)
+	requests int64 // atendidas pela 9002 no dia (gravadas + pendentes), a base da cota
 	// records e recordsLast são o balde de registros do ingest da 9002 (ADR 0073 item 3.1); recordsInit marca que
 	// o balde já foi enchido na primeira vez.
 	records     float64
@@ -39,7 +40,11 @@ type usageKey struct {
 	day   int64
 }
 
-type usage struct{ requests, limited, records int64 }
+// usage é o uso pendente de um dia; internal é a parte de requests feita pela 9003.
+type usage struct{ requests, internal, limited, records int64 }
+
+// public é o uso que conta na cota da 9002.
+func (u usage) public() int64 { return u.requests - u.internal }
 
 // NewLimiter cria o limitador; db pode ser nil nos testes (sem persistência).
 func NewLimiter(db *sql.DB, now func() time.Time) *Limiter {
@@ -61,7 +66,7 @@ func (l *Limiter) Allow(ctx context.Context, k *Key) (bool, int) {
 		l.keys[k.ID] = kl
 	}
 	if kl.day != day {
-		kl.day, kl.requests = day, l.storedRequests(ctx, k.ID, day)+l.pending[usageKey{k.ID, day}].requests
+		kl.day, kl.requests = day, l.storedRequests(ctx, k.ID, day)+l.pending[usageKey{k.ID, day}].public()
 	}
 	rate, burst := float64(k.Rate()), float64(k.BurstSize())
 	if el := now.Sub(kl.last).Seconds(); el > 0 {
@@ -144,16 +149,17 @@ func (l *Limiter) Count(k *Key) {
 	uk := usageKey{k.ID, day}
 	u := l.pending[uk]
 	u.requests++
+	u.internal++
 	l.pending[uk] = u
 }
 
-// storedRequests lê o uso já gravado da chave no dia (0 sem banco ou em erro).
+// storedRequests lê o uso da 9002 já gravado da chave no dia (0 sem banco ou em erro).
 func (l *Limiter) storedRequests(ctx context.Context, keyID string, day int64) int64 {
 	if l.db == nil {
 		return 0
 	}
 	var n int64
-	err := l.db.QueryRowContext(ctx, "SELECT requests FROM key_usage_daily WHERE key_id = ? AND day = ?", keyID, day).Scan(&n)
+	err := l.db.QueryRowContext(ctx, "SELECT requests - internal_requests FROM key_usage_daily WHERE key_id = ? AND day = ?", keyID, day).Scan(&n)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0
 	}
@@ -175,6 +181,7 @@ func (l *Limiter) Flush(ctx context.Context) error {
 		for k, u := range batch {
 			p := l.pending[k]
 			p.requests += u.requests
+			p.internal += u.internal
 			p.limited += u.limited
 			p.records += u.records
 			l.pending[k] = p
@@ -191,10 +198,11 @@ func (l *Limiter) write(ctx context.Context, batch map[usageKey]usage) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	for k, u := range batch {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, requests, limited, records)
-			VALUES (?, ?, ?, ?, ?) ON CONFLICT (key_id, day) DO UPDATE SET requests = requests + excluded.requests,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, requests, internal_requests, limited, records)
+			VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (key_id, day) DO UPDATE SET requests = requests + excluded.requests,
+			internal_requests = internal_requests + excluded.internal_requests,
 			limited = limited + excluded.limited, records = records + excluded.records`,
-			k.keyID, k.day, u.requests, u.limited, u.records); err != nil {
+			k.keyID, k.day, u.requests, u.internal, u.limited, u.records); err != nil {
 			return fmt.Errorf("bot: usage flush: %w", err)
 		}
 	}

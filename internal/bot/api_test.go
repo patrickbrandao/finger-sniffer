@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -468,6 +469,45 @@ func TestInternalKeyWithoutLimits(t *testing.T) {
 	f.clock.Advance(61 * time.Second)
 	if _, reasons := f.srv.Status(); slices.Contains(reasons, "block key limited") {
 		t.Fatalf("ainda marcado: %v", reasons)
+	}
+}
+
+// TestInternalUsageOutsideQuota: o uso da chave na 9003 (Count) fica gravado, mas não conta na cota diária da
+// 9002, nem em memória nem depois de um reinício que relê key_usage_daily (task 413, ADR 0073 item 4).
+func TestInternalUsageOutsideQuota(t *testing.T) {
+	db, _ := testDB(t)
+	ctx := context.Background()
+	clock := newFakeClock(time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC))
+	k := &Key{ID: "k1", RatePerS: 1000, Burst: 1000, DailyQuota: 3}
+	l := NewLimiter(db, clock.Now)
+	// 9003 antes da primeira chamada pela 9002 no dia: o pendente da 9003 não entra na cota em memória
+	for range 5 {
+		l.Count(k)
+	}
+	for i := range 2 {
+		if ok, _ := l.Allow(ctx, k); !ok {
+			t.Fatalf("9002 %d: recusada pelo uso da 9003 em memória", i+1)
+		}
+	}
+	for range 5 {
+		l.Count(k)
+	}
+	if err := l.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var req, internal int
+	if err := db.QueryRow("SELECT requests, internal_requests FROM key_usage_daily WHERE key_id = 'k1'").Scan(&req, &internal); err != nil ||
+		req != 12 || internal != 10 {
+		t.Fatalf("uso gravado: requests %d internal %d %v", req, internal, err)
+	}
+	// "reinício": limitador novo relê o dia; a cota restante da 9002 continua 1
+	l = NewLimiter(db, clock.Now)
+	l.Count(k)
+	if ok, _ := l.Allow(ctx, k); !ok {
+		t.Fatal("terceira pela 9002 recusada depois do reinício")
+	}
+	if ok, _ := l.Allow(ctx, k); ok {
+		t.Fatal("quarta pela 9002 aceita acima da cota")
 	}
 }
 
