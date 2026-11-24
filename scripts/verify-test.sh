@@ -9,7 +9,8 @@
 #     propósito), race-shard num módulo mínimo e o workflow (task 294);
 #   - o passo e2e é recusado com a trava da carga no servidor, salvo FS_E2E_DURING_LOAD=1 (task 361);
 #   - o quick acha os pacotes de mudanças fora de .go: testdata, arquivo embutido, diretório de dados, go.mod e o
-#     pacote deploy (task 362).
+#     pacote deploy (task 362);
+#   - o passo "testes com tag" compila e roda os pacotes de cada tag e falha com um pacote fora dos padrões (task 359).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -488,6 +489,51 @@ check "deploy: chave FS_* num .go aciona; num _test.go, não" 'deploy_triggered 
 check "deploy: docs/ não aciona" '! deploy_triggered "docs/x.md" ""'
 # o verify.sh real: unit alterada sozinha põe o pacote deploy nos afetados (owner)
 check "fora de .go: unit em deploy/systemd conta para o pacote deploy" '(cd "$ROOT" && nongo_pkgs deploy/systemd/finger-sniffer-web.service) | grep -qx "owner $MODULE/deploy"'
+
+# ---- task 359: testes com tag (spec 017 RF-08a) ------------------------------------------------------------
+# Módulo mínimo: l (load, teste que passa), e (só arquivos e2e), x (load, fora dos padrões quando pedido), lx
+# ("loadx": não é a tag load).
+TG="$T/tagged"
+mkdir -p "$TG/l" "$TG/e" "$TG/x" "$TG/lx"
+printf 'module example.com/tg\n\ngo 1.21\n' >"$TG/go.mod"
+printf 'package l\n\nfunc L() int { return 1 }\n' >"$TG/l/l.go"
+printf '//go:build load\n\npackage l\n\nimport "testing"\n\nfunc TestL(t *testing.T) {\n\tif L() != 1 {\n\t\tt.Fatal("L")\n\t}\n}\n' >"$TG/l/l_test.go"
+printf '//go:build e2e\n\npackage e\n\nimport "example.com/tg/l"\n\nvar E = l.L()\n' >"$TG/e/e_test.go"
+printf '//go:build load\n\npackage x\n' >"$TG/x/x.go"
+printf '//go:build loadx\n\npackage lx\n' >"$TG/lx/lx.go"
+(cd "$TG" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -qm init) || {
+	echo "FAIL git init do módulo de testes com tag"
+	exit 1
+}
+tg() {
+	(cd "$TG" && TAGGED_LOAD="./l/... ./x/..." TAGGED_E2E=./e/... TAGGED_GOLDEN=./golden/... TAGGED_LINUX_PRIV=./priv/... "$@")
+}
+check "tag: pacotes com //go:build load (loadx fica de fora)" '[ "$(tg tag_pkgs load | tr "\n" " ")" = "example.com/tg/l example.com/tg/x " ]'
+check "tag: pacote só com arquivos e2e" '[ "$(tg tag_pkgs e2e)" = "example.com/tg/e" ]'
+tg tagged_tests >"$T/out.tagged-ok" 2>&1
+tg_rc=$?
+check "testes com tag: passa e roda o teste load" '[ "$tg_rc" = 0 ] && grep -q "^ok .*example.com/tg/l" "$T/out.tagged-ok"'
+(cd "$TG" && TAGGED_LOAD=./l/... TAGGED_E2E=./e/... tagged_tests) >"$T/out.tagged-out" 2>&1
+tg_rc=$?
+check "testes com tag: pacote com tag fora dos padrões falha" '[ "$tg_rc" != 0 ] && grep -q "fora de" "$T/out.tagged-out" && grep -q "example.com/tg/x" "$T/out.tagged-out"'
+sed -i.bak 's/L() != 1/L() != 2/' "$TG/l/l_test.go" && rm -f "$TG/l/l_test.go.bak"
+tg tagged_tests >"$T/out.tagged-fail" 2>&1
+tg_rc=$?
+check "testes com tag: teste load que falha falha o passo" '[ "$tg_rc" != 0 ] && grep -q "^--- FAIL: TestL" "$T/out.tagged-fail"'
+(cd "$TG" && git checkout -q l/l_test.go)
+printf '//go:build e2e\n\npackage e\n\nvar E = undefinedThing\n' >"$TG/e/e_test.go"
+tg tagged_tests >"$T/out.tagged-vet" 2>&1
+tg_rc=$?
+check "testes com tag: arquivo e2e que não compila falha o vet" '[ "$tg_rc" != 0 ] && grep -q undefinedThing "$T/out.tagged-vet"'
+(cd "$TG" && git checkout -q e/e_test.go)
+check "testes com tag no quick: só os candidatos" '[ "$(tg tagged_quick example.com/tg/e other | tr "\n" " ")" = "e2e example.com/tg/e " ]'
+tg tagged_quick_run "$(printf 'load example.com/tg/l\ne2e example.com/tg/e\n')" >"$T/out.tagged-quick" 2>&1
+tg_rc=$?
+check "testes com tag no quick: roda cada tag com os seus pacotes" '[ "$tg_rc" = 0 ] && grep -q "^tag load: example.com/tg/l$" "$T/out.tagged-quick" && grep -q "^tag e2e: example.com/tg/e$" "$T/out.tagged-quick"'
+check "testes com tag no quick: nenhum candidato com tag" '[ -z "$(tg tagged_quick example.com/tg/lx)" ]'
+check "testes com tag: passo no full" 'grep -qE "run_step \"testes com tag\" tagged_tests" "$ROOT/scripts/verify.sh"'
+check "lint com as tags e2e, load e golden" 'grep -qE "^  build-tags: \[e2e, load, golden\]$" "$ROOT/.golangci.yml"'
+check "TestF8SimOffline sem a tag e2e" '! head -1 "$ROOT/test/e2e/f8_sim_offline_test.go" | grep -q "go:build" && grep -q "^func TestF8SimOffline(" "$ROOT/test/e2e/f8_sim_offline_test.go"'
 
 # ---- task 361: o passo e2e é recusado com a trava da carga no servidor --------------------------------------
 # O ssh é o stub acima (o "servidor" é esta máquina); go é trocado por um stub que só registra a chamada.

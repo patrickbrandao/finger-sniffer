@@ -213,12 +213,13 @@ packages_of_dirs() {
 	done | sort -u
 }
 
-# Pacotes que dependem (direta ou indiretamente, inclusive pelos testes) dos pacotes dados.
+# Pacotes que dependem (direta ou indiretamente, inclusive pelos testes) dos pacotes dados. LIST_TAGS (ex.:
+# load,e2e,golden) inclui os arquivos com essas tags no cálculo.
 reverse_deps() {
 	[ $# -eq 0 ] && return 0
 	local targets
 	targets=" $* "
-	go list -e -f '{{.ImportPath}} {{join .Deps " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' ./... 2>/dev/null |
+	go list -e ${LIST_TAGS:+-tags "$LIST_TAGS"} -f '{{.ImportPath}} {{join .Deps " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' ./... 2>/dev/null |
 		while read -r pkg deps; do
 			for d in $deps; do
 				case "$targets" in
@@ -238,6 +239,111 @@ with_tests() {
 	local p
 	for p in "$@"; do
 		ls "$(pkg_to_dir "$p")"/*_test.go >/dev/null 2>&1 && echo "$p"
+	done
+}
+
+# ---------------------------------------------------------------------------
+# Testes com tag (spec 017 RF-08a, task 359)
+# ---------------------------------------------------------------------------
+# Tags que nenhum passo sem tag compila e o que se faz com cada uma: load roda os testes; e2e e golden, vet (o e2e
+# precisa do finger-01, os golden são programas de captura); linux_priv, vet com GOOS=linux (os testes rodam no
+# finger-01 por ssh). Os padrões de cada tag no full; o passo falha se um pacote com a tag ficar fora deles.
+TAGGED_TAGS="load e2e golden linux_priv"
+TAGGED_LOAD="${FS_TAGGED_LOAD:-./test/load/...}"
+TAGGED_E2E="${FS_TAGGED_E2E:-./test/e2e/...}"
+TAGGED_GOLDEN="${FS_TAGGED_GOLDEN:-./test/golden/...}"
+TAGGED_LINUX_PRIV="${FS_TAGGED_LINUX_PRIV:-./internal/capture/... ./pkg/fingerprint/p0f/...}"
+# tags que o golangci-lint e o reverse_deps do quick enxergam (as de Linux ficam no vet com GOOS=linux)
+LINT_TAGS="load,e2e,golden"
+
+# tagged_patterns <tag>: padrões do full para a tag.
+tagged_patterns() {
+	case "$1" in
+	load) echo "$TAGGED_LOAD" ;;
+	e2e) echo "$TAGGED_E2E" ;;
+	golden) echo "$TAGGED_GOLDEN" ;;
+	linux_priv) echo "$TAGGED_LINUX_PRIV" ;;
+	esac
+}
+
+# tag_goos <tag>: GOOS do go list/vet da tag.
+tag_goos() {
+	case "$1" in linux_priv) echo linux ;; *) go env GOOS ;; esac
+}
+
+# tag_pkgs <tag> [diretórios]: pacotes com algum .go marcado //go:build com a tag (nos diretórios dados ou no
+# repositório inteiro).
+tag_pkgs() {
+	local tag="$1" dirs d
+	shift
+	if [ $# -gt 0 ]; then
+		dirs=$(for d in "$@"; do ls "$d"/*.go 2>/dev/null; done | tr '\n' '\0' |
+			xargs -0 grep -lE "^//go:build.*[^A-Za-z0-9_]$tag([^A-Za-z0-9_]|\$)" /dev/null 2>/dev/null |
+			xargs -n1 dirname 2>/dev/null | sort -u)
+	else
+		dirs=$(go_source_files | tr '\n' '\0' |
+			xargs -0 grep -lE "^//go:build.*[^A-Za-z0-9_]$tag([^A-Za-z0-9_]|\$)" /dev/null 2>/dev/null |
+			xargs -n1 dirname 2>/dev/null | sort -u)
+	fi
+	for d in $dirs; do
+		GOOS=$(tag_goos "$tag") go list -e -tags "$tag" -f '{{if not .Error}}{{.ImportPath}}{{end}}' "./$d" 2>/dev/null
+	done | sort -u
+}
+
+# tagged_run <tag> <pacotes...>: o que o passo faz com os pacotes da tag.
+tagged_run() {
+	local tag="$1"
+	shift
+	echo "tag $tag: $*"
+	case "$tag" in
+	load) go test -tags load -count=1 "$@" ;;
+	linux_priv) GOOS=linux go vet -tags linux_priv "$@" ;;
+	*) go vet -tags "$tag" "$@" ;;
+	esac
+}
+
+# tagged_tests: o passo "testes com tag" do full. Primeiro confere que todo pacote com tag está nos padrões dela
+# (nenhum arquivo com //go:build fica sem compilar), depois roda cada tag; todas rodam mesmo se uma falhar.
+tagged_tests() {
+	local tag rc=0 want have pats
+	for tag in $TAGGED_TAGS; do
+		pats=$(tagged_patterns "$tag")
+		want=$(tag_pkgs "$tag")
+		[ -n "$want" ] || continue
+		# shellcheck disable=SC2086 # padrões do go list
+		have=$(GOOS=$(tag_goos "$tag") go list -e -tags "$tag" -f '{{if not .Error}}{{.ImportPath}}{{end}}' $pats 2>/dev/null | sort -u)
+		if [ -n "$(LC_ALL=C comm -23 <(echo "$want") <(echo "$have"))" ]; then
+			echo "pacotes com a tag $tag fora de \"$pats\":"
+			LC_ALL=C comm -23 <(echo "$want") <(echo "$have") | sed 's/^/  /'
+			rc=1
+			continue
+		fi
+		# shellcheck disable=SC2086 # padrões do go list
+		tagged_run "$tag" $pats || rc=1
+	done
+	return $rc
+}
+
+# tagged_quick_run <linhas "<tag> <pacote>">: roda cada tag com os seus pacotes.
+tagged_quick_run() {
+	local tag rc=0 lines="$1"
+	for tag in $TAGGED_TAGS; do
+		# shellcheck disable=SC2046 # lista de pacotes
+		set -- $(echo "$lines" | awk -v t="$tag" '$1 == t { print $2 }')
+		[ $# -gt 0 ] || continue
+		tagged_run "$tag" "$@" || rc=1
+	done
+	return $rc
+}
+
+# tagged_quick <candidatos...>: "<tag> <pacote>" dos pacotes com tag entre os candidatos (afetados, dependentes
+# calculados com as tags e diretórios de .go alterados).
+tagged_quick() {
+	local tag p cands=" $* "
+	for tag in $TAGGED_TAGS; do
+		for p in $(tag_pkgs "$tag"); do
+			case "$cands" in *" $p "*) echo "$tag $p" ;; esac
+		done
 	done
 }
 
@@ -487,6 +593,7 @@ contracts_re() {
 # ---------------------------------------------------------------------------
 verify_quick() {
 	local explicit=() files go_files dirs go_pkgs pkgs nongo nongo_tests affected rdeps test_pkgs p start existing
+	local tag tagged_dirs tagged cands
 	if [ "${1:-}" = "--" ]; then
 		shift
 		explicit=("$@")
@@ -500,6 +607,16 @@ verify_quick() {
 	dirs=$( (echo "$files" | grep -E '\.go$' | xargs -n1 dirname 2>/dev/null) | sort -u)
 	# shellcheck disable=SC2086
 	go_pkgs=$(packages_of_dirs $dirs)
+	# pacotes com tag (load, e2e...) cujos .go mudaram: fora de go_pkgs quando todos os arquivos têm a tag
+	tagged_dirs=""
+	if [ -n "$go_files" ]; then
+		for tag in $TAGGED_TAGS; do
+			# shellcheck disable=SC2086
+			tagged_dirs="$tagged_dirs $(tag_pkgs "$tag" $dirs | while read -r p; do pkg_to_dir "$p"; done)"
+		done
+		# shellcheck disable=SC2086 # lista de diretórios
+		tagged_dirs=$(echo $tagged_dirs | tr ' ' '\n' | grep . | sort -u)
+	fi
 	# arquivos que não são .go contam para o pacote Go mais próximo acima deles (spec 017 RF-03, task 362)
 	# shellcheck disable=SC2086 # lista de arquivos (sem espaços no repositório)
 	nongo=$(nongo_pkgs $files)
@@ -523,6 +640,8 @@ verify_quick() {
 		run_step "format (alterados)" gofumpt_check $go_files
 		lint_dirs=""
 		for p in $go_pkgs; do lint_dirs="$lint_dirs $(pkg_to_dir "$p")"; done
+		# shellcheck disable=SC2086 # lista de diretórios
+		lint_dirs=$(echo $lint_dirs $tagged_dirs | tr ' ' '\n' | sort -u)
 		if [ -n "$lint_dirs" ]; then
 			# shellcheck disable=SC2086
 			run_step "lint (alterados)" golangci-lint run $lint_dirs
@@ -546,6 +665,22 @@ verify_quick() {
 		run_step "vet+build (afetados)" go vet $affected
 	else
 		skip_step "vet+build (afetados)" "nada afetado"
+	fi
+
+	# 2b. testes com tag dos afetados, dos dependentes (com as tags) e dos pacotes com tag alterados (RF-08a)
+	tagged=""
+	if [ -n "$pkgs$tagged_dirs" ]; then
+		# shellcheck disable=SC2086
+		cands=$( (echo "$pkgs"; LIST_TAGS="$LINT_TAGS" reverse_deps $pkgs
+			for p in $tagged_dirs; do go list -e -tags "$LINT_TAGS,linux_priv" -f '{{.ImportPath}}' "$p" 2>/dev/null; done) |
+			grep . | sort -u)
+		# shellcheck disable=SC2086
+		tagged=$(tagged_quick $cands)
+	fi
+	if [ -n "$tagged" ]; then
+		run_step "testes com tag (afetados)" tagged_quick_run "$tagged"
+	else
+		skip_step "testes com tag (afetados)" "nenhum pacote com tag afetado"
 	fi
 
 	# 3. banco-modelo SQLite (antes dos testes, que herdam FS_TEST_DB)
@@ -1029,6 +1164,7 @@ verify_full() {
 	run_step "verify-test" scripts/verify-test.sh
 	run_step "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
+	run_step "testes com tag" tagged_tests
 	run_step "contratos" contracts_check
 	run_step "examples asyncapi" asyncapi_examples_check
 	run_step "testes -race + cobertura" full_tests

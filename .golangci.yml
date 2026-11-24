@@ -3,6 +3,8 @@ version: "2"
 
 run:
   timeout: 5m
+  # Arquivos com tag entram no lint (spec 017 RF-08a, task 359); linux_priv fica no vet com GOOS=linux.
+  build-tags: [e2e, load, golden]
 
 linters:
   default: none
@@ -26,6 +28,9 @@ linters:
     rules:
       # Testes podem usar construções que o gosec reprova (arquivos temporários, números fixos).
       - path: _test\.go
+        linters: [gosec]
+      # Clientes e servidores de captura dos goldens (tag golden): URL e resposta vêm de quem roda a captura.
+      - path: ^test/golden/
         linters: [gosec]
 
 formatters:
