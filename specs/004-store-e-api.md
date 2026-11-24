@@ -100,14 +100,23 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   recusada (nenhuma linha em `connections`, `packets` ou `stray_packets`). Os dois casos contam em
   `fs_store_flows_dropped_total{reason=evicted|table_full}`. Sem limite por IP.
 - RF-12: publicação para o serviço bot (ADR 0047, spec 018): depois do commit de cada estágio da conexão
-  (`opened` com o SYN ou primeiro datagrama/evento analisado, `updated` quando um evento de aplicação é incorporado,
+  (`opened` quando a conexão fica estabelecida — ADR 0076 item 1: TCP no ACK do cliente depois do SYN-ACK ou no
+  primeiro evento de aplicação; UDP no primeiro datagrama do cliente depois da primeira resposta do espelho ou no
+  evento h3; a só de eventos na criação —, com o estado daquele instante e o `started` do SYN ou do primeiro
+  datagrama; `updated` quando um evento de aplicação é incorporado depois do `opened`,
   no máximo um a cada 100 ms por conexão — o primeiro sai na hora e os da janela viram um só no fim dela, com o estado
   daquele instante, ADR 0055 item 1 —, `closed` com o registro final), o store publica em `fs.v1.store.connection` (NATS core, fora do `FS_EVENTS`)
-  o `Connection` da API sem BLOBs, nos mesmos pontos em que o tempo real emite `connection.*`. Acima de 900 KiB,
+  o `Connection` da API sem BLOBs. Conexão que sai da tabela sem ter sido estabelecida (avulso, SYN-ACK seguido de
+  RST ou de silêncio, UDP respondido uma vez, despejada da fila `half`) não publica nenhum estágio nesse canal; a
+  órfã do reinício publica `closed` só se o registro gravado tiver `times.established` ou evento de aplicação. Toda
+  conexão com `opened` publicado recebe exatamente um `closed`: a só de eventos, quando sai do conjunto das só de
+  eventos por ociosidade sem ser adotada por pacotes; a que sai do banco sem registro (despejada, probe apagado),
+  com a marca `connection.discarded` (`evicted`, `deleted`; `stray` não chega a este canal) e o estado em memória
+  daquele instante (ADR 0076 itens 2 e 3). Acima de 900 KiB,
   corta as listas como na ADR 0032 e marca `connection_truncated`. A publicação não bloqueia o escritor:
   serialização e envio fora da transação, fila de 4096 mensagens com descarte contado
   (`fs_store_conn_publish_dropped_total`) e tempo em `fs_store_conn_publish_seconds` (histograma). Conexão em modo
-  degradado publica só `opened` e `closed`. Sem assinante, o NATS descarta.
+  degradado publica só `opened` (no mesmo marco) e `closed`. Sem assinante, o NATS descarta.
 - RF-13: o health conhece o sexto serviço `bot` como os outros (heartbeat, `down` após 15 s, `versions_match`).
 - RNF-01: `GET` de conexão/probe p95 < 100 ms; registro completo ≤ 500 ms após o fim (p95, TCP e QUIC; no QUIC
   o fim é o `http3.connection` com `close`, ADR 0026); evento ao vivo < 1 s (p99), medidos como na
@@ -238,7 +247,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   `lists_truncated`, `transport_params_truncated`, `h3_settings_truncated`, `websocket` sem frames e descrições,
   ADR 0032; asyncapi 0.5.0 com `upgrade_only`; 0.7.0, aditivo: `503` nas rotas finitas, corte por bytes, marcas
   `http_truncated`, `streams_truncated`, `requests_truncated`, `method_truncated`, `version_truncated` e
-  `controls.truncated`, ADRs 0066, 0067 e 0070; asyncapi 0.7.0; entram com as tasks 318, 319, 327 e 340).
+  `controls.truncated`, ADRs 0066, 0067 e 0070; asyncapi 0.7.0; entram com as tasks 318, 319, 327 e 340; 0.8.0,
+  aditivo: `ConnectionSummary.discarded`, ADR 0076, asyncapi 0.8.0, entra com a task 341).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
@@ -247,7 +257,7 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 | --- | --- | --- |
 | `connection.opened` | conexão criada (pacotes ou só eventos) | `ConnectionSummary` |
 | `connection.updated` | camada de aplicação fundida no registro aberto; no máximo 1 por conexão a cada 250 ms | `ConnectionSummary` |
-| `connection.closed` | registro finalizado e gravado | `ConnectionSummary` |
+| `connection.closed` | registro finalizado e gravado, ou a conexão saiu do banco sem registro (`data.discarded`: `stray` = virou avulso, `evicted` = despejada, `deleted` = probe apagado; ADR 0076); exatamente um por `connection.opened` | `ConnectionSummary` |
 | `http.request` | cada `http1.request`, `http2.stream`, `http3.request` | `HTTP1Request`, `HTTP2Stream`, `HTTP3Request` |
 | `dns.query` | cada consulta gravada | `DNSQuery` |
 | `packet.stray` | cada pacote avulso gravado | `StrayPacket` |
@@ -258,7 +268,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   (metadado `Timestamp` do JetStream; sem ele, o recebimento pelo consumidor), não o `ts` do envelope (o
   `raw.session` leva o accept e só sai no fim); atualização de registro já gravado → instante do store;
   `connection.closed` → fim (FIN/RST/`quic_close`) ou, por ociosidade e órfã do reinício, o instante em que o
-  store decidiu fechar; `http.request`/`dns.query` → `ts` do envelope; `packet.stray` → `ts` do pacote quando
+  store decidiu fechar; com `discarded`, o instante em que o store decidiu (saída da tabela do avulso e da conexão
+  escondida do probe apagado, despejo), e o do avulso sai junto dos `packet.stray` dos mesmos pacotes;
+  `http.request`/`dns.query` → `ts` do envelope; `packet.stray` → `ts` do pacote quando
   emitido na chegada (RST avulso, ICMP) ou, para o avulso decidido pelo fim do fluxo por ociosidade (UDP ou SYN
   sem resposta), o instante da decisão (ADR 0026);
   `stream.dropped` → envio. Os tempos do fato ficam em `data.started`/`data.ended`.
@@ -406,3 +418,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0068-delete-de-probe-em-lotes.md
 - specs/decisions/0069-despejo-do-udp-na-tabela-de-fluxos.md
 - specs/decisions/0056-segunda-onda-da-f8.md
+- specs/decisions/0076-estagios-da-conexao-sem-registro-e-opened-do-bot-no-handshake.md

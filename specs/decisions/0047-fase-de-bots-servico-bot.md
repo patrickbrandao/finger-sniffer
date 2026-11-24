@@ -1,6 +1,6 @@
 # 0047 — Fase de bots: serviço `bot`, fontes de dados e portas
 
-Status: aceita (traefik modificado: projeto externo traefix, ver 0054)
+Status: aceita (traefik modificado: projeto externo traefix, ver 0054; estágios de `fs.v1.store.connection` do item 3: ver 0076)
 Data: 2026-11-16
 
 ## Contexto

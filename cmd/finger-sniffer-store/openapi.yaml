@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.7.0
+  version: 0.8.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -25,7 +25,9 @@ info:
     servidor `finger-01.badblock.net.br`. 0.7.0 (ADR 0066, aditivo): `503` com `Retry-After` nas rotas finitas
     (orçamento de 256 MiB das respostas JSON em andamento e desligamento, inclusive `deleteProbe`, `/pcap` e
     `/raw`), corte por bytes (64 MiB por resposta) e a descrição do `DELETE` de probe (ADR 0068); (ADR 0067) `http_truncated`,
-    `http2.streams_truncated` e `http3.requests_truncated`.
+    `http2.streams_truncated` e `http3.requests_truncated`. 0.8.0 (ADR 0076, aditivo): `ConnectionSummary.discarded`
+    no `connection.closed` da conexão que saiu do banco sem registro; todo `connection.opened` recebe um
+    `connection.closed`.
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
@@ -561,6 +563,14 @@ components:
         ended: { $ref: "#/components/schemas/NullableTimestamp" }
         requests: { type: integer, description: Requisições HTTP (h1/h2/h3) na conexão. }
         degraded: { type: boolean }
+        discarded:
+          type: string
+          enum: [stray, evicted, deleted]
+          description: |
+            Só no `connection.closed` do tempo real (e no `closed` de `fs.v1.store.connection`) da conexão que saiu do
+            banco sem registro (ADR 0076): `stray` = virou pacotes avulsos (`packet.stray`), `evicted` = despejada
+            pela tabela de fluxos cheia, `deleted` = probe apagado pelo `DELETE`. O `conn_id` deixa de existir na
+            API (404); por isso nenhuma rota devolve o campo. Ausente = a conexão tem registro gravado.
 
     Connection:
       allOf:
@@ -1321,7 +1331,8 @@ components:
             Instante em que o espelho teve o fato e pôde emiti-lo (ADR 0025), base do atraso do feed (RNF-02):
             `connection.opened` = primeiro pacote ou evento; `connection.updated` = publicação do evento de
             aplicação que o produziu (entrada no stream do NATS), não o início da sessão; `connection.closed` =
-            fim por FIN/RST/QUIC ou, por ociosidade, o instante em que o espelho decidiu fechar;
+            fim por FIN/RST/QUIC ou, por ociosidade e com `data.discarded`, o instante em que o espelho decidiu
+            fechar ou descartar (exatamente um `connection.closed` por `connection.opened`, ADR 0076);
             `http.request`, `dns.query` = o fato; `packet.stray` = o pacote quando emitido na chegada (RST
             avulso, ICMP) ou, para o avulso decidido pelo fim do fluxo por ociosidade (UDP ou SYN sem resposta),
             o instante da decisão (ADR 0026); `stream.dropped` = o envio. Os tempos da conexão estão em
