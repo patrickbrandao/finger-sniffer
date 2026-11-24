@@ -427,3 +427,41 @@ func TestSpacePurgeCountsMissingReserve(t *testing.T) {
 		t.Fatalf("emergency purge must recreate the reserve: %v", err)
 	}
 }
+
+// TestDBFullModeNoBlobs: no modo banco cheio, o lote vai sem BLOBs também nos avulsos (frame vazio, length do fio
+// mantido) e a finalização de uma conexão aberta antes do modo não grava pcap (registro com pcap_truncated), como
+// uma conexão degradada (ADR 0045 item 5; task 381).
+func TestDBFullModeNoBlobs(t *testing.T) {
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.CloseGrace = prodGrace(t) })
+	in.SetSpace(newDBSpace(nil), nil)
+	other := netip.AddrPortFrom(mirror.Addr(), 7701)
+	run(t, in, 30, segBatch(client, other, closeSegs[:6])) // aberta antes do modo, com pcap em memória
+	if !in.space.enterFull(time.Unix(0, base)) {
+		t.Fatal("full mode")
+	}
+	in.now = func() time.Time { return time.Unix(0, base) } // dentro de fullNoReaderHold: o modo continua
+
+	rst := netip.AddrPortFrom(client.Addr(), 41999)
+	run(t, in, 100, segBatch(rst, mirror, []seg{{ms: 50, fromCli: true, flags: tcpRST, seq: 7}}))
+	var frameLen, length int
+	if err := db.QueryRow("SELECT length(frame), json_extract(record_json, '$.length') FROM stray_packets").Scan(&frameLen, &length); err != nil {
+		t.Fatal(err)
+	}
+	if frameLen != 0 || length == 0 {
+		t.Fatalf("stray in full mode: frame %d bytes, length %d", frameLen, length)
+	}
+
+	run(t, in, 1060+int(prodGrace(t)/time.Millisecond)+100, segBatch(client, other, closeSegs[6:]))
+	if !in.space.isFull() {
+		t.Fatal("full mode ended")
+	}
+	if n := count(t, db, "SELECT count(*) FROM connections WHERE ended_ns IS NOT NULL"); n != 1 {
+		t.Fatalf("%d finalized connections", n)
+	}
+	if n := count(t, db, "SELECT count(*) FROM pcaps"); n != 0 {
+		t.Fatalf("full mode wrote %d pcaps", n)
+	}
+	if n := count(t, db, "SELECT count(*) FROM connections WHERE pcap_truncated = 1 AND json_extract(record_json, '$.pcap_truncated') = 1"); n != 1 {
+		t.Fatal("record without pcap must be marked pcap_truncated")
+	}
+}

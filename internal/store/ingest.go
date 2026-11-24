@@ -569,7 +569,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		in.metrics.Add("store_stray_total", 1)
 		in.prom.strayPackets(1)
 		in.liveStray(fi, p.TsNs, strayRecord(fi, p.TsNs, p.Dir, int(p.WireLen)))
-		return st.insertStray(ctx, fi, p)
+		return st.insertStray(ctx, fi, p, in.strayFrame(p.Frame))
 	}
 	c := res.conn
 	if res.created {
@@ -872,7 +872,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 			sr := strayRecord(fi, p.ts, p.dir, p.wireLen)
 			in.liveStray(fi, max(decided, p.ts), sr)
 			rec, _ := json.Marshal(sr)
-			if _, err := tx.ExecContext(ctx, insStraySQL, p.ts, int(p.dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), p.frame); err != nil {
+			if _, err := tx.ExecContext(ctx, insStraySQL, p.ts, int(p.dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), in.strayFrame(p.frame)); err != nil {
 				return err
 			}
 		}
@@ -885,9 +885,16 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		return err
 	}
 
-	pcap := pcapHeader(in.cfg.Snaplen)
-	for _, p := range pkts {
-		pcap = appendPcapRecord(pcap, p.ts, p.wireLen, p.frame)
+	// Modo banco cheio: sem pcap, como uma conexão degradada, e o registro sai com pcap_truncated (ADR 0045
+	// item 5; task 381).
+	fullCut := in.space.isFull() && !c.degraded
+	noPcap := c.degraded || fullCut
+	var pcap []byte
+	if !noPcap {
+		pcap = pcapHeader(in.cfg.Snaplen)
+		for _, p := range pkts {
+			pcap = appendPcapRecord(pcap, p.ts, p.wireLen, p.frame)
+		}
 	}
 	end := c.endTs()
 	how, reason := "timeout", "idle"
@@ -898,8 +905,9 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		how, reason = "", "close" // closeInfo decide (fin/rst)
 	}
 	r := c.record(end, how)
+	r.PcapTruncated = r.PcapTruncated || fullCut
 	rec, _ := json.Marshal(r)
-	if !c.degraded {
+	if !noPcap {
 		if _, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO pcaps (conn_id, data, truncated) VALUES (?, ?, ?)", c.id, pcap, boolInt(c.truncated)); err != nil {
 			return err
 		}
@@ -912,7 +920,7 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	// updated_ns é o relógio do store no instante em que ele registrou o fechamento (settle do long-poll, ADR 0029):
 	// no fim por ociosidade, bem depois do último pacote.
 	if _, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ? WHERE conn_id = ?",
-		end, boolInt(c.truncated), string(rec), r.Proto, max(end, in.now().UnixNano()), c.id); err != nil {
+		end, boolInt(r.PcapTruncated), string(rec), r.Proto, max(end, in.now().UnixNano()), c.id); err != nil {
 		return err
 	}
 	// Por ociosidade, o fato "fechou" só existe quando o store decide (ADR 0025): o ts do feed é esse instante;
@@ -1090,10 +1098,19 @@ func (s *stmts) close() {
 	}
 }
 
-func (s *stmts) insertStray(ctx context.Context, fi frameInfo, p event.Packet) error {
+func (s *stmts) insertStray(ctx context.Context, fi frameInfo, p event.Packet, frame []byte) error {
 	rec, _ := json.Marshal(strayRecord(fi, p.TsNs, p.Dir, int(p.WireLen)))
-	_, err := s.insStray.ExecContext(ctx, p.TsNs, int(p.Dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), p.Frame)
+	_, err := s.insStray.ExecContext(ctx, p.TsNs, int(p.Dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), frame)
 	return err
+}
+
+// strayFrame é o frame gravado em stray_packets.frame: no modo banco cheio, vazio (a coluna é NOT NULL), porque
+// o lote vai sem BLOBs (ADR 0045 item 5); o length do registro continua o do fio (task 381).
+func (in *Ingestor) strayFrame(frame []byte) []byte {
+	if in.space.isFull() {
+		return []byte{}
+	}
+	return frame
 }
 
 // sqliteConstraintFK é o código estendido SQLITE_CONSTRAINT_FOREIGNKEY (787) do SQLite.

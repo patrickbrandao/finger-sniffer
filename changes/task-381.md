@@ -1,0 +1,1 @@
+- store: no modo banco cheio, os pacotes avulsos são gravados com `frame` vazio (o `length` do fio fica no registro) e a finalização de conexões abertas antes do modo não grava pcap (registro com `pcap_truncated`), como manda a ADR 0045 item 5 (task 381).
