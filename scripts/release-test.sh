@@ -58,6 +58,13 @@ check "SHA256SUMS cobre os binários" "[ \$(grep -c ' bin/finger-sniffer-' '$PKG
 check "SHA256SUMS ao lado do tar" "cmp -s '$PKG/SHA256SUMS' '$WORK/dist/$NAME.SHA256SUMS'"
 check ".sha256 do tar" "[ \"\$(awk '{print \$1}' '$TAR.sha256')\" = \"\$(sha256_of '$TAR')\" ]"
 check "versão nos binários" "grep -aqF '$VERSION' '$PKG/bin/finger-sniffer-web'"
+# os binários saem da toolchain do go.mod, e o make a exporta para todos os alvos (build e deploy inclusive), mesmo
+# com GOTOOLCHAIN=auto no ambiente; só a linha de comando a troca (task 395)
+TOOLCHAIN=$(sed -n 's/^toolchain //p' go.mod)
+check "toolchain do go.mod no go.mod ($TOOLCHAIN)" "[ -n '$TOOLCHAIN' ]"
+check "make exporta GOTOOLCHAIN do go.mod" "[ \"\$(GOTOOLCHAIN=auto make -s toolchain)\" = '$TOOLCHAIN' ]"
+check "GOTOOLCHAIN na linha de comando vale" "[ \"\$(make -s toolchain GOTOOLCHAIN=local)\" = local ]"
+check "binário compilado com $TOOLCHAIN" "go version '$PKG/bin/finger-sniffer-web' | grep -qE ': $TOOLCHAIN\$'"
 check "Git intocado" "[ \"\$(git_state)\" = \"\$before\" ]"
 check "dist/ do repositório intocado" "[ ! -e '$ROOT/dist/$NAME.tar.gz' ]"
 

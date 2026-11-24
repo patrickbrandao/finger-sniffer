@@ -1,0 +1,1 @@
+- `Makefile` exporta `GOTOOLCHAIN` com a toolchain do `go.mod` para todos os alvos: o `make build`/`make deploy` compila com o mesmo compilador da release e do CI mesmo com uma Go local mais nova; o checklist de release compara o SHA-256 dos binários implantados com o `SHA256SUMS` da tag (task 395).

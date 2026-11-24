@@ -8,8 +8,14 @@ COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 # a versão e o commit entram só pelo -X. Mesmo commit + mesma toolchain = mesmo SHA-256.
 LDFLAGS  := -s -w -buildid= -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(COMMIT)
 GOBUILD_FLAGS := -trimpath -buildvcs=false -mod=readonly
-# Toolchain exata fixada no go.mod (diretiva toolchain); usada por release e pelo teste de reprodutibilidade
+# Toolchain exata fixada no go.mod (diretiva toolchain), exportada para todos os alvos (build, test, deploy, release,
+# repro-check, verify): o binário do `make deploy` sai do mesmo compilador da release e do CI, mesmo com uma Go local
+# mais nova (task 395). Vale sobre o GOTOOLCHAIN do ambiente; outra só pela linha de comando (`make build
+# GOTOOLCHAIN=local`), menos em release e repro-check, que forçam a do go.mod. A primeira execução sem essa
+# toolchain instalada a baixa do proxy.
 GO_TOOLCHAIN := $(shell sed -n 's/^toolchain //p' go.mod)
+GOTOOLCHAIN := $(GO_TOOLCHAIN)
+export GOTOOLCHAIN
 BIN      := bin
 ARGS     ?=
 SVC      ?=
@@ -24,7 +30,7 @@ GOVULNCHECK_VERSION   := v1.9.0
 # Servidor ACME de teste (spec 015; usado pelos testes da task 027 via FS_TEST_PEBBLE)
 PEBBLE_VERSION        := v2.10.1
 
-.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy release repro-check clean clean-worktrees
+.PHONY: all tools tools-ci build test fmt lint verify-quick verify-full deploy release repro-check clean clean-worktrees toolchain
 
 all: build
 
@@ -88,6 +94,10 @@ repro-check:
 
 clean:
 	rm -rf $(BIN) dist
+
+# Toolchain que os alvos usam (a que o go vê no ambiente do make; conferida pelo scripts/release-test.sh)
+toolchain:
+	@go env GOTOOLCHAIN
 
 # Worktrees e branches task/* de tarefas com PR mergeado (task 374): só lista; ARGS=--apply remove
 clean-worktrees:
