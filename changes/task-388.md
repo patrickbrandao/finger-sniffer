@@ -1,0 +1,1 @@
+- test(e2e): caso 12 (`TestCase12HTTP3`) deixa de tolerar `h3_settings` acima de 2^53 com precisão perdida como falha conhecida da task 062 (já corrigida): qualquer diferença com o tshark falha, sem `t.Skipf` (task 388).
