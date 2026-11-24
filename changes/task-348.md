@@ -1,0 +1,1 @@
+- web: `pipelined` do HTTP/1 também conta a requisição que chegou ao kernel durante a resposta anterior (FIONREAD/SIOCINQ no fim da resposta), não só a que já estava no `bufio` (task 348).

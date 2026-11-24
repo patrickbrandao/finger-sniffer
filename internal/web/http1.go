@@ -30,6 +30,9 @@ type h1Session struct {
 	// handshakeEnd é o fim do handshake TCP (accept) ou TLS: base de t_first_byte_ms (spec 009 RF-06).
 	handshakeEnd time.Time
 	prevRespEnd  time.Time
+	// arrivedBeforeEnd diz se, no fim da resposta anterior, já havia bytes da próxima requisição no bufio
+	// ou na fila de recepção do kernel (spec 009 RF-05).
+	arrivedBeforeEnd bool
 	// ctl são os controles da requisição atual (nil fora de /r).
 	ctl *Controls
 	// h2up é o Upgrade: h2c aceito; o laço HTTP/1 termina e a conexão segue em h2 (spec 010 RF-05).
@@ -215,8 +218,9 @@ func (s *h1Session) fillTimes(req *h1.Request, idx int, buffered bool, firstByte
 		req.TFirstByteMs = ptr(max(msSince(s.handshakeEnd, firstByteAt), 0))
 		return
 	}
-	// Pipelining: a requisição já estava no buffer (ou chegou) antes de a resposta anterior terminar.
-	req.Pipelined = buffered || firstByteAt.Before(s.prevRespEnd)
+	// Pipelining: a requisição já estava no bufio agora ou chegou (bufio ou kernel) antes de a resposta
+	// anterior terminar. O instante da primeira leitura não serve: ela só acontece depois do fim da anterior.
+	req.Pipelined = buffered || s.arrivedBeforeEnd
 	req.TSincePrevResponseMs = ptr(max(msSince(s.prevRespEnd, firstByteAt), 0))
 }
 
@@ -334,6 +338,10 @@ func forHead(req *h1.Request, resp response) {
 // finish registra a resposta enviada e publica o evento da requisição.
 // status é o código da resposta final (0 se nada foi enviado).
 func (s *h1Session) finish(req *h1.Request, probeID string, outOffset int64, status int) {
+	// Antes de marcar o fim da resposta: o que já chegou até aqui é requisição em pipeline. Bytes que o
+	// tls.Conn já tirou do kernel e ainda não entregou ao bufio não são vistos (raro: só quando chegaram na
+	// mesma leitura de registros da requisição anterior).
+	s.arrivedBeforeEnd = s.br.Buffered() > 0 || rxPending(s.c.raw)
 	s.prevRespEnd = s.c.srv.now()
 	sent := s.w.Sent()
 	if sent.Size > 0 {
