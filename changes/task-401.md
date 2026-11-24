@@ -1,0 +1,1 @@
+- bot: banco aberto com `secure_delete(FAST)` e `forget` seguido de `wal_checkpoint(TRUNCATE)`: o IP esquecido ou expurgado não fica mais nos bytes de `bot.db` nem do WAL (ADR 0052 itens 1 e 5, task 401).

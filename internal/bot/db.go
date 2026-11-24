@@ -20,12 +20,14 @@ const keyUsageRetention = 90 * 24 * time.Hour
 
 // OpenDB abre (ou cria) o banco do bot em disco e aplica as migrations (ADR 0047 item 2). WAL com
 // synchronous=NORMAL: a queda do host perde no máximo as últimas transações, nunca corrompe o banco; a CLI abre o
-// mesmo arquivo com o serviço rodando (spec 018 RF-10).
+// mesmo arquivo com o serviço rodando (spec 018 RF-10). secure_delete(FAST) zera as células apagadas nas páginas
+// b-tree já tocadas pelo DELETE: sem ele, o IP de um forget ou do expurgo continuaria no arquivo até a página ser
+// reescrita (ADR 0052 itens 1 e 5, task 401).
 func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=secure_delete(FAST)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -99,14 +101,24 @@ func ParseIPOrPrefix(s string) (netip.Prefix, error) {
 	return netip.PrefixFrom(a, a.BitLen()), nil
 }
 
-// Forget apaga os agregados do IP ou prefixo (ADR 0052 item 5) e devolve quantas linhas saíram.
+// Forget apaga os agregados do IP ou prefixo (ADR 0052 item 5) e devolve quantas linhas saíram. Depois do DELETE
+// (com secure_delete), o checkpoint TRUNCATE leva as páginas zeradas ao arquivo e descarta as versões antigas delas
+// no WAL, que ainda tinham o IP (task 401). Com leitores abertos o checkpoint pode ficar parcial; o próximo
+// checkpoint (automático ou do expurgo) completa.
 func Forget(ctx context.Context, db *sql.DB, p netip.Prefix) (int64, error) {
 	lo, hi := prefixRange(p)
 	res, err := db.ExecContext(ctx, "DELETE FROM ip_hourly WHERE ip BETWEEN ? AND ?", lo, hi)
 	if err != nil {
 		return 0, fmt.Errorf("bot: forget: %w", err)
 	}
-	return res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return n, err
+	}
+	if _, err := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return n, fmt.Errorf("bot: forget: checkpoint: %w", err)
+	}
+	return n, nil
 }
 
 // Purge apaga os agregados mais velhos que retention e o uso diário das chaves mais velho que 90 dias. Devolve as
