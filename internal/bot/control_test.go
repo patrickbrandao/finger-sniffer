@@ -107,7 +107,7 @@ func TestForgetRunningService(t *testing.T) {
 		t.Fatalf("%v %s", err, errOut.String())
 	}
 	if !strings.Contains(out.String(), "forgot 192.0.2.1/32: 1 aggregate rows deleted") ||
-		!strings.Contains(out.String(), "service memory: reached (2 connections, 1 aggregate entries, 1 robot checks") {
+		!strings.Contains(out.String(), "service memory: reached (2 connections, 1 aggregate entries, 1 robot checks, 0 webhook events;") {
 		t.Fatalf("saída: %s", out.String())
 	}
 	check := func(when string) {

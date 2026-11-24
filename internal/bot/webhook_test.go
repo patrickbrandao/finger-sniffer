@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"testing"
 	"time"
@@ -93,4 +94,53 @@ func (f *fixture) createWebhookKey(o KeyOptions) (Key, string, []byte) {
 		f.t.Fatal("segredo do webhook não carregado")
 	}
 	return k, secret, wh
+}
+
+// TestForgetWebhookQueue: o forget do serviço (ForgetMemory) tira da fila do webhook os vereditos do IP esquecido
+// (o em envio termina sem nova tentativa) e conta em forgetResult.Webhook; os de outro IP seguem (task 299).
+func TestForgetWebhookQueue(t *testing.T) {
+	recv := make(chan string, 8)
+	block := make(chan struct{})
+	rcv := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		var ev VerdictEvent
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &ev)
+		recv <- ev.Ts
+		select {
+		case <-block:
+		case <-r.Context().Done():
+		}
+	}))
+	defer rcv.Close()
+
+	f := newFixture(t)
+	hc, hookURL := hookReceiver(t, rcv, "/hook")
+	f.srv.hooks = webhook.New(webhook.Options{Client: hc, Now: f.clock.Now, Count: f.metrics.Add})
+	f.createWebhookKey(KeyOptions{Name: "site", Domains: []string{"example.com"}, WebhookURL: hookURL})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); f.srv.hooks.Wait() }()
+	f.srv.syncWebhooks(ctx)
+	verdict := func(ip, ts string) *Verdict {
+		site := "example.com"
+		return &Verdict{Class: ClassBot, Signals: []Signal{}, Ts: ts, Subject: Subject{Kind: "request", Site: &site, Src: &endpoint{IP: ip, Port: 1}}}
+	}
+	f.srv.hub.Publish(verdict("192.0.2.1", "gone-1"))
+	if ts := <-recv; ts != "gone-1" { // em envio, preso no receptor
+		t.Fatalf("primeiro envio %q", ts)
+	}
+	f.srv.hub.Publish(verdict("192.0.2.1", "gone-2"))
+	f.srv.hub.Publish(verdict("198.51.100.7", "kept"))
+	res := f.srv.ForgetMemory(netip.MustParsePrefix("192.0.2.1/32"))
+	if res.Webhook != 2 {
+		t.Fatalf("forgetResult.Webhook = %d, quer 2", res.Webhook)
+	}
+	close(block)
+	if ts := <-recv; ts != "kept" {
+		t.Fatalf("depois do forget chegou %q, quer kept", ts)
+	}
+	select {
+	case ts := <-recv:
+		t.Fatalf("evento a mais: %q", ts)
+	case <-time.After(50 * time.Millisecond):
+	}
 }

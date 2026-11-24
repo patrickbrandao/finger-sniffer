@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -256,11 +257,24 @@ type Dispatcher struct {
 }
 
 type worker struct {
-	mu        sync.Mutex
-	target    Target
-	queue     chan []byte
+	mu     sync.Mutex
+	target Target
+	// queue é a fila da chave (até QueueSize, em ordem); ready acorda o entregador quando entra um evento. A fila é
+	// uma fatia sob mu, e não um canal, para o forget tirar dela os eventos de um prefixo sem perder a ordem.
+	queue []*item
+	ready chan struct{}
+	// current é o evento que o entregador tirou da fila (em envio ou esperando nova tentativa).
+	current   *item
 	cancel    context.CancelFunc
 	fullSince time.Time // início do período de fila cheia (zero = com espaço)
+}
+
+// item é um evento na fila: o corpo e o IP de origem do veredito (inválido = sem IP), para o forget.
+type item struct {
+	body []byte
+	src  netip.Addr
+	// forgotten é marcado pelo forget no evento que espera nova tentativa: o entregador desiste dele.
+	forgotten atomic.Bool
 }
 
 // New cria o despachante.
@@ -308,7 +322,7 @@ func (d *Dispatcher) SetTargets(ctx context.Context, targets []Target) {
 			continue
 		}
 		wctx, cancel := context.WithCancel(ctx)
-		w := &worker{target: t, queue: make(chan []byte, QueueSize), cancel: cancel}
+		w := &worker{target: t, ready: make(chan struct{}, 1), cancel: cancel}
 		d.workers[t.KeyID] = w
 		d.wg.Add(1)
 		go func() {
@@ -348,6 +362,12 @@ func (d *Dispatcher) Active() bool {
 // Publish põe o evento na fila de cada chave cujo filtro aceita; body é chamado no máximo uma vez, só se alguma
 // aceitar. Nunca bloqueia: fila cheia descarta e conta.
 func (d *Dispatcher) Publish(class, site string, body func() []byte) {
+	d.PublishFrom(class, site, netip.Addr{}, body)
+}
+
+// PublishFrom é o Publish com o IP de origem do veredito, guardado junto do evento para o Forget.
+func (d *Dispatcher) PublishFrom(class, site string, src netip.Addr, body func() []byte) {
+	src = src.Unmap()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var data []byte
@@ -363,17 +383,49 @@ func (d *Dispatcher) Publish(class, site string, body func() []byte) {
 				return
 			}
 		}
-		select {
-		case w.queue <- data:
-		default:
+		w.mu.Lock()
+		if len(w.queue) >= QueueSize {
 			d.opts.Count(metricDropped, 1)
-			w.mu.Lock()
 			if w.fullSince.IsZero() {
 				w.fullSince = d.opts.Now()
 			}
 			w.mu.Unlock()
+			continue
+		}
+		w.queue = append(w.queue, &item{body: data, src: src})
+		w.mu.Unlock()
+		select {
+		case w.ready <- struct{}{}:
+		default:
 		}
 	}
+}
+
+// Forget tira das filas de todas as chaves os eventos cujo IP de origem está em p, inclusive o que espera nova
+// tentativa, e devolve quantos saíram (ADR 0052 item 5, task 299). Um POST já em andamento não é cancelado: ele
+// termina, mas não tenta de novo. Eventos sem IP de origem ficam.
+func (d *Dispatcher) Forget(p netip.Prefix) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := 0
+	for _, w := range d.workers {
+		w.mu.Lock()
+		kept := w.queue[:0]
+		for _, it := range w.queue {
+			if it.src.IsValid() && p.Contains(it.src) {
+				n++
+				continue
+			}
+			kept = append(kept, it)
+		}
+		clear(w.queue[len(kept):])
+		w.queue = kept
+		if c := w.current; c != nil && c.src.IsValid() && p.Contains(c.src) && !c.forgotten.Swap(true) {
+			n++
+		}
+		w.mu.Unlock()
+	}
+	return n
 }
 
 // Backlog diz se a fila de alguma chave está cheia há mais de BacklogAfter (spec 018 RF-11).
@@ -397,31 +449,47 @@ func (d *Dispatcher) Wait() { d.wg.Wait() }
 // run entrega a fila de uma chave em ordem até ctx acabar.
 func (d *Dispatcher) run(ctx context.Context, w *worker) {
 	for {
-		select {
-		case <-ctx.Done():
+		w.mu.Lock()
+		if ctx.Err() != nil {
 			if n := len(w.queue); n > 0 {
 				d.opts.Count(metricDropped, float64(n))
 			}
-			return
-		case body := <-w.queue:
-			// a fila deixa de contar como cheia quando volta a ter metade livre
-			if len(w.queue) < QueueSize/2 {
-				w.mu.Lock()
-				w.fullSince = time.Time{}
-				w.mu.Unlock()
-			}
-			w.mu.Lock()
-			t := w.target
+			w.queue, w.current = nil, nil
 			w.mu.Unlock()
-			d.deliver(ctx, t, body)
+			return
 		}
+		if len(w.queue) == 0 {
+			w.mu.Unlock()
+			select {
+			case <-ctx.Done():
+			case <-w.ready:
+			}
+			continue
+		}
+		it := w.queue[0]
+		w.queue[0] = nil
+		w.queue = w.queue[1:]
+		w.current = it
+		// a fila deixa de contar como cheia quando volta a ter metade livre
+		if len(w.queue) < QueueSize/2 {
+			w.fullSince = time.Time{}
+		}
+		t := w.target
+		w.mu.Unlock()
+		d.deliver(ctx, t, it)
+		w.mu.Lock()
+		w.current = nil
+		w.mu.Unlock()
 	}
 }
 
-// deliver faz o POST com as novas tentativas.
-func (d *Dispatcher) deliver(ctx context.Context, t Target, body []byte) {
+// deliver faz o POST com as novas tentativas; um evento esquecido (Forget) não é mais enviado nem repetido.
+func (d *Dispatcher) deliver(ctx context.Context, t Target, it *item) {
 	for attempt := 0; ; attempt++ {
-		retry := d.send(ctx, t, body)
+		if it.forgotten.Load() {
+			return
+		}
+		retry := d.send(ctx, t, it.body)
 		if !retry || attempt >= len(RetryDelays) {
 			return
 		}
