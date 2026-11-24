@@ -183,14 +183,20 @@ skip_step() { record "$1" skip "$(now_ms)" "$2"; }
 # Auxiliares
 # ---------------------------------------------------------------------------
 
-# Arquivos alterados desde a base: commits + working tree + não rastreados.
-changed_files() {
-	local base_ref base
+# Commit base do quick: merge-base de HEAD com FS_VERIFY_BASE (padrão main; cai para origin/main).
+verify_base() {
+	local base_ref
 	base_ref="${FS_VERIFY_BASE:-main}"
 	if ! git rev-parse --verify -q "$base_ref" >/dev/null; then
 		base_ref="origin/main"
 	fi
-	base=$(git merge-base HEAD "$base_ref" 2>/dev/null || git rev-parse HEAD)
+	git merge-base HEAD "$base_ref" 2>/dev/null || git rev-parse HEAD
+}
+
+# Arquivos alterados desde a base: commits + working tree + não rastreados.
+changed_files() {
+	local base
+	base=$(verify_base)
 	{
 		git diff --name-only "$base"
 		git ls-files --others --exclude-standard
@@ -226,6 +232,117 @@ reverse_deps() {
 }
 
 pkg_to_dir() { echo "./${1#"$MODULE"/}"; }
+
+# with_tests <pacotes...>: só os que têm *_test.go no diretório.
+with_tests() {
+	local p
+	for p in "$@"; do
+		ls "$(pkg_to_dir "$p")"/*_test.go >/dev/null 2>&1 && echo "$p"
+	done
+}
+
+# ---------------------------------------------------------------------------
+# Mudanças fora de .go no quick (spec 017 RF-03, task 362)
+# ---------------------------------------------------------------------------
+# Arquivos que não pertencem a pacote nenhum: nenhum teste por eles, salvo os gatilhos próprios (contratos,
+# migrations, release-test).
+NONPKG_RE='^((specs|docs|tasks|changes|tmp)/|[^/]+\.md$)'
+
+# owner_dir <arquivo>: diretório Go mais próximo acima do arquivo (o primeiro com *.go subindo até a raiz); vazio
+# se não houver nenhum.
+owner_dir() {
+	local d
+	d=$(dirname "$1")
+	while :; do
+		if [ -d "$d" ] && ls "$d"/*.go >/dev/null 2>&1; then
+			echo "$d"
+			return 0
+		fi
+		[ "$d" = . ] && return 0
+		d=$(dirname "$d")
+	done
+}
+
+# pkgs_citing <texto> [diretório]: pacotes dos _test.go (versionados ou novos) que contêm <texto> como string
+# fixa, só abaixo de [diretório] quando dado.
+pkgs_citing() {
+	local dirs under="${2:-.}"
+	dirs=$(go_source_files | grep -E '_test\.go$' | awk -v u="$under/" 'u == "./" || index($0, u) == 1' |
+		tr '\n' '\0' | xargs -0 grep -lF -- "$1" /dev/null 2>/dev/null | xargs -n1 dirname 2>/dev/null | sort -u)
+	# shellcheck disable=SC2086 # lista de diretórios
+	packages_of_dirs $dirs
+}
+
+# nongo_pkgs <arquivos...>: pacotes afetados por arquivos alterados que não são .go. Escreve "owner <pacote>"
+# (o pacote Go mais próximo acima do arquivo: entra nos afetados antes dos dependentes, para vet/build e testes) e
+# "test <pacote>" (só testes). Em testdata/, só o dono; fora, também os dependentes do dono, os pacotes cujos
+# _test.go citam o caminho a partir da raiz e, para um diretório de dados sem .go abaixo do dono (ex.:
+# test/golden/pcaps), os pacotes abaixo do dono que citam o nome dele.
+nongo_pkgs() {
+	local f owner pkg rel datadir spread=""
+	: >"$WORK/nongo"
+	for f in "$@"; do
+		case "$f" in *.go | go.mod | go.sum | '') continue ;; esac
+		echo "$f" | grep -qE "$NONPKG_RE" && continue
+		owner=$(owner_dir "$f")
+		[ -n "$owner" ] || continue
+		pkg=$(packages_of_dirs "$owner")
+		[ -n "$pkg" ] || continue
+		echo "owner $pkg" >>"$WORK/nongo"
+		case "/$f" in */testdata/*) continue ;; esac
+		spread="$spread $pkg"
+		for pkg in $(pkgs_citing "$f"); do echo "test $pkg" >>"$WORK/nongo"; done
+		if [ "$(dirname "$f")" != "$owner" ]; then
+			rel="${f#"$owner"/}"
+			datadir="${rel%%/*}"
+			for pkg in $(pkgs_citing "$datadir" "$owner"); do echo "test $pkg" >>"$WORK/nongo"; done
+		fi
+	done
+	if [ -n "$spread" ]; then
+		# shellcheck disable=SC2046,SC2086 # lista de pacotes
+		reverse_deps $(echo $spread | tr ' ' '\n' | sort -u) | sed 's/^/test /' >>"$WORK/nongo"
+	fi
+	sort -u "$WORK/nongo"
+}
+
+# gomod_test_pkgs <base>: pacotes do módulo cujos testes rodam por uma mudança em go.mod/go.sum desde <base>. Linha
+# go/toolchain alterada: ./... inteiro; senão, os que importam (direta ou indiretamente, inclusive pelos testes) um
+# módulo cujo require/replace mudou no go.mod ou cuja linha mudou no go.sum.
+gomod_test_pkgs() {
+	local base="$1" diff mods
+	diff=$( (git diff "$base" -- go.mod; git diff "$base" -- go.sum) | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ')
+	if echo "$diff" | grep -qE '^[+-][[:space:]]*(go|toolchain)[[:space:]]'; then
+		go list ./...
+		return
+	fi
+	# módulo de cada linha: "require m v", "m v" dentro de um bloco, "replace m [v] => ..." e "m v h1:..." do go.sum
+	mods=$(echo "$diff" | sed -E 's/^[+-][[:space:]]*//; s/^(require|replace|exclude|retract)[[:space:]]+//; s/^\(//' |
+		awk '$1 ~ /\./ { print $1 }' | sort -u)
+	[ -n "$mods" ] || return 0
+	go list -e -test -f '{{if .ForTest}}{{.ForTest}}{{else}}{{.ImportPath}}{{end}} {{join .Deps " "}}' ./... 2>/dev/null |
+		awk -v mods="$mods" '
+			BEGIN { n = split(mods, m, "\n") }
+			{
+				pkg = $1
+				sub(/\.test$/, "", pkg)
+				for (i = 2; i <= NF; i++)
+					for (j = 1; j <= n; j++)
+						if ($i == m[j] || index($i, m[j] "/") == 1) { print pkg; next }
+			}' | grep -vE '^[^ ]*_test$' | sort -u
+}
+
+# deploy_triggered <arquivos> <arquivos .go>: verdadeiro se os testes do pacote deploy devem rodar: qualquer
+# arquivo de deploy/, o nats.conf, o .env.example ou um .go fora de teste com um literal "FS_..." (o
+# TestEnvExampleMatchesCodeKeys lê as chaves do código).
+deploy_triggered() {
+	local f
+	echo "$1" | grep -qE '^(deploy/|eventbus/nats/nats\.conf$|\.env\.example$)' && return 0
+	for f in $2; do
+		case "$f" in *_test.go) continue ;; esac
+		[ -f "$f" ] && grep -qE '"FS_[A-Z0-9_]+"' "$f" && return 0
+	done
+	return 1
+}
 
 # Prepara os bancos-modelo SQLite e exporta as variáveis para os testes: o do store (spec 017 RF-06;
 # FS_TEST_DB=local, FS_TEST_DB_TEMPLATE) e o do bot (RF-16; FS_TEST_BOT_DB=local, FS_TEST_BOT_DB_TEMPLATE), cada um
@@ -369,7 +486,7 @@ contracts_re() {
 # Nível rápido
 # ---------------------------------------------------------------------------
 verify_quick() {
-	local explicit=() files go_files dirs pkgs affected rdeps test_pkgs p start existing
+	local explicit=() files go_files dirs go_pkgs pkgs nongo nongo_tests affected rdeps test_pkgs p start existing
 	if [ "${1:-}" = "--" ]; then
 		shift
 		explicit=("$@")
@@ -382,7 +499,12 @@ verify_quick() {
 	go_files=$(echo "$files" | grep -E '\.go$' | while read -r f; do [ -f "$f" ] && echo "$f"; done)
 	dirs=$( (echo "$files" | grep -E '\.go$' | xargs -n1 dirname 2>/dev/null) | sort -u)
 	# shellcheck disable=SC2086
-	pkgs=$(packages_of_dirs $dirs)
+	go_pkgs=$(packages_of_dirs $dirs)
+	# arquivos que não são .go contam para o pacote Go mais próximo acima deles (spec 017 RF-03, task 362)
+	# shellcheck disable=SC2086 # lista de arquivos (sem espaços no repositório)
+	nongo=$(nongo_pkgs $files)
+	nongo_tests=$(echo "$nongo" | awk '$1 == "test" { print $2 }')
+	pkgs=$( (echo "$go_pkgs"; echo "$nongo" | awk '$1 == "owner" { print $2 }') | grep . | sort -u)
 	migrations_changed=$(echo "$files" | grep -c "^$MIGRATIONS_DIR/" || true)
 	bot_migrations_changed=$(echo "$files" | grep -c "^$BOT_MIGRATIONS_DIR/" || true)
 	gomod_changed=$(echo "$files" | grep -cE '^go\.(mod|sum)$' || true)
@@ -400,7 +522,7 @@ verify_quick() {
 		# shellcheck disable=SC2086
 		run_step "format (alterados)" gofumpt_check $go_files
 		lint_dirs=""
-		for p in $pkgs; do lint_dirs="$lint_dirs $(pkg_to_dir "$p")"; done
+		for p in $go_pkgs; do lint_dirs="$lint_dirs $(pkg_to_dir "$p")"; done
 		if [ -n "$lint_dirs" ]; then
 			# shellcheck disable=SC2086
 			run_step "lint (alterados)" golangci-lint run $lint_dirs
@@ -477,14 +599,16 @@ verify_quick() {
 	if [ ${#explicit[@]} -gt 0 ]; then
 		run_step "testes (explícitos)" go test "${explicit[@]}"
 	else
-		test_pkgs=""
-		for p in $pkgs; do
-			d=$(pkg_to_dir "$p")
-			ls "$d"/*_test.go >/dev/null 2>&1 && test_pkgs="$test_pkgs $p"
-		done
-		# scripts de deploy alterados: testes deles (pacote deploy)
-		if echo "$files" | grep -qE '^(deploy/.*\.sh|\.env\.example)$' && ls deploy/*_test.go >/dev/null 2>&1; then
+		# shellcheck disable=SC2086 # listas de pacotes
+		test_pkgs=$(with_tests $pkgs $nongo_tests | tr '\n' ' ')
+		# pacote deploy: qualquer arquivo dele, o nats.conf, o .env.example ou uma chave FS_* nova no código
+		if ls deploy/*_test.go >/dev/null 2>&1 && deploy_triggered "$files" "$go_files"; then
 			test_pkgs="$test_pkgs $MODULE/deploy"
+		fi
+		# go.mod/go.sum: quem importa um módulo que mudou (linha go/toolchain: ./...)
+		if [ "$gomod_changed" -gt 0 ]; then
+			# shellcheck disable=SC2046 # lista de pacotes
+			test_pkgs="$test_pkgs $(with_tests $(gomod_test_pkgs "$(verify_base)") | tr '\n' ' ')"
 		fi
 		# contratos alterados: testes que leem openapi/asyncapi como texto (ex.: TestPayloadsMatchAsyncAPI)
 		if [ "$contracts_changed" -gt 0 ]; then
