@@ -19,6 +19,10 @@ var urlRe = regexp.MustCompile(`(?i)\b(https?|wss?)://([^\s"'<>()/\x60]*)`)
 // svgNamespace é o único "http://" que não é requisição: o namespace do SVG.
 const svgNamespace = `xmlns="http://www.w3.org/2000/svg"`
 
+// cspMetaRe acha a CSP em <meta> do index.html: as origens dela são fontes com curinga, não requisições, e são
+// conferidas à parte pelo TestIndexCSP (task 391).
+var cspMetaRe = regexp.MustCompile(`<meta http-equiv="Content-Security-Policy" content="[^"]*" />`)
+
 // TestSiteURLs: nenhum http(s)/ws(s) fora da API e da zona dos probes, em nenhum arquivo do site. As URLs
 // montadas por template no app.mjs só podem usar ${host}, que é sempre <id>.PROBE_ZONE, com a porta explícita do web
 // (${TLS_PORT} ou ${PLAIN_PORT}): sem porta, a sondagem cairia no traefik da 80/443 (ADR 0038).
@@ -30,6 +34,12 @@ func TestSiteURLs(t *testing.T) {
 				t.Errorf("favicon.svg: namespace SVG inesperado")
 			}
 			data = bytes.Replace(data, []byte(svgNamespace), nil, 1)
+		}
+		if name == "index.html" {
+			if n := len(cspMetaRe.FindAll(data, -1)); n != 1 {
+				t.Errorf("index.html: %d metas de CSP, quero 1", n)
+			}
+			data = cspMetaRe.ReplaceAll(data, nil)
 		}
 		for _, m := range urlRe.FindAllSubmatch(data, -1) {
 			host := string(m[2])

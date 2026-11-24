@@ -1,0 +1,1 @@
+- htdocs: Content-Security-Policy em `<meta>` na página (script, estilo e imagem só da origem, `connect-src` só para a API 9000/9001 e a zona dos probes, `base-uri`/`form-action 'none'`), conferida por `TestIndexCSP`; as respostas do espelho não mudam (task 391).
