@@ -42,7 +42,7 @@ com a série ausente, e não `== 0` nem comparação com o valor anterior:
 | Serviço | Métricas |
 | --- | --- |
 | capture | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total`, `fs_capture_packets_in_total`, `fs_capture_packets_out_total`, `fs_capture_batches_total`, `fs_capture_queue_freezes_total`, `fs_capture_max_frame_bytes`, `fs_capture_filtered_userspace_total`, `fs_capture_offload_suspect_total`, `fs_capture_truncated_total`, `fs_dropped_events_total` (detalhes [abaixo](#capture)) |
-| web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening`, `fs_web_h3_init_table_full_total`, `fs_web_input_budget_used_bytes`, `fs_web_input_budget_denied_total`, `fs_web_events_oversize_total`, `fs_web_events_marshal_errors_total`, `fs_web_panics_total`, `fs_web_acme_issued_total`, `fs_web_acme_failures_total` (detalhes [abaixo](#web)) |
+| web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening`, `fs_web_h3_init_table_full_total`, `fs_web_input_budget_used_bytes`, `fs_web_input_budget_denied_total`, `fs_web_events_oversize_total`, `fs_web_events_marshal_errors_total`, `fs_web_panics_total`, `fs_web_acme_issued_total`, `fs_web_acme_failures_total`, `fs_web_acme_capped_total` (detalhes [abaixo](#web)) |
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total`, `fs_raw_input_budget_used_bytes`, `fs_raw_input_budget_denied_total`, `fs_raw_panics_total` (detalhes [abaixo](#raw)) |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
 | store | `fs_store_app_events_total`, `fs_store_packets_total`, `fs_store_late_packets_total`, `fs_store_late_dropped_total`, `fs_store_raw_stream_bytes_total`, `fs_store_conn_id_requests_total`, `fs_store_conn_id_invalid_total`, `fs_store_pending_events_total`, `fs_store_event_only_connections_total`, `fs_store_bad_events_total`, `fs_store_bad_batches_total`, `fs_store_batch_count_mismatch_total`, `fs_store_ingest_errors_total`, `fs_store_finalize_retries_total`, `fs_store_packet_spills_total` (detalhes [abaixo](#store-heartbeat)) |
@@ -101,6 +101,7 @@ fs_dropped_events_total{service="capture"} 0
 | `fs_web_events_marshal_errors_total` | eventos que falharam ao serializar, descartados |
 | `fs_web_acme_issued_total` | certificados emitidos e gravados pelo ACME (spec 015) |
 | `fs_web_acme_failures_total` | tentativas de emissão ou renovação que falharam (o web repete com espera crescente) |
+| `fs_web_acme_capped_total` | emissões recusadas pelo teto de 3 por slot em 7 dias contra CA de produção (task 351; o motivo `acme_issue_capped:<slot>` aparece nos `Reasons()` do ACME) |
 
 `fs_web_input_budget_used_bytes` e `fs_web_input_budget_denied_total` existem desde a partida do web; os demais
 aparecem no primeiro uso.
