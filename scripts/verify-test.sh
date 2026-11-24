@@ -12,7 +12,8 @@
 #     pacote deploy (task 362);
 #   - o passo "testes com tag" compila e roda os pacotes de cada tag e falha com um pacote fora dos padrões (task 359);
 #   - o p0f.fp de deploy/versions.env (download, SHA, cache) e os testes sem -race: lista completa e job norace
-#     (task 360).
+#     (task 360);
+#   - o e2e confere a versão implantada antes e depois, com um health falso (stub de curl) (task 356).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -616,6 +617,61 @@ rm -f "$LL/fs-load-running" "$LL/go.log"
 ll_e2e 0 absent
 ll_rc=$?
 check "e2e roda sem a trava" '[ "$ll_rc" = 0 ] && grep -q "go test .*-tags e2e" "$LL/go.log"'
+
+# ---- task 356: o e2e confere a versão implantada antes e depois (spec 017 RF-09) ---------------------------
+# curl é trocado por um stub que devolve, a cada chamada, o próximo health de $VV/health.N (o último se repete);
+# go registra a chamada e sai com $VV_GO_RC. O ssh da trava da carga é o stub acima (trava ausente).
+VV="$T/version"
+mkdir -p "$VV/bin"
+cat >"$VV/bin/curl" <<'EOS'
+#!/usr/bin/env bash
+n=$(($(cat "$VV/count" 2>/dev/null || echo 0) + 1))
+echo "$n" >"$VV/count"
+echo "$*" >>"$VV/curl.log"
+f="$VV/health.$n"
+[ -f "$f" ] || f=$(ls "$VV"/health.* | sort -t. -k2 -n | tail -1)
+cat "$f"
+EOS
+cat >"$VV/bin/go" <<'EOS'
+#!/usr/bin/env bash
+echo "go $*" >>"$VV/go.log"
+exit "${VV_GO_RC:-0}"
+EOS
+chmod +x "$VV/bin/curl" "$VV/bin/go"
+health() { printf '{"versions_match":%s,"services":{"store":{"status":"ok","version":"%s"}}}' "$2" "$1"; }
+# vv <rótulo> <rc do go> <health 1> [health 2]: roda e2e_steps (versão, e2e, versão depois) num subshell
+vv() {
+	rm -f "$VV"/health.* "$VV/count" "$VV/go.log" "$VV/curl.log"
+	local i=1 label="$1" rc="$2"
+	shift 2
+	for h in "$@"; do
+		echo "$h" >"$VV/health.$i"
+		i=$((i + 1))
+	done
+	(
+		export PATH="$VV/bin:$PATH" VV VV_GO_RC="$rc" FS_E2E_EXPECT_VERSION=v1.2.3 LOAD_LOCK="$VV/sem-trava"
+		MODE=full STOP_ON_FAIL=1
+		e2e_steps
+	) >"$T/out.version-$label" 2>&1
+}
+vv igual 0 "$(health v1.2.3 true)"
+vv_rc=$?
+check "versão implantada: igual antes e depois passa e roda o e2e" '[ "$vv_rc" = 0 ] && grep -q "go test .*-tags e2e" "$VV/go.log" && [ "$(cat "$VV/count")" = 2 ]'
+check "versão implantada: lê o health da 9001 do FS_E2E_HOST" 'grep -q "http://finger-01.badblock.net.br:9001/api/v1/health" "$VV/curl.log"'
+vv diferente 0 "$(health v1.2.2 true)"
+vv_rc=$?
+check "versão implantada: versão diferente reprova antes do go test" '[ "$vv_rc" != 0 ] && [ ! -s "$VV/go.log" ] && grep -q "finger-01 roda v1.2.2, o teste é de v1.2.3: rode make deploy" "$T/out.version-diferente"'
+vv desencontro 0 "$(health v1.2.3 false)"
+vv_rc=$?
+check "versão implantada: versions_match=false reprova antes do go test" '[ "$vv_rc" != 0 ] && [ ! -s "$VV/go.log" ] && grep -q "versions_match=false" "$T/out.version-desencontro"'
+vv mudou 0 "$(health v1.2.3 true)" "$(health v1.2.4 true)"
+vv_rc=$?
+check "versão implantada: troca durante a suíte reprova o depois" '[ "$vv_rc" != 0 ] && [ -s "$VV/go.log" ] && grep -q "mudou durante o e2e" "$T/out.version-mudou" && grep -qE "✗ +versão implantada \(depois\)" "$T/out.version-mudou"'
+vv e2efalha 1 "$(health v1.2.3 true)"
+vv_rc=$?
+check "versão implantada: o depois roda mesmo com o e2e reprovado" '[ "$vv_rc" != 0 ] && [ "$(cat "$VV/count")" = 2 ] && grep -qE "✓ +versão implantada \(depois\)" "$T/out.version-e2efalha"'
+check "versão implantada: sem FS_E2E_EXPECT_VERSION vale o git describe local" '[ "$(cd "$M" && env -u FS_E2E_EXPECT_VERSION bash -c ". \"\$1/scripts/verify.sh\" lib; cd \"\$2\"; e2e_expected_version" _ "$ROOT" "$M")" = "$(cd "$M" && git describe --tags --always --dirty)" ]'
+check "versão implantada: o full chama e2e_steps" 'grep -qE "^[[:space:]]+e2e_steps$" "$ROOT/scripts/verify.sh"'
 
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do
