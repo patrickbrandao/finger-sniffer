@@ -12,7 +12,8 @@ const (
 	DefaultMaxPriorityFrames = 10000
 	// DefaultMaxFrames limita a lista de frames registrada (ADR 0018: cada frame custa ~90 bytes de JSON).
 	DefaultMaxFrames = 4096
-	// DefaultMaxStreams limita os streams registrados por conexão.
+	// DefaultMaxStreams limita os streams registrados ao mesmo tempo por conexão (os publicados saem com
+	// Parser.ForgetStream e liberam a vaga; task 349).
 	DefaultMaxStreams = 1000
 	// DefaultMaxSettings limita os pares do SETTINGS registrados.
 	DefaultMaxSettings = 256
@@ -34,7 +35,7 @@ const (
 type Limits struct {
 	MaxPriorityFrames int // frames PRIORITY registrados; acima disso `priority_frames_capped`
 	MaxFrames         int // frames na lista; acima disso `frames_truncated`
-	MaxStreams        int // streams registrados
+	MaxStreams        int // streams registrados ao mesmo tempo (ForgetStream libera a vaga)
 	MaxSettings       int // pares do SETTINGS registrados
 	MaxFieldsPerBlock int // campos por bloco HPACK
 	MaxHeaderBlock    int // bytes por bloco de cabeçalho; acima disso a decodificação HPACK para

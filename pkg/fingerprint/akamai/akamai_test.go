@@ -78,6 +78,13 @@ func TestChromeFoxIOCapture(t *testing.T) {
 		"1:65536;2:0;3:1000;4:6291456;6:262144|15663105|0|m,a,s,p"; got != want {
 		t.Fatalf("akamai = %q, want %q", got, want)
 	}
+	// task 349: com o primeiro stream esquecido depois de publicado, o PS continua o mesmo
+	p := h2passive.NewParser(h2passive.Options{})
+	p.Feed(0, raw)
+	p.ForgetStream(p.Info().FirstHeadersStream)
+	if got, want := FromInfo(p.Info()), "1:65536;2:0;3:1000;4:6291456;6:262144|15663105|0|m,a,s,p"; got != want {
+		t.Fatalf("akamai depois do ForgetStream = %q, want %q", got, want)
+	}
 }
 
 func TestEdgeCases(t *testing.T) {

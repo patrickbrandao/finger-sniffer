@@ -127,3 +127,47 @@ func TestH2AssocConnect(t *testing.T) {
 		t.Fatalf("connect stream %v %v", st["stream_id"], st["status"])
 	}
 }
+
+// TestH2ManyStreamsOneConn (task 349): mais requisições numa conexão h2c que o teto de streams do parser
+// passivo: todo stream sai com o seu stream_id, campos e JA4H (o publicado é esquecido e libera a vaga), e o
+// Akamai do nível de conexão mantém a ordem dos pseudo-cabeçalhos do primeiro stream.
+func TestH2ManyStreamsOneConn(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	c := dial(t, h.addr80)
+	r := newH2Raw(t, c, true)
+	_ = r.fr.WriteSettings()
+	// janela da conexão grande: o cliente não lê devagar
+	_ = r.fr.WriteWindowUpdate(0, 1<<30)
+	const n = 1100
+	path := "/p/" + testProbe + "/"
+	for i := range n {
+		id := uint32(2*i + 1)
+		r.rawHeaders(id, true, h2Get(path, [2]string{"x-seq", itoa(i)})...)
+		r.until(func(f http2.Frame) bool {
+			d, ok := f.(*http2.DataFrame)
+			return ok && d.StreamID == id && d.StreamEnded()
+		})
+	}
+	evs := h.events.wait(t, event.SubjectWebHTTP2Stream, srcPort(c), n)
+	got := byStreamID(t, evs)
+	if len(evs) != n || len(got) != n {
+		t.Fatalf("%d eventos, %d stream_id distintos", len(evs), len(got))
+	}
+	for i := range n {
+		st, ok := got[2*i+1]
+		if !ok {
+			t.Fatalf("sem evento do stream %d", 2*i+1)
+		}
+		po, _ := st["pseudo_order"].([]any)
+		if streamField(st, "x-seq") != itoa(i) || len(po) != 4 || st["ja4h"] == nil ||
+			st["request_started_at"] == nil || num(t, st["status"]) != 200 {
+			t.Fatalf("stream %d: %v", 2*i+1, st)
+		}
+	}
+	_ = c.Close()
+	conns := h.events.wait(t, event.SubjectWebHTTP2Connection, srcPort(c), 2)
+	last := conns[len(conns)-1].Payload
+	if ak, _ := last["akamai"].(string); !strings.HasSuffix(ak, "|m,s,a,p") {
+		t.Fatalf("akamai %q", last["akamai"])
+	}
+}

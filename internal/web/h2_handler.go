@@ -106,11 +106,13 @@ func (st *h2Stream) finish() {
 	h.fillInstants(&st.rec, st.upgrade)
 	h.publishStream(&st.rec, st.probeID)
 	h.decodedHold.release(st.decoded)
-	// Publicado: os campos do stream saem dos parsers e o custo volta ao orçamento (ADR 0033).
+	// Publicado: o stream sai dos parsers, o custo dos campos volta ao orçamento (ADR 0033) e a vaga do teto
+	// de streams fica livre para as requisições seguintes da conexão (task 349).
 	if st.rec.StreamID != 0 {
 		h.mu.Lock()
-		h.in.ReleaseFields(st.rec.StreamID)
-		h.out.ReleaseFields(st.rec.StreamID)
+		h.in.ForgetStream(st.rec.StreamID)
+		h.out.ForgetStream(st.rec.StreamID)
+		delete(h.claimed, st.rec.StreamID)
 		h.mu.Unlock()
 	}
 	if first {

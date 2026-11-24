@@ -183,17 +183,18 @@ func fieldMisses(st *h2passive.HTTP2Stream, hdr http.Header) int {
 
 // refreshLocked relê o stream (fim do stream e trailers que chegaram depois do HEADERS).
 func (h *h2Conn) refreshLocked(st *h2passive.HTTP2Stream) {
-	info := h.in.Info()
-	for i := range info.Streams {
-		if info.Streams[i].StreamID == st.StreamID {
-			st.EndStream = info.Streams[i].EndStream
-			st.Fields = slices.Clone(info.Streams[i].Fields)
-			st.FieldsCut = info.Streams[i].FieldsCut
-			if st.Priority == nil {
-				st.Priority = info.Streams[i].Priority
-			}
-			return
-		}
+	if st.StreamID == 0 {
+		return
+	}
+	in, ok := h.in.Stream(st.StreamID)
+	if !ok {
+		return
+	}
+	st.EndStream = in.EndStream
+	st.Fields = slices.Clone(in.Fields)
+	st.FieldsCut = in.FieldsCut
+	if st.Priority == nil {
+		st.Priority = in.Priority
 	}
 }
 
@@ -204,22 +205,13 @@ const h2EndWait = time.Second
 
 // streamOutLocked devolve o stream id visto pelo parser out (cópia) e se existe. Chamar com h.mu.
 func (h *h2Conn) streamOutLocked(id uint32) (h2passive.HTTP2Stream, bool) {
-	for _, st := range h.out.Info().Streams {
-		if st.StreamID == id {
-			return st, true
-		}
-	}
-	return h2passive.HTTP2Stream{}, false
+	return h.out.Stream(id)
 }
 
 // clientResetLocked informa se o parser in viu RST_STREAM do cliente no stream id. Chamar com h.mu.
 func (h *h2Conn) clientResetLocked(id uint32) bool {
-	for _, st := range h.in.Info().Streams {
-		if st.StreamID == id {
-			return !st.ResetAt.IsZero()
-		}
-	}
-	return false
+	st, ok := h.in.Stream(id)
+	return ok && !st.ResetAt.IsZero()
 }
 
 // fillInstants preenche os instantes do stream (spec 010 RF-08, ADR 0029): os da requisição pelo parser in
@@ -269,11 +261,8 @@ wait:
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !upgrade {
-		for _, in := range h.in.Info().Streams {
-			if in.StreamID == rec.StreamID {
-				rec.RequestStartedAt, rec.RequestEndedAt = instant(in.HeadersAt), instant(in.EndAt)
-				break
-			}
+		if in, ok := h.in.Stream(rec.StreamID); ok {
+			rec.RequestStartedAt, rec.RequestEndedAt = instant(in.HeadersAt), instant(in.EndAt)
 		}
 	}
 	if out, ok := h.streamOutLocked(rec.StreamID); ok {

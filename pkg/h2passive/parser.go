@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -183,6 +184,9 @@ type HTTP2Info struct {
 	PrioritiesBeforeHeaders int `json:"-"`
 	// FirstHeadersStream é o stream do primeiro HEADERS (0 se nenhum).
 	FirstHeadersStream uint32 `json:"-"`
+	// FirstPseudoOrder é a ordem dos pseudo-cabeçalhos do primeiro bloco de FirstHeadersStream (a do
+	// Akamai), guardada à parte para sobreviver a [Parser.ForgetStream]; nil se o bloco não foi lido.
+	FirstPseudoOrder []string `json:"-"`
 	// PriorityFrames é o total de frames PRIORITY vistos, inclusive os não registrados.
 	PriorityFrames int `json:"-"`
 	// FrameCount é o total de frames vistos, inclusive os cortados da lista.
@@ -234,7 +238,11 @@ type Parser struct {
 	blockOpen   bool
 	hpackDead   bool
 
-	streams     map[uint32]int
+	streams map[uint32]int
+	// forgotMax é o maior stream esquecido (ForgetStream) no sentido in: o cliente só abre streams com id
+	// maior que todos os anteriores (RFC 9113 seção 5.1.1), então HEADERS com id <= forgotMax são trailers
+	// tardios de um stream já publicado e não recriam o registro.
+	forgotMax   uint32
 	retained    int // custo dos campos guardados agora (teto MaxRetainedFieldBytes)
 	settingsSet bool
 	seenHeaders bool
@@ -624,6 +632,9 @@ func (p *Parser) finishBlock() {
 		}
 		if first {
 			st.HeadFields = len(st.Fields)
+			if p.blockStream == p.info.FirstHeadersStream && p.info.FirstPseudoOrder == nil {
+				p.info.FirstPseudoOrder = slices.Clone(st.PseudoOrder)
+			}
 		}
 	}
 	if err != nil {
@@ -650,6 +661,35 @@ func (p *Parser) ReleaseFields(id uint32) {
 	st.HeadFields = 0
 }
 
+// ForgetStream tira do registro o stream id já publicado por quem monta o registro: solta os campos (como
+// [Parser.ReleaseFields]) e libera a vaga do teto MaxStreams, que assim vale para os streams registrados ao
+// mesmo tempo, não para a conexão inteira (task 349). A tabela HPACK não muda. No sentido in, frames
+// tardios do stream esquecido (trailers, END_STREAM, RST_STREAM) não o recriam.
+func (p *Parser) ForgetStream(id uint32) {
+	i, ok := p.streams[id]
+	if !ok {
+		return
+	}
+	p.ReleaseFields(id)
+	if p.opts.Dir == DirIn && id > p.forgotMax {
+		p.forgotMax = id
+	}
+	delete(p.streams, id)
+	p.info.Streams = slices.Delete(p.info.Streams, i, i+1)
+	for j := i; j < len(p.info.Streams); j++ {
+		p.streams[p.info.Streams[j].StreamID] = j
+	}
+}
+
+// Stream devolve uma cópia do stream id registrado e se ele existe (sem varrer a lista).
+func (p *Parser) Stream(id uint32) (HTTP2Stream, bool) {
+	i, ok := p.streams[id]
+	if !ok {
+		return HTTP2Stream{}, false
+	}
+	return p.info.Streams[i], true
+}
+
 // RetainedFieldBytes devolve o custo dos campos guardados agora.
 func (p *Parser) RetainedFieldBytes() int { return p.retained }
 
@@ -665,12 +705,13 @@ func (p *Parser) killHPACK(err error) {
 	}
 }
 
-// stream devolve o stream registrado (criando-o) ou nil quando o teto de streams foi atingido.
+// stream devolve o stream registrado (criando-o) ou nil quando o teto de streams registrados foi atingido
+// ou o stream já foi esquecido (ForgetStream).
 func (p *Parser) stream(id uint32) *HTTP2Stream {
 	if i, ok := p.streams[id]; ok {
 		return &p.info.Streams[i]
 	}
-	if len(p.info.Streams) >= p.lim.MaxStreams {
+	if len(p.info.Streams) >= p.lim.MaxStreams || (p.opts.Dir == DirIn && id <= p.forgotMax && p.forgotMax != 0) {
 		return nil
 	}
 	p.streams[id] = len(p.info.Streams)
