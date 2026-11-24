@@ -1,0 +1,1 @@
+- docs: `docs/realtime.md` descreve o `connection.closed` com `data.discarded` (`stray`/`evicted`/`deleted`, um por `connection.opened`, 404 na API); `docs/api.md` no contrato do store 0.8.0; `docs/bot.md` com a visão do store só para conexões estabelecidas (ADR 0076, task 418).

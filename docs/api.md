@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.7.0, ADRs 0029, 0031, 0032, 0066 e 0067,
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.8.0, ADRs 0029, 0031, 0032, 0066, 0067 e 0076,
 servido também em `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo estão resumidas, e o IP do cliente foi trocado por um IP de documentação (`203.0.113.10`). As de
@@ -234,6 +234,12 @@ ou 250 novas/s, `FS_MAX_CONNS`/`FS_MAX_NEW_CONNS_PER_S`; a garantia é 400 simul
 completa, ADR 0046) e não guardou pcap nem bytes crus dessa conexão. O tráfego dos sites atrás do traefik do host
 também é capturado e conta nesses limites. A mesma marca aparece no modo banco cheio do store (motivo `db full`
 no [health](#saúde)).
+
+O contrato 0.8.0 ([ADR 0076](../specs/decisions/0076-estagios-da-conexao-sem-registro-e-opened-do-bot-no-handshake.md),
+aditivo) acrescenta ao `ConnectionSummary` o campo opcional `discarded` (`stray`, `evicted` ou `deleted`). Ele só
+aparece no `connection.closed` do [tempo real](realtime.md#conexão-que-sai-sem-registro-discarded) da conexão que
+saiu do banco sem registro; **nenhuma rota da API o devolve**, porque esse `conn_id` deixa de existir nela (404).
+Ausente = a conexão tem registro gravado.
 
 ### Registro completo
 
@@ -570,7 +576,7 @@ Sysctls do host que o espelho **não** fixa e que moldam o que o cliente vê do 
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.7.0):
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.8.0):
 
 | Código | Quando |
 | --- | --- |
