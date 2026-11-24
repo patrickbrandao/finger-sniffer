@@ -33,7 +33,7 @@ type goldenSYN struct {
 }
 
 // loadGoldenSYNs lê os SYNs de cliente do pcap e as referências de JA4T e p0f por porta de origem.
-func loadGoldenSYNs(t *testing.T, name string) []goldenSYN {
+func loadGoldenSYNs(t testing.TB, name string) []goldenSYN {
 	t.Helper()
 	f, err := os.Open(filepath.Join(goldenPcapDir, name+".pcap"))
 	if err != nil {

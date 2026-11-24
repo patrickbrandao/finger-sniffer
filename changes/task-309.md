@@ -1,0 +1,1 @@
+- bot: visão TCP do traefix mais enxuta no índice (task 309): sem `tcp.p0f`/`tcp.rttMicros` (sem regra), MSS e família no lugar dos três ponteiros de derivados; 150 → 49 B por conexão típica e 264 → 87 B na hostil (heap), contabilidade em ±25% (`BenchmarkIndexTCPViewMemory`, `TestIndexBytesTCPView`).
