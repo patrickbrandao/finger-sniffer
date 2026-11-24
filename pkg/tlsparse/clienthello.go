@@ -4,6 +4,11 @@
 // preservados como chegaram; a decodificação das extensões conhecidas vem ao lado dos bytes crus, nunca
 // no lugar deles. O parser não depende de crypto/tls nem de utls e serve ao web, ao raw e ao ClientHello
 // do QUIC Initial (spec 011).
+//
+// Extensão repetida (proibida pela RFC 8446 §4.2): todas as ocorrências ficam em Extensions, na ordem, mas só a
+// primeira é decodificada; os campos decodificados (ALPN, supported_versions, signature_algorithms, SNI,
+// key_share etc.) vêm sempre da primeira ocorrência, que é a que o ja4 da FoxIO usa para o ALPN. Cada repetição
+// entra em ExtensionErrors com ErrDuplicateExtension (task 386).
 package tlsparse
 
 import (
@@ -71,10 +76,20 @@ type ClientHello struct {
 	// HasDelegatedCredentials informa se a extensão está presente.
 	HasDelegatedCredentials bool
 
-	// ExtensionErrors lista as extensões conhecidas cujos dados não puderam ser decodificados; os dados
-	// crus continuam em Extensions.
+	// ExtensionErrors lista as extensões conhecidas cujos dados não puderam ser decodificados e as
+	// extensões repetidas (ErrDuplicateExtension); os dados crus continuam em Extensions.
 	ExtensionErrors []error
+	// FieldErrors lista os campos fora das extensões lidos com sobra, sem impedir a análise (ex.: cipher_suites
+	// de tamanho ímpar, ErrOddLength: o byte que sobra é ignorado).
+	FieldErrors []error
 }
+
+var (
+	// ErrDuplicateExtension marca a segunda ocorrência (e as seguintes) de um tipo de extensão.
+	ErrDuplicateExtension = errors.New("duplicate extension")
+	// ErrOddLength marca um vetor de uint16 com tamanho ímpar.
+	ErrOddLength = errors.New("odd length")
+)
 
 // Extension é uma extensão do ClientHello como chegou.
 type Extension struct {
@@ -161,6 +176,10 @@ func (ch *ClientHello) parse(msg []byte) error {
 		return s.fail("cipher_suites")
 	}
 	ch.CipherSuites = u16list(cs)
+	if len(cs)%2 != 0 {
+		ch.FieldErrors = append(ch.FieldErrors,
+			&ParseError{Field: "cipher_suites", Offset: s.pos() - len(cs) - 2, Err: ErrOddLength})
+	}
 	cm, ok := s.vec8()
 	if !ok {
 		return s.fail("legacy_compression_methods")
@@ -193,8 +212,10 @@ func (ch *ClientHello) parse(msg []byte) error {
 	return nil
 }
 
-// parseExtensions lê as extensões na ordem; uma extensão cortada encerra a lista.
+// parseExtensions lê as extensões na ordem; uma extensão cortada encerra a lista. Uma repetição fica só crua
+// (os campos decodificados são da primeira ocorrência) e é registrada em ExtensionErrors.
 func (ch *ClientHello) parseExtensions(s reader) error {
+	seen := make(map[uint16]struct{})
 	for !s.empty() {
 		start := s.pos()
 		typ, ok := s.u16()
@@ -206,6 +227,12 @@ func (ch *ClientHello) parseExtensions(s reader) error {
 			return &ParseError{Field: fmt.Sprintf("extension 0x%04x", typ), Offset: start, Err: errShort}
 		}
 		ch.Extensions = append(ch.Extensions, Extension{Type: typ, Data: data})
+		if _, dup := seen[typ]; dup {
+			ch.ExtensionErrors = append(ch.ExtensionErrors,
+				&ParseError{Field: fmt.Sprintf("extension 0x%04x", typ), Offset: start, Err: ErrDuplicateExtension})
+			continue
+		}
+		seen[typ] = struct{}{}
 		if err := ch.decodeExtension(typ, data); err != nil {
 			ch.ExtensionErrors = append(ch.ExtensionErrors,
 				&ParseError{Field: fmt.Sprintf("extension 0x%04x", typ), Offset: start, Err: err})
