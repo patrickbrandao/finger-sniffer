@@ -82,7 +82,7 @@ func TestStoreShutdownWaitsIngest(t *testing.T) {
 	defer stopPub()
 	go func() {
 		for i := 0; pubCtx.Err() == nil; i++ {
-			cli := netip.AddrPortFrom(netip.MustParseAddr("192.0.2.30"), uint16(10000+i%50000)) //nolint:gosec // teste
+			cli := netip.AddrPortFrom(netip.MustParseAddr("192.0.2.30"), uint16(10000+i%50000))
 			m := batch(cli, mirror, protoTCP, fullTCP)
 			_, _ = js.PublishMsg(pubCtx, natsMsg(m.subject, m.data))
 		}

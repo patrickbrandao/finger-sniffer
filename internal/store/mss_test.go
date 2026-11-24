@@ -57,7 +57,7 @@ func TestSynMSS(t *testing.T) {
 		{v6, 1432, 1492, 8},
 		{v6, 1220, 1280, 220},
 	} {
-		tc := mssSession(t, c.cli, mssOpts(uint16(c.mss))) //nolint:gosec // teste
+		tc := mssSession(t, c.cli, mssOpts(uint16(c.mss)))
 		if intOrNil(tc.SynMSS) != c.mss || intOrNil(tc.MTUImplied) != c.mtu || intOrNil(tc.MSSReduction) != c.reduction {
 			t.Errorf("%s mss %d: syn_mss/mtu/reduction = %v/%v/%v, quer %d/%d/%d", c.cli, c.mss,
 				intOrNil(tc.SynMSS), intOrNil(tc.MTUImplied), intOrNil(tc.MSSReduction), c.mss, c.mtu, c.reduction)

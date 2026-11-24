@@ -249,7 +249,7 @@ func (r *Retention) spaceGoal(ctx context.Context, force bool) (int64, error) {
 	}
 	size, free, err := r.Space.Space()
 	if err != nil || size <= 0 {
-		return -1, nil //nolint:nilerr // sem statfs, fica só o teto de maxBytes
+		return -1, nil
 	}
 	switch pct := freePct(size, free); {
 	case pct < spaceLowPct:

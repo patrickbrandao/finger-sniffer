@@ -280,7 +280,7 @@ func waitProbeRaw(t *testing.T, id string, ready func(*probeResp) bool) (*probeR
 	deadline := time.Now().Add(60 * time.Second)
 	var last []byte
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(api + "/probes/" + id + "?wait=10s") //nolint:gosec // URL do teste
+		resp, err := http.Get(api + "/probes/" + id + "?wait=10s")
 		if err != nil {
 			t.Fatalf("GET probe %s: %v", id, err)
 		}
@@ -322,7 +322,7 @@ func connRecord(t *testing.T, connID string) record {
 // rawStream baixa /connections/{id}/raw?dir=in|out.
 func rawStream(t *testing.T, connID, dir string) []byte {
 	t.Helper()
-	resp, err := http.Get(api + "/connections/" + connID + "/raw?dir=" + dir) //nolint:gosec // URL do teste
+	resp, err := http.Get(api + "/connections/" + connID + "/raw?dir=" + dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func remoteIn(t *testing.T, cmd string, stdin []byte) string {
 // pcapOf baixa o pcap da conexão pela API.
 func pcapOf(t *testing.T, connID string) []byte {
 	t.Helper()
-	resp, err := http.Get(api + "/connections/" + connID + "/pcap") //nolint:gosec // URL do teste
+	resp, err := http.Get(api + "/connections/" + connID + "/pcap")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +506,7 @@ var ja4Bin = env("FS_E2E_JA4", "/root/ja4-rust/target/release/ja4")
 
 // toolsMissing confere uma vez se o servidor tem as ferramentas de referência (tshark, ja4, p0f e python3).
 var toolsMissing = sync.OnceValue(func() string {
-	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, //nolint:gosec // destino do teste
+	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH,
 		"for c in tshark p0f python3; do command -v $c >/dev/null || echo $c; done; [ -x "+ja4Bin+" ] || echo "+ja4Bin).CombinedOutput()
 	if err != nil {
 		return fmt.Sprintf("ssh: %v %s", err, out)
@@ -525,7 +525,7 @@ func requireTools(t *testing.T) {
 
 var refPy = sync.OnceValues(func() ([]byte, error) {
 	_, file, _, _ := runtime.Caller(0)
-	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "tls", "ref.py")) //nolint:gosec // repositório
+	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "tls", "ref.py"))
 })
 
 // analyzePcap baixa o pcap da conexão pela API e o confere com analyzePcapBytes.
@@ -646,17 +646,17 @@ func validateLive() error {
 	if err := os.MkdirAll(filepath.Join(dir, "testdata"), 0o750); err != nil {
 		return err
 	}
-	spec, err := os.ReadFile(filepath.Join(root, "cmd/finger-sniffer-store/openapi.yaml")) //nolint:gosec // repositório
+	spec, err := os.ReadFile(filepath.Join(root, "cmd/finger-sniffer-store/openapi.yaml"))
 	if err != nil {
 		return err
 	}
-	redocly, err := os.ReadFile(filepath.Join(root, "redocly.yaml")) //nolint:gosec // repositório
+	redocly, err := os.ReadFile(filepath.Join(root, "redocly.yaml"))
 	if err != nil {
 		return err
 	}
 	golden, _ := filepath.Glob(filepath.Join(root, "cmd/finger-sniffer-store/testdata/*.json"))
 	for _, g := range golden {
-		b, _ := os.ReadFile(g) //nolint:gosec // repositório
+		b, _ := os.ReadFile(g)
 		if err := os.WriteFile(filepath.Join(dir, "testdata", filepath.Base(g)), b, 0o600); err != nil {
 			return err
 		}
@@ -701,7 +701,7 @@ func validateLive() error {
 		fmt.Printf("pulado: %v\n", err)
 		return nil
 	}
-	cmd := exec.Command(bin, "lint", "openapi.yaml") //nolint:gosec // binário do repositório
+	cmd := exec.Command(bin, "lint", "openapi.yaml")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	out, err := cmd.CombinedOutput()

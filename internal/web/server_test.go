@@ -252,7 +252,7 @@ func dial(t *testing.T, addr string) net.Conn {
 func dialTLS(t *testing.T, addr, sni string) *tls.Conn {
 	t.Helper()
 	raw := dial(t, addr)
-	c := tls.Client(raw, &tls.Config{ServerName: sni, InsecureSkipVerify: true, NextProtos: []string{"http/1.1"}}) //nolint:gosec // autoassinado de teste
+	c := tls.Client(raw, &tls.Config{ServerName: sni, InsecureSkipVerify: true, NextProtos: []string{"http/1.1"}})
 	if err := c.Handshake(); err != nil {
 		t.Fatal(err)
 	}

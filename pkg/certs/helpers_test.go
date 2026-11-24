@@ -93,7 +93,7 @@ func dial(t *testing.T, addr, sni string, cc *tls.Config) (*tls.Conn, string) {
 	}
 	cc = cc.Clone()
 	cc.ServerName = sni
-	cc.InsecureSkipVerify = true //nolint:gosec // teste: só olhamos qual certificado veio
+	cc.InsecureSkipVerify = true
 	c, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, cc)
 	if err != nil {
 		t.Fatalf("dial sni=%q: %v", sni, err)

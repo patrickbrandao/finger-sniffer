@@ -453,7 +453,7 @@ func authHeaders(c *simConn, site, path, key string) http.Header {
 
 func (r *authRun) doAuth(c *simConn, n int) {
 	path := fmt.Sprintf("/load/%s/%d", c.id, n)
-	req, err := http.NewRequest(http.MethodGet, r.cfg.bot+"/auth", nil) //nolint:noctx // prazo no cliente
+	req, err := http.NewRequest(http.MethodGet, r.cfg.bot+"/auth", nil)
 	if err != nil {
 		return
 	}
@@ -523,7 +523,7 @@ func alpnHeader(vs []string) string {
 // query é o GET /bot/v1/verdict pela origem da conexão (consulta do site, RNF-01 p95 ≤ 50 ms).
 func (r *authRun) query(c *simConn) {
 	u := fmt.Sprintf("%s/verdict?src_ip=%s&src_port=%d&site=%s", r.cfg.bot, url.QueryEscape(c.srcIP), c.srcPort, url.QueryEscape(r.cfg.site))
-	req, err := http.NewRequest(http.MethodGet, u, nil) //nolint:noctx // prazo no cliente
+	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return
 	}

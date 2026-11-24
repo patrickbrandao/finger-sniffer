@@ -48,7 +48,7 @@ func fuzzSeedQueries(f *testing.F) [][]byte {
 
 	var out [][]byte
 	for i, m := range msgs {
-		m.Id = uint16(0x1000 + i) //nolint:gosec // índice pequeno
+		m.Id = uint16(0x1000 + i)
 		raw, err := m.Pack()
 		if err != nil {
 			f.Fatal(err)

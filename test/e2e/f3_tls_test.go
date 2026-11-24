@@ -54,7 +54,7 @@ func curlRun(bin string, args ...string) func(ctx context.Context, url, keylog s
 
 func goRun(h2 bool) func(ctx context.Context, url, keylog string) error {
 	return func(ctx context.Context, url, keylog string) error {
-		f, err := os.Create(keylog) //nolint:gosec // temporário do teste
+		f, err := os.Create(keylog)
 		if err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func TestCase7TLSFingerprints(t *testing.T) {
 			if err := cl.run(ctx, url, keylog); err != nil {
 				t.Fatalf("%s: %v", cl.name, err)
 			}
-			keys, _ := os.ReadFile(keylog) //nolint:gosec // temporário do teste
+			keys, _ := os.ReadFile(keylog)
 			if cl.keys && len(keys) == 0 {
 				t.Fatalf("%s não gravou o SSLKEYLOGFILE", cl.name)
 			}
@@ -267,7 +267,7 @@ func TestF3Certificates(t *testing.T) {
 		if err != nil || !strings.HasSuffix(string(out), " 0") || strings.HasPrefix(string(out), "000") {
 			t.Errorf("curl sem -k %s: %v %s", u, err, out)
 		}
-		resp, err := http.Get(u) //nolint:gosec // URL do teste
+		resp, err := http.Get(u)
 		if err != nil {
 			t.Errorf("Go %s: %v", u, err)
 			continue
@@ -280,7 +280,7 @@ func TestF3Certificates(t *testing.T) {
 			resp.TLS.PeerCertificates[0].NotAfter.Format(time.DateOnly))
 	}
 	// a resposta da 9000 também entra na validação do contrato
-	resp, err := http.Get("https://" + vpsHost + ":9000/api/v1/health") //nolint:gosec // URL do teste
+	resp, err := http.Get("https://" + vpsHost + ":9000/api/v1/health")
 	if err != nil {
 		t.Fatal(err)
 	}

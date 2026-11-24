@@ -34,7 +34,7 @@ func pcapSeeds(f *testing.F) [][3][]byte {
 	}
 	var out [][3][]byte
 	for _, file := range files {
-		data, err := os.ReadFile(file) //nolint:gosec // pcap de teste do repositório
+		data, err := os.ReadFile(file)
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -131,7 +131,7 @@ func FuzzIngestFrame(f *testing.F) {
 				dir = event.DirOut
 			}
 			ts := base + int64(i)*int64(gapMs)*int64(time.Millisecond)
-			buf = event.AppendPacket(buf, event.Packet{TsNs: ts, Dir: dir, WireLen: uint32(len(fr)), Frame: fr}) //nolint:gosec // ≤ 64 KiB
+			buf = event.AppendPacket(buf, event.Packet{TsNs: ts, Dir: dir, WireLen: uint32(len(fr)), Frame: fr})
 		}
 		ctx := context.Background()
 		msg := fakeMsg{subject: event.SubjectCapturePacket, data: buf}

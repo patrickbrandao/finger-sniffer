@@ -27,7 +27,7 @@ func TestBlobBusy(t *testing.T) {
 		f.q.blobs <- struct{}{}
 	}
 	for _, path := range []string{"/api/v1/connections/" + f.closed + "/pcap", "/api/v1/connections/" + f.closed + "/raw?dir=in"} {
-		resp, err := http.Get(f.srv.URL + path) //nolint:gosec,noctx // teste
+		resp, err := http.Get(f.srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +129,7 @@ func TestBlobRawStreamsWhole(t *testing.T) {
 	if _, err := f.in.db.Exec("INSERT INTO raw_streams (conn_id, dir, offset, data) VALUES (?, 0, 3, x'646566'), (?, 0, 0, x'616263')", f.opened, f.opened); err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Get(f.srv.URL + "/api/v1/connections/" + f.opened + "/raw?dir=in") //nolint:gosec,noctx // teste
+	resp, err := http.Get(f.srv.URL + "/api/v1/connections/" + f.opened + "/raw?dir=in")
 	if err != nil {
 		t.Fatal(err)
 	}

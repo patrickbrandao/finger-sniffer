@@ -204,7 +204,7 @@ func TestIntegrationConnID(t *testing.T) {
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/connections/%s", port, rep.ConnID)
 	eventually(t, 10*time.Second, func() bool {
-		resp, err := http.Get(url) //nolint:noctx,gosec // teste
+		resp, err := http.Get(url)
 		if err != nil {
 			return false
 		}

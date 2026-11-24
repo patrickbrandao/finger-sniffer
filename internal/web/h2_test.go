@@ -31,7 +31,7 @@ func h2TLSClient(addr, sni string) *http.Client {
 	p.SetHTTP2(true)
 	tr := &http.Transport{
 		Protocols:       &p,
-		TLSClientConfig: &tls.Config{ServerName: sni, InsecureSkipVerify: true}, //nolint:gosec // autoassinado de teste
+		TLSClientConfig: &tls.Config{ServerName: sni, InsecureSkipVerify: true},
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(ctx, network, addr)
@@ -426,7 +426,7 @@ func TestH2DelayHoldsIdle(t *testing.T) {
 func TestH2BadPreface(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
 	raw := dial(t, h.addr80)
-	c := tls.Client(raw, &tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h2"}}) //nolint:gosec // autoassinado de teste
+	c := tls.Client(raw, &tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h2"}})
 	if err := c.Handshake(); err != nil || c.ConnectionState().NegotiatedProtocol != "h2" {
 		t.Fatalf("handshake %v %q", err, c.ConnectionState().NegotiatedProtocol)
 	}

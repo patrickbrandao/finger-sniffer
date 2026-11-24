@@ -100,7 +100,7 @@ type quicRef struct {
 
 var quicRefPy = sync.OnceValues(func() ([]byte, error) {
 	_, file, _, _ := runtime.Caller(0)
-	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "quic", "ref.py")) //nolint:gosec // repositório
+	return os.ReadFile(filepath.Join(filepath.Dir(file), "..", "golden", "quic", "ref.py"))
 })
 
 // analyzeQUIC manda o pcap da conexão (e o keylog do cliente) para o servidor e roda tshark, ja4 e o ref.py do
@@ -146,7 +146,7 @@ type h3Client struct {
 // curlHTTP3 devolve o curl local com HTTP/3 (vazio se não houver).
 func curlHTTP3() string {
 	for _, c := range []string{curlOpenSSL, "curl"} {
-		out, err := exec.Command(c, "-V").Output() //nolint:gosec // curl local
+		out, err := exec.Command(c, "-V").Output()
 		if err == nil && bytes.Contains(out, []byte("HTTP3")) {
 			return c
 		}
@@ -188,7 +188,7 @@ func newH3Transport(w io.Writer) *http3.Transport {
 }
 
 func goH3Run(ctx context.Context, url, keylog string) error {
-	f, err := os.Create(keylog) //nolint:gosec // temporário do teste
+	f, err := os.Create(keylog)
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func TestCase12HTTP3(t *testing.T) {
 				t.Fatalf("%s: %v", cl.name, err)
 			}
 			closed := time.Now()
-			keys, _ := os.ReadFile(keylog) //nolint:gosec // temporário do teste
+			keys, _ := os.ReadFile(keylog)
 			if len(keys) == 0 {
 				t.Fatalf("%s não gravou o keylog", cl.name)
 			}
@@ -278,7 +278,7 @@ func waitQUICClosed(t *testing.T, id string, clientDone time.Time) record {
 // probeNow é o GET /probes/{id} sem espera (404 vira probe vazio).
 func probeNow(t *testing.T, id string) probeResp {
 	t.Helper()
-	resp, err := http.Get(api + "/probes/" + id) //nolint:gosec // URL do teste
+	resp, err := http.Get(api + "/probes/" + id)
 	if err != nil {
 		t.Fatal(err)
 	}

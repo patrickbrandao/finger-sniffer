@@ -67,7 +67,7 @@ func TestAPIJSONBudgetRefuses(t *testing.T) {
 	}
 	for path, route := range routes {
 		before := testutil.ToFloat64(m.apiReject.WithLabelValues(route, "busy"))
-		resp, err := http.Get(srv.URL + path) //nolint:noctx,gosec // teste
+		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,7 +87,7 @@ func TestAPIJSONBudgetRefuses(t *testing.T) {
 	}
 	// Com folga, a mesma rota responde 200 e a reserva volta a zero.
 	f.q.budget = newJSONBudget(jsonBudgetMax)
-	resp, err := http.Get(srv.URL + "/api/v1/probes/" + probeID) //nolint:noctx,gosec // teste
+	resp, err := http.Get(srv.URL + "/api/v1/probes/" + probeID)
 	if err != nil {
 		t.Fatal(err)
 	}

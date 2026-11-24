@@ -24,7 +24,7 @@ func TestCheckWSUpgrade(t *testing.T) {
 		h := ok.Clone()
 		mut(h)
 		err := checkWSUpgrade(&http.Request{Header: h})
-		if _, isBad := err.(badRequest); !isBad { //nolint:errorlint // tipo concreto do pacote
+		if _, isBad := err.(badRequest); !isBad {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}

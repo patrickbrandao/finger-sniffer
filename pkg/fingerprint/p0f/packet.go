@@ -184,7 +184,7 @@ func Parse(ip []byte) (*Packet, error) {
 			return nil, ErrNotTCP
 		}
 		p.IPVersion = 6
-		p.TOS = uint8((verTOS >> 22) & 0x3f) //nolint:gosec // 6 bits
+		p.TOS = uint8((verTOS >> 22) & 0x3f)
 		p.TTL = ip[7]
 		if verTOS&0xfffff != 0 {
 			p.Quirks |= QuirkFlow

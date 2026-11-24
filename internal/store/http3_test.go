@@ -60,7 +60,7 @@ func udpBatch(cli, srv netip.AddrPort, pkts []udpPkt) fakeMsg {
 			src, dst, dir = srv, cli, event.DirOut
 		}
 		f := udpFrame(src, dst, p.data)
-		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(p.ms)*1e6, Dir: dir, WireLen: uint32(len(f)), Frame: f}) //nolint:gosec // teste
+		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(p.ms)*1e6, Dir: dir, WireLen: uint32(len(f)), Frame: f})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 }
@@ -457,7 +457,7 @@ func TestIntegrationHTTP3(t *testing.T) {
 	if d := time.Since(final); d > 3*time.Second {
 		t.Fatalf("closed %v after the final event", d)
 	}
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/connections/%s", port, id)) //nolint:noctx,gosec // teste
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/connections/%s", port, id))
 	if err != nil {
 		t.Fatal(err)
 	}

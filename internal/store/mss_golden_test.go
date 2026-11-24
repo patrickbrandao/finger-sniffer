@@ -136,13 +136,13 @@ func synthFrames(c synthCase) (cli, srv netip.AddrPort, frames []timedFrame) {
 	switch c.kind {
 	case "mss":
 		s.handshake(64)
-		s.segs[0].opts = mssOpts(uint16(c.mss)) //nolint:gosec // teste
+		s.segs[0].opts = mssOpts(uint16(c.mss))
 	case "nomss":
 		s.handshake(64)
 		s.segs[0].opts = []byte{4, 2, 1, 3, 3, 7}
 	case "retx":
 		s.handshake(64)
-		s.segs[0].opts = mssOpts(uint16(c.mss)) //nolint:gosec // teste
+		s.segs[0].opts = mssOpts(uint16(c.mss))
 		re := s.segs[0]
 		re.ms, re.opts = 20, mssOpts(1200)
 		s.segs = append([]seg{s.segs[0], re}, s.segs[1:]...)
@@ -209,7 +209,7 @@ func pcapBatchDir(t *testing.T, b []byte, srv netip.AddrPort) fakeMsg {
 		if src, ok := frameSrc(data); ok && src == srv.Addr() {
 			dir = event.DirOut
 		}
-		out = event.AppendPacket(out, event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: dir, WireLen: uint32(ci.Length), Frame: data}) //nolint:gosec // teste
+		out = event.AppendPacket(out, event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: dir, WireLen: uint32(ci.Length), Frame: data})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: out}
 }
@@ -290,7 +290,7 @@ func TestSynthGolden(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			disk, err := os.ReadFile(path) //nolint:gosec // testdata
+			disk, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("%v (rode com -update)", err)
 			}
@@ -315,7 +315,7 @@ func TestSynthGolden(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(goldenPath) //nolint:gosec // testdata
+	want, err := os.ReadFile(goldenPath)
 	if err != nil {
 		t.Fatalf("%v (rode com -update)", err)
 	}

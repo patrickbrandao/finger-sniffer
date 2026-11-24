@@ -116,7 +116,7 @@ func capFlagBatch(cli, srv netip.AddrPort, pkts []pkt, flags uint8) fakeMsg {
 			src, dst, dir = srv, cli, event.DirOut
 		}
 		f := frame(src, dst, protoTCP, p.flags, p.payload)
-		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(p.ms)*1e6, Dir: dir, Flags: flags, WireLen: uint32(len(f)), Frame: f}) //nolint:gosec // teste
+		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(p.ms)*1e6, Dir: dir, Flags: flags, WireLen: uint32(len(f)), Frame: f})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 }

@@ -184,7 +184,7 @@ type browser interface {
 // startProcess roda o navegador e devolve a primeira linha do stderr que casa com re.
 func startProcess(t *testing.T, re *regexp.Regexp, bin string, args ...string) (*exec.Cmd, string) {
 	t.Helper()
-	cmd := exec.Command(bin, args...) //nolint:gosec // navegador local
+	cmd := exec.Command(bin, args...)
 	stderr, _ := cmd.StderrPipe()
 	cmd.Stdout = io.Discard
 	if err := cmd.Start(); err != nil {

@@ -39,7 +39,7 @@ func ExcludeFilter(ports []uint16, snaplen int) ([]bpf.Instruction, error) {
 	}
 	snap := uint32(maxSnap)
 	if snaplen > 0 && snaplen < maxSnap {
-		snap = uint32(snaplen) //nolint:gosec // conferido acima
+		snap = uint32(snaplen)
 	}
 	a := &asm{snap: snap}
 	// Tipo Ethernet; VLAN desloca tudo em 4 bytes.
@@ -288,7 +288,7 @@ func (a *asm) resolve() ([]bpf.Instruction, error) {
 			return nil, fmt.Errorf("capture: bpf jump too long")
 		}
 		j := a.ins[f.at].(bpf.JumpIf)
-		j.SkipTrue, j.SkipFalse = uint8(t), uint8(fl) //nolint:gosec // conferido acima
+		j.SkipTrue, j.SkipFalse = uint8(t), uint8(fl)
 		a.ins[f.at] = j
 	}
 	return a.ins, nil

@@ -100,7 +100,7 @@ func TestHTTPSAPI(t *testing.T) {
 	cli := httpsClient(leaf, "finger-01.badblock.net.br")
 	var h Health
 	eventually(t, 5*time.Second, func() bool {
-		resp, err := cli.Get(base + "/api/v1/health") //nolint:noctx // teste
+		resp, err := cli.Get(base + "/api/v1/health")
 		if err != nil {
 			return false
 		}
@@ -122,7 +122,7 @@ func TestHTTPSAPI(t *testing.T) {
 	}
 
 	// /metrics só na 9001.
-	resp, err := cli.Get(base + "/metrics") //nolint:noctx // teste
+	resp, err := cli.Get(base + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestHTTPSAPI(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("/metrics on 9000: %d", resp.StatusCode)
 	}
-	resp, err = http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", httpPort)) //nolint:noctx,gosec // teste
+	resp, err = http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", httpPort))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestHTTPSAPI(t *testing.T) {
 	cli2 := httpsClient(leaf2, "finger-01.badblock.net.br")
 	eventually(t, 10*time.Second, func() bool {
 		cli2.CloseIdleConnections()
-		resp, err := cli2.Get(base + "/api/v1/health") //nolint:noctx // teste
+		resp, err := cli2.Get(base + "/api/v1/health")
 		if err != nil {
 			return false
 		}

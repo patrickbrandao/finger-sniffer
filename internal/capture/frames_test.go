@@ -82,7 +82,7 @@ func buildFrame(o frameOpt) []byte {
 			ihl = 5
 		}
 		ip := make([]byte, ihl*4)
-		ip[0] = 0x40 | byte(ihl) //nolint:gosec // teste
+		ip[0] = 0x40 | byte(ihl)
 		ip[8] = 64
 		ip[9] = o.proto
 		binary.BigEndian.PutUint16(ip[6:8], o.fragOff)

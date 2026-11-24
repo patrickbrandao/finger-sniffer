@@ -66,11 +66,11 @@ func TestServe(t *testing.T) {
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"}, //nolint:gosec // autoassinado do teste
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
 	}}
 	get := func(url string) (int, []byte) {
 		t.Helper()
-		resp, err := client.Get(url) //nolint:noctx // teste
+		resp, err := client.Get(url)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,9 +193,9 @@ func servePublic(t *testing.T, tune func(*Server)) (*Server, string, chan string
 func healthOnce(addr string) error {
 	client := &http.Client{Timeout: 2 * time.Second, Transport: &http.Transport{
 		DisableKeepAlives: true,
-		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"}, //nolint:gosec // autoassinado do teste
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true, ServerName: "localhost"},
 	}}
-	resp, err := client.Get("https://" + addr + "/bot/v1/health") //nolint:noctx // teste
+	resp, err := client.Get("https://" + addr + "/bot/v1/health")
 	if err != nil {
 		return err
 	}
@@ -248,7 +248,7 @@ func TestPublicSourceLimit(t *testing.T) {
 func TestPublicIdleTrim(t *testing.T) {
 	_, addr, _, m := servePublic(t, func(s *Server) { s.publicMax, s.perSource, s.idleHigh = 10, 10, 3 })
 	open := func() (*tls.Conn, *bufio.Reader) {
-		c, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true, ServerName: "localhost", NextProtos: []string{"http/1.1"}}) //nolint:gosec // teste
+		c, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true, ServerName: "localhost", NextProtos: []string{"http/1.1"}})
 		if err != nil {
 			t.Fatal(err)
 		}

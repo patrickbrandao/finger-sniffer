@@ -40,7 +40,7 @@ func TestSynMSSDirect(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			out, err := exec.CommandContext(ctx, "/usr/bin/curl", "-"+fam, "-s", "--http1.1", //nolint:gosec // argumentos do teste
+			out, err := exec.CommandContext(ctx, "/usr/bin/curl", "-"+fam, "-s", "--http1.1",
 				"--resolve", probeHost(id)+onTLS+":"+addr, "-o", "/dev/null", "-w", "%{http_code}",
 				"-A", "fs-e2e-mss", "https://"+probeHost(id)+onTLS+"/p/"+id+"/").CombinedOutput()
 			if err != nil || strings.TrimSpace(string(out)) != "200" {
@@ -100,7 +100,7 @@ func TestSynMSSDirect(t *testing.T) {
 			if err := os.WriteFile(path, pcapOf(t, cs[0].ConnID), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			raw, err := exec.Command(ts, "-r", path, "-Y", "tcp.flags.syn==1 && tcp.flags.ack==0", //nolint:gosec // argumentos do teste
+			raw, err := exec.Command(ts, "-r", path, "-Y", "tcp.flags.syn==1 && tcp.flags.ack==0",
 				"-T", "fields", "-e", "tcp.options.mss_val").Output()
 			if err != nil {
 				t.Fatalf("tshark: %v", err)

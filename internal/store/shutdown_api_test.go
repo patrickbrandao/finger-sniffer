@@ -45,7 +45,7 @@ func TestAPIShutdownDuringWait(t *testing.T) {
 	seedOpenProbe(t, f.q, pr)
 	api, srv, cancel := shutdownAPI(t, f.q, func(h http.Handler) http.Handler { return h })
 	time.AfterFunc(300*time.Millisecond, func() { api.BeginShutdown(); cancel() })
-	resp, err := http.Get(srv.URL + "/api/v1/probes/" + pr + "?wait=10s") //nolint:noctx,gosec // teste
+	resp, err := http.Get(srv.URL + "/api/v1/probes/" + pr + "?wait=10s")
 	if err != nil {
 		t.Fatal(err)
 	}

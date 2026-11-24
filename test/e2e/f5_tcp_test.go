@@ -57,7 +57,7 @@ func curlCase11(ctx context.Context, id string) error {
 		"-w", "%{http_code}\n", "-A", "fs-e2e-case11-curl",
 	}
 	args = append(args, case11URLs(id)...)
-	out, err := exec.CommandContext(ctx, "/usr/bin/curl", args...).CombinedOutput() //nolint:gosec // argumentos do teste
+	out, err := exec.CommandContext(ctx, "/usr/bin/curl", args...).CombinedOutput()
 	if err != nil || strings.Count(string(out), "200") != 2 {
 		return fmt.Errorf("curl: %v %q", err, out)
 	}

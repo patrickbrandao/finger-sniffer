@@ -95,7 +95,7 @@ func (u *upstream) client() *http.Client {
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		},
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // upstream falso do teste
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}}
 }
 

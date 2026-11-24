@@ -116,7 +116,7 @@ func TestConnWithCryptoTLS(t *testing.T) {
 			rec := &writeRecorder{Conn: raw}
 			cl := tls.Client(rec, &tls.Config{
 				ServerName:         "example.com",
-				InsecureSkipVerify: true, //nolint:gosec // certificado de teste
+				InsecureSkipVerify: true,
 				MinVersion:         v,
 				MaxVersion:         v,
 				NextProtos:         []string{"h2", "http/1.1"},
@@ -301,7 +301,7 @@ func TestConnReserveCoversHeap(t *testing.T) {
 		runtime.GC()
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
-		return int64(m.HeapAlloc) //nolint:gosec // cabe em int64
+		return int64(m.HeapAlloc)
 	}
 	const n = 32
 	conns := make([]*Conn, n)

@@ -57,7 +57,7 @@ func newIndexLoad(tb testing.TB, hostile bool) *indexLoad {
 	for i := 1; i <= 16; i++ {
 		st := h2Stream(2*i - 1)
 		if hostile {
-			fields := st["fields"].([]map[string]any) //nolint:forcetypeassert // montado acima
+			fields := st["fields"].([]map[string]any)
 			fields[4]["value"] = "UNIQ_UA_" + strings.Repeat("u", 500) + fmt.Sprintf("%02d", i)
 			fields = append(fields, map[string]any{"name": fmt.Sprintf("x-uniq-%02d-UNIQF", i), "value": "1"})
 			st["fields"] = fields

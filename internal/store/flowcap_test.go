@@ -14,7 +14,7 @@ import (
 // srcN devolve a origem n (5-tuplas distintas: IP e porta variam).
 func srcN(n int) netip.AddrPort {
 	var a [4]byte
-	binary.BigEndian.PutUint32(a[:], 0xc6120000+uint32(n>>14)) //nolint:gosec // teste
+	binary.BigEndian.PutUint32(a[:], 0xc6120000+uint32(n>>14))
 	return netip.AddrPortFrom(netip.AddrFrom4(a), uint16(1024+n&0x3fff))
 }
 
@@ -160,7 +160,7 @@ func TestClockRegistryCap(t *testing.T) {
 	const n = 3 * clockMax
 	for i := range n {
 		// relógios de 1000 Hz com deslocamentos sem relação entre si (passo grande, fora da tolerância)
-		r.assign(mk(i, base+int64(i)*1e6, uint32(i)*7919), true) //nolint:gosec // teste
+		r.assign(mk(i, base+int64(i)*1e6, uint32(i)*7919), true)
 		if len(r.entries) > clockMax {
 			t.Fatalf("entries %d", len(r.entries))
 		}
@@ -173,7 +173,7 @@ func TestClockRegistryCap(t *testing.T) {
 	now := base + int64(last)*1e6 + 5e9
 	at := func(i int) *string {
 		// o relógio i, 5 s depois do último registro, sem registrar (não mexe no LRU)
-		return r.assign(mk(-1, now, uint32(i)*7919+uint32(int64(last-i)+5000)), false) //nolint:gosec // teste
+		return r.assign(mk(-1, now, uint32(i)*7919+uint32(int64(last-i)+5000)), false)
 	}
 	for _, i := range []int{0, n - clockMax - 1} {
 		if g := at(i); g != nil {
@@ -185,7 +185,7 @@ func TestClockRegistryCap(t *testing.T) {
 			t.Fatalf("recent clock %d must still match: %v", i, g)
 		}
 	}
-	g := r.assign(mk(-1, now, uint32(last)*7919+5000), true) //nolint:gosec // teste
+	g := r.assign(mk(-1, now, uint32(last)*7919+5000), true)
 	if g == nil || *g != "clk-"+fmt.Sprint(last) {
 		t.Fatalf("recent clock must still match: %v", g)
 	}

@@ -45,7 +45,7 @@ func TestProbeWaitBusy(t *testing.T) {
 		f.q.waiters <- struct{}{}
 	}
 	start := time.Now()
-	resp, err := http.Get(f.srv.URL + "/api/v1/probes/" + probeID + "?wait=10s") //nolint:gosec,noctx // teste
+	resp, err := http.Get(f.srv.URL + "/api/v1/probes/" + probeID + "?wait=10s")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestProbeWaitSlotReleased(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if resp, err := http.DefaultClient.Do(req); err == nil { //nolint:gosec // teste
+		if resp, err := http.DefaultClient.Do(req); err == nil {
 			_ = resp.Body.Close()
 		}
 	}()

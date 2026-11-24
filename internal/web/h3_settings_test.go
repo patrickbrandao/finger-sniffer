@@ -37,7 +37,7 @@ func dialRawH3(t *testing.T, pc *net.UDPConn) *rawH3 {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	qc, err := quic.DialAddr(ctx, pc.LocalAddr().String(),
-		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h3"}}, //nolint:gosec // autoassinado de teste
+		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h3"}},
 		&quic.Config{MaxIdleTimeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)

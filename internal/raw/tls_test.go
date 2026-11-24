@@ -41,7 +41,7 @@ func withTLS(t *testing.T) func(*Config) {
 func dialTLS(t *testing.T, addr, sni string, extra func(*tls.Config)) *tls.Conn {
 	t.Helper()
 	raw := dial(t, addr)
-	cfg := &tls.Config{InsecureSkipVerify: true, ServerName: sni} //nolint:gosec // autoassinado de teste
+	cfg := &tls.Config{InsecureSkipVerify: true, ServerName: sni}
 	if extra != nil {
 		extra(cfg)
 	}
@@ -155,7 +155,7 @@ func TestAutoTLSSplitFirstByte(t *testing.T) {
 	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo"}}, withTLS(t))
 	raw := dial(t, env.addr[0])
 	sc := &splitConn{TCPConn: raw}
-	c := tls.Client(sc, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // teste
+	c := tls.Client(sc, &tls.Config{InsecureSkipVerify: true})
 	if err := c.Handshake(); err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestAutoTLSProbeSourceInsideTunnel(t *testing.T) {
 	if got := readN(t, raw, len(BannerFor(21))); got != BannerFor(21) {
 		t.Fatalf("plain banner = %q", got)
 	}
-	c := tls.Client(raw, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // teste
+	c := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
 	if err := c.Handshake(); err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func clientHelloBytes(t *testing.T) []byte {
 	cli, srv := net.Pipe()
 	defer func() { _ = srv.Close() }()
 	go func() {
-		c := tls.Client(cli, &tls.Config{ServerName: "finger-01.badblock.net.br", MaxVersion: tls.VersionTLS12}) //nolint:gosec // só o ClientHello
+		c := tls.Client(cli, &tls.Config{ServerName: "finger-01.badblock.net.br", MaxVersion: tls.VersionTLS12})
 		_ = c.Handshake()
 		_ = cli.Close()
 	}()
@@ -425,7 +425,7 @@ func TestStartTLSKeepsDeliverySocket(t *testing.T) {
 			if err != nil {
 				return
 			}
-			tc := tls.Client(c, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // autoassinado de teste
+			tc := tls.Client(c, &tls.Config{InsecureSkipVerify: true})
 			_ = tc.Handshake()
 			_ = tc.Close()
 		}()

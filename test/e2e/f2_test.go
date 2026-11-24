@@ -81,7 +81,7 @@ func startListener(t *testing.T) {
 // get faz GET na API, guarda o corpo para a validação de contrato e decodifica em out.
 func get(t *testing.T, path string, out any) []byte {
 	t.Helper()
-	resp, err := http.Get(api + path) //nolint:gosec // URL do teste
+	resp, err := http.Get(api + path)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}
@@ -221,7 +221,7 @@ func TestF2ExitCriterion(t *testing.T) {
 			t.Errorf("%s: ip = %+v", r.ConnID, r.IP)
 		}
 		// pcap válido no tshark, com todos os pacotes da conexão
-		resp, err := http.Get(api + "/connections/" + c.ConnID + "/pcap") //nolint:gosec // URL do teste
+		resp, err := http.Get(api + "/connections/" + c.ConnID + "/pcap")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -231,7 +231,7 @@ func TestF2ExitCriterion(t *testing.T) {
 		if err := os.WriteFile(f, pcap, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		out, err := exec.Command(tshark, "-r", f, "-T", "fields", "-e", "frame.number").Output() //nolint:gosec // caminho do teste
+		out, err := exec.Command(tshark, "-r", f, "-T", "fields", "-e", "frame.number").Output()
 		if err != nil {
 			t.Errorf("%s: tshark não abriu o pcap: %v", c.ConnID, err)
 			continue
@@ -289,7 +289,7 @@ func validateContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"cmd/finger-sniffer-store/openapi.yaml", "redocly.yaml"} {
-		b, err := os.ReadFile(filepath.Join(root, f)) //nolint:gosec // arquivos do repositório
+		b, err := os.ReadFile(filepath.Join(root, f))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +300,7 @@ func validateContract(t *testing.T) {
 	// exemplos sem resposta real neste teste (probe) ficam os do repositório
 	golden, _ := filepath.Glob(filepath.Join(root, "cmd/finger-sniffer-store/testdata/*.json"))
 	for _, g := range golden {
-		b, _ := os.ReadFile(g) //nolint:gosec // arquivos do repositório
+		b, _ := os.ReadFile(g)
 		name := filepath.Base(g)
 		if live, ok := contract[name]; ok {
 			// os exemplos são Example Objects: a resposta real vai em "value"
@@ -314,7 +314,7 @@ func validateContract(t *testing.T) {
 	if err != nil {
 		t.Skip(err.Error())
 	}
-	cmd := exec.Command(bin, "lint", "openapi.yaml") //nolint:gosec // binário do repositório
+	cmd := exec.Command(bin, "lint", "openapi.yaml")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	out, err := cmd.CombinedOutput()
@@ -357,7 +357,7 @@ func TestRetention(t *testing.T) {
 	}
 	t.Logf("conexão %s terminou em %s; retenção %s", c.ConnID, ended.Format(time.RFC3339), ret)
 	for {
-		resp, err := http.Get(api + "/connections/" + c.ConnID) //nolint:gosec // URL do teste
+		resp, err := http.Get(api + "/connections/" + c.ConnID)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -56,7 +56,7 @@ func tcpFrame(src, dst netip.AddrPort, s seg) []byte {
 		hl := 20 + len(s.ipOpts)
 		ip := make([]byte, hl)
 		ip[0], ip[1], ip[8], ip[9] = 0x40|byte(hl/4), s.tos, ttl, protoTCP
-		binary.BigEndian.PutUint16(ip[2:], uint16(hl+len(tcp))) //nolint:gosec // teste
+		binary.BigEndian.PutUint16(ip[2:], uint16(hl+len(tcp)))
 		binary.BigEndian.PutUint16(ip[4:], s.id)
 		var fo uint16
 		if s.df {
@@ -75,7 +75,7 @@ func tcpFrame(src, dst netip.AddrPort, s seg) []byte {
 		f = binary.BigEndian.AppendUint16(f, 0x86dd)
 		ip := make([]byte, 40)
 		binary.BigEndian.PutUint32(ip[0:], 6<<28|uint32(s.tos)<<20|s.flow)
-		binary.BigEndian.PutUint16(ip[4:], uint16(len(tcp))) //nolint:gosec // teste
+		binary.BigEndian.PutUint16(ip[4:], uint16(len(tcp)))
 		ip[6], ip[7] = protoTCP, ttl
 		a, b := src.Addr().As16(), dst.Addr().As16()
 		copy(ip[8:], a[:])
@@ -94,7 +94,7 @@ func segBatch(cli, srv netip.AddrPort, segs []seg) fakeMsg {
 			src, dst, dir = srv, cli, event.DirOut
 		}
 		f := tcpFrame(src, dst, s)
-		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(s.ms*1e6), Dir: dir, WireLen: uint32(len(f)), Frame: f}) //nolint:gosec // teste
+		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(s.ms*1e6), Dir: dir, WireLen: uint32(len(f)), Frame: f})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 }
@@ -140,12 +140,12 @@ func (s *session) handshake(ttl uint8) {
 
 func (s *session) cliData(ms float64, n int, ttl uint8, id uint16) {
 	s.segs = append(s.segs, seg{ms: ms, fromCli: true, flags: tcpACK | tcpPSH, seq: s.cliNext, ack: s.srvNext, win: 502, opts: tsOpt(s.tsAt(ms), 777), payload: n, ttl: ttl, id: id, df: true})
-	s.cliNext += uint32(n) //nolint:gosec // teste
+	s.cliNext += uint32(n)
 }
 
 func (s *session) srvData(ms float64, n int) {
 	s.segs = append(s.segs, seg{ms: ms, flags: tcpACK, seq: s.srvNext, ack: s.cliNext, win: 509, opts: tsOpt(888, s.tsAt(ms)), payload: n})
-	s.srvNext += uint32(n) //nolint:gosec // teste
+	s.srvNext += uint32(n)
 }
 
 func (s *session) cliAck(ms float64, ttl uint8, id uint16) {
@@ -175,7 +175,7 @@ func TestAnalysisFullSession(t *testing.T) {
 	s.cliData(120, 300, 57, 102)
 	for i := range 6 {
 		s.srvData(200+float64(i), 1448)
-		s.cliAck(240+float64(i), 57, uint16(103+i)) //nolint:gosec // teste
+		s.cliAck(240+float64(i), 57, uint16(103+i))
 	}
 	s.fin(700, 57, 110)
 	rec := ingestSession(t, nil, client, s.segs)
@@ -324,7 +324,7 @@ func TestAnalysisDelayedAck(t *testing.T) {
 	for i := range 8 {
 		s.srvData(200+float64(i), 1448)
 		if i%2 == 1 {
-			s.cliAck(240+float64(i), 64, uint16(i)) //nolint:gosec // teste
+			s.cliAck(240+float64(i), 64, uint16(i))
 		}
 	}
 	s.fin(400, 64, 50)

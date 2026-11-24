@@ -35,7 +35,7 @@ type goldenSYN struct {
 // loadGoldenSYNs lê os SYNs de cliente do pcap e as referências de JA4T e p0f por porta de origem.
 func loadGoldenSYNs(t *testing.T, name string) []goldenSYN {
 	t.Helper()
-	f, err := os.Open(filepath.Join(goldenPcapDir, name+".pcap")) //nolint:gosec // testdata
+	f, err := os.Open(filepath.Join(goldenPcapDir, name+".pcap"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func loadGoldenSYNs(t *testing.T, name string) []goldenSYN {
 	for i := range out {
 		byPort[out[i].port] = &out[i]
 	}
-	if fh, err := os.Open(filepath.Join(goldenPcapDir, name+".ja4.jsonl")); err == nil { //nolint:gosec // testdata
+	if fh, err := os.Open(filepath.Join(goldenPcapDir, name+".ja4.jsonl")); err == nil {
 		sc := bufio.NewScanner(fh)
 		sc.Buffer(make([]byte, 1<<20), 1<<20)
 		for sc.Scan() {
@@ -81,7 +81,7 @@ func loadGoldenSYNs(t *testing.T, name string) []goldenSYN {
 		}
 		_ = fh.Close()
 	}
-	if raw, err := os.ReadFile(filepath.Join(goldenPcapDir, name+".p0f.txt")); err == nil { //nolint:gosec // testdata
+	if raw, err := os.ReadFile(filepath.Join(goldenPcapDir, name+".p0f.txt")); err == nil {
 		for _, line := range strings.Split(string(raw), "\n") {
 			if !strings.Contains(line, " mod=syn|") {
 				continue
@@ -119,7 +119,7 @@ func loadGoldenInitials(t *testing.T) []goldenInitial {
 	}
 	var out []goldenInitial
 	for _, file := range files {
-		b, err := os.ReadFile(file) //nolint:gosec // testdata
+		b, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +146,7 @@ func loadGoldenInitials(t *testing.T) []goldenInitial {
 // initialDatagrams lê os datagramas UDP do cliente (porta de origem port) do pcap.
 func initialDatagrams(t *testing.T, file string, port int) [][]byte {
 	t.Helper()
-	f, err := os.Open(file) //nolint:gosec // testdata
+	f, err := os.Open(file)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,7 +45,7 @@ func checkEventGolden(t *testing.T, file string, data []byte) {
 	}
 	if *update {
 		out, _ := json.MarshalIndent(got, "", "  ")
-		if err := os.WriteFile(file, append(out, '\n'), 0o644); err != nil { //nolint:gosec // testdata versionado
+		if err := os.WriteFile(file, append(out, '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return

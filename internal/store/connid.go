@@ -105,7 +105,7 @@ func addrPort(ip string, port int) (netip.AddrPort, error) {
 	if port <= 0 || port > 65535 {
 		return netip.AddrPort{}, fmt.Errorf("conn_id: port %d", port)
 	}
-	return netip.AddrPortFrom(a.Unmap().WithZone(""), uint16(port)), nil //nolint:gosec // porta validada acima
+	return netip.AddrPortFrom(a.Unmap().WithZone(""), uint16(port)), nil
 }
 
 // handleConnID atende uma mensagem de fs.v1.store.conn_id. Requisição inválida fica sem resposta (o cliente

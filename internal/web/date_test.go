@@ -196,8 +196,8 @@ func h3Response(t *testing.T, c *rawH3, path string) [][][2]string {
 		if !ok1 || !ok2 || uint64(len(b)-n1-n2) < ln {
 			t.Fatalf("frame truncado %x", b)
 		}
-		payload := b[n1+n2 : n1+n2+int(ln)] //nolint:gosec // ln <= len(b)
-		b = b[n1+n2+int(ln):]               //nolint:gosec // idem
+		payload := b[n1+n2 : n1+n2+int(ln)]
+		b = b[n1+n2+int(ln):]
 		if typ != quicparse.H3FrameHeaders {
 			continue
 		}

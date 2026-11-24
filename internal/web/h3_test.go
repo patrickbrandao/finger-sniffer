@@ -61,7 +61,7 @@ func startH3(t *testing.T, h *harness) *net.UDPConn {
 func h3Client(t *testing.T) *http3.Transport {
 	t.Helper()
 	tr := &http3.Transport{
-		TLSClientConfig: &tls.Config{ServerName: testSNI, InsecureSkipVerify: true}, //nolint:gosec // autoassinado de teste
+		TLSClientConfig: &tls.Config{ServerName: testSNI, InsecureSkipVerify: true},
 		QUICConfig:      &quic.Config{MaxIdleTimeout: 5 * time.Second},
 	}
 	return tr
@@ -218,7 +218,7 @@ func TestAltSvc(t *testing.T) {
 	get := func(proto, addr, path string) string {
 		t.Helper()
 		trp := &http.Transport{
-			TLSClientConfig:   &tls.Config{ServerName: testSNI, InsecureSkipVerify: true}, //nolint:gosec // teste
+			TLSClientConfig:   &tls.Config{ServerName: testSNI, InsecureSkipVerify: true},
 			ForceAttemptHTTP2: proto == "h2",
 		}
 		if proto == "h1" {
@@ -302,7 +302,7 @@ func TestH3ResetInstants(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	qc, err := quic.DialAddr(ctx, pc.LocalAddr().String(),
-		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h3"}}, //nolint:gosec // autoassinado de teste
+		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h3"}},
 		&quic.Config{MaxIdleTimeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)

@@ -47,7 +47,7 @@ func (s statfsSpace) Space() (size, free int64, err error) {
 	if err := syscall.Statfs(s.dir, &st); err != nil {
 		return 0, 0, fmt.Errorf("statfs %s: %w", s.dir, err)
 	}
-	bs := int64(st.Bsize)                                    //nolint:unconvert,gosec // uint32 no darwin, int64 no linux; blocos sempre pequenos
+	bs := int64(st.Bsize)
 	return int64(st.Blocks) * bs, int64(st.Bavail) * bs, nil //nolint:gosec // contagens de blocos cabem em int64
 }
 

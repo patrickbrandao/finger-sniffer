@@ -103,7 +103,7 @@ func encodeKnownClients(ks []knownClient) ([]byte, error) {
 
 // readKnownClients lê o arquivo; ausente devolve vazio.
 func readKnownClients(path string) (*knownClients, error) {
-	b, err := os.ReadFile(path) //nolint:gosec // caminho do repositório
+	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return &knownClients{Version: 1}, nil
 	}
@@ -133,13 +133,13 @@ func recordKnownClients(path string, got []knownClient) ([]byte, bool, error) {
 	if os.Getenv("FS_E2E_UPDATE") != "1" {
 		return b, false, nil
 	}
-	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, b) { //nolint:gosec // caminho do repositório
+	if cur, err := os.ReadFile(path); err == nil && bytes.Equal(cur, b) {
 		return b, false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, false, err
 	}
-	return b, true, os.WriteFile(path, b, 0o644) //nolint:gosec // arquivo versionado, lido pelo build
+	return b, true, os.WriteFile(path, b, 0o644)
 }
 
 // numVersion extrai a versão da primeira sequência numérica de s ("curl 8.23.0 (...)" → "8.23.0") cortada em
@@ -397,7 +397,7 @@ func TestKnownClientsRecordOnlyWithUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	read := func() []byte {
-		b, err := os.ReadFile(path) //nolint:gosec // temporário do teste
+		b, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -252,7 +252,7 @@ func TestExcludeFilterTooMany(t *testing.T) {
 func TestExcludeFilterMaxPorts(t *testing.T) {
 	ports := make([]uint16, 50)
 	for i := range ports {
-		ports[i] = uint16(1000 + i) //nolint:gosec // teste
+		ports[i] = uint16(1000 + i)
 	}
 	prog, err := ExcludeFilter(ports, 0)
 	if err != nil {

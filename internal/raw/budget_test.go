@@ -60,7 +60,7 @@ func TestClientHelloWithoutBudget(t *testing.T) {
 		c.inputBudget = helloReserve - 1
 	})
 	raw := dial(t, env.addr[0])
-	c := tls.Client(raw, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec // autoassinado de teste
+	c := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 	if err := c.Handshake(); err == nil {
 		t.Fatal("handshake completou sem orçamento")

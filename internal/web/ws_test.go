@@ -26,7 +26,7 @@ func wsDial(t *testing.T, addr, url string, opts *websocket.DialOptions, port *i
 	p.SetHTTP1(true)
 	tr := &http.Transport{
 		Protocols:       &p,
-		TLSClientConfig: &tls.Config{ServerName: testSNI, InsecureSkipVerify: true}, //nolint:gosec // autoassinado de teste
+		TLSClientConfig: &tls.Config{ServerName: testSNI, InsecureSkipVerify: true},
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			var d net.Dialer
 			c, err := d.DialContext(ctx, network, addr)

@@ -150,7 +150,7 @@ func TestH3HandshakeFailed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := quic.DialAddr(ctx, pc.LocalAddr().String(),
-		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h2"}}, nil) //nolint:gosec // teste
+		&tls.Config{ServerName: testSNI, InsecureSkipVerify: true, NextProtos: []string{"h2"}}, nil)
 	if err == nil {
 		t.Fatal("handshake sem h3 passou")
 	}

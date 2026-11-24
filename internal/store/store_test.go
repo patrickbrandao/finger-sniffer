@@ -263,7 +263,7 @@ func TestAPI(t *testing.T) {
 
 	get := func(path string) (int, http.Header, string) {
 		t.Helper()
-		resp, err := http.Get(srv.URL + path) //nolint:noctx // teste
+		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +289,7 @@ func TestAPI(t *testing.T) {
 	if code, _, _ = get("/nope"); code != 404 {
 		t.Fatalf("404 expected, got %d", code)
 	}
-	req, _ := http.NewRequest(http.MethodOptions, srv.URL+"/api/v1/health", nil) //nolint:noctx // teste
+	req, _ := http.NewRequest(http.MethodOptions, srv.URL+"/api/v1/health", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("preflight %v %v", resp, err)
