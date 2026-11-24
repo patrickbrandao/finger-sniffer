@@ -70,12 +70,11 @@ func (s *session) startTLS(prefix []byte) bool {
 			tc.Release()
 		}
 	}
-	cfg := s.tlsCfg.Clone()
-	cfg.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
-		publishHello()
-		return nil, nil
-	}
-	ts := tls.Server(tc, cfg)
+	// A configuração TLS é a única do servidor (newServerTLS), para as chaves de ticket valerem entre conexões e a
+	// retomada acontecer (task 419, como no web na task 346); o gancho desta conexão vai no net.Conn, que o
+	// GetConfigForClient recebe em ClientHelloInfo.Conn.
+	hc := &helloConn{Conn: tc, onHello: publishHello}
+	ts := tls.Server(hc, s.tlsCfg)
 	_ = tcp.SetDeadline(start.Add(s.cfg.Idle))
 	err := ts.HandshakeContext(context.Background())
 	end := time.Now()
@@ -97,6 +96,34 @@ func (s *session) startTLS(prefix []byte) bool {
 	s.bannerSent = false
 	s.waitFrom = end
 	return true
+}
+
+// helloConn leva ao GetConfigForClient compartilhado (newServerTLS) o gancho da conexão: o crypto/tls passa em
+// ClientHelloInfo.Conn o mesmo net.Conn entregue a tls.Server.
+type helloConn struct {
+	*tlsparse.Conn
+	onHello func()
+}
+
+// newServerTLS monta, uma vez por servidor, a configuração TLS das portas cruas a partir da base (pkg/certs): as
+// chaves automáticas de ticket (com a rotação do crypto/tls) ficam nela e valem para todas as conexões, e a
+// retomada (TLS 1.3 PSK, ticket do TLS 1.2) funciona (spec 008 RF-04, task 419). nil sem TLS.
+func newServerTLS(base *tls.Config) *tls.Config {
+	if base == nil {
+		return nil
+	}
+	cfg := base.Clone()
+	prev := base.GetConfigForClient
+	cfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if hc, ok := hello.Conn.(*helloConn); ok && hc.onHello != nil {
+			hc.onHello()
+		}
+		if prev != nil {
+			return prev(hello)
+		}
+		return nil, nil
+	}
+	return cfg
 }
 
 // publishClientHello publica o ClientHello cru e analisado com JA3/JA4 (spec 008); o SNI de uma zona dos

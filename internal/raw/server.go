@@ -64,6 +64,8 @@ func New(cfg Config, pub Publisher, log *slog.Logger, metrics *service.Metrics) 
 		limit = InputBudget
 	}
 	metrics.Add(MetricPanics, 0)
+	// Uma única tls.Config para todas as sessões (task 419): clonar por conexão trocaria as chaves de ticket.
+	cfg.TLS = newServerTLS(cfg.TLS)
 	return &Server{
 		budget: newInputBudget(limit, metrics),
 		cfg:    cfg, pub: pub, log: log, metrics: metrics, probes: probe.NewExtractor(),
