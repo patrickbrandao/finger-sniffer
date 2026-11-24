@@ -68,11 +68,12 @@ func (u *udpConn) SetWriteBuffer(n int) error { return u.c.SetWriteBuffer(min(n,
 
 // initEntry é a análise dos Initials de uma 5-tupla.
 type initEntry struct {
-	key    string
-	first  time.Time
-	asm    *quicparse.Assembler
-	bytes  int
-	flow   event.Flow
+	key   string
+	first time.Time
+	asm   *quicparse.Assembler
+	bytes int
+	flow  event.Flow
+	// connID é pedido no primeiro Initial decifrado (ou no claim, se nenhum decifrou); nil até lá.
 	connID *connIDFuture
 	// done fecha quando a análise termina (ClientHello completo, erro, teto ou janela de 2 s).
 	done    chan struct{}
@@ -154,8 +155,10 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 		e = nil
 	}
 	if e == nil {
-		// só um cabeçalho longo abre uma 5-tupla nova (o quic-go cuida do resto)
-		if b[0]&0x80 == 0 {
+		// só um cabeçalho longo legível e com versão abre uma 5-tupla nova (o quic-go cuida do resto): a
+		// entrada sem versão nunca publica nada (orphanLocked), então não ocupa a tabela (task 350)
+		h, err := quicparse.ParseLongHeader(b)
+		if err != nil || h.Version == 0 {
 			t.mu.Unlock()
 			t.publishOrphans(orphans)
 			return
@@ -173,11 +176,7 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 		e = &initEntry{key: key, first: now, asm: quicparse.NewAssembler(quicparse.Options{
 			InlineMax: t.srv.cfg.EventInlineMax,
 		}), flow: udpFlow(local, remote), done: make(chan struct{})}
-		if h, err := quicparse.ParseLongHeader(b); err == nil {
-			e.flow.QUICDCIDHex = hex.EncodeToString(h.DCID)
-		}
-		// RF-07: o conn_id é pedido no primeiro datagrama da 5-tupla
-		e.connID = t.srv.requestConnID(t.ctx, e.flow, now)
+		e.flow.QUICDCIDHex = hex.EncodeToString(h.DCID)
 		t.m[key] = e
 	}
 	if !e.stopped {
@@ -188,6 +187,11 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 			e.asm.Add(b)
 			e.bytes += len(b)
 			t.bytes += len(b)
+			// RF-07: o conn_id é pedido no primeiro datagrama da 5-tupla com um Initial decifrado (o de um
+			// cliente real é o primeiro); datagrama forjado que não decifra não gera pedido ao store (task 350)
+			if e.connID == nil && e.asm.Version() != 0 && e.asm.Info().InitialPacketNumber >= 0 {
+				e.connID = t.srv.requestConnID(t.ctx, e.flow, now)
+			}
 			if e.asm.Done() {
 				t.stopLocked(e)
 			}
@@ -317,6 +321,10 @@ func (t *initTracker) claim(remote net.Addr, wait time.Duration) (*initEntry, *q
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.stopLocked(e)
+	if e.connID == nil {
+		// conexão aceita sem Initial decifrado pelo tracker: o pedido sai agora, como sem entrada
+		e.connID = t.srv.requestConnID(t.ctx, e.flow, t.srv.now())
+	}
 	return e, snapshotInfo(e.asm)
 }
 

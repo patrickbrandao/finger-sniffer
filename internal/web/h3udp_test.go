@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -99,6 +100,125 @@ func TestInitTrackerMemory(t *testing.T) {
 	tr.sweep()
 	if len(tr.m) != 0 || tr.bytes != 0 || orphans == 0 || orphans >= 400 {
 		t.Fatalf("depois da limpeza: %d entradas, %d bytes, %d órfãs", len(tr.m), tr.bytes, orphans)
+	}
+}
+
+// smallInitial remonta o Initial da RFC 9001 sem o PADDING: decifra e traz o ClientHello inteiro, mas tem
+// menos de 1200 bytes (o quic-go o descarta; o espelho o registra com padded_to_1200 false).
+func smallInitial(t testing.TB) []byte {
+	t.Helper()
+	full := rfcInitial(t)
+	h, err := quicparse.ParseLongHeader(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := quicparse.NewInitialKeys(h.Version, h.DCID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := k.Open(full[:h.Size], h, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := o.Payload
+	for len(payload) > 0 && payload[len(payload)-1] == 0 {
+		payload = payload[:len(payload)-1]
+	}
+	hdr := []byte{0xc1, byte(h.Version >> 24), byte(h.Version >> 16), byte(h.Version >> 8), byte(h.Version)}
+	hdr = append(hdr, byte(len(h.DCID)))
+	hdr = append(hdr, h.DCID...)
+	hdr = append(hdr, byte(len(h.SCID)))
+	hdr = append(hdr, h.SCID...)
+	hdr = append(hdr, 0) // sem token
+	length := 2 + len(payload) + 16
+	hdr = append(hdr, byte(length>>8)|0x40, byte(length))
+	pnOff := len(hdr)
+	hdr = append(hdr, 0, 2)
+	return k.Seal(hdr, pnOff, 2, payload)
+}
+
+// TestInitTrackerConnIDOnlyOnDecryptedInitial: datagramas de cabeçalho longo que não decifram (1 byte 0x80,
+// cabeçalho truncado, versão desconhecida, Initial com lixo) de 5-tuplas distintas não pedem conn_id ao
+// store; um Initial válido pede no primeiro datagrama; um Initial válido abaixo de 1200 bytes também, e sai
+// como órfão com padded_to_1200 false; a 5-tupla reclamada sem Initial decifrado pede no claim (task 350).
+func TestInitTrackerConnIDOnlyOnDecryptedInitial(t *testing.T) {
+	var calls atomic.Int64
+	srv := NewServer(testConfig(t.TempDir()), Deps{
+		ConnID: func(context.Context, event.Flow, time.Time) (string, error) {
+			calls.Add(1)
+			return "c1", nil
+		},
+	})
+	// relógio real: o prazo do conn_id conta do instante do pedido
+	now := time.Now()
+	srv.now = func() time.Time { return now }
+	local := udpAddr(443)
+
+	tr := newInitTracker(context.Background(), srv)
+	junk := [][]byte{{0x80}, {0xc0, 0, 0, 0}, unknownVersion(1), fakeInitial(1, 40), {0xc0, 0, 0, 0, 0, 0, 0}}
+	for i := range 10000 {
+		for j, d := range junk {
+			tr.observe(local, &net.UDPAddr{IP: net.IPv4(198, 51, byte(j), byte(i>>8)), Port: 1024 + i}, d)
+		}
+	}
+	tr.mu.Lock()
+	for _, e := range tr.m {
+		if e.connID != nil {
+			t.Fatalf("entrada %s com pedido de conn_id", e.key)
+		}
+	}
+	tr.mu.Unlock()
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("%d pedidos de conn_id para datagramas que não decifram", n)
+	}
+	checkTrackerInvariants(t, tr)
+
+	now = time.Now()
+	tr = newInitTracker(context.Background(), srv)
+	var orphans []*quicparse.Info
+	tr.orphans = func(_ *initEntry, info *quicparse.Info) { orphans = append(orphans, info) }
+	tr.observe(local, udpAddr(1), rfcInitial(t))
+	e := tr.m[udpAddr(1).String()]
+	if e == nil || e.connID == nil {
+		t.Fatal("Initial válido sem pedido de conn_id no primeiro datagrama")
+	}
+	if got := e.connID.get(); got != "c1" || calls.Load() != 1 {
+		t.Fatalf("conn_id %q, %d pedidos", got, calls.Load())
+	}
+	tr.observe(local, udpAddr(1), rfcInitial(t)) // retransmissão: nenhum pedido novo
+	small := smallInitial(t)
+	if len(small) >= 1200 {
+		t.Fatalf("Initial pequeno com %d bytes", len(small))
+	}
+	tr.observe(local, udpAddr(2), small)
+	e2 := tr.m[udpAddr(2).String()]
+	if e2 == nil || e2.connID == nil {
+		t.Fatal("Initial pequeno sem pedido de conn_id")
+	}
+	e2.connID.get()
+	if calls.Load() != 2 {
+		t.Fatalf("%d pedidos", calls.Load())
+	}
+	// reclamada sem Initial decifrado: o pedido sai no claim
+	tr.observe(local, udpAddr(3), fakeInitial(3, 40))
+	if tr.m[udpAddr(3).String()].connID != nil {
+		t.Fatal("Initial com lixo pediu conn_id")
+	}
+	e3, _ := tr.claim(udpAddr(3), 0)
+	if e3 == nil || e3.connID == nil || e3.connID.get() != "c1" || calls.Load() != 3 {
+		t.Fatalf("claim sem pedido de conn_id: %d pedidos", calls.Load())
+	}
+	// o pequeno não reclamado vira handshake_failed com padded_to_1200 false
+	now = now.Add(initOrphanAfter + time.Second)
+	tr.sweep()
+	var smallInfo *quicparse.Info
+	for _, in := range orphans {
+		if in.InitialDatagramSize == len(small) {
+			smallInfo = in
+		}
+	}
+	if smallInfo == nil || smallInfo.PaddedTo1200 || smallInfo.ClientHello == nil {
+		t.Fatalf("órfão do Initial pequeno: %+v", smallInfo)
 	}
 }
 

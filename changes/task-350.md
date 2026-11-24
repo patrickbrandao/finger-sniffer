@@ -1,0 +1,1 @@
+- web: o tracker de Initials QUIC só abre entrada para cabeçalho longo legível com versão e só pede o `conn_id` ao store quando um Initial decifra (ou no claim da conexão aceita); datagramas forjados de 1 byte deixam de gerar um pedido NATS cada (task 350).
