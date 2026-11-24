@@ -1,0 +1,1 @@
+- bot: o recálculo do JA4H sem Origin do `ja4h_library` passa a usar `ja4plus.JA4HAB` (nova, no pacote isolado da FoxIO License 1.1); sai a cópia do cálculo de `internal/bot/rules` (ADR 0010, task 403).

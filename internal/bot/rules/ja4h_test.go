@@ -65,8 +65,12 @@ func insertAt(s []string, i int, v string) []string {
 	return slices.Insert(slices.Clone(s), i, v)
 }
 
+// withoutContext tira da ordem os campos de contexto da ADR 0060 item 1 (Origin, Referer, Cookie) e os pseudo.
 func withoutContext(names []string) []string {
-	return slices.DeleteFunc(slices.Clone(names), func(n string) bool { return ja4hContextField(n) || strings.HasPrefix(n, ":") })
+	return slices.DeleteFunc(slices.Clone(names), func(n string) bool {
+		return strings.EqualFold(n, "origin") || strings.EqualFold(n, "referer") || strings.EqualFold(n, "cookie") ||
+			strings.HasPrefix(n, ":")
+	})
 }
 
 // TestJA4HWithoutContextBase: critério da task 295 — para cada medida de biblioteca da base própria, a mesma
