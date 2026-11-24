@@ -1,0 +1,1 @@
+- dns: teto de 8 conexões TCP simultâneas por origem (IP em IPv4, /64 em IPv6) além das 256 globais, e 3 s de espera pela primeira consulta (10 s entre as seguintes), para uma origem não fechar o fallback TCP do TC=1; limites TCP da ADR 0035 com teste (task 385).

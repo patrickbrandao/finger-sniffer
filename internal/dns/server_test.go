@@ -3,10 +3,14 @@ package dns
 import (
 	"context"
 	"encoding/binary"
+	"errors"
+	"io"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -302,5 +306,167 @@ func TestServerListenerFailure(t *testing.T) {
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// tcpQuery manda uma consulta SOA enquadrada na conexão e informa se a resposta voltou dentro do prazo.
+func tcpQuery(t *testing.T, c net.Conn, id uint16) bool {
+	t.Helper()
+	q := query("finger-west-01.badblock.net.br.", mdns.TypeSOA)
+	q.Id = id
+	pk, err := q.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Write(append(binary.BigEndian.AppendUint16(nil, uint16(len(pk))), pk...)); err != nil {
+		return false
+	}
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var lenBuf [2]byte
+	if _, err := io.ReadFull(c, lenBuf[:]); err != nil {
+		return false
+	}
+	buf := make([]byte, binary.BigEndian.Uint16(lenBuf[:]))
+	if _, err := io.ReadFull(c, buf); err != nil {
+		return false
+	}
+	var r mdns.Msg
+	return r.Unpack(buf) == nil && r.Id == id && r.Rcode == mdns.RcodeSuccess
+}
+
+// closedWithin informa se o servidor fechou a conexão (EOF ou reset) dentro de d, sem mandar dados.
+func closedWithin(c net.Conn, d time.Duration) bool {
+	_ = c.SetReadDeadline(time.Now().Add(d))
+	var b [1]byte
+	_, err := c.Read(b[:])
+	if err == nil {
+		return false
+	}
+	var ne net.Error
+	return !errors.As(err, &ne) || !ne.Timeout()
+}
+
+func dialTCP(t *testing.T, addr string) net.Conn {
+	t.Helper()
+	c, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
+// TestServerTCPPerSourceLimit: teto global 4 e por origem 2; a 3ª conexão da mesma origem é fechada, a de outra
+// origem ainda é atendida, e a vaga volta quando uma conexão da origem fecha. A chave de origem é injetada porque
+// 127.0.0.2 não existe no loopback do macOS.
+func TestServerTCPPerSourceLimit(t *testing.T) {
+	z, _ := newTestZone()
+	var src atomic.Value
+	src.Store(netip.MustParseAddr("192.0.2.1"))
+	srv, _, tcp := startServer(t, z, func(s *Server) {
+		s.TCPMaxConns, s.TCPMaxPerSrc = 4, 2
+		s.tcpSrcKey = func(netip.Addr) netip.Addr { return src.Load().(netip.Addr) }
+	})
+
+	a1, a2 := dialTCP(t, tcp), dialTCP(t, tcp)
+	if !tcpQuery(t, a1, 1) || !tcpQuery(t, a2, 2) {
+		t.Fatal("as duas primeiras conexões da origem devem ser atendidas")
+	}
+	a3 := dialTCP(t, tcp)
+	if !closedWithin(a3, 2*time.Second) {
+		t.Fatal("3ª conexão da mesma origem deveria ser fechada")
+	}
+	src.Store(netip.MustParseAddr("192.0.2.2"))
+	if b1 := dialTCP(t, tcp); !tcpQuery(t, b1, 3) {
+		t.Fatal("conexão de outra origem deveria ser atendida")
+	}
+	if got := srv.metrics.Get(MetricDropped); got != 1 {
+		t.Fatalf("%s = %v, quer 1", MetricDropped, got)
+	}
+
+	// Fechar uma conexão da primeira origem devolve a vaga dela.
+	_ = a1.Close()
+	src.Store(netip.MustParseAddr("192.0.2.1"))
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if a4 := dialTCP(t, tcp); tcpQuery(t, a4, 4) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("a vaga da origem não voltou depois de fechar a conexão")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestServerTCPGlobalLimit: com o teto global 4 e origens distintas, a 5ª conexão simultânea é fechada.
+func TestServerTCPGlobalLimit(t *testing.T) {
+	z, _ := newTestZone()
+	var n atomic.Uint32
+	_, _, tcp := startServer(t, z, func(s *Server) {
+		s.TCPMaxConns, s.TCPMaxPerSrc = 4, 2
+		s.tcpSrcKey = func(netip.Addr) netip.Addr {
+			return netip.AddrFrom4([4]byte{192, 0, 2, byte(n.Add(1))})
+		}
+	})
+	for i := range 4 {
+		if c := dialTCP(t, tcp); !tcpQuery(t, c, uint16(i+1)) {
+			t.Fatalf("conexão %d deveria ser atendida", i+1)
+		}
+	}
+	if c := dialTCP(t, tcp); !closedWithin(c, 2*time.Second) {
+		t.Fatal("5ª conexão simultânea deveria ser fechada")
+	}
+}
+
+// TestServerTCPFirstQueryTimeout: conexão muda fecha no prazo da primeira consulta; depois da primeira, vale a
+// ociosidade (mais longa) entre consultas.
+func TestServerTCPFirstQueryTimeout(t *testing.T) {
+	z, _ := newTestZone()
+	_, _, tcp := startServer(t, z, func(s *Server) {
+		s.TCPFirstTimeout, s.TCPIdleTimeout = 200*time.Millisecond, 1500*time.Millisecond
+	})
+	start := time.Now()
+	if c := dialTCP(t, tcp); !closedWithin(c, 2*time.Second) {
+		t.Fatal("conexão parada deveria ser fechada")
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("fechou em %v, prazo da primeira consulta 200ms", d)
+	}
+
+	c := dialTCP(t, tcp)
+	if !tcpQuery(t, c, 1) {
+		t.Fatal("primeira consulta")
+	}
+	// Depois da primeira consulta, 600 ms parado ainda está dentro da ociosidade de 1,5 s.
+	time.Sleep(600 * time.Millisecond)
+	if !tcpQuery(t, c, 2) {
+		t.Fatal("segunda consulta dentro da ociosidade")
+	}
+	if !closedWithin(c, 3*time.Second) {
+		t.Fatal("conexão ociosa deveria ser fechada")
+	}
+}
+
+// TestServerTCPMaxQueries: com os padrões, as 100 primeiras consultas de uma conexão são respondidas; a 101ª não, e
+// a conexão fecha.
+func TestServerTCPMaxQueries(t *testing.T) {
+	z, _ := newTestZone()
+	srv, _, tcp := startServer(t, z)
+	if srv.TCPMaxQueries != tcpMaxQueries || srv.TCPMaxConns != tcpMaxConns || srv.TCPMaxPerSrc != tcpMaxPerSrc ||
+		srv.TCPFirstTimeout != tcpFirstTimeout || srv.TCPIdleTimeout != tcpIdleTimeout {
+		t.Fatal("padrões dos limites TCP diferentes das constantes")
+	}
+	c := dialTCP(t, tcp)
+	for i := range tcpMaxQueries {
+		if !tcpQuery(t, c, uint16(i+1)) {
+			t.Fatalf("consulta %d sem resposta", i+1)
+		}
+	}
+	if tcpQuery(t, c, 101) {
+		t.Fatal("a 101ª consulta não deveria ser respondida")
+	}
+	if !closedWithin(c, 2*time.Second) {
+		t.Fatal("conexão deveria fechar depois do máximo de consultas")
 	}
 }
