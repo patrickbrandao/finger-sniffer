@@ -470,7 +470,7 @@ func (in *Ingestor) openBot(ctx context.Context, tx *sql.Tx, c *conn, ts int64) 
 	in.markBotOpened(c)
 	r := c.record(0, "")
 	rec, _ := json.Marshal(r)
-	if _, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ? WHERE conn_id = ?", string(rec), c.id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, requests = ? WHERE conn_id = ?", string(rec), r.Requests, c.id); err != nil {
 		return fmt.Errorf("update established connection: %w", err)
 	}
 	in.pubConn(event.StageOpened, ts, rec, &r)

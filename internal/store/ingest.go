@@ -578,7 +578,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		r := c.record(0, "")
 		rec, _ := json.Marshal(r)
 		if _, err := st.insConn.ExecContext(ctx, c.id, l4Name(c.l4), c.family, c.client.Addr().String(), int(c.client.Port()),
-			c.server.Addr().String(), int(c.server.Port()), l4Name(c.l4), c.started, boolInt(c.degraded), string(rec), c.started); err != nil {
+			c.server.Addr().String(), int(c.server.Port()), l4Name(c.l4), c.started, boolInt(c.degraded), string(rec), c.started, r.Requests); err != nil {
 			return fmt.Errorf("insert connection: %w", err)
 		}
 		// O ID pode ser o de uma conexão criada antes só pelos eventos (pacotes atrasados): adotada, ela já
@@ -683,8 +683,8 @@ func (in *Ingestor) writeLate(ctx context.Context, tx *sql.Tx) error {
 		end := c.endTs()
 		r := c.record(end, "")
 		rec, _ := json.Marshal(r)
-		if _, err := tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ? WHERE conn_id = ?",
-			end, boolInt(c.truncated), string(rec), id); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, requests = ? WHERE conn_id = ?",
+			end, boolInt(c.truncated), string(rec), r.Requests, id); err != nil {
 			return err
 		}
 		if _, ok := in.dirty[id]; !ok {
@@ -763,10 +763,11 @@ func (in *Ingestor) finalizeQueued(ctx context.Context) error {
 // retenção a apaga como órfã (linha aberta fora da memória do ingest).
 func (in *Ingestor) closeUnfinalized(ctx context.Context, c *conn) {
 	end := c.endTs()
-	rec, _ := json.Marshal(c.record(end, "timeout"))
+	r := c.record(end, "timeout")
+	rec, _ := json.Marshal(r)
 	now := in.now().UnixNano()
-	if _, err := in.db.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ? WHERE conn_id = ? AND ended_ns IS NULL",
-		end, string(rec), max(end, now), c.id); err != nil {
+	if _, err := in.db.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ?, requests = ? WHERE conn_id = ? AND ended_ns IS NULL",
+		end, string(rec), max(end, now), r.Requests, c.id); err != nil {
 		in.log.Error("close unfinalized connection", "conn_id", c.id, "err", err)
 	}
 	// Todo opened recebe um closed (ADR 0076 item 2), mesmo sem o pcap.
@@ -919,8 +920,8 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 	}
 	// updated_ns é o relógio do store no instante em que ele registrou o fechamento (settle do long-poll, ADR 0029):
 	// no fim por ociosidade, bem depois do último pacote.
-	if _, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ? WHERE conn_id = ?",
-		end, boolInt(r.PcapTruncated), string(rec), r.Proto, max(end, in.now().UnixNano()), c.id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, proto = ?, updated_ns = ?, requests = ? WHERE conn_id = ?",
+		end, boolInt(r.PcapTruncated), string(rec), r.Proto, max(end, in.now().UnixNano()), r.Requests, c.id); err != nil {
 		return err
 	}
 	// Por ociosidade, o fato "fechou" só existe quando o store decide (ADR 0025): o ts do feed é esse instante;
@@ -978,8 +979,8 @@ func (in *Ingestor) recoverOrphans(ctx context.Context) error {
 			{"INSERT OR REPLACE INTO pcaps (conn_id, data, truncated) VALUES (?, ?, ?)", []any{o.id, pcap, boolInt(r.PcapTruncated)}},
 			{"DELETE FROM packets WHERE conn_id = ?", []any{o.id}},
 			{
-				"UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, updated_ns = ? WHERE conn_id = ?",
-				[]any{end, boolInt(r.PcapTruncated), string(rec), max(end, now), o.id},
+				"UPDATE connections SET ended_ns = ?, pcap_truncated = ?, record_json = ?, updated_ns = ?, requests = ? WHERE conn_id = ?",
+				[]any{end, boolInt(r.PcapTruncated), string(rec), max(end, now), r.Requests, o.id},
 			},
 		} {
 			if _, err := in.db.ExecContext(ctx, q.sql, q.args...); err != nil {
@@ -1076,9 +1077,9 @@ func prepare(ctx context.Context, tx *sql.Tx) (*stmts, error) {
 	var s stmts
 	var err error
 	if s.insConn, err = tx.PrepareContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port,
-		proto, started_ns, degraded, record_json, updated_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		proto, started_ns, degraded, record_json, updated_ns, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (conn_id) DO UPDATE SET started_ns = excluded.started_ns, ended_ns = NULL, degraded = excluded.degraded,
-		record_json = excluded.record_json, updated_ns = excluded.updated_ns`); err != nil {
+		record_json = excluded.record_json, updated_ns = excluded.updated_ns, requests = excluded.requests`); err != nil {
 		return nil, err
 	}
 	if s.insPkt, err = tx.PrepareContext(ctx, "INSERT INTO packets (conn_id, ts_ns, dir, wire_len, frame) VALUES (?, ?, ?, ?, ?)"); err != nil {
