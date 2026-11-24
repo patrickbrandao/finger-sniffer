@@ -70,6 +70,34 @@ func TestPipelining3(t *testing.T) {
 	}
 }
 
+// TestPipeliningDuringResponse: a 2ª requisição chega em escrita separada enquanto a resposta da 1ª ainda
+// está em curso (delay_head=300) e sai pipelined=true; mandada só depois de ler a 1ª resposta inteira, sai
+// pipelined=false (spec 009 RF-05).
+func TestPipeliningDuringResponse(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	for _, tc := range []struct {
+		name      string
+		pipelined bool
+	}{{"during", true}, {"after", false}} {
+		c := dial(t, h.addr80)
+		cl := newClient(t, c)
+		cl.send(get("/r?delay_head=300", "x"))
+		if tc.pipelined {
+			time.Sleep(50 * time.Millisecond)
+			cl.send(get("/r", "x"))
+			cl.response("GET")
+		} else {
+			cl.response("GET")
+			cl.send(get("/r", "x"))
+		}
+		cl.response("GET")
+		evs := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 2)
+		if evs[0].Payload["pipelined"] != false || evs[1].Payload["pipelined"] != tc.pipelined {
+			t.Fatalf("%s: pipelined %v %v", tc.name, evs[0].Payload["pipelined"], evs[1].Payload["pipelined"])
+		}
+	}
+}
+
 // TestExpectContinue: o servidor manda o 100 antes de ler o corpo; o cliente esperou e o tempo fica registrado.
 func TestExpectContinue(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
