@@ -215,7 +215,7 @@ func contractBlocks(t *testing.T) map[string]string {
 	}
 	return map[string]string{
 		event.SubjectWebHTTP1Request:    join(openapi, "HTTP1Request", "ProxySignal", "Controls"),
-		event.SubjectWebTLSClientHello:  join(openapi, "TLSInfo", "TLSExtension", "CodeName"),
+		event.SubjectWebTLSClientHello:  join(openapi, "TLSInfo", "TLSExtension", "CodeName", "TLSParseIssue"),
 		event.SubjectWebRawSession:      join(openapi, "RawInfo"),
 		event.SubjectWebTLSHandshake:    join(async, "TLSHandshakePayload"),
 		event.SubjectWebStreamBytes:     join(async, "StreamBytesPayload"),

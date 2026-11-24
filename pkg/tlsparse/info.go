@@ -2,6 +2,7 @@ package tlsparse
 
 import (
 	"encoding/hex"
+	"errors"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/iana"
 )
@@ -18,7 +19,11 @@ type Info struct {
 	ClientHelloTruncated bool   `json:"client_hello_truncated,omitempty"`
 	// ListsTruncated marca que as listas analisadas e as strings longas dos fingerprints foram cortadas para
 	// o evento caber no teto (ADR 0032); os fingerprints foram calculados antes do corte.
-	ListsTruncated       bool            `json:"lists_truncated,omitempty"`
+	ListsTruncated bool `json:"lists_truncated,omitempty"`
+	// ExtensionErrors e FieldErrors são os erros de análise que não impediram o parse (extensão repetida ou
+	// malformada, campo de tamanho ímpar; spec 008 RF-02), até MaxParseIssues cada (acima, lists_truncated).
+	ExtensionErrors      []ParseIssue    `json:"extension_errors,omitempty"`
+	FieldErrors          []ParseIssue    `json:"field_errors,omitempty"`
 	ClientHelloRecords   int             `json:"client_hello_records"`
 	ClientHelloSegments  int             `json:"client_hello_segments,omitempty"`
 	RecordVersion        int             `json:"record_version"`
@@ -57,6 +62,56 @@ type Info struct {
 	Negotiated           *Negotiated     `json:"negotiated"`
 	HandshakeMs          *float64        `json:"handshake_ms"`
 	Alerts               []Alert         `json:"alerts"`
+}
+
+// MaxParseIssues é o teto de itens de extension_errors e field_errors (schema TLSInfo, maxItems).
+const MaxParseIssues = 64
+
+// Códigos estáveis de ParseIssue.Error (schema TLSParseIssue); nunca o texto do erro Go.
+const (
+	IssueDuplicate = "duplicate"
+	IssueMalformed = "malformed"
+	IssueOddLength = "odd_length"
+)
+
+// ParseIssue é um erro de análise do ClientHello que não impediu o parse (schema TLSParseIssue).
+type ParseIssue struct {
+	// Field é o ParseError.Field: "extension 0x%04x" ou o nome do campo (ex.: cipher_suites).
+	Field string `json:"field"`
+	// Offset é a posição do item contada do início da mensagem de handshake.
+	Offset int `json:"offset"`
+	// Error é o código: duplicate, malformed ou odd_length.
+	Error string `json:"error"`
+}
+
+// parseIssues converte os erros do parser em ParseIssue com código estável, até MaxParseIssues itens; *cut
+// liga quando sobrou erro. Erro sem ParseError (não acontece hoje) entra com campo e posição vazios.
+func parseIssues(errs []error, cut *bool) []ParseIssue {
+	if len(errs) == 0 {
+		return nil
+	}
+	if len(errs) > MaxParseIssues {
+		errs = errs[:MaxParseIssues]
+		*cut = true
+	}
+	out := make([]ParseIssue, 0, len(errs))
+	for _, err := range errs {
+		var it ParseIssue
+		var pe *ParseError
+		if errors.As(err, &pe) {
+			it.Field, it.Offset = pe.Field, max(pe.Offset, 0)
+		}
+		switch {
+		case errors.Is(err, ErrDuplicateExtension):
+			it.Error = IssueDuplicate
+		case errors.Is(err, ErrOddLength):
+			it.Error = IssueOddLength
+		default:
+			it.Error = IssueMalformed
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // CodeName é um código com o nome IANA legível (schema CodeName).
@@ -159,6 +214,10 @@ func NewInfo(ch *ClientHello, records []byte, inlineMax int) *Info {
 	if in.ClientHelloB64 == nil {
 		in.ClientHelloB64 = []byte{}
 	}
+	cut := false
+	in.ExtensionErrors = parseIssues(ch.ExtensionErrors, &cut)
+	in.FieldErrors = parseIssues(ch.FieldErrors, &cut)
+	in.ListsTruncated = cut
 	if len(records) > inlineMax {
 		in.ClientHelloB64 = records[:inlineMax]
 		in.ClientHelloTruncated = true
@@ -223,7 +282,7 @@ func (in *Info) longestList() int {
 	return max(len(in.CipherSuites), len(in.CompressionMethods), len(in.Extensions), len(in.ALPN),
 		len(in.SupportedGroups), len(in.ECPointFormats), len(in.SignatureAlgorithms), len(in.SupportedVersions),
 		len(in.KeyShare), len(in.PSKKeyExchangeModes), len(in.CompressCertificate), len(in.ALPS),
-		len(in.DelegatedCredentials))
+		len(in.DelegatedCredentials), len(in.ExtensionErrors), len(in.FieldErrors))
 }
 
 // limitLists corta cada lista analisada em no máximo n itens; as listas continuam não nulas.
@@ -243,6 +302,8 @@ func (in *Info) limitLists(n int) {
 	in.CompressCertificate = limitList(in.CompressCertificate, n, &cut)
 	in.ALPS = limitList(in.ALPS, n, &cut)
 	in.DelegatedCredentials = limitList(in.DelegatedCredentials, n, &cut)
+	in.ExtensionErrors = limitList(in.ExtensionErrors, n, &cut)
+	in.FieldErrors = limitList(in.FieldErrors, n, &cut)
 	if cut {
 		in.ListsTruncated = true
 	}

@@ -23,13 +23,27 @@ func FuzzParseClientHello(f *testing.F) {
 	f.Add(buildHello(ext(ExtKeyShare, 0, 4, 0, 0x1d, 0, 0)))
 	// extensão repetida (task 386)
 	f.Add(buildHello(append(ext(ExtALPN, 0, 3, 2, 'h', '2'), ext(ExtALPN, 0, 3, 2, 'x', '1')...)))
+	// extensão malformada e cipher_suites ímpar (task 386)
+	f.Add(buildHello(ext(ExtSupportedGroups, 0)))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		ch, _ := Parse(data)
 		if ch == nil {
 			t.Fatal("Parse devolveu nil")
 		}
-		if _, err := json.Marshal(NewInfo(ch, data, 64)); err != nil {
+		in := NewInfo(ch, data, 64)
+		if _, err := json.Marshal(in); err != nil {
 			t.Fatal(err)
+		}
+		// extension_errors e field_errors: no máximo 64, só códigos do contrato, posição não negativa (task 386)
+		for _, l := range [][]ParseIssue{in.ExtensionErrors, in.FieldErrors} {
+			if len(l) > MaxParseIssues {
+				t.Fatalf("%d erros", len(l))
+			}
+			for _, it := range l {
+				if it.Offset < 0 || (it.Error != IssueDuplicate && it.Error != IssueMalformed && it.Error != IssueOddLength) {
+					t.Fatalf("item %v", it)
+				}
+			}
 		}
 		// a mesma entrada como mensagem de handshake (caminho do QUIC)
 		if ch2, _ := ParseMessage(data); ch2 == nil {
