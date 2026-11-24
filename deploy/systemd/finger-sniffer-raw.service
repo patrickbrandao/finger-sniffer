@@ -27,13 +27,22 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/finger-sniffer/var
+# Caminhos por unit (spec 016 RF-06, ADR 0075 item 2): só lê var/certs (TLS opcional); o resto de var/ fica
+# inacessível (prefixo -: não falha se o diretório não existir).
+InaccessiblePaths=-/finger-sniffer/var/acme -/finger-sniffer/var/bot -/finger-sniffer/var/store -/finger-sniffer/var/nats
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+# ADR 0075 item 2: sem acesso a relógio, log do kernel e hostname; arquivos novos só do dono; /proc
+# sem os processos alheios (sem ProcSubset=pid: o health do store lê /proc/sys, /proc/net e /proc/modules).
+ProtectClock=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+UMask=0077
+ProtectProc=invisible
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

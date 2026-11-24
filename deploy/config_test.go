@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -295,5 +296,88 @@ func TestBotUnit(t *testing.T) {
 	tgt := unitDirectives(t, "finger-sniffer.target")
 	if !strings.Contains(" "+strings.Join(tgt["Wants"], " ")+" ", " finger-sniffer-bot.service ") {
 		t.Errorf("target sem o bot: %v", tgt["Wants"])
+	}
+}
+
+// unitPaths é a tabela da spec 016 RF-06 (ADR 0075 item 2), só com os caminhos de var/: o que cada unit grava e o
+// que ela nem alcança (prefixo "-": não falha se o diretório não existir).
+var unitPaths = map[string]struct{ rw, inaccessible []string }{
+	"capture": {nil, []string{"-/finger-sniffer/var"}},
+	"dns":     {nil, []string{"-/finger-sniffer/var"}},
+	"raw": {nil, []string{
+		"-/finger-sniffer/var/acme", "-/finger-sniffer/var/bot", "-/finger-sniffer/var/store", "-/finger-sniffer/var/nats",
+	}},
+	"web": {
+		[]string{"/finger-sniffer/var/certs", "/finger-sniffer/var/acme"},
+		[]string{"-/finger-sniffer/var/bot", "-/finger-sniffer/var/store", "-/finger-sniffer/var/nats"},
+	},
+	"store": {
+		[]string{"/finger-sniffer/var/store"},
+		[]string{"-/finger-sniffer/var/acme", "-/finger-sniffer/var/bot", "-/finger-sniffer/var/nats"},
+	},
+	"bot": {
+		[]string{"/finger-sniffer/var/bot"},
+		[]string{"-/finger-sniffer/var/acme", "-/finger-sniffer/var/store", "-/finger-sniffer/var/nats"},
+	},
+	"nats": {
+		[]string{"/finger-sniffer/var/nats"},
+		[]string{"-/finger-sniffer/var/acme", "-/finger-sniffer/var/bot", "-/finger-sniffer/var/certs", "-/finger-sniffer/var/store"},
+	},
+}
+
+// fieldsOf junta os valores (separados por espaço) de todas as linhas da diretiva k.
+func fieldsOf(d map[string][]string, k string) []string {
+	return strings.Fields(strings.Join(d[k], " "))
+}
+
+// ADR 0075 item 2 (task 355): cada unit grava só o que precisa; capture, dns e raw não gravam em var/ e só o bot
+// alcança var/bot.
+func TestUnitPathsADR0075(t *testing.T) {
+	for svc, want := range unitPaths {
+		d := unitDirectives(t, "finger-sniffer-"+svc+".service")
+		if got := fieldsOf(d, "ReadWritePaths"); !slices.Equal(got, want.rw) {
+			t.Errorf("%s: ReadWritePaths = %q, quer %q", svc, got, want.rw)
+		}
+		if got := fieldsOf(d, "InaccessiblePaths"); !slices.Equal(got, want.inaccessible) {
+			t.Errorf("%s: InaccessiblePaths = %q, quer %q", svc, got, want.inaccessible)
+		}
+		// var/bot só para o bot: inacessível (var/bot ou var/ inteiro) em toda outra unit
+		if svc != "bot" {
+			inacc := fieldsOf(d, "InaccessiblePaths")
+			if !slices.Contains(inacc, "-/finger-sniffer/var/bot") && !slices.Contains(inacc, "-/finger-sniffer/var") {
+				t.Errorf("%s alcança var/bot", svc)
+			}
+		}
+		for _, p := range fieldsOf(d, "ReadWritePaths") {
+			if p == "/finger-sniffer/var" {
+				t.Errorf("%s: ReadWritePaths com var/ inteiro", svc)
+			}
+		}
+	}
+}
+
+// ADR 0075 item 2 (task 355): os 5 endurecimentos nas 7 units de longa duração; sem ProcSubset (o health do store
+// lê /proc/sys, /proc/net/netstat e /proc/modules); a unit de rede (oneshot, root) fica sem eles.
+func TestUnitHardeningADR0075(t *testing.T) {
+	want := map[string]string{
+		"ProtectClock": "yes", "ProtectKernelLogs": "yes", "ProtectHostname": "yes", "UMask": "0077",
+		"ProtectProc": "invisible",
+	}
+	for svc := range unitPaths {
+		d := unitDirectives(t, "finger-sniffer-"+svc+".service")
+		for k, v := range want {
+			if got := strings.Join(d[k], ","); got != v {
+				t.Errorf("%s: %s = %q, quer %q", svc, k, got, v)
+			}
+		}
+		if len(d["ProcSubset"]) > 0 {
+			t.Errorf("%s: ProcSubset esconde /proc/sys do health: %v", svc, d["ProcSubset"])
+		}
+	}
+	net := unitDirectives(t, "finger-sniffer-net.service")
+	for k := range want {
+		if len(net[k]) > 0 {
+			t.Errorf("net: %s não se aplica à unit de rede", k)
+		}
 	}
 }
