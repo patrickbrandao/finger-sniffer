@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -181,6 +182,8 @@ func TestDeploySVCThenFullAppliesPendingConfig(t *testing.T) {
 		want   string
 	}{
 		{"nats.conf", func() { putFile(t, filepath.Join(T, "dest/eventbus/nats/nats.conf"), "# v2\n") }, "nats"},
+		// senha nova ou trocada muda o auth.conf incluído pelo nats.conf (ADR 0075 item 1.2): reinicia o NATS
+		{"auth.conf", func() { putFile(t, filepath.Join(T, "dest/etc/nats/auth.conf"), "FS_NATS_PW_WEB: \"b\"\n") }, "nats"},
 		{"unit do NATS", func() {
 			putFile(t, filepath.Join(T, "systemd/finger-sniffer-nats.service"), "[Service] nats v2\n")
 		}, "nats"},
@@ -503,5 +506,89 @@ func TestRemoteInstallJournalNamespace(t *testing.T) {
 		if strings.Contains(code, "journalctl") && !strings.Contains(code, "journalctl --namespace=finger-sniffer ") {
 			t.Errorf("linha %d lê o journal sem --namespace=finger-sniffer: %q", i+1, code)
 		}
+	}
+}
+
+// natsSecrets roda uma função de senhas do NATS do install-lib.sh sobre dir; devolve a saída e o erro.
+func natsSecrets(t *testing.T, fn, dir string) (string, error) {
+	t.Helper()
+	out, err := exec.Command("bash", "-c", `set -euo pipefail; . ./install-lib.sh; "$@"`, "x", fn, dir).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+// ADR 0075 item 1.2 (task 353): uma senha por usuário, 64 hex, diretório 0700 e arquivos 0600, gerada só quando
+// falta e nunca reescrita; o auth.conf tem só as variáveis FS_NATS_PW_<USUÁRIO>.
+func TestNATSPasswordsGeneratedOnceAndRendered(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash ausente")
+	}
+	dir := filepath.Join(t.TempDir(), "etc", "nats")
+	out, err := natsSecrets(t, "ensure_nats_passwords", dir)
+	if err != nil || out != "capture\nweb\nraw\ndns\nstore\nbot" {
+		t.Fatalf("primeira geração: %v %q", err, out)
+	}
+	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("diretório: %v %v", fi.Mode().Perm(), err)
+	}
+	first := map[string]string{}
+	seen := map[string]bool{}
+	for _, u := range natsUsers {
+		p := filepath.Join(dir, u+".password")
+		fi, err := os.Stat(p)
+		if err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("%s: modo %v %v", u, fi.Mode().Perm(), err)
+		}
+		pw := strings.TrimSpace(slurp(t, p))
+		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(pw) || seen[pw] {
+			t.Errorf("%s: senha fora do formato ou repetida", u)
+		}
+		seen[pw] = true
+		first[u] = pw
+	}
+	// sem nada faltando, nada muda; só a que falta é gerada
+	if err := os.Remove(filepath.Join(dir, "dns.password")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := natsSecrets(t, "ensure_nats_passwords", dir); err != nil || out != "dns" {
+		t.Fatalf("segunda geração: %v %q", err, out)
+	}
+	for _, u := range natsUsers {
+		pw := strings.TrimSpace(slurp(t, filepath.Join(dir, u+".password")))
+		if u != "dns" && pw != first[u] {
+			t.Errorf("%s: senha reescrita", u)
+		}
+		if u == "dns" && pw == first[u] {
+			t.Errorf("dns: senha apagada voltou igual")
+		}
+		first[u] = pw
+	}
+	auth, err := natsSecrets(t, "render_nats_auth", dir)
+	if err != nil {
+		t.Fatalf("render_nats_auth: %v %s", err, auth)
+	}
+	var vars []string
+	for _, line := range strings.Split(auth, "\n") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		vars = append(vars, line)
+	}
+	var want []string
+	for _, u := range natsUsers {
+		want = append(want, "FS_NATS_PW_"+strings.ToUpper(u)+`: "`+first[u]+`"`)
+	}
+	if strings.Join(vars, "\n") != strings.Join(want, "\n") {
+		t.Errorf("auth.conf:\n%s\nquer\n%s", strings.Join(vars, "\n"), strings.Join(want, "\n"))
+	}
+	// senha ausente ou fora do formato: o auth.conf não é gerado
+	putFile(t, filepath.Join(dir, "web.password"), "nao-hex\n")
+	if out, err := natsSecrets(t, "render_nats_auth", dir); err == nil {
+		t.Errorf("render_nats_auth aceitou senha fora do formato: %s", out)
+	}
+	if err := os.Remove(filepath.Join(dir, "web.password")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := natsSecrets(t, "render_nats_auth", dir); err == nil {
+		t.Errorf("render_nats_auth aceitou senha ausente: %s", out)
 	}
 }

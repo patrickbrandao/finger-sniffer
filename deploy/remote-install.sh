@@ -66,7 +66,8 @@ chown -R finger-sniffer:finger-sniffer "$DEST/var"
 chmod 0750 "$DEST/var"
 
 # 2. Repositório → /finger-sniffer (preserva var/, etc/ e bin/). bin/ e htdocs/ têm passos próprios.
-conf_before=$(hash_file "$DEST/eventbus/nats/nats.conf")
+# hash do nats.conf + auth.conf antes da instalação (o passo 9 compara; ADR 0075 item 1.2)
+conf_before=$(nats_conf_hash "$DEST")
 rsync -a --delete --chown=root:root --exclude='/var/' --exclude='/etc/' --exclude='/bin/' --exclude='/htdocs/' \
 	"$STAGING/" "$DEST/"
 chmod 0755 "$DEST/deploy/net/finger-sniffer-net.sh"
@@ -94,6 +95,21 @@ else
 	# chave nova muda o ambiente das units com EnvironmentFile (todas menos o NATS): reinicia essas
 	[ "$env_before" = "$(sha256sum "$DEST/etc/finger-sniffer.env" | cut -d' ' -f1)" ] || ENV_CHANGED=1
 fi
+
+# 4b. Usuários do NATS (ADR 0075 item 1.2): senha por serviço gerada só quando o arquivo falta (nunca reescrita) e
+#     auth.conf derivado delas, instalado só se mudou. etc/ fica fora do rsync; diretório 0700, arquivos 0600, dono
+#     finger-sniffer (as units rodam com esse usuário; cada uma só alcança a própria senha, InaccessiblePaths).
+NATS_ETC="$DEST/etc/nats"
+# atribuição antes do laço: falha na geração para o deploy (set -e não vale dentro do for $(...))
+new_users=$(ensure_nats_passwords "$NATS_ETC")
+for u in $new_users; do log "senha do NATS gerada para $u"; done
+auth_tmp=$(mktemp)
+render_nats_auth "$NATS_ETC" >"$auth_tmp"
+install_if_changed "$auth_tmp" "$NATS_ETC/auth.conf" 0600 || true
+rm -f "$auth_tmp"
+chown -R finger-sniffer:finger-sniffer "$NATS_ETC"
+chmod 0700 "$NATS_ETC"
+chmod 0600 "$NATS_ETC"/*
 
 # 5. NATS fixado (download com checksum)
 if [ "$("$DEST/bin/nats-server" --version 2>/dev/null | awk '{print $2}')" != "$NATS_VERSION" ]; then
@@ -147,9 +163,9 @@ ensure_store_tmpfs "$MOUNT_UNIT"
 systemctl restart finger-sniffer-net.service
 
 # 9. Reinícios: binário em execução ≠ binário em disco reinicia sempre (com ou sem SVC); com SVC, o serviço
-#    pedido também; sem SVC, ainda config/env/nats.conf mudados (nesta execução ou instalados por um deploy com
-#    SVC e não aplicados: carimbo em $DEST/etc/applied), FORCE=1 ou unit parada.
-conf_after=$(hash_file "$DEST/eventbus/nats/nats.conf")
+#    pedido também; sem SVC, ainda config/env/nats.conf/auth.conf mudados (nesta execução ou instalados por um
+#    deploy com SVC e não aplicados: carimbo em $DEST/etc/applied), FORCE=1 ou unit parada.
+conf_after=$(nats_conf_hash "$DEST")
 NATS_CONF_CHANGED=0
 [ "$conf_before" = "$conf_after" ] || NATS_CONF_CHANGED=1
 restart=""

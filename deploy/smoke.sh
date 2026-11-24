@@ -10,7 +10,8 @@
 # implantar um serviço de outro commit desencontra as versões de propósito; task 078); web GET :8080/ e GET :8443/
 # (TLS estrito, salvo quando o health do web aponta cert_self_signed: aí aceita com aviso; ADR 0038: 80/443 são do
 # traefik); dns A de <probe>.<zona> com o IP do espelho e example.com → REFUSED; raw eco na 7 e banner 220 na 25;
-# store GET https://:9000/api/v1/health.
+# store GET https://:9000/api/v1/health. nats (toda seleção, ADR 0075): CONNECT sem credencial em 127.0.0.1:4222
+# recusado com -ERR 'Authorization Violation'.
 # bot (spec 016 RF-14, ADR 0047 item 4): GET https://<nome>:9002/bot/v1/health 200 (TLS estrito, salvo
 # cert_self_signed no health do store, dono do mesmo certificado); 9003: 200 no loopback e, com
 # FS_BOT_INTERNAL_LISTEN, 200 da origem na bridge e 403 da origem no IP público (curl --interface); a 9003 não
@@ -27,6 +28,7 @@
 #   SMOKE_ZONE, SMOKE_DNS_EXPECT, SMOKE_*_PORT (SMOKE_H3_PORT: padrão a primeira de FS_WEB_UDP_PORTS),
 #   SMOKE_BOT_PUBLIC_PORT (9002), SMOKE_BOT_INTERNAL_PORT (9003), SMOKE_BOT_LOOPBACK (127.0.0.1),
 #   SMOKE_BOT_BRIDGE (padrão: o IP de FS_BOT_INTERNAL_LISTEN; vazio pula os passos da bridge),
+#   SMOKE_NATS_HOST (127.0.0.1), SMOKE_NATS_PORT (4222),
 #   SMOKE_TRAEFIK_NAME, SMOKE_TRAEFIK_PORT (443), SMOKE_TRAEFIK_REQUIRED (padrão 1; 0: o passo do traefik avisa
 #   em vez de reprovar), SMOKE_HEALTH_WAIT (segundos), SMOKE_TIMEOUT (segundos por passo), SMOKE_LIST=1 (só lista os passos
 #   selecionados, sem executar), SMOKE_CONFIG=1 (só mostra os alvos resolvidos), SMOKE_H3_GET=0 (não tenta o GET por h3 mesmo com curl HTTP3).
@@ -70,6 +72,8 @@ BOT_LOOPBACK="${SMOKE_BOT_LOOPBACK:-127.0.0.1}"
 BOT_BRIDGE="${SMOKE_BOT_BRIDGE-$(env_get FS_BOT_INTERNAL_LISTEN | cut -d/ -f1)}"
 # serviços que o health tem de mostrar (o store espera os 6, ADR 0047 item 1)
 SERVICES="capture web raw dns store bot"
+NATS_HOST="${SMOKE_NATS_HOST:-127.0.0.1}"
+NATS_PORT="${SMOKE_NATS_PORT:-4222}"
 HEALTH_WAIT="${SMOKE_HEALTH_WAIT:-30}"
 TIMEOUT="${SMOKE_TIMEOUT:-5}"
 
@@ -414,11 +418,32 @@ step_bot() {
 	fi
 }
 
+# step_nats_auth: o NATS recusa conexão sem credencial (ADR 0075 item 1.1, task 353). Fala o protocolo pelo
+# /dev/tcp: lê o INFO, manda CONNECT sem usuário e PING; o servidor com authorization responde
+# -ERR 'Authorization Violation' (sem autenticação, PONG).
+step_nats_auth() {
+	local got
+	got=$(
+		exec 3<>"/dev/tcp/$NATS_HOST/$NATS_PORT" || exit 1
+		IFS= read -r -t "$TIMEOUT" line <&3 || exit 1
+		printf 'CONNECT {"verbose":false,"pedantic":false,"lang":"smoke","version":"0"}\r\nPING\r\n' >&3
+		IFS= read -r -t "$TIMEOUT" line <&3 || true
+		printf '%s' "${line%$'\r'}"
+		exec 3<&-
+	) 2>/dev/null
+	case "$got" in
+	"-ERR 'Authorization Violation'") pass "nats sem credencial" "recusada em $NATS_HOST:$NATS_PORT" ;;
+	"") bad "nats sem credencial" "sem resposta em $NATS_HOST:$NATS_PORT" ;;
+	*) bad "nats sem credencial" "aceita em $NATS_HOST:$NATS_PORT (veio '$got')" ;;
+	esac
+}
+
 step_store() {
 	https_get "store GET https :$API_HTTPS_PORT/health" "$API_HTTPS_PORT" /api/v1/health store
 }
 
-steps="health"
+# o NATS sem credencial é conferido em toda seleção (barato; um deploy de qualquer serviço reinstala o nats.conf)
+steps="health nats_auth"
 selected web && steps="$steps web h3 traefik"
 selected dns && steps="$steps dns"
 selected raw && steps="$steps raw"
