@@ -91,6 +91,91 @@ type Request struct {
 	Fingerprints []Fingerprint
 	// Owner é a chave da 9002 que mandou a requisição (id da chave); "" = interna (9003, com ou sem chave).
 	Owner string
+	// OSClass é a classe de SO do UA (windows | unix | other; vazio = other) e escolhe a máscara de TTL (ADR 0078
+	// item 1).
+	OSClass string
+	// TTLInitial é o TTL inicial da conexão (0 = desconhecido); só 32, 64, 128 e 255 entram.
+	TTLInitial int
+	// QUIC diz que a conexão é h3 (a máscara de TTL é a de h3).
+	QUIC bool
+	// Timed diz que a conexão TCP tem tempos do traefix; RelayGap, RelayFrac e RelayFirst, que passa cada limiar do
+	// relay agregado (ADR 0078 item 2).
+	Timed, RelayGap, RelayFrac, RelayFirst bool
+}
+
+// Classes de SO das máscaras de TTL (índices de Stats.HourTTL).
+const (
+	OSClassWindows = "windows"
+	OSClassUnix    = "unix"
+	OSClassOther   = "other"
+)
+
+// TTLMasks são os ttl_initial vistos numa classe de SO: bit 0 = 32, 1 = 64, 2 = 128, 3 = 255.
+type TTLMasks struct {
+	TCP, H3 uint8
+}
+
+// TTLValues são os valores das máscaras de TTL, na ordem dos bits.
+var TTLValues = [4]int{32, 64, 128, 255}
+
+// ttlBit devolve o bit do TTL inicial na máscara (0 para valor fora de 32/64/128/255).
+func ttlBit(ttl int) uint8 {
+	for i, v := range TTLValues {
+		if v == ttl {
+			return 1 << i
+		}
+	}
+	return 0
+}
+
+// osClassIndex é o índice da classe de SO em HourTTL (vazio ou desconhecido = other).
+func osClassIndex(c string) int {
+	switch c {
+	case OSClassWindows:
+		return 0
+	case OSClassUnix:
+		return 1
+	}
+	return 2
+}
+
+// connShape são as máscaras de TTL e as contagens do relay da hora corrente de um IP + site (ADR 0078 item 3): só
+// na hora aberta em memória, fora de counters (não vão ao banco nem às horas fechadas do cache).
+type connShape struct {
+	ttl                     [3]TTLMasks
+	timed, gap, frac, first uint16
+}
+
+// inc soma 1 saturando em 65 535.
+func inc(c *uint16) {
+	if *c < math.MaxUint16 {
+		*c++
+	}
+}
+
+// observe acumula a primeira requisição de uma conexão.
+func (s *connShape) observe(r Request) {
+	if bit := ttlBit(r.TTLInitial); bit != 0 {
+		m := &s.ttl[osClassIndex(r.OSClass)]
+		if r.QUIC {
+			m.H3 |= bit
+		} else {
+			m.TCP |= bit
+		}
+	}
+	if !r.Timed {
+		return
+	}
+	inc(&s.timed)
+	if r.RelayGap {
+		inc(&s.gap)
+	}
+	if r.RelayFrac {
+		inc(&s.frac)
+	}
+	if r.RelayFirst {
+		inc(&s.first)
+	}
 }
 
 // Intervals são n, soma e soma dos quadrados dos intervalos (s) entre requisições do IP no site.
@@ -134,6 +219,10 @@ type Stats struct {
 	DayStatics     int64
 	DayIntervals   Intervals
 	Hours          int // horas com dados na janela
+	// Conexões TCP com tempos na hora corrente e quantas passam cada limiar do relay agregado (ADR 0078 item 2).
+	HourTimed, HourRelayGap, HourRelayFrac, HourRelayFirst int64
+	// HourTTL são as máscaras de TTL inicial da hora corrente por classe de SO (0 windows, 1 unix, 2 other).
+	HourTTL [3]TTLMasks
 }
 
 // Config configura o acumulador.
@@ -185,6 +274,8 @@ type hourAcc struct {
 	cur, flushed counters
 	paths        map[uint64]struct{}
 	owner        string // chave da 9002 que criou a entrada ("" = interna)
+	// shape é só da hora aberta: some quando a hora fecha (hourStats não a leva) e com o forget (ADR 0078 item 3)
+	shape connShape
 }
 
 // hourStats é uma hora fechada e gravada (cache de comportamento).
@@ -475,6 +566,7 @@ func (a *Aggregator) Observe(r Request) {
 		c.reused++
 	} else {
 		c.conns++
+		h.shape.observe(r)
 	}
 	p := cleanPath(r.Path)
 	if isStatic(p) {
@@ -570,6 +662,7 @@ func (a *Aggregator) Query(ip netip.Addr, site string, now time.Time) Stats {
 		return Stats{}
 	}
 	var hourC, dayC counters
+	var shape connShape
 	var hours uint32 // bit i = hora first+i com dados
 	for _, p := range b.past {
 		if p.hour < first || p.hour > cur {
@@ -589,6 +682,7 @@ func (a *Aggregator) Query(ip netip.Addr, site string, now time.Time) Stats {
 		hours |= 1 << (hr - first)
 		if hr == cur {
 			hourC.add(h.cur)
+			shape = h.shape
 		}
 	}
 	st := Stats{
@@ -596,6 +690,8 @@ func (a *Aggregator) Query(ip netip.Addr, site string, now time.Time) Stats {
 		HourPaths: hourC.paths, HourStatics: hourC.statics, HourIntervals: hourC.iv,
 		DayRequests: dayC.requests, DayConns: dayC.conns, DayPaths: dayC.paths, DayStatics: dayC.statics,
 		DayIntervals: dayC.iv, Hours: bits.OnesCount32(hours),
+		HourTimed: int64(shape.timed), HourRelayGap: int64(shape.gap), HourRelayFrac: int64(shape.frac),
+		HourRelayFirst: int64(shape.first), HourTTL: shape.ttl,
 	}
 	nowMin := floorDiv(unix, 60)
 	frac := float64(unix-nowMin*60) / 60

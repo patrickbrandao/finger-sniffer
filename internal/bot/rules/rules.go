@@ -26,7 +26,7 @@ const (
 	KindBehavior    = "behavior"
 )
 
-// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.4)"), na ordem em que aparecem no veredito.
+// Ids estáveis dos sinais (spec 018, tabela "Pesos (rules v1.6)"), na ordem em que aparecem no veredito.
 const (
 	SignalUAMissing               = "ua_missing"
 	SignalUATLSMismatch           = "ua_tls_mismatch"
@@ -49,9 +49,11 @@ const (
 	SignalNoReuse                 = "no_reuse"
 	SignalIntervalRegular         = "interval_regular"
 	SignalRouteBreadth            = "route_breadth"
+	SignalTTLTCPH3Mismatch        = "ttl_tcp_h3_mismatch"
+	SignalRelayRTTGapAgg          = "relay_rtt_gap_agg"
 )
 
-// signalDef é uma linha da tabela de pesos (rules v1.5, provisórios; ADRs 0049, 0057, 0058, 0060, 0065 e 0072).
+// signalDef é uma linha da tabela de pesos (rules v1.6, provisórios; ADRs 0049, 0057, 0058, 0060, 0065, 0072 e 0078).
 type signalDef struct {
 	id     string
 	kind   string
@@ -81,6 +83,8 @@ var signalTable = []signalDef{
 	{SignalNoReuse, KindBehavior, 10},
 	{SignalIntervalRegular, KindBehavior, 20},
 	{SignalRouteBreadth, KindBehavior, 15},
+	{SignalTTLTCPH3Mismatch, KindBehavior, 10},
+	{SignalRelayRTTGapAgg, KindBehavior, 10},
 }
 
 // Limiares (spec 018, tabela de pesos; ADR 0049 item 3).
@@ -105,7 +109,30 @@ const (
 	relayMinGapMicros   = 15_000
 	relayMinGapFrac     = 0.3
 	relayMinFirstMicros = 5_000
+	// relay_rtt_gap_agg (ADR 0078 item 2): n mínimo de conexões cronometradas na hora e o limiar do rtt_gap do
+	// agregado; a fração (0,3) e o primeiro byte (5 ms) são os de relayMinGapFrac e relayMinFirstMicros
+	relayAggMinConns     = 5
+	relayAggMinGapMicros = 10_000
 )
+
+// Classes de SO do UA para o ttl_tcp_h3_mismatch (ADR 0078 item 1).
+const (
+	OSClassWindows = "windows"
+	OSClassUnix    = "unix"
+	OSClassOther   = "other"
+)
+
+// OSClass reduz o SO do UA (RF-06) à classe do ttl_tcp_h3_mismatch: "windows"; "unix" para Linux, macOS, Android e
+// iOS; "other" para o resto e para "" (sem visão HTTP).
+func OSClass(os string) string {
+	switch os {
+	case OSWindows:
+		return OSClassWindows
+	case OSLinux, OSMacOS, OSAndroid, OSIOS:
+		return OSClassUnix
+	}
+	return OSClassOther
+}
 
 // Signal é um sinal presente no veredito (schema Signal do openapi do bot).
 type Signal struct {
@@ -127,7 +154,7 @@ type Result struct {
 	UAOS     string `json:"ua_os,omitempty"`
 }
 
-// Engine avalia as regras v1.5 sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
+// Engine avalia as regras v1.6 (ADR 0078) sobre as fontes dadas. O valor zero vale (sem listas, limiar padrão).
 type Engine struct {
 	Sources Sources
 	// RateHigh é FS_BOT_RATE_HIGH; 0 usa DefaultRateHigh.
@@ -146,7 +173,7 @@ func (e *eval) add(id, detail string) {
 	e.present[id] = detail
 }
 
-// Evaluate aplica as regras v1.5 (ADRs 0049, 0057, 0058, 0060, 0065 e 0072). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
+// Evaluate aplica as regras v1.6 (ADRs 0049, 0057, 0058, 0060, 0065, 0072 e 0078). Função pura: a mesma entrada com as mesmas fontes dá o mesmo
 // resultado.
 func (en Engine) Evaluate(in Input) Result {
 	ev := &eval{present: map[string]string{}}
@@ -156,7 +183,7 @@ func (en Engine) Evaluate(in Input) Result {
 	}
 	en.incoherence(ev, in, ua)
 	good, crawler := en.lists(ev, in, ua)
-	en.behavior(ev, in.Behavior)
+	en.behavior(ev, in.Behavior, ua)
 
 	res := Result{Signals: []Signal{}}
 	sum := 0
@@ -230,20 +257,39 @@ func (en Engine) incoherence(ev *eval, in Input, ua UA) {
 // a volta TCP com o relay, enquanto a volta TLS e a espera pelo primeiro byte incluem o caminho cliente ↔ relay. Só
 // em TCP e com as duas voltas conhecidas; a diferença é o rtt_gap do traefix, ou TLS − TCP sem ele.
 func relayGap(ev *eval, t *Timing) {
-	if t == nil || t.TCPRTTMicros == nil || t.TLSRTTMicros == nil || t.EstToFirstMicros == nil {
-		return
+	if t == nil || t.TLSRTTMicros == nil {
+		return // a v1.5 exige a volta TLS mesmo com o rtt_gap do traefix
 	}
-	tcp, est := *t.TCPRTTMicros, *t.EstToFirstMicros
-	if t.RTTGapMicros == nil && (outOfRange(tcp) || outOfRange(*t.TLSRTTMicros)) {
-		return // fora de qualquer medida real (e a subtração poderia estourar)
-	}
-	gap := *t.TLSRTTMicros - tcp
-	if t.RTTGapMicros != nil {
-		gap = *t.RTTGapMicros
-	}
-	if gap > relayMinGapMicros && float64(gap) > float64(tcp)*relayMinGapFrac && est > relayMinFirstMicros {
+	tcp, gap, est, ok := relayTimes(t)
+	if ok && gap > relayMinGapMicros && float64(gap) > float64(tcp)*relayMinGapFrac && est > relayMinFirstMicros {
 		ev.add(SignalRelayRTTGap, fmt.Sprintf("rtt gap %s ms, tcp rtt %s ms, first byte after %s ms", ms(gap), ms(tcp), ms(est)))
 	}
+}
+
+// relayTimes valida os tempos da conexão como o relay_rtt_gap: tcp_rtt_us e est_to_first_us conhecidos e o rtt_gap
+// do traefix ou, sem ele, tls_rtt_us para calculá-lo (fora de qualquer medida real = não medido).
+func relayTimes(t *Timing) (tcp, gap, est int64, ok bool) {
+	if t == nil || t.TCPRTTMicros == nil || t.EstToFirstMicros == nil {
+		return 0, 0, 0, false
+	}
+	tcp, est = *t.TCPRTTMicros, *t.EstToFirstMicros
+	if t.RTTGapMicros != nil {
+		return tcp, *t.RTTGapMicros, est, true
+	}
+	if t.TLSRTTMicros == nil || outOfRange(tcp) || outOfRange(*t.TLSRTTMicros) {
+		return 0, 0, 0, false // a subtração poderia estourar
+	}
+	return tcp, *t.TLSRTTMicros - tcp, est, true
+}
+
+// RelayShape diz se a conexão tem tempos (timed) e se passa cada limiar do agregado (ADR 0078 item 2).
+// gap: rtt_gap > relayAggMinGapMicros; frac: rtt_gap > relayMinGapFrac·tcp_rtt; first: est_to_first > relayMinFirstMicros.
+func RelayShape(t *Timing) (timed, gap, frac, first bool) {
+	tcp, g, est, ok := relayTimes(t)
+	if !ok {
+		return false, false, false, false
+	}
+	return true, g > relayAggMinGapMicros, float64(g) > float64(tcp)*relayMinGapFrac, est > relayMinFirstMicros
 }
 
 // outOfRange diz se um tempo em microssegundos passa de ±2^40 (~12 dias).
@@ -568,7 +614,7 @@ func unverifiedReason(ua UA, listOp string, v Verification) string {
 }
 
 // behavior avalia os sinais de comportamento (agregados por IP + site, ADR 0052).
-func (en Engine) behavior(ev *eval, b *Behavior) {
+func (en Engine) behavior(ev *eval, b *Behavior, ua UA) {
 	if b == nil {
 		return
 	}
@@ -593,6 +639,20 @@ func (en Engine) behavior(ev *eval, b *Behavior) {
 	if b.PathsHour >= routeMinPaths && b.StaticsHour*100 < b.PathsHour*routeMaxStaticPct {
 		ev.add(SignalRouteBreadth, fmt.Sprintf("%d paths, %d static in the hour", b.PathsHour, b.StaticsHour))
 	}
+	// ttl_tcp_h3_mismatch (ADR 0078 item 1): na classe de SO do UA desta requisição, TTLs iniciais de TCP e de h3
+	// ambos vistos na hora e sem valor em comum (outra pilha no caminho de um deles)
+	os := OSClass(ua.OS)
+	for _, s := range b.TTLSeen {
+		if s.OS == os && len(s.TCP) > 0 && len(s.H3) > 0 && !slices.ContainsFunc(s.TCP, func(v int) bool { return slices.Contains(s.H3, v) }) {
+			ev.add(SignalTTLTCPH3Mismatch, fmt.Sprintf("ua os %s: initial ttl tcp %v, h3 %v in the hour", os, s.TCP, s.H3))
+		}
+	}
+	// relay_rtt_gap_agg (ADR 0078 item 2): a mediana passa do limiar quando mais da metade das conexões passa
+	if n := b.TimedConnsHour; n >= relayAggMinConns && 2*b.RelayGapConnsHour > n && 2*b.RelayFracConnsHour > n &&
+		2*b.RelayFirstConnsHour > n {
+		ev.add(SignalRelayRTTGapAgg, fmt.Sprintf("%d tcp connections in the hour: rtt gap > 10 ms in %d, > 30%% of tcp rtt in %d, first byte > 5 ms in %d",
+			n, b.RelayGapConnsHour, b.RelayFracConnsHour, b.RelayFirstConnsHour))
+	}
 }
 
 // truncate corta s em n bytes.
@@ -603,7 +663,7 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// SignalWeight devolve o peso v1.5 do sinal (false para id desconhecido).
+// SignalWeight devolve o peso v1.6 do sinal (ADR 0078) (false para id desconhecido).
 func SignalWeight(id string) (int, bool) {
 	for _, d := range signalTable {
 		if d.id == id {

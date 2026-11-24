@@ -8,7 +8,7 @@ package rules
 import "net/netip"
 
 // RulesVersion é a versão das regras (ADR 0049 item 6: mudança de regra muda a versão e regrava os goldens).
-const RulesVersion = "v1.5"
+const RulesVersion = "v1.6"
 
 // Input é o que as regras leem. Cada parte é opcional (nil quando a visão não tinha aquela camada).
 type Input struct {
@@ -101,6 +101,21 @@ type Behavior struct {
 	// PathsHour são os caminhos distintos na hora (contados por hash) e StaticsHour quantos deles são estáticos.
 	PathsHour   int
 	StaticsHour int
+	// Conexões TCP com tempos do traefix na hora corrente e quantas passam cada limiar do agregado (ADR 0078 item 2).
+	TimedConnsHour      int `json:",omitempty"`
+	RelayGapConnsHour   int `json:",omitempty"`
+	RelayFracConnsHour  int `json:",omitempty"`
+	RelayFirstConnsHour int `json:",omitempty"`
+	// TTLSeen são os ttl_initial vistos na hora corrente por classe de SO do UA (ADR 0078 item 1).
+	TTLSeen []TTLSeen `json:",omitempty"`
+}
+
+// TTLSeen são os ttl_initial (32, 64, 128 ou 255) das primeiras requisições das conexões TCP e h3 de uma classe de
+// SO na hora corrente (ADR 0078 item 1).
+type TTLSeen struct {
+	OS  string // windows | unix | other
+	TCP []int  // valores de {32, 64, 128, 255}, em ordem crescente
+	H3  []int
 }
 
 // View é o que havia para decidir (schema View do openapi do bot).

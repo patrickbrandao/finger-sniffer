@@ -1,0 +1,1 @@
+- bot: regras `v1.6` (ADR 0078) com `ttl_tcp_h3_mismatch` (TTL inicial de TCP e h3 disjuntos na hora, por classe de SO do UA) e `relay_rtt_gap_agg` (mediana do relay em ≥ 5 conexões TCP da hora), peso 10 cada; máscaras e contagens só na hora corrente em memória, fora do `ip_hourly` (task 314).

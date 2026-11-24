@@ -48,8 +48,8 @@ dá 401 nas duas portas.
 
 ## O veredito
 
-Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.5` das ADRs 0057,
-[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md), [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md), [0065](../specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md) e [0072](../specs/decisions/0072-regras-v1-5-robo-declarado-pilha-de-biblioteca-e-ja4-stable.md)):
+Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), regras `v1.6` das ADRs 0057,
+[0058](../specs/decisions/0058-forwardauth-do-bot-ja4h-chave-e-ja4t-sem-mss.md), [0060](../specs/decisions/0060-ja4h-library-sem-campos-de-contexto-e-probe-fora-do-feed.md), [0065](../specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md), [0072](../specs/decisions/0072-regras-v1-5-robo-declarado-pilha-de-biblioteca-e-ja4-stable.md) e [0078](../specs/decisions/0078-regras-v1-6-ttl-tcp-h3-e-relay-agregados.md)):
 
 ```json
 {
@@ -65,7 +65,7 @@ Corpo `Verdict` (ADR [0049](../specs/decisions/0049-veredito-e-sinais-v1.md), re
                    "ja4t": "65535_2-1-3-1-1-8-4-0-0_1430_6", "p0f_os": "Mac OS X", "ttl_initial": 64,
                    "ua_family": "curl", "ua_os": "other"},
   "crawler": null,
-  "rules_version": "v1.5",
+  "rules_version": "v1.6",
   "lists_version": "91cc382c89a43660",
   "subject": {"kind": "request", "site": "www.example.com", "src": {"ip": "198.51.100.23", "port": 40000},
               "dst_port": 443, "fs_conn_id": "01JC0X3K8V2T7Q9F4M6P1R5S10", "conn_id": "01JC0X3K8V2T7Q9N4M6P1R5S10",
@@ -91,11 +91,11 @@ mais indício de automação.
 (requisição), `h2`, `h3`, `behavior` (agregados do IP no site) e `parse_error` (bytes do traefix ilegíveis). Um
 `human` exige `tls` e `http`; sem eles, score baixo sai `unknown`.
 
-`rules_version` é a versão das regras (`v1.5`) e `lists_version` um hash das listas em uso (base própria e listas
+`rules_version` é a versão das regras (`v1.6`) e `lists_version` um hash das listas em uso (base própria e listas
 de IP; a ja4db só quando ligada). A mesma entrada com as mesmas duas versões dá sempre o mesmo veredito. Mudança de
 peso ou de regra é nova `rules_version`.
 
-### Sinais (rules v1.5)
+### Sinais (rules v1.6)
 
 Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga da F8).
 
@@ -122,8 +122,8 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `no_reuse` | behavior | 10 | ≥ 10 requisições na última hora, uma conexão por requisição |
 | `interval_regular` | behavior | 20 | ≥ 20 intervalos com coeficiente de variação < 0,1 (relógio de máquina) |
 | `route_breadth` | behavior | 15 | ≥ 50 caminhos distintos na hora e < 5% de estáticos (varredura) |
-| `ttl_tcp_h3_mismatch` | behavior | 10 | na hora corrente, as conexões TCP e as h3 do mesmo IP no site, para a mesma classe de SO do UA, chegaram com TTL inicial diferente e sem valor em comum: outra pilha no caminho do TCP, como um proxy TCP transparente no gateway (rules `v1.6`, ADR 0078; entra em produção com a task 314) |
-| `relay_rtt_gap_agg` | behavior | 10 | na hora corrente, com ≥ 5 conexões TCP com tempos do traefix, a mediana mostra volta TLS mais de 10 ms e 30% acima da TCP e espera de mais de 5 ms pelo primeiro byte: relay entre o cliente e o traefix de forma estável, não um pico de rede (rules `v1.6`, ADR 0078; entra em produção com a task 314) |
+| `ttl_tcp_h3_mismatch` | behavior | 10 | na hora corrente, as conexões TCP e as h3 do mesmo IP no site, para a mesma classe de SO do UA, chegaram com TTL inicial diferente e sem valor em comum: outra pilha no caminho do TCP, como um proxy TCP transparente no gateway (rules `v1.6`, ADR 0078) |
+| `relay_rtt_gap_agg` | behavior | 10 | na hora corrente, com ≥ 5 conexões TCP com tempos do traefix, a mediana mostra volta TLS mais de 10 ms e 30% acima da TCP e espera de mais de 5 ms pelo primeiro byte: relay entre o cliente e o traefix de forma estável, não um pico de rede (rules `v1.6`, ADR 0078) |
 
 Classes esperadas com as listas reais (ja4db desligada, IP residencial, sem comportamento), conferidas pelos goldens
 do bot:

@@ -149,6 +149,22 @@ func goldenCases(t testing.TB) []goldenCase {
 	curlRelay := inputFrom(e("curl", "h2"), ua["curl"], ipResidential)
 	curlRelay.Timing = relay
 
+	// v1.6 (ADR 0078 item 2): relay agregado na hora pelas contagens de conexões cronometradas que passam cada limiar
+	relayAgg := func(timed, gap, frac, first int) Input {
+		in := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
+		in.Behavior = &Behavior{
+			RequestsPerMin: 2, RequestsHour: 2 * timed, ConnsHour: timed, PathsHour: 3, StaticsHour: 1,
+			TimedConnsHour: timed, RelayGapConnsHour: gap, RelayFracConnsHour: frac, RelayFirstConnsHour: first,
+		}
+		return withView(in)
+	}
+	// v1.6 (ADR 0078 item 1): TTLs iniciais de TCP e h3 da hora, por classe de SO do UA
+	ttlSeen := func(client, proto, uaStr string, seen ...TTLSeen) Input {
+		in := inputFrom(e(client, proto), uaStr, ipResidential)
+		in.Behavior = &Behavior{RequestsPerMin: 2, RequestsHour: 12, ConnsHour: 4, PathsHour: 3, StaticsHour: 1, TTLSeen: seen}
+		return withView(in)
+	}
+
 	// v1.5 (ADR 0072 item 1): a retomada TLS 1.3 acrescenta pre_shared_key (0029) ao ClientHello; o JA4 muda, o
 	// stable não
 	chromeResumed := inputFrom(e("chrome", "h2"), ua["chrome"], ipResidential)
@@ -240,6 +256,13 @@ func goldenCases(t testing.TB) []goldenCase {
 		{"curl_ua_bot_token", inputFrom(e("curl", "h2"), "curl/8.23.0 mybot/1.0", ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalUADeclaresCrawler}},
 		{"python_ua_crawler_token", inputFrom(e("python", "h1"), "python-requests/2.32.3 (+crawler)", ipResidential), false, ClassBot, []string{SignalJA4HLibrary, SignalLibraryClient, SignalUADeclaresCrawler}},
 		{"crawler_other_chrome_stack", inputFrom(e("chrome", "h2"), uaExampleBot, ipResidential), false, ClassSuspect, []string{SignalUADeclaresCrawler}},
+		// casos novos da v1.6 (ADR 0078): relay agregado e TTL de TCP × h3 na hora
+		{"relay_agg_fires", relayAgg(10, 7, 7, 8), false, ClassHuman, []string{SignalKnownClient, SignalRelayRTTGapAgg}},
+		{"relay_agg_below_min", relayAgg(4, 4, 4, 4), false, ClassHuman, []string{SignalKnownClient}},
+		{"relay_agg_minority", relayAgg(10, 5, 9, 9), false, ClassHuman, []string{SignalKnownClient}},
+		{"ttl_tcp_h3_disjoint", ttlSeen("chrome", "h3", uaChromeWin, TTLSeen{OS: OSClassWindows, TCP: []int{64}, H3: []int{128}}), false, ClassHuman, []string{SignalKnownClient, SignalTTLTCPH3Mismatch}},
+		{"ttl_tcp_h3_overlap", ttlSeen("chrome", "h3", ua["chrome"], TTLSeen{OS: OSClassUnix, TCP: []int{64, 128}, H3: []int{64}}), false, ClassHuman, []string{SignalKnownClient}},
+		{"ttl_tcp_h3_other_class", ttlSeen("chrome", "h3", ua["chrome"], TTLSeen{OS: OSClassWindows, TCP: []int{64}, H3: []int{128}}), false, ClassHuman, []string{SignalKnownClient}},
 	}
 }
 

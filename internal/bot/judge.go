@@ -317,6 +317,9 @@ func (j *Judge) evaluate(vw views, subject Subject) (Verdict, rules.Result) {
 				RequestsPerMin: int(st.RequestsPerMin), RequestsHour: int(st.HourRequests), ConnsHour: int(st.HourConns),
 				IntervalN: int(st.HourIntervals.N), IntervalSum: st.HourIntervals.Sum, IntervalSqSum: st.HourIntervals.SqSum,
 				PathsHour: int(st.HourPaths), StaticsHour: int(st.HourStatics),
+				TimedConnsHour: int(st.HourTimed), RelayGapConnsHour: int(st.HourRelayGap),
+				RelayFracConnsHour: int(st.HourRelayFrac), RelayFirstConnsHour: int(st.HourRelayFirst),
+				TTLSeen: ttlSeen(st.HourTTL),
 			}
 			view.Behavior = true
 		}
@@ -482,10 +485,50 @@ func (j *Judge) record(id string, fromAuth bool, v *Verdict, res rules.Result, p
 			}
 		}
 	}
-	j.agg.Observe(agg.Request{
+	r := agg.Request{
 		Time: j.now(), IP: p.ip, Site: p.site, Path: p.path, Reused: reused, Class: v.Class, UAFamily: res.UAFamily,
-		Fingerprints: fps, Owner: p.owner,
-	})
+		Fingerprints: fps, Owner: p.owner, OSClass: rules.OSClass(res.UAOS), QUIC: v.View.H3,
+	}
+	// TTL inicial e forma do relay da conexão (ADR 0078): o TTL já vem sem o da origem privada; os tempos só em TCP e
+	// com origem pública, como o relay_rtt_gap da conexão
+	if f := v.Fingerprints; f != nil {
+		if f.TTLInitial != nil {
+			r.TTLInitial = *f.TTLInitial
+		}
+		if !v.View.H3 && !discardTCPOrigin(p.ip) {
+			r.Timed, r.RelayGap, r.RelayFrac, r.RelayFirst = rules.RelayShape(&rules.Timing{
+				TCPRTTMicros: f.TCPRTTMicros, TLSRTTMicros: f.TLSRTTMicros, RTTGapMicros: f.RTTGapMicros,
+				EstToFirstMicros: f.EstToFirstMicros,
+			})
+		}
+	}
+	j.agg.Observe(r)
+}
+
+// ttlSeen converte as máscaras de TTL da hora corrente em listas crescentes por classe de SO (ADR 0078 item 1);
+// classe sem nenhum valor fica de fora.
+func ttlSeen(masks [3]agg.TTLMasks) []rules.TTLSeen {
+	var out []rules.TTLSeen
+	for i, m := range masks {
+		if m.TCP == 0 && m.H3 == 0 {
+			continue
+		}
+		out = append(out, rules.TTLSeen{
+			OS: [3]string{rules.OSClassWindows, rules.OSClassUnix, rules.OSClassOther}[i], TCP: ttlValues(m.TCP), H3: ttlValues(m.H3),
+		})
+	}
+	return out
+}
+
+// ttlValues lista os TTLs de uma máscara em ordem crescente (nil sem nenhum).
+func ttlValues(mask uint8) []int {
+	var out []int
+	for i, v := range agg.TTLValues {
+		if mask&(1<<i) != 0 {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Auth avalia a requisição do forwardAuth com as visões que chegaram na espera e, com keep, a registra na conexão
