@@ -307,7 +307,7 @@ func (e *pebbleEnv) startPebble(bin, dir string, validity time.Duration) error {
 	}
 
 	out := &syncBuffer{}
-	cmd := exec.Command(bin, "-config", filepath.Join(dir, "pebble.json"), "-dnsserver", e.dnsAddr) //nolint:gosec // binário do teste (FS_TEST_PEBBLE)
+	cmd := exec.Command(bin, "-config", filepath.Join(dir, "pebble.json"), "-dnsserver", e.dnsAddr)
 	cmd.Env = append(os.Environ(), "PEBBLE_VA_NOSLEEP=1", "PEBBLE_WFE_NONCEREJECT=0", "PEBBLE_AUTHZREUSE=0")
 	cmd.Stdout, cmd.Stderr = io.MultiWriter(e.out, out), io.MultiWriter(e.out, out)
 	if err := cmd.Start(); err != nil {
@@ -681,7 +681,7 @@ func TestListeningOn(t *testing.T) {
 // listeningPorts devolve as portas TCP em escuta deste processo (lsof), ordenadas; nil sem lsof.
 func listeningPorts(t *testing.T) []int {
 	t.Helper()
-	out, err := exec.Command("lsof", "-nP", "-a", "-p", fmt.Sprint(os.Getpid()), "-iTCP", "-sTCP:LISTEN", "-Fn").Output() //nolint:gosec // argumentos fixos
+	out, err := exec.Command("lsof", "-nP", "-a", "-p", fmt.Sprint(os.Getpid()), "-iTCP", "-sTCP:LISTEN", "-Fn").Output()
 	if err != nil && len(out) == 0 {
 		return nil
 	}
@@ -736,7 +736,7 @@ func TestStartPebblePortInUse(t *testing.T) {
 		{"other", "#!/bin/sh\necho 'boom' >&2\nexit 1\n", false},
 	} {
 		bin := filepath.Join(dir, tc.name+".sh")
-		if err := os.WriteFile(bin, []byte(tc.script), 0o700); err != nil { //nolint:gosec // script de teste
+		if err := os.WriteFile(bin, []byte(tc.script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		e := &pebbleEnv{out: &syncBuffer{}, roots: x509.NewCertPool(), dnsAddr: "127.0.0.1:53"}

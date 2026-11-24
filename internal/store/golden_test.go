@@ -55,7 +55,7 @@ type goldenFlow struct {
 
 func loadGolden(t *testing.T, name string) map[int]*goldenFlow {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(goldenDir, name+".tshark.json")) //nolint:gosec // testdata
+	b, err := os.ReadFile(filepath.Join(goldenDir, name+".tshark.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func loadGolden(t *testing.T, name string) map[int]*goldenFlow {
 		_ = fh.Close()
 	}
 	// p0f -r (só as observações syn: cli=<ip>/<porta>)
-	if raw, err := os.ReadFile(filepath.Join(goldenDir, name+".p0f.txt")); err == nil { //nolint:gosec // testdata
+	if raw, err := os.ReadFile(filepath.Join(goldenDir, name+".p0f.txt")); err == nil {
 		for _, line := range strings.Split(string(raw), "\n") {
 			if !strings.Contains(line, " mod=syn|") {
 				continue

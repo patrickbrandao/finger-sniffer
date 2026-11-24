@@ -1,0 +1,1 @@
+- infra: `nolintlint` ligado no `.golangci.yml` (`require-explanation`, `require-specific`, sem diretiva sem efeito); removidas 239 diretivas `//nolint` mortas (180 de gosec, 59 de linters desligados: noctx 32, forcetypeassert 23, nilerr 2, unconvert 1, errorlint 1) (task 399).

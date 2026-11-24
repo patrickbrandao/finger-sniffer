@@ -73,7 +73,7 @@ var (
 	goVersion      = func() string { return numVersion(strings.TrimPrefix(runtime.Version(), "go"), 2) }
 	// requests.__version__ (o User-Agent do python-requests leva essa versão)
 	requestsVersion = sync.OnceValue(func() string {
-		out, err := exec.Command(pythonBin, "-W", "ignore", "-c", "import requests; print(requests.__version__)").Output() //nolint:gosec // Python local
+		out, err := exec.Command(pythonBin, "-W", "ignore", "-c", "import requests; print(requests.__version__)").Output()
 		if err != nil {
 			return ""
 		}
@@ -98,7 +98,7 @@ r.raise_for_status()
 if "conn_id: " not in r.text:
     sys.exit("página sem conn_id")
 `
-	out, err := exec.CommandContext(ctx, pythonBin, "-c", script, url).CombinedOutput() //nolint:gosec // Python local
+	out, err := exec.CommandContext(ctx, pythonBin, "-c", script, url).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %.500s", err, out)
 	}

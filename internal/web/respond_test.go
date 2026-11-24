@@ -224,7 +224,7 @@ func TestControlClose(t *testing.T) {
 		t.Run("tls"+q, func(t *testing.T) {
 			raw := dial(t, h.addr443)
 			rec := &recorder{r: raw}
-			c := tls.Client(&recConn{Conn: raw, rec: rec}, &tls.Config{ //nolint:gosec // autoassinado de teste
+			c := tls.Client(&recConn{Conn: raw, rec: rec}, &tls.Config{
 				ServerName: testSNI, InsecureSkipVerify: true, MaxVersion: tls.VersionTLS12,
 			})
 			cl := newClient(t, c)

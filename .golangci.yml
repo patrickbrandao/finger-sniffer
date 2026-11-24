@@ -16,7 +16,13 @@ linters:
     - revive
     - ineffassign
     - unused
+    # Diretivas //nolint sem efeito, sem linter específico ou sem explicação viram achado (task 399).
+    - nolintlint
   settings:
+    nolintlint:
+      allow-unused: false
+      require-explanation: true
+      require-specific: true
     revive:
       rules:
         - name: exported

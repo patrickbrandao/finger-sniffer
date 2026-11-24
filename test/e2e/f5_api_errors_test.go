@@ -35,7 +35,7 @@ type apiErrorCase struct {
 func loadAPIErrorCases(t *testing.T) []apiErrorCase {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "internal", "store", "testdata", "api-error-cases.json")) //nolint:gosec // repositório
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "internal", "store", "testdata", "api-error-cases.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -541,7 +541,7 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		// a conexão pode ter saído do banco (retenção, DELETE): o tardio é descartado, sem derrubar o lote
 		if _, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), frame); err != nil {
 			in.metrics.Add("store_late_dropped_total", 1)
-			return nil //nolint:nilerr // descarte deliberado
+			return nil
 		}
 		in.late[c.id] = c
 		return nil

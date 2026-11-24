@@ -532,7 +532,7 @@ func writeFile(p string, b []byte) {
 }
 
 func scrape(c *http.Client, url string) []byte {
-	resp, err := c.Get(url) //nolint:gosec // URL do operador
+	resp, err := c.Get(url)
 	if err != nil {
 		return []byte("# erro: " + err.Error() + "\n")
 	}
@@ -543,7 +543,7 @@ func scrape(c *http.Client, url string) []byte {
 
 func getHealth(c *http.Client, api string) healthSample {
 	h := healthSample{T: time.Now().UnixNano()}
-	resp, err := c.Get(api + "/health") //nolint:gosec // URL do operador
+	resp, err := c.Get(api + "/health")
 	if err != nil {
 		h.Err = err.Error()
 		return h
@@ -567,7 +567,7 @@ func getHealth(c *http.Client, api string) healthSample {
 func getTimed(c *http.Client, url, route string) apiSample {
 	s := apiSample{Route: route, T: time.Now().UnixNano()}
 	t0 := time.Now()
-	resp, err := c.Get(url) //nolint:gosec // URL do operador
+	resp, err := c.Get(url)
 	if err != nil {
 		s.Ms = float64(time.Since(t0).Microseconds()) / 1000
 		return s

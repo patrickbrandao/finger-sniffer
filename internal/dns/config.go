@@ -150,5 +150,5 @@ func clampU32(v int64) uint32 {
 	case v > int64(^uint32(0)):
 		return ^uint32(0)
 	}
-	return uint32(v) //nolint:gosec // limitado acima
+	return uint32(v)
 }

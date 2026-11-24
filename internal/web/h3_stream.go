@@ -239,7 +239,7 @@ func (st *h3Stream) writeData(r io.Reader, limit int64, piece int) error {
 	buf := make([]byte, min(int64(piece), h3WriteBuf, max(limit, 1)))
 	for left := limit; left > 0; {
 		fl := min(int64(piece), left)
-		if err := st.writeTimed(quicparse.AppendH3FrameHeader(nil, quicparse.H3FrameData, uint64(fl))); err != nil { //nolint:gosec // fl > 0
+		if err := st.writeTimed(quicparse.AppendH3FrameHeader(nil, quicparse.H3FrameData, uint64(fl))); err != nil {
 			return err
 		}
 		for k := fl; k > 0; {

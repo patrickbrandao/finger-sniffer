@@ -44,7 +44,7 @@ var pcapCases = []struct {
 // pcapBatch lê um pcap e monta um lote FSPB (o sentido não importa para a análise).
 func pcapBatch(t *testing.T, path string) fakeMsg {
 	t.Helper()
-	b, err := os.ReadFile(path) //nolint:gosec // testdata
+	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func pcapBatch(t *testing.T, path string) fakeMsg {
 		if err != nil {
 			t.Fatal(err)
 		}
-		buf = event.AppendPacket(buf, event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: event.DirIn, WireLen: uint32(ci.Length), Frame: data}) //nolint:gosec // teste
+		buf = event.AppendPacket(buf, event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: event.DirIn, WireLen: uint32(ci.Length), Frame: data})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 }

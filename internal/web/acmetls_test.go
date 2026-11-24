@@ -30,7 +30,7 @@ func TestACMETLSALPNHandshake(t *testing.T) {
 	}})
 
 	c := dial(t, h.addr443)
-	tc := tls.Client(c, &tls.Config{ServerName: name, InsecureSkipVerify: true, NextProtos: []string{acmeTLS1}}) //nolint:gosec // teste
+	tc := tls.Client(c, &tls.Config{ServerName: name, InsecureSkipVerify: true, NextProtos: []string{acmeTLS1}})
 	if err := tc.Handshake(); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestACMETLSALPNHandshake(t *testing.T) {
 
 	// acme-tls/1 com outros protocolos: não é validação, o gancho nem é consultado.
 	before := asked
-	tc2 := tls.Client(dial(t, h.addr443), &tls.Config{ServerName: name, InsecureSkipVerify: true, NextProtos: []string{acmeTLS1, "http/1.1"}}) //nolint:gosec // teste
+	tc2 := tls.Client(dial(t, h.addr443), &tls.Config{ServerName: name, InsecureSkipVerify: true, NextProtos: []string{acmeTLS1, "http/1.1"}})
 	if err := tc2.Handshake(); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestACMETLSALPNHandshake(t *testing.T) {
 	}
 
 	// Sem desafio para o nome: handshake normal, sem ALPN em comum (o cliente só ofereceu acme-tls/1).
-	tc3 := tls.Client(dial(t, h.addr443), &tls.Config{ServerName: "other.example", InsecureSkipVerify: true, NextProtos: []string{acmeTLS1}}) //nolint:gosec // teste
+	tc3 := tls.Client(dial(t, h.addr443), &tls.Config{ServerName: "other.example", InsecureSkipVerify: true, NextProtos: []string{acmeTLS1}})
 	if err := tc3.Handshake(); err == nil && tc3.ConnectionState().NegotiatedProtocol == acmeTLS1 {
 		t.Fatal("acme-tls/1 negotiated without a challenge")
 	}

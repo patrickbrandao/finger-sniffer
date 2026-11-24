@@ -362,7 +362,7 @@ func h3TraefixConn(t *testing.T, udp map[string]any) map[string]any {
 	conn := chromeConn(nil)
 	conn["proto"] = "h3"
 	delete(conn, "http2")
-	conn["tls"].(map[string]any)["clientHello"] = base64.StdEncoding.EncodeToString(loadGoldenInitials(t)[0].message) //nolint:forcetypeassert // montado acima
+	conn["tls"].(map[string]any)["clientHello"] = base64.StdEncoding.EncodeToString(loadGoldenInitials(t)[0].message)
 	if udp != nil {
 		conn["udp"] = udp
 	}

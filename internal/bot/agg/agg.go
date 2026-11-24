@@ -642,7 +642,7 @@ func (a *Aggregator) maintain(now time.Time) {
 					b.addPast(hourStats{hour: hr, c: h.cur})
 				}
 			case hr < oldest:
-				a.dropped.Add(uint64(max(0, h.cur.requests-h.flushed.requests))) //nolint:gosec // não negativo
+				a.dropped.Add(uint64(max(0, h.cur.requests-h.flushed.requests)))
 			default:
 				continue
 			}
@@ -671,7 +671,7 @@ func (a *Aggregator) maintain(now time.Time) {
 			a.entries--
 			a.charge(f.owner, -1)
 		} else if k.day < oldestDay {
-			a.dropped.Add(uint64(max(0, f.requests-f.flushedRequests))) //nolint:gosec // não negativo
+			a.dropped.Add(uint64(max(0, f.requests-f.flushedRequests)))
 			delete(a.fps, k)
 			a.entries--
 			a.charge(f.owner, -1)

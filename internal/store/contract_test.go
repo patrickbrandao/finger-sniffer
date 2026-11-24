@@ -66,7 +66,7 @@ func lintContract(t *testing.T, schema string, values ...[]byte) ([]byte, error)
 	}
 	golden, _ := filepath.Glob(filepath.Join(filepath.Dir(openapiFile), "testdata", "*.json"))
 	for _, g := range golden {
-		b, _ := os.ReadFile(g) //nolint:gosec // repositório
+		b, _ := os.ReadFile(g)
 		if err := os.WriteFile(filepath.Join(dir, "testdata", filepath.Base(g)), b, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +96,7 @@ func lintContract(t *testing.T, schema string, values ...[]byte) ([]byte, error)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "lint", "--format=summary", "openapi.yaml") //nolint:gosec // binário do repositório
+	cmd := exec.CommandContext(ctx, bin, "lint", "--format=summary", "openapi.yaml")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	return cmd.CombinedOutput()
@@ -147,7 +147,7 @@ func TestAPIQUICExample(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(file) //nolint:gosec // testdata versionado
+	want, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("%v (rode com -update)", err)
 	}

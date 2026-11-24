@@ -64,7 +64,7 @@ func benchWorkloadRate(b testing.TB, conns, rate int) ([]fakeMsg, []int) {
 		} else {
 			f = frame(src, dst, proto, flags, payload)
 		}
-		p := event.Packet{TsNs: base + int64(at)*1e6, Dir: dir, WireLen: uint32(len(f)), Frame: f} //nolint:gosec // teste
+		p := event.Packet{TsNs: base + int64(at)*1e6, Dir: dir, WireLen: uint32(len(f)), Frame: f}
 		items = append(items, benchItem{ms: at, pkt: &p})
 	}
 	addApp := func(at int, m fakeMsg) { items = append(items, benchItem{ms: at + 1, app: &m}) } // publicado 1 ms depois

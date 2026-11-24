@@ -147,7 +147,7 @@ var caseFields = map[string][]string{
 // connRaw busca o JSON do registro completo da conexão.
 func connRaw(t *testing.T, connID string) map[string]any {
 	t.Helper()
-	resp, err := http.Get(api + "/connections/" + connID) //nolint:gosec // URL do teste
+	resp, err := http.Get(api + "/connections/" + connID)
 	if err != nil {
 		t.Fatal(err)
 	}

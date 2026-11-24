@@ -51,7 +51,7 @@ func frame(src, dst netip.AddrPort, proto byte, flags byte, payload int) []byte 
 		f = binary.BigEndian.AppendUint16(f, 0x0800)
 		ip := make([]byte, 20)
 		ip[0], ip[8], ip[9] = 0x45, 64, proto
-		binary.BigEndian.PutUint16(ip[2:4], uint16(20+len(l4))) //nolint:gosec // teste
+		binary.BigEndian.PutUint16(ip[2:4], uint16(20+len(l4)))
 		s, d := src.Addr().As4(), dst.Addr().As4()
 		copy(ip[12:16], s[:])
 		copy(ip[16:20], d[:])
@@ -60,7 +60,7 @@ func frame(src, dst netip.AddrPort, proto byte, flags byte, payload int) []byte 
 		f = binary.BigEndian.AppendUint16(f, 0x86dd)
 		ip := make([]byte, 40)
 		ip[0], ip[6], ip[7] = 0x60, proto, 64
-		binary.BigEndian.PutUint16(ip[4:6], uint16(len(l4))) //nolint:gosec // teste
+		binary.BigEndian.PutUint16(ip[4:6], uint16(len(l4)))
 		s, d := src.Addr().As16(), dst.Addr().As16()
 		copy(ip[8:24], s[:])
 		copy(ip[24:40], d[:])
@@ -113,7 +113,7 @@ func batch(cli, srv netip.AddrPort, proto byte, pkts []pkt) fakeMsg {
 			src, dst, dir = srv, cli, event.DirOut
 		}
 		f := frame(src, dst, proto, p.flags, p.payload)
-		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(p.ms)*1e6, Dir: dir, WireLen: uint32(len(f)), Frame: f}) //nolint:gosec // teste
+		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(p.ms)*1e6, Dir: dir, WireLen: uint32(len(f)), Frame: f})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 }
@@ -249,7 +249,7 @@ func checkPcap(t *testing.T, data []byte, want int) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command(tshark, "-r", path, "-T", "fields", "-e", "tcp.flags.str").CombinedOutput() //nolint:gosec // teste
+	out, err := exec.Command(tshark, "-r", path, "-T", "fields", "-e", "tcp.flags.str").CombinedOutput()
 	if err != nil {
 		t.Fatalf("tshark: %v %s", err, out)
 	}
@@ -325,7 +325,7 @@ func TestIngestServerInitiatedFlow(t *testing.T) {
 func TestIngestUDPSoloAndICMPAreStray(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	icmp := frame(client, mirror, protoICMP, 0, 0)
-	b := event.AppendPacket(nil, event.Packet{TsNs: base, WireLen: uint32(len(icmp)), Frame: icmp}) //nolint:gosec // teste
+	b := event.AppendPacket(nil, event.Packet{TsNs: base, WireLen: uint32(len(icmp)), Frame: icmp})
 	b = event.AppendPacket(b, event.Packet{TsNs: base, WireLen: 3, Frame: []byte{1, 2, 3}})
 	run(t, in, 0, fakeMsg{subject: event.SubjectCapturePacket, data: b}, batch(client, mirror, protoUDP, []pkt{{0, true, 0, 10}}))
 	run(t, in, 60_000)
@@ -449,7 +449,7 @@ func TestRetentionSizeCap(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	empty, _ := NewRetention(db, time.Hour, 0).logicalSize(context.Background())
 	for i := range 50 {
-		cli := netip.AddrPortFrom(client.Addr(), uint16(10000+i)) //nolint:gosec // teste
+		cli := netip.AddrPortFrom(client.Addr(), uint16(10000+i))
 		big := append([]pkt(nil), fullTCP...)
 		big[4].payload = 1400
 		run(t, in, 5000, batch(cli, mirror, protoTCP, big))

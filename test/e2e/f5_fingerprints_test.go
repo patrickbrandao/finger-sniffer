@@ -20,7 +20,7 @@ package e2e
 
 import (
 	"context"
-	"crypto/md5" //nolint:gosec // JA3 é MD5 por definição
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -227,7 +227,7 @@ func ja3n(full string) (string, string) {
 		f[2] = strings.Join(ext, "-")
 	}
 	s := strings.Join(f, ",")
-	sum := md5.Sum([]byte(s)) //nolint:gosec // JA3 é MD5 por definição
+	sum := md5.Sum([]byte(s))
 	return s, hex.EncodeToString(sum[:])
 }
 
@@ -325,7 +325,7 @@ func chromeArgsRun(extra ...string) func(ctx context.Context, url, keylog string
 			"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
 			"--user-data-dir=" + dir, "--ssl-key-log-file=" + keylog,
 		}, extra...)
-		out, err := exec.CommandContext(ctx, chromeBin, append(args, "--dump-dom", url)...).Output() //nolint:gosec // navegador local
+		out, err := exec.CommandContext(ctx, chromeBin, append(args, "--dump-dom", url)...).Output()
 		if err != nil {
 			return err
 		}
@@ -369,7 +369,7 @@ func firefoxPrefsRun(prefs func(host string) []string) func(ctx context.Context,
 			return err
 		}
 		shot := filepath.Join(dir, "s.png")
-		cmd := exec.CommandContext(ctx, firefoxBin, "--headless", "--no-remote", "--profile", dir, "--screenshot", shot, url) //nolint:gosec // navegador local
+		cmd := exec.CommandContext(ctx, firefoxBin, "--headless", "--no-remote", "--profile", dir, "--screenshot", shot, url)
 		cmd.Env = append(os.Environ(), "SSLKEYLOGFILE="+keylog)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -442,7 +442,7 @@ func TestF5Fingerprints(t *testing.T) {
 			if err := cl.run(ctx, url, keylog); err != nil {
 				t.Fatalf("%s: %v", cl.name, err)
 			}
-			keys, _ := os.ReadFile(keylog) //nolint:gosec // temporário do teste
+			keys, _ := os.ReadFile(keylog)
 			if cl.keys && len(keys) == 0 {
 				t.Fatalf("%s não gravou o keylog", cl.name)
 			}
@@ -683,7 +683,7 @@ func checkF5QUIC(t *testing.T, tb *f5Table, cl f5Client, c f5Conn, ref f5Ref) {
 // ---------------------------------------------------------------- relatório
 
 func cmdLine(name string, args ...string) string {
-	out, err := exec.Command(name, args...).CombinedOutput() //nolint:gosec // ferramentas locais
+	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
 		return dash
 	}

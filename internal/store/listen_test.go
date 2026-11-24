@@ -60,7 +60,7 @@ func TestServeAll(t *testing.T) {
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") }), ReadHeaderTimeout: time.Second}
 	errc := serveAll(ls, srv.Serve)
 	for _, l := range ls {
-		resp, err := http.Get("http://" + l.Addr().String() + "/") //nolint:noctx // teste
+		resp, err := http.Get("http://" + l.Addr().String() + "/")
 		if err != nil {
 			t.Fatal(err)
 		}

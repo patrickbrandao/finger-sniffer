@@ -22,7 +22,7 @@ const keyUsageRetention = 90 * 24 * time.Hour
 // synchronous=NORMAL: a queda do host perde no máximo as últimas transações, nunca corrompe o banco; a CLI abre o
 // mesmo arquivo com o serviço rodando (spec 018 RF-10).
 func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:gosec // FS_BOT_DB, da configuração
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"

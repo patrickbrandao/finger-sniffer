@@ -78,7 +78,7 @@ type counters struct {
 
 func addCause(m *sync.Map, cause string) {
 	v, _ := m.LoadOrStore(cause, new(atomic.Int64))
-	v.(*atomic.Int64).Add(1) //nolint:forcetypeassert // só *atomic.Int64 entra no mapa
+	v.(*atomic.Int64).Add(1)
 }
 
 func causeMap(m *sync.Map) map[string]int64 {
@@ -87,7 +87,7 @@ func causeMap(m *sync.Map) map[string]int64 {
 		out[k] = 0
 	}
 	m.Range(func(k, v any) bool {
-		out[k.(string)] = v.(*atomic.Int64).Load() //nolint:forcetypeassert // tipos fixos
+		out[k.(string)] = v.(*atomic.Int64).Load()
 		return true
 	})
 	return out
@@ -496,7 +496,7 @@ func main() {
 	}
 
 	// amostrador do health
-	f, err := os.Create(filepath.Join(*out, "health.csv")) //nolint:gosec // caminho do operador
+	f, err := os.Create(filepath.Join(*out, "health.csv"))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -198,7 +198,7 @@ func TestMetrics(t *testing.T) {
 	}
 	https := httptest.NewServer(api.HTTPSHandler())
 	defer https.Close()
-	resp, err := http.Get(https.URL + "/metrics") //nolint:noctx,gosec // teste
+	resp, err := http.Get(https.URL + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}

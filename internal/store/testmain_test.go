@@ -29,12 +29,12 @@ func testDB(t testing.TB) (*sql.DB, string) {
 
 func copyFile(t testing.TB, from, to string) {
 	t.Helper()
-	in, err := os.Open(from) //nolint:gosec // caminho de teste
+	in, err := os.Open(from)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = in.Close() }()
-	out, err := os.Create(to) //nolint:gosec // caminho de teste
+	out, err := os.Create(to)
 	if err != nil {
 		t.Fatal(err)
 	}

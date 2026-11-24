@@ -516,7 +516,7 @@ func (q *Queries) DNS(ctx context.Context, f ListFilter) ([]json.RawMessage, err
 		where, args = append(where, "ts_ns >= ?"), append(args, f.Since)
 	}
 	where = append(where, visibleDNS)
-	sqlq := "SELECT record_json FROM dns_queries WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos
+	sqlq := "SELECT record_json FROM dns_queries WHERE " + strings.Join(where, " AND ")
 	sqlq += " ORDER BY ts_ns DESC, id DESC LIMIT ?"
 	list, _, err := q.rawList(ctx, q.cut(ctx), sqlq, append(args, f.Limit)...)
 	return list, err

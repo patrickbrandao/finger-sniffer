@@ -71,7 +71,7 @@ type traefixRun func(ctx context.Context, u string) (string, error)
 func curlBody(args ...string) traefixRun {
 	return func(ctx context.Context, u string) (string, error) {
 		a := append([]string{"-sS", "--max-time", "20"}, args...)
-		out, err := exec.CommandContext(ctx, curlOpenSSL, append(a, u)...).Output() //nolint:gosec // cliente local
+		out, err := exec.CommandContext(ctx, curlOpenSSL, append(a, u)...).Output()
 		if err != nil {
 			return "", fmt.Errorf("curl %s: %w", u, err)
 		}
@@ -125,7 +125,7 @@ func chromeBody(quic bool) traefixRun {
 		} else {
 			args = append(args, "--disable-quic")
 		}
-		out, err := exec.CommandContext(ctx, chromeBin, append(args, u)...).Output() //nolint:gosec // navegador local
+		out, err := exec.CommandContext(ctx, chromeBin, append(args, u)...).Output()
 		if err != nil {
 			return "", fmt.Errorf("chrome %s: %w", u, err)
 		}
@@ -144,7 +144,7 @@ func backendRequest(t *testing.T, connID string, index int) map[string]string {
 	}
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		resp, err := http.Get(api + "/connections/" + connID) //nolint:gosec,noctx // URL do teste
+		resp, err := http.Get(api + "/connections/" + connID)
 		if err == nil {
 			b, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
@@ -200,7 +200,7 @@ func traefixGet(t *testing.T, base string, extra ...string) (int, http.Header, m
 	args := append([]string{"-4", "-sS", "-i", "--http2", "--max-time", "20"}, extra...)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, curlOpenSSL, append(args, u)...).CombinedOutput() //nolint:gosec // cliente local
+	out, err := exec.CommandContext(ctx, curlOpenSSL, append(args, u)...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("curl %s: %v %s", u, err, out)
 	}
@@ -664,7 +664,7 @@ func testUpstreamParity(t *testing.T) {
 	for _, p := range []string{"/ping", "/nao-existe-" + newID(t)} {
 		var got [2]string
 		for i, base := range []string{traefixPlainURL, traefikUpstreamURL} {
-			resp, err := cl.Get(strings.TrimSuffix(base, "/") + p) //nolint:noctx // prazo no cliente
+			resp, err := cl.Get(strings.TrimSuffix(base, "/") + p)
 			if err != nil {
 				t.Fatalf("%s%s: %v", base, p, err)
 			}

@@ -487,7 +487,7 @@ func TestTraefixTCPViewRules(t *testing.T) {
 		conn := chromeConn(winTCP)
 		conn["proto"] = "h3"
 		delete(conn, "http2")
-		conn["tls"].(map[string]any)["clientHello"] = base64.StdEncoding.EncodeToString(loadGoldenInitials(t)[0].message) //nolint:forcetypeassert // montado acima
+		conn["tls"].(map[string]any)["clientHello"] = base64.StdEncoding.EncodeToString(loadGoldenInitials(t)[0].message)
 		f.postIngest(traefixBatchJSON(t, id, "198.51.100.63", 50005, conn, map[string]any{"proto": "h3", "httpVersion": "3"}))
 		if fc, _ := f.srv.Index().Fork(id, f.clock.Now()); fc.TCP != nil {
 			t.Errorf("visão TCP em h3: %+v", fc.TCP)
@@ -524,10 +524,10 @@ func TestTraefixReadyMismatch(t *testing.T) {
 	const id = "01JC0X3K8V2T7Q9F4M6P1R5T21"
 	f := newFixture(t)
 	conn := chromeConn(nil)
-	tl := conn["tls"].(map[string]any) //nolint:forcetypeassert // montado em chromeConn
+	tl := conn["tls"].(map[string]any)
 	tl["ja3"], tl["ja3n"] = strings.Repeat("0", 32), strings.Repeat("1", 32)
 	tl["ja4"], tl["ja4r"], tl["ja4o"] = "t13d1517h2_000000000000_000000000000", "t13d1517h2_0000", "t13d1517h2_111111111111_111111111111"
-	conn["http2"].(map[string]any)["akamai"] = "1:1|00|0|m,a,s,p" //nolint:forcetypeassert // idem
+	conn["http2"].(map[string]any)["akamai"] = "1:1|00|0|m,a,s,p"
 	if c, got := f.postIngest(traefixBatchJSON(t, id, "198.51.100.70", 50010, conn, nil)); c != 202 || got["accepted"] != 1 {
 		t.Fatalf("ingest: %d %v", c, got)
 	}
@@ -699,7 +699,7 @@ func TestIngestClipsLongTexts(t *testing.T) {
 	f := newFixture(t)
 	conn := chromeConn(nil)
 	conn["entryPoint"], conn["proto"] = big("e"), "h2"
-	tl := conn["tls"].(map[string]any) //nolint:forcetypeassert // montado em chromeConn
+	tl := conn["tls"].(map[string]any)
 	tl["sni"], tl["alpn"], tl["version"], tl["cipher"] = big("s"), big("p"), big("v"), big("c")
 	offered := []string{big("o")}
 	for range 20 {

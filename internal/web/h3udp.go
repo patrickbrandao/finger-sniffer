@@ -255,7 +255,7 @@ func (t *initTracker) evictLocked(orphans *[]*initEntry) bool {
 	if el == nil {
 		return false
 	}
-	e := el.Value.(*initEntry) //nolint:forcetypeassert // a fila só guarda *initEntry
+	e := el.Value.(*initEntry)
 	t.orphanLocked(e, orphans)
 	t.dropLocked(e)
 	return true

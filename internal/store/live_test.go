@@ -37,7 +37,7 @@ type liveRecv struct {
 func sseClient(t *testing.T, ctx context.Context, url string) (<-chan liveRecv, *http.Response) {
 	t.Helper()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // teste
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestLiveSlowClient(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/v1/stream", nil)
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // teste
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestLiveMaxClients(t *testing.T) {
 	}
 	eventually(t, 3*time.Second, func() bool { return h.Stats().Clients["sse"]+h.Stats().Clients["ws"] == 64 }, "64 clients not joined")
 	for _, path := range []string{"/api/v1/stream", "/api/v1/ws"} {
-		resp, err := http.Get(srv.URL + path) //nolint:noctx,gosec // teste
+		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -356,7 +356,7 @@ func TestLiveMaxClients(t *testing.T) {
 			t.Fatalf("%s: 65th client got %d", path, resp.StatusCode)
 		}
 	}
-	resp, _ := http.Get(srv.URL + "/api/v1/ws?kind=nope") //nolint:noctx,gosec // teste
+	resp, _ := http.Get(srv.URL + "/api/v1/ws?kind=nope")
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid filter: %d", resp.StatusCode)
@@ -520,7 +520,7 @@ func TestIntegrationLive(t *testing.T) {
 	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/api/v1/ws?kind=http.request,connection.opened,connection.closed", port)
 	var ws <-chan liveRecv
 	eventually(t, 5*time.Second, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port)) //nolint:noctx,gosec // teste
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", port))
 		if err == nil {
 			_ = resp.Body.Close()
 		}

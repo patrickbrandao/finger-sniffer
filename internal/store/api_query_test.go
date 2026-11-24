@@ -83,7 +83,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 
 func (f *apiFixture) get(t *testing.T, path string) (int, string) {
 	t.Helper()
-	resp, err := http.Get(f.srv.URL + path) //nolint:noctx,gosec // teste
+	resp, err := http.Get(f.srv.URL + path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestAPIConnectionGet(t *testing.T) {
 func TestAPIPcap(t *testing.T) {
 	f := newAPIFixture(t)
 	for id, want := range map[string]int{f.closed: len(fullTCP), f.opened: 4} {
-		resp, err := http.Get(f.srv.URL + "/api/v1/connections/" + id + "/pcap") //nolint:noctx // teste
+		resp, err := http.Get(f.srv.URL + "/api/v1/connections/" + id + "/pcap")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +300,7 @@ func TestAPIProbeWait(t *testing.T) {
 func TestAPIDeleteProbe(t *testing.T) {
 	f := newAPIFixture(t)
 	del := func() int {
-		req, _ := http.NewRequest(http.MethodDelete, f.srv.URL+"/api/v1/probes/"+probeID, nil) //nolint:noctx // teste
+		req, _ := http.NewRequest(http.MethodDelete, f.srv.URL+"/api/v1/probes/"+probeID, nil)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -317,7 +317,7 @@ func TestAPIDeleteProbe(t *testing.T) {
 	if code, _ := f.get(t, "/api/v1/connections/"+f.closed); code != 404 {
 		t.Fatal("connection must be gone")
 	}
-	req, _ := http.NewRequest(http.MethodDelete, f.srv.URL+"/api/v1/probes/BAD", nil) //nolint:noctx // teste
+	req, _ := http.NewRequest(http.MethodDelete, f.srv.URL+"/api/v1/probes/BAD", nil)
 	resp, _ := http.DefaultClient.Do(req)
 	if resp.StatusCode != 400 {
 		t.Fatal("invalid probe: 400")

@@ -78,7 +78,7 @@ func newBotKey(t *testing.T, extra ...string) *botKey {
 	sweepKeys.Do(func() { sweepBotKeys(t) })
 	name := fmt.Sprintf("%s-%d", f8KeyName, time.Now().UnixNano())
 	cmd := botCLI + " key create --name " + name + " --domains " + f8Domains() + " " + strings.Join(extra, " ")
-	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, cmd).CombinedOutput() //nolint:gosec // destino do teste
+	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, cmd).CombinedOutput()
 	k := &botKey{}
 	for l := range strings.Lines(string(out)) {
 		l = strings.TrimSpace(l)
@@ -115,7 +115,7 @@ func newBotKey(t *testing.T, extra ...string) *botKey {
 
 // revokeBotKey revoga a chave (no Cleanup: erro vira Errorf para os outros Cleanups rodarem).
 func revokeBotKey(t *testing.T, id string) {
-	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, botCLI+" key revoke "+id).CombinedOutput() //nolint:gosec // destino do teste
+	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, botCLI+" key revoke "+id).CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "revoked") {
 		t.Errorf("revogar a chave de teste %s: %v %s", id, err, out)
 		return
@@ -306,7 +306,7 @@ func f8Curl(extra ...string) func(ctx context.Context, id string, origin bool) e
 		if origin {
 			args = append(args, "-H", "Origin: https://"+f8Site)
 		}
-		out, err := exec.CommandContext(ctx, curlOpenSSL, append(args, probeURL(id))...).CombinedOutput() //nolint:gosec // cliente local
+		out, err := exec.CommandContext(ctx, curlOpenSSL, append(args, probeURL(id))...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%w: %s", err, out)
 		}
@@ -345,7 +345,7 @@ r.raise_for_status()
 	if origin {
 		args = append(args, "https://"+f8Site)
 	}
-	out, err := exec.CommandContext(ctx, pythonBin, args...).CombinedOutput() //nolint:gosec // Python local
+	out, err := exec.CommandContext(ctx, pythonBin, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %.500s", err, out)
 	}
@@ -375,7 +375,7 @@ func f8Chrome(page func(string) string) func(ctx context.Context, id string, ori
 			"--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-quic",
 			"--user-data-dir=" + dir, "--user-agent=" + chromeUA(), "--dump-dom", u,
 		}
-		out, err := exec.CommandContext(ctx, chromeBin, args...).CombinedOutput() //nolint:gosec // navegador local
+		out, err := exec.CommandContext(ctx, chromeBin, args...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("%w: %.300s", err, out)
 		}
@@ -719,7 +719,7 @@ func storeTCP(t *testing.T, connID string, srcPort int, withSYN bool) *f8TCP {
 // pcapBestEffort baixa o pcap da conexão; nil se ainda não estiver pronto (o SYN cru é opcional no lote).
 func pcapBestEffort(connID string) []byte {
 	for range 3 {
-		resp, err := http.Get(api + "/connections/" + connID + "/pcap") //nolint:gosec // URL do teste
+		resp, err := http.Get(api + "/connections/" + connID + "/pcap")
 		if err == nil {
 			b, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
@@ -1370,7 +1370,7 @@ func newBotKeyDomains(t *testing.T, domains string) *botKey {
 	t.Helper()
 	sweepKeys.Do(func() { sweepBotKeys(t) })
 	name := fmt.Sprintf("%s-%d", f8KeyName, time.Now().UnixNano())
-	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH, //nolint:gosec // destino do teste
+	out, err := exec.Command("ssh", "-4", "-p", vpsPort, "-o", "BatchMode=yes", vpsSSH,
 		botCLI+" key create --name "+name+" --domains "+domains).CombinedOutput()
 	k := &botKey{}
 	for l := range strings.Lines(string(out)) {

@@ -58,7 +58,7 @@ func eventually(t *testing.T, timeout time.Duration, cond func() bool, msg strin
 
 func getHealth(t *testing.T, url string) (Health, error) {
 	t.Helper()
-	resp, err := http.Get(url) //nolint:noctx,gosec // teste
+	resp, err := http.Get(url)
 	if err != nil {
 		return Health{}, err
 	}

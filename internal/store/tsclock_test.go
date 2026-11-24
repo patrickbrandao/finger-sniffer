@@ -22,7 +22,7 @@ func simClock(rng *rand.Rand, hz, dur, jitter float64, n int) *analysis {
 // TestTSClockHzShortJitter: 1000 Hz, jitter de ±15 ms (faixa de 30 ms) e conexão de 150 ms: a estimativa
 // publicada fica a até 5% do real, ou sai nula (task 201).
 func TestTSClockHzShortJitter(t *testing.T) {
-	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // teste determinístico
+	rng := rand.New(rand.NewPCG(1, 2))
 	published := 0
 	for range 2000 {
 		a := simClock(rng, 1000, 0.150, 0.030, 10)
@@ -41,7 +41,7 @@ func TestTSClockHzShortJitter(t *testing.T) {
 // TestTSClockHzStable: sem jitter relevante, a conexão curta publica a frequência; com 2 s, mesmo o jitter de
 // 30 ms dá uma estimativa a até 5%.
 func TestTSClockHzStable(t *testing.T) {
-	rng := rand.New(rand.NewPCG(3, 4)) //nolint:gosec // teste determinístico
+	rng := rand.New(rand.NewPCG(3, 4))
 	for _, c := range []struct {
 		hz, dur, jitter float64
 		n               int

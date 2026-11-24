@@ -23,7 +23,7 @@ func TestAPIDeleteProbeOpenConnection(t *testing.T) {
 	if _, err := f.in.db.Exec("UPDATE connections SET probe_id = ? WHERE conn_id = ?", probeID, f.opened); err != nil {
 		t.Fatal(err)
 	}
-	req, _ := http.NewRequest(http.MethodDelete, f.srv.URL+"/api/v1/probes/"+probeID, nil) //nolint:noctx // teste
+	req, _ := http.NewRequest(http.MethodDelete, f.srv.URL+"/api/v1/probes/"+probeID, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

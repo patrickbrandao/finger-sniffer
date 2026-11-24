@@ -144,7 +144,7 @@ func lintContractWith(t *testing.T, ref string, additional bool, prep func(dir, 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "lint", "--format=summary", "openapi.yaml") //nolint:gosec // binário do repositório
+	cmd := exec.CommandContext(ctx, bin, "lint", "--format=summary", "openapi.yaml")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "REDOCLY_TELEMETRY=off", "REDOCLY_SUPPRESS_UPDATE_NOTICE=true")
 	return cmd.CombinedOutput()

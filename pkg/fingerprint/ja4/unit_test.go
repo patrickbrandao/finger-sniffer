@@ -189,7 +189,7 @@ func TestStableResumption(t *testing.T) {
 	var resumed bool
 	for range 2 {
 		c, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{
-			ServerName: "example.com", InsecureSkipVerify: true, ClientSessionCache: cache, //nolint:gosec // teste
+			ServerName: "example.com", InsecureSkipVerify: true, ClientSessionCache: cache,
 		})
 		if err != nil {
 			t.Fatal(err)

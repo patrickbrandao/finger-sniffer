@@ -123,7 +123,7 @@ func capPages(t *testing.T, db *sql.DB, extra int64) {
 func manyConns(n, from int) fakeMsg {
 	var m fakeMsg
 	for i := range n {
-		c := netip.AddrPortFrom(client.Addr(), uint16(from+i)) //nolint:gosec // teste
+		c := netip.AddrPortFrom(client.Addr(), uint16(from+i))
 		b := batch(c, mirror, protoTCP, fullTCP[:3])
 		m.subject = b.subject
 		m.data = append(m.data, b.data...)

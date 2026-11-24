@@ -444,7 +444,7 @@ func metricValue(t *testing.T, name string) float64 {
 
 func metricsText(t *testing.T) []byte {
 	t.Helper()
-	resp, err := http.Get(strings.TrimSuffix(api, "/api/v1") + "/metrics") //nolint:gosec // URL do teste
+	resp, err := http.Get(strings.TrimSuffix(api, "/api/v1") + "/metrics")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +641,7 @@ func TestCase13LongPoll(t *testing.T) {
 	ch := make(chan result, 1)
 	t0 := time.Now()
 	go func() {
-		resp, err := http.Get(api + "/probes/" + id + "?wait=30s") //nolint:gosec // URL do teste
+		resp, err := http.Get(api + "/probes/" + id + "?wait=30s")
 		if err != nil {
 			ch <- result{err: err}
 			return

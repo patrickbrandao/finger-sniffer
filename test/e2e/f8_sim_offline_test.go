@@ -387,7 +387,7 @@ func botDo(t *testing.T, method, path string, k *botKey, hdr map[string]string, 
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
-	req, err := http.NewRequest(method, botBase+path, rd) //nolint:noctx // prazo no cliente
+	req, err := http.NewRequest(method, botBase+path, rd)
 	if err != nil {
 		t.Fatal(err)
 	}

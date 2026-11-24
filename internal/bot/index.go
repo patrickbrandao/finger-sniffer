@@ -273,7 +273,7 @@ func (t *ttlTable[V]) putOwned(id, owner string, src srcKey, hasSrc bool, val V,
 	t.expire(now)
 	*t.seq++
 	if el, ok := t.byID[id]; ok {
-		e := el.Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+		e := el.Value.(*ttlEntry[V])
 		if e.hasSrc && (!hasSrc || e.src != src) && t.bySrc[e.src] == el {
 			delete(t.bySrc, e.src)
 		}
@@ -315,7 +315,7 @@ func (t *ttlTable[V]) putOwned(id, owner string, src srcKey, hasSrc bool, val V,
 }
 
 func (t *ttlTable[V]) remove(el *list.Element) {
-	e := el.Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+	e := el.Value.(*ttlEntry[V])
 	t.order.Remove(el)
 	t.bytes -= e.cost
 	delete(t.byID, e.id)
@@ -346,11 +346,11 @@ func (t *ttlTable[V]) enforceOwner(owner string, maxN int, maxB int64, allN int,
 		return u != nil && u.l.Len() > 0 && (u.l.Len() > mn || (mb > 0 && u.bytes > mb))
 	}
 	for u := t.byOwner[owner]; over(u, maxN, maxB); u = t.byOwner[owner] {
-		t.remove(u.l.Front().Value.(*list.Element)) //nolint:forcetypeassert // byOwner guarda elementos de order
+		t.remove(u.l.Front().Value.(*list.Element))
 		n++
 	}
 	for over(&t.keyed, allN, allB) {
-		t.remove(t.keyed.l.Front().Value.(*list.Element)) //nolint:forcetypeassert // idem
+		t.remove(t.keyed.l.Front().Value.(*list.Element))
 		n++
 	}
 	return n
@@ -390,7 +390,7 @@ func (t *ttlTable[V]) getByOrigin(ip netip.Addr, port int, now time.Time) (V, bo
 	if l == nil || l.Len() == 0 {
 		return zero, false
 	}
-	e := l.Back().Value.(*list.Element).Value.(*ttlEntry[V]) //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+	e := l.Back().Value.(*list.Element).Value.(*ttlEntry[V])
 	if e.touched.Before(now.Add(-t.ttl)) {
 		return zero, false
 	}
@@ -403,7 +403,7 @@ func (t *ttlTable[V]) oldest() (uint64, bool) {
 	if el == nil {
 		return 0, false
 	}
-	return el.Value.(*ttlEntry[V]).seq, true //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+	return el.Value.(*ttlEntry[V]).seq, true
 }
 
 // peek devolve o valor guardado pelo id, sem conferir o TTL.
@@ -413,14 +413,14 @@ func (t *ttlTable[V]) peek(id string) (V, bool) {
 	if !ok {
 		return zero, false
 	}
-	return el.Value.(*ttlEntry[V]).val, true //nolint:forcetypeassert // idem
+	return el.Value.(*ttlEntry[V]).val, true
 }
 
 // expire tira as entradas sem atualização há mais que o TTL.
 func (t *ttlTable[V]) expire(now time.Time) {
 	cut := now.Add(-t.ttl)
 	for el := t.order.Front(); el != nil; el = t.order.Front() {
-		if !el.Value.(*ttlEntry[V]).touched.Before(cut) { //nolint:forcetypeassert // só ttlEntry[V] entra na lista
+		if !el.Value.(*ttlEntry[V]).touched.Before(cut) {
 			return
 		}
 		t.remove(el)
@@ -430,26 +430,26 @@ func (t *ttlTable[V]) expire(now time.Time) {
 func (t *ttlTable[V]) getByID(id string, now time.Time) (V, bool) {
 	var zero V
 	el, ok := t.byID[id]
-	if !ok || el.Value.(*ttlEntry[V]).touched.Before(now.Add(-t.ttl)) { //nolint:forcetypeassert // idem
+	if !ok || el.Value.(*ttlEntry[V]).touched.Before(now.Add(-t.ttl)) {
 		return zero, false
 	}
-	return el.Value.(*ttlEntry[V]).val, true //nolint:forcetypeassert // idem
+	return el.Value.(*ttlEntry[V]).val, true
 }
 
 func (t *ttlTable[V]) getBySrc(k srcKey, now time.Time) (V, bool) {
 	var zero V
 	el, ok := t.bySrc[k]
-	if !ok || el.Value.(*ttlEntry[V]).touched.Before(now.Add(-t.ttl)) { //nolint:forcetypeassert // idem
+	if !ok || el.Value.(*ttlEntry[V]).touched.Before(now.Add(-t.ttl)) {
 		return zero, false
 	}
-	return el.Value.(*ttlEntry[V]).val, true //nolint:forcetypeassert // idem
+	return el.Value.(*ttlEntry[V]).val, true
 }
 
 // removeSrcIn apaga as entradas cuja origem está no prefixo (forget); devolve quantas saíram.
 func (t *ttlTable[V]) removeSrcIn(p netip.Prefix) (n int) {
 	for el := t.order.Front(); el != nil; {
 		next := el.Next()
-		if e := el.Value.(*ttlEntry[V]); e.hasSrc && p.Contains(e.src.ip) { //nolint:forcetypeassert // idem
+		if e := el.Value.(*ttlEntry[V]); e.hasSrc && p.Contains(e.src.ip) {
 			t.remove(el)
 			n++
 		}

@@ -26,7 +26,7 @@ func heapInUse() int64 {
 	runtime.GC()
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return int64(m.HeapAlloc) //nolint:gosec // HeapAlloc cabe em int64
+	return int64(m.HeapAlloc)
 }
 
 // checkCoverage confere que a reserva cobre ao menos 90% da memória retida medida (ADR 0036 item 2).

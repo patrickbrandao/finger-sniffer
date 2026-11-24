@@ -21,7 +21,7 @@ func flaggedBatch(cli, srv netip.AddrPort, segs []seg, flags []uint8) fakeMsg {
 			src, dst, dir = srv, cli, event.DirOut
 		}
 		f := tcpFrame(src, dst, s)
-		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(s.ms*1e6), Dir: dir, Flags: flags[i], WireLen: uint32(len(f)), Frame: f}) //nolint:gosec // teste
+		buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(s.ms*1e6), Dir: dir, Flags: flags[i], WireLen: uint32(len(f)), Frame: f})
 	}
 	return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 }
@@ -97,10 +97,10 @@ func TestIPv6ExtensionHeaders(t *testing.T) {
 				}
 				ip := f[14:54]
 				ip[6] = ipv6HopByHop
-				binary.BigEndian.PutUint16(ip[4:6], binary.BigEndian.Uint16(ip[4:6])+uint16(len(ext))) //nolint:gosec // teste
+				binary.BigEndian.PutUint16(ip[4:6], binary.BigEndian.Uint16(ip[4:6])+uint16(len(ext)))
 				f = append(append(append([]byte{}, f[:54]...), ext...), f[54:]...)
 			}
-			buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(s.ms*1e6), Dir: dir, WireLen: uint32(len(f)), Frame: f}) //nolint:gosec // teste
+			buf = event.AppendPacket(buf, event.Packet{TsNs: base + int64(s.ms*1e6), Dir: dir, WireLen: uint32(len(f)), Frame: f})
 		}
 		return fakeMsg{subject: event.SubjectCapturePacket, data: buf}
 	}

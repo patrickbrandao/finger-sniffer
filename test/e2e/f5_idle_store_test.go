@@ -25,7 +25,7 @@ func TestStoreIdleKeepsOneConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.close()
-	ic := c.(*idleTCP) //nolint:forcetypeassert // openIdleH1 devolve *idleTCP
+	ic := c.(*idleTCP)
 	t0 := time.Now()
 	closed, err := c.wait(storeIdleGap)
 	switch {
