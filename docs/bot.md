@@ -281,8 +281,8 @@ item 3; na 9003 nada disso vale):
 - feed: até 4 clientes por chave (acima, 429 com `Retry-After: 15`) e 48 da 9002 ao todo (16 dos 64 ficam para a
   9003; acima, 503 `internal`).
 
-**CORS.** `Access-Control-Allow-Origin` só para os domínios da chave e só nas rotas `GET`. A chave fica no backend
-do site; consulta pelo navegador não é o uso previsto.
+**CORS.** Sem CORS (spec 020 RF-08): nenhuma resposta traz `Access-Control-*`, e `OPTIONS` não tem rota. A consulta
+é do backend do site, onde fica a chave; nunca do navegador do visitante.
 
 ## Rotas
 
