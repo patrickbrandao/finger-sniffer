@@ -296,6 +296,45 @@ function fakeEnv() {
   check(typeof app.LiveFeed.prototype.reopen === "undefined", "dead LiveFeed.reopen removed");
 }
 
+// ---------------------------------------------------------------- aba oculta (task 390)
+{
+  const env = fakeEnv();
+  const feed = new app.LiveFeed({ api: app.DEFAULT_API, env });
+  const changes = [];
+  const guard = app.hiddenGuard(feed, env, app.HIDDEN_CLOSE_MS, (w) => changes.push(w));
+  eq(app.HIDDEN_CLOSE_MS, 60000, "hidden tab closes the feed after 60 s");
+  feed.start();
+  feed.start();
+  eq(env.sockets.length, 1, "start is idempotent while open");
+  env.sockets[0].onopen();
+  // oculta e volta antes de 60 s: não fecha
+  guard.onHidden();
+  guard.onHidden();
+  eq(env.timers.filter((t) => t.live && t.ms === 60000).length, 1, "one hidden timer");
+  eq(guard.onVisible(), false, "visible before 60 s does not reopen");
+  check(!env.fire(60000), "hidden timer cancelled on visible");
+  check(!env.sockets[0].closed, "feed stays open when the tab returns before 60 s");
+  // oculta por 60 s: fecha
+  guard.onHidden();
+  check(env.fire(60000), "hidden timer fires");
+  check(env.sockets[0].closed, "feed closed after 60 s hidden");
+  check(guard.closed, "guard reports closed");
+  eq(changes, ["closed"], "closed notified");
+  env.sockets[0].onclose();
+  eq(env.timers.filter((t) => t.live).length, 0, "no reconnect after the hidden close");
+  guard.onHidden();
+  eq(env.timers.filter((t) => t.live).length, 0, "already closed: no new timer");
+  // volta: reabre sem replay
+  eq(guard.onVisible(), true, "visible reopens");
+  eq(env.sockets.length, 2, "a new WebSocket on reopen");
+  eq(changes, ["closed", "reopened"], "reopened notified");
+  eq(guard.onVisible(), false, "second visible does nothing");
+  eq(env.sockets.length, 2, "no extra WebSocket");
+  const gap = app.hiddenGapRow("2026-11-24T00:00:00Z");
+  check(gap.warn && app.matchesFilter(gap, { port: "1", proto: "x", ip: "y", probe: "z" }), "gap row is a warning shown under any filter");
+  check(/may be missing/.test(gap.what), "gap row says events may be missing");
+}
+
 // ---------------------------------------------------------------- preferências
 {
   const mem = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };

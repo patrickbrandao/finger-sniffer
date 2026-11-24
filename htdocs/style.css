@@ -59,7 +59,7 @@ th, td { text-align: left; padding: 0.35rem 0.6rem; border-bottom: 1px solid var
 .state { font-weight: 600; }
 .state[data-state="live"] { color: var(--ok-fg); }
 .state[data-state="reconnecting"], .state[data-state="connecting"] { color: var(--bad-fg); }
-.state[data-state="paused"] { color: var(--warn-fg); background: var(--warn-bg); padding: 0 0.4rem; border-radius: 3px; }
+.state[data-state="paused"], .state[data-state="hidden"] { color: var(--warn-fg); background: var(--warn-bg); padding: 0 0.4rem; border-radius: 3px; }
 button {
   font: inherit; color: var(--fg); background: var(--code-bg); border: 1px solid var(--line);
   border-radius: 4px; padding: 0.3rem 0.8rem; cursor: pointer;
