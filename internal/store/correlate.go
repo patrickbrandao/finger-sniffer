@@ -312,9 +312,9 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 	eo := eventOnlyRecord(id, ev, ev.ts)
 	rec, _ := json.Marshal(eo)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port,
-		proto, started_ns, ended_ns, degraded, record_json, updated_ns) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		proto, started_ns, ended_ns, degraded, record_json, updated_ns, requests) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
 		id, l4Name(ev.l4), familyOf(ev), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(),
-		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), max(ev.ts, now)); err != nil {
+		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), max(ev.ts, now), eo.Requests); err != nil {
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
 	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState(), rec: eo})
@@ -607,8 +607,8 @@ func (in *Ingestor) writeStored(ctx context.Context, tx *sql.Tx, id string, a *a
 	}
 	rec, _ := json.Marshal(r)
 	now := in.now().UnixNano()
-	if _, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ? WHERE conn_id = ?",
-		string(rec), r.ProbeID, r.Proto, nullIfZero(endNs), now, id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ?, probe_id = coalesce(probe_id, ?), proto = ?, ended_ns = ?, updated_ns = ?, requests = ? WHERE conn_id = ?",
+		string(rec), r.ProbeID, r.Proto, nullIfZero(endNs), now, r.Requests, id); err != nil {
 		return err
 	}
 	in.liveConn(LiveConnUpdated, summaryFrom(r), now)

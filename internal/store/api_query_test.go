@@ -372,3 +372,66 @@ func TestParseListFilterDefaults(t *testing.T) {
 	}
 	_ = fmt.Sprint(badRequest{"x"}.Error())
 }
+
+// TestAPIConnectionsListRequestsColumn: a lista lê requests da coluna (task 380), sem decodificar record_json: a
+// encerrada mantém o valor gravado mesmo com o registro trocado por um sem requests, e a aberta vem do ao vivo.
+func TestAPIConnectionsListRequestsColumn(t *testing.T) {
+	f := newAPIFixture(t)
+	if n := count(t, f.in.db, "SELECT requests FROM connections WHERE conn_id = ?", f.closed); n != 1 {
+		t.Fatalf("requests column of the closed connection = %d", n)
+	}
+	// registro sem o campo: com json_extract a lista devolveria 0
+	if _, err := f.in.db.Exec(`UPDATE connections SET record_json = '{"pad":"x"}' WHERE conn_id = ?`, f.closed); err != nil {
+		t.Fatal(err)
+	}
+	other := netip.MustParseAddrPort("192.0.2.20:50000")
+	for i := range 2 {
+		run(t, f.in, 5000, appMsg(t, event.SubjectWebHTTP1Request, "tcp", other, mirror, 50+i, "", http1Payload(i, "HTTP/1.1")))
+	}
+	list, err := f.q.WithOpenSummary(f.in.flows.openSummary).Connections(t.Context(), ListFilter{DstPort: -1, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, s := range list {
+		got[s.ConnID] = s.Requests
+	}
+	if len(list) != 2 || got[f.closed] != 1 || got[f.opened] != 2 {
+		t.Fatalf("requests %v", got)
+	}
+}
+
+// BenchmarkConnectionsListRecordSize: limit=1000 sobre conexões encerradas com registros de 5 KB e de 100 KB; com
+// requests na coluna e no índice connections_started (migration 00004, task 380) os dois custam o mesmo (medido
+// num Mac: 2,2 e 2,1 ms; com o json_extract, 4,0 e 24,6 ms).
+func BenchmarkConnectionsListRecordSize(b *testing.B) {
+	for _, size := range []int{5 << 10, 100 << 10} {
+		b.Run(fmt.Sprintf("%dKB", size>>10), func(b *testing.B) {
+			db, _ := testDB(b)
+			rec := `{"requests":3,"pad":"` + strings.Repeat("x", size) + `"}`
+			tx, err := db.Begin()
+			if err != nil {
+				b.Fatal(err)
+			}
+			for i := range 1000 {
+				if _, err := tx.Exec(`INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port, proto,
+					started_ns, ended_ns, record_json, updated_ns, requests) VALUES (?, 'tcp', 4, '192.0.2.1', ?, '192.0.2.2', 8443,
+					'tls/http1.1', ?, ?, ?, ?, 3)`, fmt.Sprintf("c%06d", i), 1000+i, base+int64(i), base+int64(i)+1, rec, base); err != nil {
+					b.Fatal(err)
+				}
+			}
+			if err := tx.Commit(); err != nil {
+				b.Fatal(err)
+			}
+			q := NewQueries(db, nil, 65535)
+			q.respMax = 1 << 30
+			b.ResetTimer()
+			for b.Loop() {
+				list, err := q.Connections(b.Context(), ListFilter{DstPort: -1, Limit: 1000})
+				if err != nil || len(list) != 1000 || list[0].Requests != 3 {
+					b.Fatalf("%d %v", len(list), err)
+				}
+			}
+		})
+	}
+}

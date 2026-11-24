@@ -1,0 +1,1 @@
+- store: `GET /api/v1/connections` lê `requests` de uma coluna própria (migration 00004, também no índice `connections_started`) em vez de `json_extract` do `record_json` de cada linha; a lista custa o mesmo com registros de 5 KB ou 100 KB (task 380).

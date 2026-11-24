@@ -277,8 +277,9 @@ func (q *Queries) Connections(ctx context.Context, f ListFilter) ([]summaryJSON,
 		where, args = append(where, "probe_id = ?"), append(args, f.Probe)
 	}
 	where = append(where, visibleConn)
+	// requests vem da coluna (task 380): o json_extract do record_json decodificava o registro inteiro por linha
 	sqlq := `SELECT conn_id, probe_id, proto, l4, family, src_ip, src_port, dst_ip, dst_port, started_ns, ended_ns, degraded,
-		coalesce(json_extract(record_json, '$.requests'), 0) FROM connections`
+		requests FROM connections`
 	sqlq += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // só trechos fixos; valores vão como parâmetros
 	sqlq += " ORDER BY started_ns DESC LIMIT ?"
 	rows, err := q.db.QueryContext(ctx, sqlq, append(args, f.Limit)...)
