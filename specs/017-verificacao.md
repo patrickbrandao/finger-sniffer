@@ -15,7 +15,27 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
 - RF-02: base = `git merge-base HEAD main`; considera commits, alterações e arquivos novos não rastreados.
 - RF-03: passos: `golangci-lint run` só nos arquivos alterados; `go vet` + build (sem gerar binário) dos pacotes
   afetados e dos que dependem deles (`go list -deps`/reverse deps); `go test` dos pacotes afetados (arquivo de
-  teste alterado ou `x.go` → `x_test.go` no mesmo pacote); testes de SQLite alterados.
+  teste alterado ou `x.go` → `x_test.go` no mesmo pacote); testes de SQLite alterados. Mudanças fora de `.go`
+  também afetam pacotes (task 362):
+  - **arquivo não Go dentro de pacote** (golden, `testdata/`, arquivo de `//go:embed`, `htdocs/*.mjs|html`, JSON de
+    dados): conta para o pacote Go mais próximo acima dele (sobe de diretório até achar um com `*.go`; ex.:
+    `internal/bot/lists/known_clients.json` → `internal/bot/lists`, `htdocs/app.mjs` → `htdocs`), que entra nos
+    afetados **antes** do cálculo dos dependentes (vet/build dele e dos dependentes). Testes: em `testdata/`, só o
+    pacote dono; fora de `testdata/`, o dono e os pacotes que dependem dele (quem embute ou lê o dado pelo dono),
+    mais os pacotes cujos `_test.go` citam o caminho do arquivo a partir da raiz (ex.: `test/e2e` lê
+    `internal/bot/lists/known_clients.json`);
+  - **diretório de dados sem `.go`** (ex.: `test/golden/pcaps/`): o dono é o pacote mais próximo acima
+    (`test/golden`), e entram também os pacotes abaixo do dono cujos `_test.go` citam o nome do diretório de dados
+    (`git grep -l pcaps -- 'test/golden/**/*_test.go'`); se nenhum pacote for achado até a raiz, nenhum teste;
+  - **fora de pacote** (`specs/`, `docs/`, `tasks/`, `changes/`, `tmp/`, `.md` da raiz): nenhum teste, salvo os
+    gatilhos próprios (contratos, migrations, `release-test`);
+  - **pacote `deploy`**: entra com qualquer arquivo em `deploy/`, `eventbus/nats/nats.conf` ou `.env.example`, e
+    também quando um `.go` alterado fora de teste contém um literal `"FS_[A-Z0-9_]+"` (o
+    `TestEnvExampleMatchesCodeKeys` lê as chaves do código);
+  - **`go.mod`/`go.sum`**: vet/build de `./...` (como já é) e `go test` sem `-race` dos pacotes que importam,
+    direta ou indiretamente (`go list -deps -test`), um módulo cujo `require`/`replace` mudou no `git diff` do
+    `go.mod`; mudança na linha `go`/`toolchain` roda `go test ./...` sem `-race`.
+  Com essas regras, `make verify-quick` sem mudanças continua < 10 s com tudo pulado.
 - RF-04: não roda build final, e2e, `-race` nem a suíte inteira. Exceção: quando `Makefile` ou
   `scripts/release*`/`scripts/repro-check.sh` mudam, roda o `release-test` (build dos 5 binários e do pacote de
   release, ~10 s), único teste desses arquivos (ADR 0023).
@@ -37,13 +57,56 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
   release), `govulncheck ./...`,
   build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados no finger-01 por ssh
   (`FS_VPS_SSH`, padrão `root@finger-01.tmsoft.com.br`, porta 48022; ADR 0038).
-- RF-09: `--e2e` acrescenta a matriz abaixo contra o finger-01 (exige deploy da versão em teste).
+- RF-08a: **testes com tag** (passo `testes com tag`, task 359): nenhum arquivo com `//go:build` fica sem
+  compilar. O passo roda `go test -tags load -count=1 ./test/load/...` (gerador e monitor de carga, `botload` com o
+  bot em processo), `go vet -tags e2e ./test/e2e/...`, `go vet -tags golden ./test/golden/...` e
+  `GOOS=linux go vet -tags linux_priv ./internal/capture/... ./pkg/fingerprint/p0f/...` (compila os testes
+  `linux_priv` sem rodá-los); o `golangci-lint` lê `run.build-tags: [e2e, load, golden]` do `.golangci.yml`. Teste
+  que não precisa do finger-01 nem de rede não leva tag: `TestF8SimOffline` e os auxiliares puros do simulador
+  do traefix ficam num arquivo sem a tag `e2e` em `test/e2e` e rodam no `go test` comum. No quick, o passo roda
+  só para os pacotes com tag entre os afetados ou dependentes (dependentes calculados com
+  `go list -tags load,e2e,golden`); sem nenhum, `pulado`.
+- RF-08b: **p0f.fp real** (task 360): o full obtém o `p0f.fp` na versão e com os SHA-256 de `deploy/versions.env`
+  (`P0F_VERSION`, `P0F_TGZ_SHA256`, `P0F_FP_SHA256`, os mesmos do deploy) em `tmp/p0f/p0f.fp` (fora do Git, a
+  licença LGPL fica respeitada; baixado só quando falta ou o SHA não bate) e exporta `FS_P0F_DB` para os passos de
+  teste, salvo se já definido. Assim `TestP0FGolden`, `TestRealDBLoads` e o SO do golden do store rodam no full e
+  no CI; download ou SHA errado reprova o passo `p0f.fp`.
+- RF-08c: **testes sem `-race`** (passo `testes sem -race`, modo `verify.sh norace`, task 360): os testes de tempo
+  que se pulam ou afrouxam sob `-race` rodam sem ele, por nome:
+  `go test -count=1 -run '^(TestWriterNoStallDuringPurge|TestRetentionDoesNotStallIngest|TestForwardAuthLatency|TestDBFullRealTmpfs)$' ./internal/store ./internal/bot`.
+  `TestDBFullRealTmpfs` precisa de `FS_TEST_TMPFS` apontando para um tmpfs pequeno de verdade (16 MiB); sem a
+  variável (Mac) ele se pula, e no CI o job monta o tmpfs (`sudo mount -t tmpfs -o size=16m tmpfs /mnt/fs-tmpfs`)
+  e define a variável. Um teste novo de tempo com `if raceEnabled { t.Skip }` entra nessa lista no mesmo PR; o
+  `verify-test.sh` falha se um `_test.go` com esse padrão não estiver nela. `linux_priv` continua só no full local
+  por ssh (o runner do CI não tem a NIC nem o privilégio).
+- RF-09: `--e2e` acrescenta a matriz abaixo contra o finger-01 e exige que ele rode a versão em teste (task 356).
+  Antes do `go test` do e2e, o passo `versão implantada` lê `http://$FS_E2E_HOST:9001/api/v1/health` e exige
+  `versions_match=true` e a versão do store igual a `FS_E2E_EXPECT_VERSION` ou, sem ela, a
+  `git describe --tags --always --dirty` local (`-dirty` conta como diferente); senão reprova sem rodar o e2e, com a
+  mensagem "finger-01 roda X, o teste é de Y: rode make deploy". Depois do e2e (passe ou falhe), o passo
+  `versão implantada (depois)` repete a leitura e reprova se a versão ou o `versions_match` mudou durante a suíte
+  (outro deploy no meio). Não há reserva de medida que bloqueie o deploy durante o e2e: a conferência de antes e
+  depois já impede o "verde da versão errada", e uma trava de até 45 min pararia os deploys das outras tarefas da
+  onda (ADR 0059); o custo de um deploy no meio é repetir o e2e. A única trava que segura o servidor continua
+  sendo a da carga (RF-13, `/tmp/fs-load-running`).
 - RF-10: para na primeira falha.
 - RF-11: CI (GitHub Actions) roda `verify-full` sem `--e2e` e sem `linux_priv` em todo PR e na `main`. Toda action
   dos workflows é fixada pelo SHA de 40 caracteres do commit da release, com a tag em comentário (nunca tag nem
   branch, que são mutáveis). Depois de um rebase limpo sem arquivos nem pacotes dependentes em comum, o merge pode
   usar o CI verde do commit anterior ao rebase (spec 002 "Git e PR", ADR 0059); o tempo do CI é mantido baixo
-  dividindo os pacotes lentos (testes do store com `-race`) em lotes paralelos sem perder cobertura (task 294).
+  dividindo os pacotes lentos (testes do store com `-race`) em lotes paralelos sem perder cobertura (task 294) e
+  pondo em jobs próprios, em paralelo, os passos que não dependem dos testes (task 397):
+  - `verify-full`: format, binários versionados, `verify-test`, vet, contratos, examples, `p0f.fp`, testes `-race`
+    sem o store (`FS_RACE_SPLIT_PKGS`), build, com `FS_SKIP_STATIC=1` e `FS_SKIP_FUZZ=1`;
+  - `static` (`verify.sh static`): lint, govulncheck e testes com tag (RF-08a);
+  - `fuzz` (`verify.sh fuzz`): fuzz curto com `FS_FUZZ_JOBS` = CPUs do runner;
+  - `store-race`: os lotes do store com `-race` (com `FS_P0F_DB`);
+  - `norace` (`verify.sh norace`): `p0f.fp` e testes sem `-race` (RF-08c) com o tmpfs montado;
+  - `race-check`: une os lotes (cobertura total) e tem `needs` em todos os outros, sendo o único check exigido
+    pela proteção da branch.
+  `FS_SKIP_STATIC=1` (lint + govulncheck + testes com tag) e `FS_SKIP_FUZZ=1` viram `pulado` com a nota
+  "(job próprio no CI)"; o `make verify-full` local continua rodando todos os passos, em série. O `verify-test.sh`
+  falha se um passo do full não aparecer em nenhum job do workflow. RF-10 vale por job.
 
 ### Níveis de teste
 - RF-12: unidade com golden files: pcaps da FoxIO (portados do `ja4pcap`) e capturas próprias de curl, Go, Chrome e
@@ -135,6 +198,13 @@ repetidas do mesmo cliente.
 - [ ] Alterar um `.go` de `pkg/h1` roda só lint/vet/test de `pkg/h1` e dependentes.
 - [ ] Alterar uma migration refaz o banco-modelo; sem alteração, não refaz.
 - [ ] `make verify-full` no CI verde no primeiro PR.
+- [ ] Alterar só `internal/bot/lists/known_clients.json`, só um golden em `testdata/`, só uma unit em `deploy/` ou
+      só a versão de uma dependência no `go.mod` faz o quick rodar os testes do dono e de quem depende dele (RF-03).
+- [ ] O CI compila e roda os testes com tag `load`, faz vet de `e2e`/`golden`/`linux_priv`, e mostra
+      `TestF8SimOffline`, `TestWriterNoStallDuringPurge`, `TestForwardAuthLatency`, `TestDBFullRealTmpfs`,
+      `TestP0FGolden` e `TestRealDBLoads` como `PASS` (não `SKIP`) em algum job (RF-08a–c).
+- [ ] Com o finger-01 numa versão diferente da local, `verify-full --e2e` reprova no passo `versão implantada`
+      sem rodar o e2e; uma troca de versão durante a suíte reprova `versão implantada (depois)` (RF-09).
 
 ## Decisões relacionadas
 - specs/decisions/0013-verificacao-dois-niveis.md
@@ -145,4 +215,5 @@ repetidas do mesmo cliente.
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md
 - specs/decisions/0054-traefix-projeto-externo.md
+- specs/decisions/0059-deploy-por-onda-ci-reaproveitado-e-paralelismo.md
 - specs/decisions/0071-carga-da-f8-sem-docker.md

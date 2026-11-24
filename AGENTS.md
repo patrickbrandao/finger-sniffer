@@ -65,12 +65,14 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - **Toda mudança vem com o teste que a cobre.** O nível só decide quanto da suíte roda, nunca se o teste é escrito.
 - `verify-quick` (padrão): olha só o que mudou desde `git merge-base HEAD main` (commits, alterações e arquivos
   novos); roda lint nos arquivos alterados, vet/build dos pacotes afetados e dos que dependem deles, os testes dos
-  pacotes afetados e os testes de SQLite contra um banco-modelo já migrado (copiado por teste, refeito só quando o
-  hash de `database/sqlite/migrations` muda; ligado por `FS_TEST_DB=local`). Não roda build final, e2e nem a
-  suíte inteira. Roda todos os passos e sai com código ≠ 0 se algum falhar.
-- `verify-full`: lint, vet, todos os testes com `-race`, govulncheck, build linux/amd64, testes Linux
-  (AF_PACKET, ethtool) executados no finger-01 por ssh; `--e2e` acrescenta a matriz da spec 017. Para na primeira
-  falha. O CI roda sempre o nível completo (sem e2e) em todo PR e na `main`.
+  pacotes afetados (arquivo não Go conta para o pacote Go mais próximo acima; `go.mod` para quem importa o módulo
+  trocado; `deploy/` para o pacote `deploy`) e os testes de SQLite contra um banco-modelo já migrado (copiado por
+  teste, refeito só quando o hash de `database/sqlite/migrations` muda; ligado por `FS_TEST_DB=local`). Não roda
+  build final, e2e nem a suíte inteira. Roda todos os passos e sai com código ≠ 0 se algum falhar.
+- `verify-full`: lint, vet, todos os testes com `-race`, testes com tag (`load`; vet de `e2e`/`golden`/`linux_priv`),
+  testes de tempo sem `-race`, govulncheck, build linux/amd64, testes Linux (AF_PACKET, ethtool) executados no
+  finger-01 por ssh; `--e2e` confere a versão implantada antes e depois e acrescenta a matriz da spec 017. Para na
+  primeira falha. O CI roda sempre o nível completo (sem e2e), dividido em jobs paralelos, em todo PR e na `main`.
 - Ao terminar, diga qual nível rodou e o resultado. Subagentes seguem a mesma regra: rápido por padrão, completo só
   quando quem delegou pedir.
 - Detalhes: specs/017-verificacao.md.
