@@ -47,6 +47,8 @@ type eventOnlyConn struct {
 	// app é o estado de aplicação mantido em memória (incremental: cada evento custa O(1), sem reler app_events);
 	// nil = desconhecido (lote desfeito), recarregado de app_events no próximo uso.
 	app *appState
+	// rec é o registro da criação: base do closed com discarded se a linha sumir antes da expiração (ADR 0076).
+	rec connectionJSON
 }
 
 // dirtyConn é uma conexão gravada cujo registro precisa ser refeito no fim do lote.
@@ -156,9 +158,12 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 			return target{id: eo.id, degraded: eo.degraded, eventOnly: true}, true, nil
 		}
 		// A linha saiu do banco (DELETE do probe, teto de tamanho): sem ela o INSERT do evento falharia na FK e o
-		// lote voltaria por Nak em laço (ADR 0034 item 7). A entrada é esquecida e o evento segue a regra do
-		// evento sem conexão, com um conn_id novo (a reserva para pacotes atrasados também é esquecida).
-		in.setEventOnly(k, nil)
+		// lote voltaria por Nak em laço (ADR 0034 item 7). A entrada é esquecida (com o closed, ADR 0076) e o
+		// evento segue a regra do evento sem conexão, com um conn_id novo (a reserva para pacotes atrasados também
+		// é esquecida).
+		if err := in.closeEventOnly(ctx, tx, k, eo); err != nil {
+			return target{}, false, err
+		}
 		in.flows.dropReservation(k, eo.id)
 	}
 	var tg target
@@ -250,7 +255,10 @@ func (in *Ingestor) flushPending(ctx context.Context, tx *sql.Tx, force bool) er
 	capNow := in.clock.at(now)
 	for k, eo := range in.eventOnly {
 		if capNow-eo.last > eventOnlyIdle.Nanoseconds() {
-			delete(in.eventOnly, k)
+			// Sai do conjunto sem ter sido adotada por pacotes: o closed nos dois canais (ADR 0076 item 2).
+			if err := in.closeEventOnly(ctx, tx, k, eo); err != nil {
+				return err
+			}
 		}
 	}
 	if len(in.pending) == 0 {
@@ -309,7 +317,7 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), max(ev.ts, now)); err != nil {
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
-	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState()})
+	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState(), rec: eo})
 	in.liveConn(LiveConnOpened, summaryFrom(eo), ev.ts)
 	in.pubConn(event.StageOpened, ev.ts, rec, &eo)
 	in.prom.connection(l4Name(ev.l4), l4Name(ev.l4))
@@ -363,13 +371,24 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 		if ok {
 			in.batchApp[tg.id] = struct{}{}
 		}
-		if ok && (in.live != nil || in.conns != nil) {
-			s, _ := in.flows.openSummary(tg.id)
+		if ok {
+			var s summaryJSON
+			if in.live != nil || in.conns != nil {
+				s, _ = in.flows.openSummary(tg.id)
+			}
 			if in.live != nil {
 				in.liveApp(ev, tg.id, strOrEmpty(s.ProbeID))
 				in.liveConn(LiveConnUpdated, s, ev.liveTs())
 			}
-			in.pubConnOpen(tg.id, ev.liveTs(), s.Degraded)
+			// Evento antes do opened do bot (ACK ainda não processado): sai o opened com o estado fundido, não
+			// um updated (ADR 0076 item 1).
+			if c := in.flows.connByID(tg.id); c != nil && !c.botOpened {
+				if err := in.openBot(ctx, tx, c, ev.liveTs()); err != nil {
+					return err
+				}
+			} else {
+				in.pubConnOpen(tg.id, ev.liveTs(), s.Degraded)
+			}
 		}
 		if ok {
 			// As colunas usadas por /connections e /probes acompanham o estado em memória.
@@ -451,6 +470,8 @@ func (in *Ingestor) beginBatch() {
 	in.pendKeysSnap = maps.Clone(in.pendingKeys)
 	in.batchCreated = in.batchCreated[:0]
 	in.eoUndo = in.eoUndo[:0]
+	in.botOpenUndo = in.botOpenUndo[:0]
+	in.batchEvicted = in.batchEvicted[:0]
 	clear(in.batchApp)
 	clear(in.eoChecked)
 }
@@ -467,6 +488,8 @@ func (in *Ingestor) commitBatch() {
 	}
 	in.batchCreated = in.batchCreated[:0]
 	in.eoUndo = in.eoUndo[:0]
+	in.botOpenUndo = in.botOpenUndo[:0]
+	in.batchEvicted = in.batchEvicted[:0]
 	clear(in.batchApp)
 	in.commitPkts()
 }
@@ -495,8 +518,20 @@ func (in *Ingestor) discardBatchState() {
 		}
 	}
 	clear(in.batchApp)
+	for _, c := range in.botOpenUndo {
+		c.botOpened = false // o opened do bot saiu com o lote desfeito: a reentrega o refaz
+	}
+	in.botOpenUndo = in.botOpenUndo[:0]
 	in.flows.undoCreated(in.batchCreated)
 	in.batchCreated = in.batchCreated[:0]
+	// Despejadas pelo lote desfeito: já saíram da tabela, mas a linha voltou com o rollback e o closed se perdeu;
+	// o próximo lote refaz os dois (redoEvicted). A criada pelo próprio lote não tem linha nem opened.
+	for _, c := range in.batchEvicted {
+		if !c.unstored {
+			in.evictCarry = append(in.evictCarry, c)
+		}
+	}
+	in.batchEvicted = in.batchEvicted[:0]
 	for i := len(in.eoUndo) - 1; i >= 0; i-- {
 		u := in.eoUndo[i]
 		if u.prev == nil {
@@ -590,10 +625,10 @@ func nullIfZero(v int64) any {
 
 // adoptEventOnly é chamado quando os pacotes criam uma conexão com o ID de uma conexão só de eventos: a linha já
 // existe, e o estado de aplicação vem de app_events.
-func (in *Ingestor) adoptEventOnly(ctx context.Context, tx *sql.Tx, c *conn, k flowKey) error {
+func (in *Ingestor) adoptEventOnly(ctx context.Context, tx *sql.Tx, c *conn, k flowKey) (bool, error) {
 	eo := in.eventOnly[k]
 	if eo == nil || eo.id != c.id {
-		return nil
+		return false, nil
 	}
 	in.setEventOnly(k, nil)
 	// O registro passa a ser o dos pacotes (a linha foi substituída): o que estava sujo não vale mais.
@@ -603,9 +638,9 @@ func (in *Ingestor) adoptEventOnly(ctx context.Context, tx *sql.Tx, c *conn, k f
 		var err error
 		in.appReloads++
 		if a, err = loadAppState(ctx, tx, c.id); err != nil {
-			return err
+			return false, err
 		}
 	}
 	in.flows.setApp(c, a)
-	return nil
+	return true, nil
 }

@@ -1,0 +1,93 @@
+{
+  "flow": {
+    "dst_ip": "170.247.40.86",
+    "dst_port": 5353,
+    "l4": "udp",
+    "src_ip": "192.0.2.10",
+    "src_port": 41234
+  },
+  "payload": {
+    "connection": {
+      "close": {
+        "by": "unknown",
+        "half_close": false,
+        "how": "timeout",
+        "idle_before_close_ms": null
+      },
+      "conn_id": "01M6TY2FG0AQKX6ZE2RSM891WX",
+      "degraded": false,
+      "discarded": "evicted",
+      "dst": {
+        "ip": "170.247.40.86",
+        "port": 5353
+      },
+      "ended": "2026-11-07T12:00:00.010000000Z",
+      "family": 4,
+      "ip": {
+        "df": false,
+        "dscp": 0,
+        "ecn": "not-ect",
+        "flow_label": null,
+        "fragmented": false,
+        "hops": 0,
+        "ip_id_pattern": "zero",
+        "ip_id_syn": 0,
+        "options_hex": "",
+        "packets": {
+          "ack": null,
+          "first_data": {
+            "df": false,
+            "dscp": 0,
+            "ecn": "not-ect",
+            "flow_label": null,
+            "fragmented": false,
+            "ip_id": 0,
+            "options_hex": "",
+            "tos": 0,
+            "total_length": 68,
+            "ttl": 64
+          },
+          "syn": null
+        },
+        "src_kind": "other",
+        "tos": 0,
+        "traffic_class": null,
+        "ttl": 64,
+        "ttl_initial": 64
+      },
+      "l4": "udp",
+      "offload_suspect": false,
+      "pcap_truncated": false,
+      "probe_id": null,
+      "proto": "udp",
+      "requests": 0,
+      "src": {
+        "ip": "192.0.2.10",
+        "port": 41234
+      },
+      "started": "2026-11-07T12:00:00.000000000Z",
+      "totals": {
+        "in": {
+          "app_bytes": 80,
+          "data_segments": 2,
+          "out_of_order": 0,
+          "retransmits": 0,
+          "segments": 2
+        },
+        "out": {
+          "app_bytes": 80,
+          "data_segments": 1,
+          "out_of_order": 0,
+          "retransmits": 0,
+          "segments": 1
+        }
+      }
+    },
+    "connection_truncated": false,
+    "stage": "closed"
+  },
+  "schema_version": 1,
+  "service": "store",
+  "service_version": "test",
+  "ts": "2026-11-07T12:00:00.000000000Z"
+}

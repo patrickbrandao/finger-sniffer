@@ -1,7 +1,11 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -438,4 +442,123 @@ func (in *Ingestor) discardConns() {
 	clear(in.connBatch)
 	in.connBatch = in.connBatch[:0]
 	clear(in.connUpd)
+}
+
+// Estágios garantidos (ADR 0076): no canal do bot o opened só sai com a conexão estabelecida, e toda conexão com
+// opened publicado (nos dois canais) recebe exatamente um closed, com discarded quando sai do banco sem registro.
+
+// Valores de connectionJSON.Discarded (openapi ConnectionSummary.discarded).
+const (
+	discardedStray   = "stray"   // virou pacotes avulsos
+	discardedEvicted = "evicted" // despejada pela tabela de fluxos cheia
+	discardedDeleted = "deleted" // probe apagado pelo DELETE
+)
+
+// markBotOpened liga botOpened, guardando a conexão para o rollback do lote desligar.
+func (in *Ingestor) markBotOpened(c *conn) {
+	c.botOpened = true
+	in.botOpenUndo = append(in.botOpenUndo, c)
+}
+
+// openBot publica o opened do canal do bot quando a conexão fica estabelecida (conn.botReady), com o registro
+// daquele instante (started do SYN ou do primeiro datagrama). O registro gravado passa a ser esse, para a órfã do
+// reinício saber que a conexão foi estabelecida (recoverOrphans).
+func (in *Ingestor) openBot(ctx context.Context, tx *sql.Tx, c *conn, ts int64) error {
+	if c.botOpened || !c.botReady() {
+		return nil
+	}
+	in.markBotOpened(c)
+	r := c.record(0, "")
+	rec, _ := json.Marshal(r)
+	if _, err := tx.ExecContext(ctx, "UPDATE connections SET record_json = ? WHERE conn_id = ?", string(rec), c.id); err != nil {
+		return fmt.Errorf("update established connection: %w", err)
+	}
+	in.pubConn(event.StageOpened, ts, rec, &r)
+	return nil
+}
+
+// closeStages acumula o fim de uma conexão que sai da memória sem o registro final normal: connection.closed no
+// tempo real e, se o opened do bot saiu, closed no canal do bot. O registro é o estado em memória (ended = último
+// pacote, close pelo visto ou timeout) com discarded (vazio: registro gravado). ts é o instante da decisão.
+func (in *Ingestor) closeStages(c *conn, ts int64, how, discarded string) {
+	if how == "" && !c.closing() {
+		how = "timeout"
+	}
+	r := c.record(c.endTs(), how)
+	r.Discarded = discarded
+	in.liveConn(LiveConnClosed, summaryFrom(r), ts)
+	if c.botOpened {
+		rec, _ := json.Marshal(r)
+		in.pubConn(event.StageClosed, ts, rec, &r)
+	}
+}
+
+// evictConn apaga a linha da conexão despejada pela tabela cheia (com as filhas) e acumula o closed com
+// discarded: evicted, ou deleted se ela era de um probe apagado. ts é o relógio do store.
+func (in *Ingestor) evictConn(ctx context.Context, tx *sql.Tx, c *conn) error {
+	in.batchEvicted = append(in.batchEvicted, c)
+	in.pktDrop = append(in.pktDrop, c)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", c.id); err != nil {
+		return err
+	}
+	why := discardedEvicted
+	if in.flows.isHidden(c.id) {
+		why = discardedDeleted
+	}
+	in.closeStages(c, in.now().UnixNano(), "", why)
+	return nil
+}
+
+// redoEvicted refaz no lote em curso o despejo das conexões de um lote desfeito (DELETE e closed).
+func (in *Ingestor) redoEvicted(ctx context.Context, tx *sql.Tx) error {
+	carry := in.evictCarry
+	in.evictCarry = nil
+	for i, c := range carry {
+		if err := in.evictConn(ctx, tx, c); err != nil {
+			in.evictCarry = append(in.evictCarry, carry[i+1:]...)
+			return err
+		}
+	}
+	return nil
+}
+
+// closeEventOnly tira a conexão só de eventos do conjunto (expirada por eventOnlyIdle ou com a linha apagada) e
+// acumula o closed nos dois canais: o registro gravado ou, sem a linha, o da criação com discarded: deleted.
+func (in *Ingestor) closeEventOnly(ctx context.Context, tx *sql.Tx, k flowKey, eo *eventOnlyConn) error {
+	in.setEventOnly(k, nil)
+	r := eo.rec
+	var raw string
+	switch err := tx.QueryRowContext(ctx, "SELECT record_json FROM connections WHERE conn_id = ?", eo.id).Scan(&raw); {
+	case errors.Is(err, sql.ErrNoRows):
+		if eo.app != nil {
+			eo.app.apply(&r)
+		}
+		r.Discarded = discardedDeleted
+	case err != nil:
+		return err
+	default:
+		var stored connectionJSON
+		if json.Unmarshal([]byte(raw), &stored) == nil {
+			r = stored
+		}
+	}
+	now := in.now().UnixNano()
+	rec, _ := json.Marshal(r)
+	in.liveConn(LiveConnClosed, summaryFrom(r), now)
+	in.pubConn(event.StageClosed, now, rec, &r)
+	return nil
+}
+
+// orphanBotSeen decide se a órfã do reinício teve o opened do bot (ADR 0076 item 1): o registro gravado é o da
+// criação ou, depois de openBot, o da conexão estabelecida (TCP com times.established; UDP com resposta do espelho
+// e datagrama seguinte do cliente), ou há evento de aplicação.
+func (in *Ingestor) orphanBotSeen(ctx context.Context, id string, r connectionJSON) bool {
+	if r.Times != nil && r.Times.Established != nil {
+		return true
+	}
+	if r.L4 == "udp" && r.Totals.In.Segments >= 2 && r.Totals.Out.Segments >= 1 {
+		return true
+	}
+	var one int
+	return in.db.QueryRowContext(ctx, "SELECT 1 FROM app_events WHERE conn_id = ? LIMIT 1", id).Scan(&one) == nil
 }

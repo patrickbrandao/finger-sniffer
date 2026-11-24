@@ -18,7 +18,7 @@ func (l *layers) requestCount() int { return len(l.http1) + len(l.h2Streams) + l
 func summaryFrom(r connectionJSON) summaryJSON {
 	return summaryJSON{
 		ConnID: r.ConnID, ProbeID: r.ProbeID, Proto: r.Proto, L4: r.L4, Family: r.Family, Src: r.Src, Dst: r.Dst,
-		Started: r.Started, Ended: r.Ended, Requests: r.Requests, Degraded: r.Degraded,
+		Started: r.Started, Ended: r.Ended, Requests: r.Requests, Degraded: r.Degraded, Discarded: r.Discarded,
 	}
 }
 

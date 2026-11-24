@@ -50,17 +50,20 @@ type totalsJSON struct {
 
 // connectionJSON é o registro gravado em connections.record_json.
 type connectionJSON struct {
-	ConnID         string            `json:"conn_id"`
-	ProbeID        *string           `json:"probe_id"`
-	Proto          string            `json:"proto"`
-	L4             string            `json:"l4"`
-	Family         int               `json:"family"`
-	Src            endpointJSON      `json:"src"`
-	Dst            endpointJSON      `json:"dst"`
-	Started        string            `json:"started"`
-	Ended          *string           `json:"ended"`
-	Requests       int               `json:"requests"`
-	Degraded       bool              `json:"degraded"`
+	ConnID   string       `json:"conn_id"`
+	ProbeID  *string      `json:"probe_id"`
+	Proto    string       `json:"proto"`
+	L4       string       `json:"l4"`
+	Family   int          `json:"family"`
+	Src      endpointJSON `json:"src"`
+	Dst      endpointJSON `json:"dst"`
+	Started  string       `json:"started"`
+	Ended    *string      `json:"ended"`
+	Requests int          `json:"requests"`
+	Degraded bool         `json:"degraded"`
+	// Discarded só existe no closed publicado da conexão que saiu do banco sem registro (ADR 0076): stray,
+	// evicted ou deleted; nunca é gravado nem devolvido pela API.
+	Discarded      string            `json:"discarded,omitempty"`
 	PcapTruncated  bool              `json:"pcap_truncated"`
 	HTTPTruncated  bool              `json:"http_truncated,omitempty"` // http com só as 1000 primeiras (ADR 0067)
 	RawTruncated   *rawTruncatedJSON `json:"raw_truncated,omitempty"`

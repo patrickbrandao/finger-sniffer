@@ -666,6 +666,10 @@ components:
           summary: registro final de uma conexão TCP com TLS e HTTP/1 (golden do store).
           payload:
             $ref: "../../internal/store/testdata/events/store.connection.closed.json"
+        - name: closed_discarded
+          summary: fim de uma conexão que saiu do banco sem registro, com `connection.discarded` (golden do store, ADR 0076).
+          payload:
+            $ref: "../../internal/store/testdata/events/store.connection.closed.discarded.json"
       traits: [{ $ref: "#/components/messageTraits/JSONEvent" }]
       summary: Estado da conexão para o bot.
       payload:
