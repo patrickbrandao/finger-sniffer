@@ -186,9 +186,9 @@ func (c *conn) serveTLS(ic *idleConn) {
 		c.publishClientHello(tc)
 		tc.Release()
 	}
-	cfg := s.deps.TLS.Clone()
-	cfg.NextProtos = []string{http2.NextProtoTLS, "http/1.1"}
-	cfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+	// A configuração TLS é a única do servidor (s.tlsCfg), para as chaves de ticket valerem entre conexões e a
+	// retomada acontecer (task 346); o gancho desta conexão vai no net.Conn, que o GetConfigForClient recebe.
+	hc := &helloConn{Conn: tc, onHello: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 		publishHello()
 		// TLS-ALPN-01 do certificado B (spec 005 RF-11, ADR 0038): com desafio ativo, o certificado de desafio e
 		// o ALPN "acme-tls/1"; a conexão fecha depois do handshake (RFC 8737 §3).
@@ -203,8 +203,8 @@ func (c *conn) serveTLS(ic *idleConn) {
 			}
 		}
 		return nil, nil
-	}
-	ts := tls.Server(tc, cfg)
+	}}
+	ts := tls.Server(hc, s.tlsCfg)
 	err := ts.Handshake()
 	end := s.now()
 	seen := ac.stop()
@@ -244,6 +244,31 @@ func (c *conn) serveTLS(ic *idleConn) {
 	}
 	// close_notify em vez de só FIN, como um servidor TLS normal.
 	_ = ts.Close()
+}
+
+// helloConn leva ao GetConfigForClient compartilhado (s.tlsCfg) o gancho da conexão: o crypto/tls passa em
+// ClientHelloInfo.Conn o mesmo net.Conn entregue a tls.Server.
+type helloConn struct {
+	*tlsparse.Conn
+	onHello func(*tls.ClientHelloInfo) (*tls.Config, error)
+}
+
+// newServerTLS monta, uma vez por servidor, a configuração TLS das portas TCP a partir da base (pkg/certs): as
+// chaves automáticas de ticket (com a rotação do crypto/tls) ficam nela e valem para todas as conexões, e a
+// retomada (TLS 1.3 PSK, ticket do TLS 1.2) funciona (spec 008 RF-04, task 346). nil sem TLS.
+func newServerTLS(base *tls.Config) *tls.Config {
+	if base == nil {
+		return nil
+	}
+	cfg := base.Clone()
+	cfg.NextProtos = []string{http2.NextProtoTLS, "http/1.1"}
+	cfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if hc, ok := hello.Conn.(*helloConn); ok && hc.onHello != nil {
+			return hc.onHello(hello)
+		}
+		return nil, nil
+	}
+	return cfg
 }
 
 // publishClientHello publica fs.v1.web.tls.client_hello com JA3/JA4 (spec 008).

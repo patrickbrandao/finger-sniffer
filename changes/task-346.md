@@ -1,0 +1,1 @@
+- web: a retomada TLS por TCP (TLS 1.3 PSK e ticket do TLS 1.2) volta a funcionar: uma única `tls.Config` por servidor em vez de um clone por conexão, e `tls.negotiated.resumed` passa a refletir a retomada; o ClientHello cru e o JA4 da conexão retomada continuam publicados (task 346).

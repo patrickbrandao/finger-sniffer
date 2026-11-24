@@ -67,6 +67,9 @@ type Server struct {
 	stopped   bool
 	wg        sync.WaitGroup
 
+	// tlsCfg é a configuração TLS única das portas TCP (newServerTLS, task 346); nil sem TLS.
+	tlsCfg *tls.Config
+
 	// budget é o orçamento global de memória de entrada (budget.go, ADR 0033).
 	budget *inputBudget
 	// wsSessions conta as sessões WebSocket abertas (teto wsMaxSessions, ws.go).
@@ -107,6 +110,7 @@ func NewServer(cfg Config, d Deps) *Server {
 		failed: map[string]string{},
 		conns:  map[net.Conn]struct{}{},
 		budget: newInputBudget(cfg.InputBudget, d.Metrics),
+		tlsCfg: newServerTLS(d.TLS),
 	}
 }
 
