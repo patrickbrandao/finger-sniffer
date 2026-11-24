@@ -42,14 +42,18 @@ func TestDeployDefaultsFinger01(t *testing.T) {
 }
 
 // O rsync do repositório para o servidor não leva os worktrees dos agentes (.claude/, dezenas de GB) nem o que é
-// só local (task 294).
+// só local (task 294), nem os node_modules das ferramentas de contrato (~425 MB), o dist/ da release e binários de
+// teste e cobertura soltos (task 393).
 func TestDeployRsyncExcludesLocalDirs(t *testing.T) {
 	b, err := os.ReadFile("deploy.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, want := range []string{"--exclude='/.claude/'", "--exclude='/.git'", "--exclude='/tasks/'", "--exclude='/tmp/'"} {
+	for _, want := range []string{
+		"--exclude='/.claude/'", "--exclude='/.git'", "--exclude='/tasks/'", "--exclude='/tmp/'",
+		"--exclude='node_modules/'", "--exclude='/dist/'", "--exclude='*.test'", "--exclude='*.out'",
+	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("deploy.sh sem %q no rsync", want)
 		}
@@ -83,6 +87,8 @@ func deployDuringLoad(t *testing.T, lockPresent bool, env ...string) (int, strin
 	writeFile(t, filepath.Join(bin, "ssh"), fakeSSHLocal, 0o755)
 	writeFile(t, filepath.Join(bin, "make"), "#!/bin/sh\necho make >>\"$FAKE_LOG\"\nexit \"${FAKE_MAKE_RC:-1}\"\n", 0o755)
 	writeFile(t, filepath.Join(bin, "rsync"), "#!/bin/sh\necho rsync >>\"$FAKE_LOG\"\nexit 1\n", 0o755)
+	// o macOS não tem flock: a trava do staging (fd) sempre é obtida
+	writeFile(t, filepath.Join(bin, "flock"), "#!/bin/sh\nexit 0\n", 0o755)
 	lock := filepath.Join(dir, "fs-load-running")
 	if lockPresent {
 		writeFile(t, lock, "2026-11-21T10:00:00Z\n", 0o644)
@@ -163,47 +169,105 @@ func TestLoadLockRefuse(t *testing.T) {
 	}
 }
 
-// O staging do deploy não é um caminho fixo de /var/tmp criado com mkdir -p (outro usuário local poderia criá-lo
-// antes ou deixá-lo como link): vem de mktemp -d no servidor, com o caminho devolvido conferido (task 354).
-func TestDeployStagingMktemp(t *testing.T) {
+// O staging do deploy é estável por máquina, para o rsync mandar só o delta (task 393), numa base de /var/lib (só o
+// root escreve), nunca num caminho de /var/tmp que outro usuário local poderia criar antes ou deixar como link (task
+// 354), nem apagado no fim; o rsync não leva o dono do Mac (-a) e vai comprimido.
+func TestDeployStagingStable(t *testing.T) {
 	b, err := os.ReadFile("deploy.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
-	for _, bad := range []string{"mkdir -p '$STAGING'", "/var/tmp/finger-sniffer-deploy/"} {
+	for _, bad := range []string{"mkdir -p '$STAGING'", "/var/tmp/finger-sniffer-deploy", "-$$", "rm -rf '$STAGING'", "rsync -a "} {
 		if strings.Contains(s, bad) {
 			t.Errorf("deploy.sh ainda usa %q", bad)
 		}
 	}
-	if strings.Contains(s, "rsync -a ") {
-		t.Errorf("o rsync para o staging não pode levar o dono do Mac (-a)")
-	}
-	for _, want := range []string{"umask 077; mktemp -d", "staging remoto inesperado", "rsync -rlptD --chmod=go-w"} {
+	for _, want := range []string{
+		"/var/lib/finger-sniffer-deploy", "staging remoto inesperado", "rsync -rlptDz --chmod=go-w", "flock -w 600 8",
+		"umask 077", `safe_dir "$b" 077`, `safe_dir "$s" 022`,
+	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("deploy.sh sem %q", want)
 		}
 	}
 }
 
-// Com o build ok e o rsync falhando, o staging criado por mktemp -d aparece no log e é apagado na saída (task 354).
-func TestDeployStagingRemovedOnFailure(t *testing.T) {
-	code, out, calls := deployDuringLoad(t, false, "FAKE_MAKE_RC=0")
-	if code == 0 || !strings.Contains(calls, "rsync") {
-		t.Fatalf("quer falha no rsync: código %d, chamadas %q\n%s", code, calls, out)
-	}
+// stagingOf devolve o staging da linha "== rsync → host:<staging>" da saída do deploy.
+func stagingOf(t *testing.T, out string) string {
+	t.Helper()
 	const marker = "== rsync → root@deploy-test.invalid:"
 	i := strings.Index(out, marker)
 	if i < 0 {
 		t.Fatalf("sem a linha do rsync\n%s", out)
 	}
-	staging := strings.TrimSpace(strings.SplitN(out[i+len(marker):], "\n", 2)[0])
-	if !strings.HasPrefix(staging, "/var/tmp/finger-sniffer-deploy.") {
-		t.Errorf("staging %q fora do prefixo", staging)
+	return strings.TrimSpace(strings.SplitN(out[i+len(marker):], "\n", 2)[0])
+}
+
+// Com o build ok e o rsync falhando, o staging é <base>/<máquina>, criado 0700 numa base 0700, e é o mesmo no
+// deploy seguinte (fica para o delta); a trava do staging é solta na saída, sem prender o deploy (task 393).
+func TestDeployStagingStableAcrossRuns(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "deploy-base")
+	env := []string{"FAKE_MAKE_RC=0", "FS_DEPLOY_STAGING_BASE=" + base}
+	code, out, calls := deployDuringLoad(t, false, env...)
+	if code == 0 || !strings.Contains(calls, "rsync") {
+		t.Fatalf("quer falha no rsync: código %d, chamadas %q\n%s", code, calls, out)
 	}
-	if _, err := os.Lstat(staging); !os.IsNotExist(err) {
-		_ = os.RemoveAll(staging)
-		t.Errorf("staging %q ficou depois da falha (%v)", staging, err)
+	first := stagingOf(t, out)
+	if filepath.Dir(first) != base || strings.ContainsAny(filepath.Base(first), "/ ") {
+		t.Errorf("staging %q fora da base %q", first, base)
+	}
+	for dir, want := range map[string]os.FileMode{base: 0o700, first: 0o700} {
+		st, err := os.Lstat(dir)
+		if err != nil || !st.IsDir() || st.Mode().Perm() != want {
+			t.Errorf("%s: %v %v, quer diretório %o", dir, st, err, want)
+		}
+	}
+	if _, err := os.Stat(first + ".lock"); err != nil {
+		t.Errorf("sem a trava do staging: %v", err)
+	}
+	_, out, _ = deployDuringLoad(t, false, env...)
+	if second := stagingOf(t, out); second != first {
+		t.Errorf("staging mudou entre deploys: %q → %q", first, second)
+	}
+}
+
+// A base ou o staging inseguros (link, escrita de outros) são recusados antes do rsync (task 354 e 393).
+func TestDeployStagingRefusesUnsafe(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "alvo")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkBase := filepath.Join(dir, "link")
+	if err := os.Symlink(target, linkBase); err != nil {
+		t.Fatal(err)
+	}
+	openBase := filepath.Join(dir, "aberta")
+	if err := os.Mkdir(openBase, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(openBase, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// staging (dentro de uma base boa) com escrita para outros
+	goodBase := filepath.Join(dir, "boa")
+	if err := os.Mkdir(goodBase, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := deployDuringLoad(t, false, "FAKE_MAKE_RC=0", "FS_DEPLOY_STAGING_BASE="+goodBase)
+	if code == 0 {
+		t.Fatalf("base boa: quer falha no rsync falso\n%s", out)
+	}
+	staging := stagingOf(t, out)
+	if err := os.Chmod(staging, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	for name, base := range map[string]string{"base link": linkBase, "base 0755": openBase, "staging 0777": goodBase} {
+		code, out, calls := deployDuringLoad(t, false, "FAKE_MAKE_RC=0", "FS_DEPLOY_STAGING_BASE="+base)
+		if code == 0 || !strings.Contains(out, "staging recusado") || strings.Contains(calls, "rsync") {
+			t.Errorf("%s: código %d, chamadas %q; quer recusa antes do rsync\n%s", name, code, calls, out)
+		}
 	}
 }
 

@@ -1,0 +1,1 @@
+- `make deploy` não manda mais `node_modules/`, `dist/` nem binários de teste/cobertura (~500 → ~120 MB no Mac) e usa um staging estável por máquina (`/var/lib/finger-sniffer-deploy/<usuário>-<host>`, base 0700 do root, trava por máquina) com `rsync -z`, para os deploys seguintes mandarem só o delta (task 393).
