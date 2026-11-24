@@ -1,0 +1,13 @@
+go test fuzz v1
+string("0")
+string("0")
+string("\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe8\xe800")
+string("")
+string("")
+string("")
+string("")
+[]byte("")
+int64(64)
+string("0")
+string("")
+byte('\x01')

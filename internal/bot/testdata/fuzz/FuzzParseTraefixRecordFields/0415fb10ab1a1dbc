@@ -1,0 +1,13 @@
+go test fuzz v1
+string("connection")
+string("\xfd\"\x99\xdc")
+string("0")
+string("0")
+string("0")
+string("0")
+string("0")
+[]byte("0")
+int64(119)
+string("0")
+string("\"\xbc\xa6\xdc\xc9")
+byte('\x00')

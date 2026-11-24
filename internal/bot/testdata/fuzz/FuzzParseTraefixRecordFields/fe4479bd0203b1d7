@@ -1,0 +1,13 @@
+go test fuzz v1
+string("0")
+string("0")
+string("0")
+string("\xbaԨ")
+string("")
+string("0")
+string("")
+[]byte("")
+int64(-45)
+string("0")
+string("0")
+byte('\x02')
