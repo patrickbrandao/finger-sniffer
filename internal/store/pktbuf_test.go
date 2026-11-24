@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"net/netip"
 	"testing"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -129,4 +130,98 @@ func TestPacketsSpillOnShutdown(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	checkPcap(t, pcapOf(t, db, id), 6)
+}
+
+// connOf devolve o conn_id da conexão aberta pelo cliente dado.
+func connOf(t *testing.T, db *sql.DB, cli netip.AddrPort) string {
+	t.Helper()
+	var id string
+	if err := db.QueryRow("SELECT conn_id FROM connections WHERE src_ip = ? AND src_port = ?", cli.Addr().String(), int(cli.Port())).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// deleteProbeOf põe a conexão no probe e apaga o probe pelo DELETE da API, com o ingest avisado (hide).
+func deleteProbeOf(t *testing.T, in *Ingestor, db *sql.DB, id string) {
+	t.Helper()
+	if _, err := db.Exec("INSERT OR IGNORE INTO probes (probe_id, first_seen, last_seen) VALUES (?, 0, 0)", probeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE connections SET probe_id = ? WHERE conn_id = ?", probeID, id); err != nil {
+		t.Fatal(err)
+	}
+	q := NewQueries(db, in.flows.live, 65535)
+	q.SetHideOpen(in.flows.hide, in.flows.unhide)
+	if err := q.DeleteProbe(context.Background(), db, probeID); err != nil {
+		t.Fatal(err)
+	}
+	if !in.flows.isHidden(id) {
+		t.Fatal("open connection must be hidden")
+	}
+}
+
+// recoveredPcap reinicia o ingest sobre o banco e devolve o pcap que recoverOrphans montou para a conexão.
+func recoveredPcap(t *testing.T, in *Ingestor, db *sql.DB, id string) []byte {
+	t.Helper()
+	in2 := NewIngestor(db, in.cfg, in.log, service.NewMetrics())
+	if err := in2.recoverOrphans(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return pcapOf(t, db, id)
+}
+
+// TestSpillAllSkipsDeletedProbe: no desligamento, a conexão aberta de um probe apagado (sem linha em connections)
+// não leva junto os pacotes das outras conexões abertas (task 342).
+func TestSpillAllSkipsDeletedProbe(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 500, batch(client, mirror, protoTCP, fullTCP[:6]), batch(client2, mirror, protoTCP, fullTCP[:6]))
+	hidden, kept := connOf(t, db, client), connOf(t, db, client2)
+	deleteProbeOf(t, in, db, hidden)
+	drainDeleted(t, db) // as linhas do probe saem em lotes pelo laço de retenção (ADR 0068)
+	if count(t, db, "SELECT count(*) FROM connections WHERE conn_id = ?", hidden) != 0 {
+		t.Fatal("hidden connection row must be gone")
+	}
+	in.spillAll()
+	if n := count(t, db, "SELECT count(*) FROM packets WHERE conn_id = ?", kept); n != 6 {
+		t.Fatalf("other connection must be spilled: %d packets", n)
+	}
+	checkPcap(t, recoveredPcap(t, in, db, kept), 6)
+}
+
+// TestSpillAllSavepointPerConn: uma conexão que não pode ser gravada no desligamento (linha sumida, FK) fica de
+// fora sem desfazer a cópia das outras (task 342).
+func TestSpillAllSavepointPerConn(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 500, batch(client, mirror, protoTCP, fullTCP[:6]), batch(client2, mirror, protoTCP, fullTCP[:6]))
+	gone, kept := connOf(t, db, client), connOf(t, db, client2)
+	if _, err := db.Exec("DELETE FROM connections WHERE conn_id = ?", gone); err != nil {
+		t.Fatal(err)
+	}
+	in.spillAll()
+	if n := count(t, db, "SELECT count(*) FROM packets"); n != 6 {
+		t.Fatalf("only the stored connection must be spilled: %d packets", n)
+	}
+	checkPcap(t, recoveredPcap(t, in, db, kept), 6)
+}
+
+// TestHiddenBufferReleased: o buffer da conexão aberta de um probe apagado é liberado no fim do lote seguinte, e
+// pktMem volta ao que era antes dela (task 342).
+func TestHiddenBufferReleased(t *testing.T) {
+	in, db := newTestIngestor(t, nil)
+	run(t, in, 500, batch(client2, mirror, protoTCP, fullTCP[:6]))
+	before := in.pktMem
+	run(t, in, 600, batch(client, mirror, protoTCP, fullTCP[:6]))
+	if in.pktMem <= before {
+		t.Fatal("second connection must be buffered")
+	}
+	deleteProbeOf(t, in, db, connOf(t, db, client))
+	run(t, in, 700, batch(client, mirror, protoTCP, fullTCP[5:6])) // descartado (oculta), fecha o lote
+	if in.pktMem != before {
+		t.Fatalf("hidden buffer must be released: %d bytes, want %d", in.pktMem, before)
+	}
+	in.spillAll()
+	if n := count(t, db, "SELECT count(*) FROM packets"); n != 6 {
+		t.Fatalf("shutdown spill: %d packets", n)
+	}
 }

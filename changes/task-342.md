@@ -1,0 +1,1 @@
+- store: o desligamento não perde mais os pacotes em memória de todas as conexões abertas quando uma delas é de um probe apagado (`spillAll` pula as ocultas e usa um SAVEPOINT por conexão); o buffer da conexão oculta é liberado no fim do lote seguinte (task 342).
