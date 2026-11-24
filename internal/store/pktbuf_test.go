@@ -145,9 +145,6 @@ func connOf(t *testing.T, db *sql.DB, cli netip.AddrPort) string {
 // deleteProbeOf põe a conexão no probe e apaga o probe pelo DELETE da API, com o ingest avisado (hide).
 func deleteProbeOf(t *testing.T, in *Ingestor, db *sql.DB, id string) {
 	t.Helper()
-	if _, err := db.Exec("INSERT OR IGNORE INTO probes (probe_id, first_seen, last_seen) VALUES (?, 0, 0)", probeID); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := db.Exec("UPDATE connections SET probe_id = ? WHERE conn_id = ?", probeID, id); err != nil {
 		t.Fatal(err)
 	}

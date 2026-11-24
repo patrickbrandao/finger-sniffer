@@ -736,8 +736,9 @@ func (q *Queries) probeFull(ctx context.Context, id string) (probeJSON, error) {
 func (q *Queries) SetHideOpen(hide, unhide func(ids []string)) { q.hide, q.unhide = hide, unhide }
 
 // DeleteProbe apaga o probe numa transação curta (ADR 0068, ajusta a ADR 0034 item 8): grava o corte em
-// deleted_probes (maior conn_id e maior id de dns_queries do probe), apaga a linha de probes e passa ao ingest as
-// conexões abertas (hide), que ele descarta até fecharem. Daí em diante todas as leituras excluem as linhas até o
+// deleted_probes (maior conn_id e maior id de dns_queries do probe) e passa ao ingest as conexões abertas (hide),
+// que ele descarta até fecharem. Um probe só existe enquanto houver conexão ou consulta DNS visível com o seu ID:
+// sem nenhuma, 404 (ADR 0077 item 2, sem a tabela probes). Daí em diante todas as leituras excluem as linhas até o
 // corte, e o laço de retenção as apaga em lotes curtos (Retention.purgeDeleted). Tráfego novo com o mesmo ID fica
 // acima do corte e aparece como probe novo. O escritor tem uma só conexão com o banco: nenhum lote do ingest roda
 // entre a leitura dos conn_id abertos e o commit, e o conjunto do ingest é preenchido antes do commit.
@@ -747,9 +748,8 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 	}
 	// Pelo leitor primeiro: um probe sem nada a apagar (o laço anônimo de DELETE) não toca o escritor (task 317).
 	var any int
-	err := q.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM probes WHERE probe_id = ?)
-		OR EXISTS (SELECT 1 FROM connections WHERE probe_id = ? AND `+visibleConn+`)
-		OR EXISTS (SELECT 1 FROM dns_queries WHERE probe_id = ? AND `+visibleDNS+`)`, id, id, id).Scan(&any)
+	err := q.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM connections WHERE probe_id = ? AND `+visibleConn+`)
+		OR EXISTS (SELECT 1 FROM dns_queries WHERE probe_id = ? AND `+visibleDNS+`)`, id, id).Scan(&any)
 	if err != nil {
 		return err
 	}
@@ -800,20 +800,13 @@ func (q *Queries) DeleteProbe(ctx context.Context, w *sql.DB, id string) error {
 		coalesce((SELECT max(id) FROM dns_queries WHERE probe_id = ?), 0)`, id, id, id, id).Scan(&visible, &connCut, &dnsCut); err != nil {
 		return err
 	}
-	res, err := tx.ExecContext(ctx, "DELETE FROM probes WHERE probe_id = ?", id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if visible+n == 0 {
+	if visible == 0 {
 		return ErrNotFound
 	}
-	if visible > 0 {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_probes (probe_id, conn_cut, dns_cut, deleted_ns) VALUES (?, ?, ?, ?)
-			ON CONFLICT (probe_id) DO UPDATE SET conn_cut = max(conn_cut, excluded.conn_cut), dns_cut = max(dns_cut, excluded.dns_cut),
-			deleted_ns = excluded.deleted_ns`, id, connCut, dnsCut, q.now().UnixNano()); err != nil {
-			return err
-		}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO deleted_probes (probe_id, conn_cut, dns_cut, deleted_ns) VALUES (?, ?, ?, ?)
+		ON CONFLICT (probe_id) DO UPDATE SET conn_cut = max(conn_cut, excluded.conn_cut), dns_cut = max(dns_cut, excluded.dns_cut),
+		deleted_ns = excluded.deleted_ns`, id, connCut, dnsCut, q.now().UnixNano()); err != nil {
+		return err
 	}
 	if len(open) > 0 && q.hide != nil {
 		q.hide(open)

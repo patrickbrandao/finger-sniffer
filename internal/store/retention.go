@@ -25,7 +25,7 @@ const (
 	DefaultRetentionBudget = 100 * time.Millisecond
 	// RetentionInterval é o intervalo entre rodadas do laço do store.
 	RetentionInterval = time.Second
-	// rowBatch é o máximo de linhas avulsas (pacotes avulsos, consultas DNS, probes) por comando.
+	// rowBatch é o máximo de linhas avulsas (pacotes avulsos, consultas DNS) por comando.
 	rowBatch = 1000
 	// vacuumPages é o máximo de páginas devolvidas por incremental_vacuum numa rodada.
 	vacuumPages = 512
@@ -130,7 +130,6 @@ func (r *Retention) RunOnce(ctx context.Context, now time.Time) (int64, error) {
 	for _, q := range []string{
 		"DELETE FROM stray_packets WHERE id IN (SELECT id FROM stray_packets WHERE ts_ns < ? ORDER BY ts_ns LIMIT ?)",
 		"DELETE FROM dns_queries WHERE id IN (SELECT id FROM dns_queries WHERE ts_ns < ? ORDER BY ts_ns LIMIT ?)",
-		"DELETE FROM probes WHERE probe_id IN (SELECT probe_id FROM probes WHERE last_seen < ? LIMIT ?)",
 	} {
 		for {
 			n, err := r.exec(ctx, q, cut, rowBatch)

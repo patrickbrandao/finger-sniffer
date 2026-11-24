@@ -1,0 +1,1 @@
+- store: sai a tabela `probes` (migration 00005), escrita a cada evento e consulta DNS com probe e nunca lida; o `DELETE /api/v1/probes/{id}` responde 404 quando não há conexão nem consulta DNS visível do probe (ADR 0077 item 2; task 383).

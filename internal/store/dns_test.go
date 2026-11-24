@@ -35,8 +35,8 @@ func TestDNSQueryUDP(t *testing.T) {
 	if connID != nil || m["conn_id"] != nil || m["qname"] != "T1a2B3c4.finger-west-01.badblock.net.br." {
 		t.Fatalf("%s", rec)
 	}
-	if count(t, db, "SELECT count(*) FROM probes WHERE probe_id = 't1a2b3c4'") != 1 || count(t, db, "SELECT count(*) FROM app_events") != 0 {
-		t.Fatal("probe row expected, no app event for UDP")
+	if count(t, db, "SELECT count(*) FROM app_events") != 0 {
+		t.Fatal("no app event for UDP")
 	}
 	p, err := NewQueries(db, in.flows.live, 65535).Probe(context.Background(), "t1a2b3c4", ProbeWait{})
 	if err != nil || len(p.DNS) != 1 || len(p.Connections) != 0 {
