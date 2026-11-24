@@ -122,6 +122,8 @@ Os ids são estáveis; os pesos são provisórios (revistos com o e2e e a carga 
 | `no_reuse` | behavior | 10 | ≥ 10 requisições na última hora, uma conexão por requisição |
 | `interval_regular` | behavior | 20 | ≥ 20 intervalos com coeficiente de variação < 0,1 (relógio de máquina) |
 | `route_breadth` | behavior | 15 | ≥ 50 caminhos distintos na hora e < 5% de estáticos (varredura) |
+| `ttl_tcp_h3_mismatch` | behavior | 10 | na hora corrente, as conexões TCP e as h3 do mesmo IP no site, para a mesma classe de SO do UA, chegaram com TTL inicial diferente e sem valor em comum: outra pilha no caminho do TCP, como um proxy TCP transparente no gateway (rules `v1.6`, ADR 0078; entra em produção com a task 314) |
+| `relay_rtt_gap_agg` | behavior | 10 | na hora corrente, com ≥ 5 conexões TCP com tempos do traefix, a mediana mostra volta TLS mais de 10 ms e 30% acima da TCP e espera de mais de 5 ms pelo primeiro byte: relay entre o cliente e o traefix de forma estável, não um pico de rede (rules `v1.6`, ADR 0078; entra em produção com a task 314) |
 
 Classes esperadas com as listas reais (ja4db desligada, IP residencial, sem comportamento), conferidas pelos goldens
 do bot:

@@ -21,7 +21,8 @@ na spec ou na ADR citada.
 | 221 | tarefa (humano) | bloqueada com o humano | carga contra o teto da tabela de fluxos |
 | 287 | tarefa (docs) | bloqueada até P5 e P6 | página de privacidade |
 | 306 | tarefa (infra) | bloqueada até o PT-12 e a escolha do `headerDetail` pelo humano | troca do `traefik-app` |
-| 256, 296, 308, 309, 314, 315, 406 | tarefa (tester, bot) | abertas, baixa prioridade | gerador fora do Mac, probe h3, fuzz e teto do índice com o traefix, TTL/relay agregados, feed sem cabeçalhos, `latest` reproduzível |
+| 256, 296, 308, 309, 315, 406 | tarefa (tester, bot) | abertas, baixa prioridade | gerador fora do Mac, probe h3, fuzz e teto do índice com o traefix, feed sem cabeçalhos, `latest` reproduzível |
+| 314 | tarefa (implementer-bot) | aberta, baixa prioridade (ADR 0078 escrita) | rules `v1.6`: `ttl_tcp_h3_mismatch` e `relay_rtt_gap_agg` |
 | 299, 400, 401, 403, 404, 409, 413 | tarefa (implementer-bot) | abertas | `forget`/webhook e IP no arquivo, flush final, JA4H, lista que encolhe, 404 do feed, cota 9002/9003 |
 | 342, 379–381, 384, 416 | tarefa (implementer-store) | abertas | revisão de 2026-11-21 |
 | 345, 346–351, 376, 377, 385, 386 | tarefa (raw, web, capture, dns) | abertas | revisão de 2026-11-21 |
