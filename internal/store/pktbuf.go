@@ -164,12 +164,23 @@ func (in *Ingestor) discardPkts() {
 	in.dropPkts()
 }
 
-// dropPkts libera os buffers das conexões despejadas no lote (a linha sai com as filhas).
+// dropPkts libera os buffers das conexões despejadas no lote (a linha sai com as filhas) e os das conexões de um
+// probe apagado (task 342).
+//
+// A conexão oculta (ADR 0034 item 8) não tem mais linha nem pcap e o ingest descarta os pacotes novos dela, mas o
+// buffer ficava preso até ela fechar (até 630 s), contando no teto somado. A liberação é feita aqui, no fim do
+// lote, depois de a foto do rollback (pktUndo) ser esquecida: hide roda na goroutine da API e não pode mexer em
+// pktMem nem num buffer que o lote em curso ainda pode repor. Se o DELETE for desfeito (unhide) depois disso, o
+// pcap da conexão fica sem os pacotes liberados e sai marcado como incompleto.
 func (in *Ingestor) dropPkts() {
 	for _, c := range in.pktDrop {
 		in.releasePkts(c, spillDone)
 	}
 	in.pktDrop = in.pktDrop[:0]
+	for _, c := range in.flows.hiddenBufs() {
+		in.flows.mark(c, true, false)
+		in.releasePkts(c, c.buf.spill)
+	}
 }
 
 // releasePkts libera o buffer da conexão (finalizada, despejada ou copiada para a tabela).
@@ -190,6 +201,9 @@ func (in *Ingestor) finalized(conns ...*conn) {
 
 // spillAll, no desligamento, copia para packets os buffers de todas as conexões em memória (abertas e à espera
 // da finalização), para recoverOrphans montar o pcap delas no reinício.
+//
+// Cada conexão vai num SAVEPOINT próprio (task 342): uma que não pode ser gravada (sem linha em connections, FK)
+// fica de fora sem desfazer a cópia das outras.
 func (in *Ingestor) spillAll() {
 	conns := in.flows.memConns(in.toFinalize)
 	if len(conns) == 0 {
@@ -197,6 +211,7 @@ func (in *Ingestor) spillAll() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	failed := map[*conn]struct{}{}
 	err := func() error {
 		tx, err := in.db.BeginTx(ctx, nil)
 		if err != nil {
@@ -209,10 +224,18 @@ func (in *Ingestor) spillAll() {
 		}
 		defer func() { _ = ins.Close() }()
 		for _, c := range conns {
-			for _, p := range c.buf.pkts {
-				if _, err := ins.ExecContext(ctx, c.id, p.ts, int(p.dir), int(p.wl), c.buf.frame(p)); err != nil {
+			if _, err := tx.ExecContext(ctx, "SAVEPOINT spill_conn"); err != nil {
+				return err
+			}
+			if err := spillOne(ctx, ins, c); err != nil {
+				failed[c] = struct{}{}
+				in.log.Error("spill packets on shutdown", "err", err, "conn_id", c.id)
+				if _, err := tx.ExecContext(ctx, "ROLLBACK TO spill_conn"); err != nil {
 					return err
 				}
+			}
+			if _, err := tx.ExecContext(ctx, "RELEASE spill_conn"); err != nil {
+				return err
 			}
 		}
 		return tx.Commit()
@@ -222,11 +245,24 @@ func (in *Ingestor) spillAll() {
 		return
 	}
 	for _, c := range conns {
-		in.releasePkts(c, spillDone)
+		if _, ok := failed[c]; !ok {
+			in.releasePkts(c, spillDone)
+		}
 	}
 }
 
-// memConns devolve as conexões com pacotes só na memória: as da tabela e as de extra (fila de finalização).
+// spillOne copia o buffer de uma conexão para packets (spillAll).
+func spillOne(ctx context.Context, ins *sql.Stmt, c *conn) error {
+	for _, p := range c.buf.pkts {
+		if _, err := ins.ExecContext(ctx, c.id, p.ts, int(p.dir), int(p.wl), c.buf.frame(p)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// memConns devolve as conexões com pacotes só na memória: as da tabela e as de extra (fila de finalização). As de
+// um probe apagado ficam de fora: a linha delas já saiu do banco e não há o que copiar (task 342).
 func (t *flowTable) memConns(extra []*conn) []*conn {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -234,6 +270,9 @@ func (t *flowTable) memConns(extra []*conn) []*conn {
 	var out []*conn
 	add := func(c *conn) {
 		if _, ok := seen[c]; ok || c.buf.spill != spillNone || len(c.buf.pkts) == 0 || c.unstored {
+			return
+		}
+		if _, hidden := t.hidden[c.id]; hidden {
 			return
 		}
 		seen[c] = struct{}{}
@@ -247,6 +286,26 @@ func (t *flowTable) memConns(extra []*conn) []*conn {
 	}
 	for _, c := range extra {
 		add(c)
+	}
+	return out
+}
+
+// hiddenBufs devolve as conexões de um probe apagado (hide) que ainda têm pacotes no buffer (dropPkts).
+func (t *flowTable) hiddenBufs() []*conn {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.hidden) == 0 {
+		return nil
+	}
+	var out []*conn
+	for id := range t.hidden {
+		c := t.byID[id]
+		if c == nil {
+			c = t.finalizing[id]
+		}
+		if c != nil && (len(c.buf.pkts) > 0 || len(c.buf.arena) > 0) {
+			out = append(out, c)
+		}
 	}
 	return out
 }
