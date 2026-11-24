@@ -326,6 +326,56 @@ func TestForgetAndPurge(t *testing.T) {
 	}
 }
 
+// TestForgetErasesFile: depois do forget e do expurgo, os 16 bytes do IP não ficam no arquivo do banco nem no WAL
+// (secure_delete e checkpoint do WAL, task 401; ADR 0052 item 5).
+func TestForgetErasesFile(t *testing.T) {
+	db, path := testDB(t)
+	ctx := context.Background()
+	marker := mustAddr("2001:db8:dead:beef:cafe:f00d:1234:5678")
+	hour := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC).Unix() / 3600
+	for i := range 200 {
+		ip := netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 15: byte(i)})
+		if _, err := db.Exec("INSERT INTO ip_hourly (ip, site, hour, requests) VALUES (?, 's', ?, 1)", ipKey(ip), hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO ip_hourly (ip, site, hour, requests) VALUES (?, 's', ?, 1)", ipKey(marker), hour); err != nil {
+		t.Fatal(err)
+	}
+	// o IP chega ao arquivo principal antes do forget, como depois de um checkpoint qualquer
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Forget(ctx, db, netip.PrefixFrom(marker, 128)); err != nil || n != 1 {
+		t.Fatalf("forget: %d %v", n, err)
+	}
+	// o expurgo por idade também não deixa o IP da linha velha no arquivo
+	old := mustAddr("2001:db8:aaaa:bbbb:cccc:dddd:eeee:ffff")
+	if _, err := db.Exec("INSERT INTO ip_hourly (ip, site, hour, requests) VALUES (?, 's', ?, 1)", ipKey(old), hour-8*24); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Purge(ctx, db, time.Unix(hour*3600, 0), MaxAggRetention); err != nil || n != 1 {
+		t.Fatalf("purge: %d %v", n, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, ip := range []netip.Addr{marker, old} {
+		for _, f := range []string{path, path + "-wal"} {
+			b, err := os.ReadFile(f)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if bytes.Contains(b, ipKey(ip)) {
+				t.Errorf("%s ainda guarda o IP %s", f, ip)
+			}
+		}
+	}
+}
+
 // TestPurgeMaxAge: relógio falso fora de fase com a hora e o dia (expurgo a cada purgeInterval começando em minutos
 // e segundos quaisquer), uma linha por hora e por dia escrita como o flush escreve (período do instante); a idade do
 // dado mais velho de cada linha, medida logo antes de cada expurgo, nunca passa de 7 dias e 1 hora (spec 018 RF-08,
