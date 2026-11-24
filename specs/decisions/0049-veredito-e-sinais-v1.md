@@ -1,6 +1,8 @@
 # 0049 — Veredito e sinais v1
 
-Status: aceita (pesos e limiares provisórios — revisar com a carga e o e2e da F8; item 3 e sinais da v1.1: ver 0057; robô sem lista com sinal próprio: ver 0072)
+Status: aceita (pesos e limiares provisórios — revisar com o tráfego real dos sites depois da troca do `traefik-app`
+(task 306) ou com medidas novas da base própria; o e2e e a carga da F8 já rodaram, task 375; item 3 e sinais da v1.1:
+ver 0057; robô sem lista com sinal próprio: ver 0072)
 Data: 2026-11-16
 
 ## Contexto

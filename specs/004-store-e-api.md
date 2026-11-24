@@ -336,8 +336,8 @@ Formato do registro (resumo; o completo está no openapi.yaml):
 }
 ```
 
-Consome: os subjects de eventos do stream (ADR 0017). Responde: `fs.v1.store.conn_id`. Publica: nada além do push
-para clientes da API.
+Consome: os subjects de eventos do stream (ADR 0017). Responde: `fs.v1.store.conn_id`. Publica: `fs.v1.store.connection`
+(RF-12, para o bot; ADR 0047 item 3) e o push para clientes da API.
 
 ## Dados
 Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql)): `probes`, `connections`

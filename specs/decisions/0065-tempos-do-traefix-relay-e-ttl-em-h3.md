@@ -1,6 +1,6 @@
 # 0065 — Tempos do traefix (relay), TTL em h3, cabeçalhos de detalhe e ALPN vazio pelo JA4
 
-Status: aceita (pesos provisórios; adendo de 2026-11-19 com os números da task 313)
+Status: aceita (pesos provisórios, com o gatilho de revisão da ADR 0049; adendo de 2026-11-19 com os números da task 313)
 Data: 2026-11-19
 
 ## Contexto

@@ -33,6 +33,9 @@ ao vivo o feed global, sem que o fluxo de informação gere novo tráfego captur
   congela a lista sem fechar o WS (eventos que chegam na pausa contam num aviso "N new" e a página guarda só a
   linha resumida de cada um, no máximo 2000, com o texto cortado em 512 caracteres); `stream.dropped` aparece como
   linha de aviso.
+- Aba oculta (task 390): com a aba oculta por mais de 60 s, a página fecha o feed (estado `paused (hidden)`) e
+  devolve a vaga do tempo real do store (`FS_LIVE_MAX_CLIENTS`); ao voltar a ficar visível, reabre, sem replay: as
+  linhas antigas ficam e uma linha de aviso diz que eventos podem ter sido perdidos. Voltar antes dos 60 s não fecha.
 - Filtros locais (porta, protocolo, IP, probe) só escondem linhas; o filtro de probe do "run probe" pode também
   reabrir o WS com `?probe=`.
 - "run probe": probe ID de 12 caracteres `[a-z0-9]` por `crypto.getRandomValues`; dispara, em sequência,

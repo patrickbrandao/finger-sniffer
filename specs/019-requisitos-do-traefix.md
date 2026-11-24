@@ -206,7 +206,7 @@ PT-09 em 2026-11-18 com `fork-point-218`, digest `sha256:5597196b…2b58`; resul
 ## Interfaces e contratos
 - `POST /bot/v1/ingest/traefik` (`TraefixFingerprintBatch`, traduzido da cópia do esquema do traefix, e
   `TraefikIngestBatch`) e
-  `GET /bot/v1/auth` (`cmd/finger-sniffer-bot/openapi.yaml` 0.4.0, spec 020). Mudança só aditiva em `/bot/v1`
+  `GET /bot/v1/auth` (`cmd/finger-sniffer-bot/openapi.yaml`, versão no `info.version` do arquivo, spec 020). Mudança só aditiva em `/bot/v1`
   (ADR 0054 item 3); uma mudança de formato do lado do traefix segue o PT-01 e vira ADR aqui.
 - Cabeçalhos da RF-05 (traefix → backend e auth); `Authorization: Bearer <chave>` (traefix → bot, no export e no
   forwardAuth); `X-Traefix-Verdict`, `X-Traefix-Score`, `X-Traefix-Signals` (bot → traefix → backend, por

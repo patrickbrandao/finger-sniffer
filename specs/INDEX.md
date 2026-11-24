@@ -5,7 +5,7 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | Arquivo | Título | Escopo | Depende de | Status |
 | --- | --- | --- | --- | --- |
 | [000-visao-geral.md](000-visao-geral.md) | Visão geral | propósito, usuários, escopo, fora de escopo, MVP, restrições, RNF com números | — | aprovada |
-| [001-arquitetura.md](001-arquitetura.md) | Arquitetura | 5 serviços + NATS, dono de cada dado, correlação, integrações e falhas, contratos, resumo de stack/operação, ameaças | 000 | aprovada |
+| [001-arquitetura.md](001-arquitetura.md) | Arquitetura | 6 serviços + NATS, dono de cada dado, correlação, integrações e falhas, contratos, resumo de stack/operação, ameaças | 000 | aprovada |
 | [002-organizacao-do-trabalho.md](002-organizacao-do-trabalho.md) | Organização do trabalho | papéis, propriedade de pastas, Git/PR, fluxo de tarefas, DoD, escalonamento | 000, 001 | aprovada |
 | [003-capture.md](003-capture.md) | Serviço capture | AF_PACKET, BPF de exclusão, publicação de pacotes no NATS, buffer, perdas | 001, 016 | aprovada |
 | [004-store-e-api.md](004-store-e-api.md) | Serviço store e API | ingest JetStream, `conn_id`/probe, pcap, SQLite com BLOBs, retenção, API 9000/9001, SSE/WS, health, métricas | 001, 003, 013 | aprovada |
@@ -25,7 +25,8 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [018-bot.md](018-bot.md) | Serviço bot | veredito e sinais, listas (base própria, ja4db, IPs), agregados de 7 dias, LGPD, CLI de chaves, banco em disco | 001, 004, 008, 010, 013, 019, 020 | aprovada (pendências P4–P6) |
 | [019-requisitos-do-traefix.md](019-requisitos-do-traefix.md) | Integração com o traefix | o traefix (traefik modificado, projeto externo, consumido como está; ADRs 0054, 0062 e 0063): perfil de configuração, `X-Traefix-*`, lote `traefix.fingerprint/v1` e esquema copiado, visão TCP, leitura pelo bot, forwardAuth fail-open, sempre `latest`, métricas, custo, pedidos ao traefix, critérios de aceite | 001, 013, 018, 020 | aprovada |
 | [020-api-de-vereditos.md](020-api-de-vereditos.md) | API de vereditos | 9002/9003, chaves, domínios, limites, forwardAuth, consulta, probe, feed, webhook | 018, 019 | aprovada |
-| [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F8, paralelismo, critérios de saída | todas | aprovada |
+| [PLAN.md](PLAN.md) | Plano de implementação | regra das fases, fase atual, tabela de pendências abertas | todas | aprovada |
+| [PLAN-HISTORICO.md](PLAN-HISTORICO.md) | Histórico do plano | fases F1–F8 concluídas: frentes, critérios e saídas, PRs e medidas (fora do `@` do AGENTS.md) | PLAN | registro |
 
 ## Contratos e pastas auxiliares
 | Caminho | Conteúdo |

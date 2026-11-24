@@ -1,6 +1,6 @@
 # 0003 — NATS local com JetStream
 
-Status: aceita (autenticação por serviço no host compartilhado: ver 0075)
+Status: aceita (stream: ver 0016; subjects: ver 0017; autenticação por serviço no host compartilhado: ver 0075)
 Data: 2026-11-07
 
 ## Contexto

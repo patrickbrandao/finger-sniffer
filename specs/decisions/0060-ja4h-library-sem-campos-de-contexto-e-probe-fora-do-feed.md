@@ -1,6 +1,6 @@
 # 0060 — `ja4h_library` sem os campos de contexto e veredito do probe fora do feed
 
-Status: aceita (pesos e regras seguem provisórios, ADRs 0049 e 0057)
+Status: aceita (pesos e regras seguem provisórios, com o gatilho de revisão da ADR 0049)
 Data: 2026-11-17
 
 ## Contexto

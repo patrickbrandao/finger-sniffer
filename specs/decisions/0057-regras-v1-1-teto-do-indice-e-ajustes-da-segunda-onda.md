@@ -1,6 +1,6 @@
 # 0057 — Regras v1.1, teto de bytes do índice do bot e ajustes da segunda onda da F8
 
-Status: aceita (pesos de 1 provisórios como os da 0049 — revisar com o e2e e a carga da F8; `library_client` com robô sem operador e pelo JA4 stable: ver 0072)
+Status: aceita (pesos de 1 provisórios como os da 0049, com o mesmo gatilho de revisão; `library_client` com robô sem operador e pelo JA4 stable: ver 0072)
 Data: 2026-11-16
 
 ## Contexto

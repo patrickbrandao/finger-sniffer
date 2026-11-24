@@ -72,8 +72,8 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
   16 vCPU, 32 GB RAM, NVMe de 111 GB, NIC `ens192` vmxnet3), IPv4 170.247.40.86, IPv6 2804:231c:e500:cafe::86.
   Acesso `ssh -p 48022 root@finger-01.tmsoft.com.br` (ADR 0038).
 - No mesmo IP já existem sshd (48022) e snmpd (48161), que ficam fora da captura, e o traefik em container (TCP
-  80/443/8081, UDP 443) com sites, cujo tráfego é capturado. O espelho usa no máximo metade das vCPU e 6 GiB de RAM
-  (fatia `finger-sniffer.slice`, ADR 0039) e não mexe no resto do host.
+  80/443/8081, UDP 443) com sites, cujo tráfego é capturado. O espelho usa no máximo metade das vCPU e 10 GiB de RAM
+  (fatia `finger-sniffer.slice`, ADRs 0039 e 0045) e não mexe no resto do host.
 - Projeto em `/finger-sniffer` no servidor; fontes editados localmente e enviados por rsync.
 - Servidor de testes e desenvolvimento: qualquer ação nele pode ser feita sem aprovação, da forma mais automática.
 - Equipe: 1 humano + agentes, sem prazo rígido.
@@ -113,7 +113,7 @@ Todo o escopo acima, inclusive HTTP/3 e DNS. Entregue nas fases do PLAN.md; a ve
 - specs/decisions/0026-fechamento-rapido-e-ajustes-da-release.md
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
-- specs/decisions/0042-rnf-01-200-50-na-v0-3-0.md
+- specs/decisions/0042-rnf-01-200-50-na-v0-3-0.md (substituída por 0046)
 - specs/decisions/0043-limite-conhecido-da-v0-3-0-no-finger-01.md
 - specs/decisions/0045-banco-do-store-em-ram.md
 - specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md

@@ -1,6 +1,6 @@
 # 0038 — Servidor finger-01, zona finger-west-01 e coexistência com o traefik
 
-Status: aceita (nomes do certificado B e da rota do traefik: ver 0044; isolamento no host compartilhado: ver 0075)
+Status: aceita (ARP fora da captura: ver 0040; nomes do certificado B e da rota do traefik: ver 0044; isolamento no host compartilhado: ver 0075)
 Data: 2026-11-15
 
 ## Contexto

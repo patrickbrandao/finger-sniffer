@@ -1,6 +1,6 @@
 # 0072 — Regras v1.5: robô declarado sem operador, pilha de biblioteca com UA de navegador e JA4 stable
 
-Status: aceita (pesos provisórios como os da 0049; revisar com as medidas novas da base própria)
+Status: aceita (pesos provisórios como os da 0049, com o mesmo gatilho de revisão)
 Data: 2026-11-23
 
 ## Contexto

@@ -668,3 +668,76 @@ func TestBlockMinimal403(t *testing.T) {
 		t.Fatalf("400 com X-Traefix-Deny: %d %v", code, h)
 	}
 }
+
+// openapiPathBlocks separa o texto do openapi do bot por rota (linhas "  /bot/v1/...:" até a próxima rota ou o
+// fim de paths), sem parser de YAML (nenhuma dependência nova, ADR 0009).
+func openapiPathBlocks(t *testing.T) map[string]string {
+	t.Helper()
+	spec := string(openapiBytes(t))
+	start := strings.Index(spec, "\npaths:\n")
+	end := strings.Index(spec, "\nwebhooks:\n")
+	if start < 0 || end < start {
+		t.Fatal("openapi sem paths/webhooks")
+	}
+	blocks := map[string]string{}
+	cur := ""
+	for _, line := range strings.Split(spec[start+len("\npaths:\n"):end], "\n") {
+		if strings.HasPrefix(line, "  /") && strings.HasSuffix(line, ":") {
+			cur = strings.TrimSuffix(strings.TrimSpace(line), ":")
+			continue
+		}
+		if cur != "" {
+			blocks[cur] += line + "\n"
+		}
+	}
+	return blocks
+}
+
+// TestOpenAPIDeclaresHandlerErrors: task 409 — o contrato declara o 403 forbidden_origin que o originGuard da 9003
+// dá em toda rota, o 500 internal de /ip e /fingerprints e o 404 do filtro site do feed (spec 020 RF-03).
+func TestOpenAPIDeclaresHandlerErrors(t *testing.T) {
+	f := newFixture(t)
+	blocks := openapiPathBlocks(t)
+	if len(blocks) < 9 {
+		t.Fatalf("só %d rotas no openapi: %v", len(blocks), blocks)
+	}
+	h := f.srv.Handler(true)
+	for path, block := range blocks {
+		declared := strings.Contains(block, `"403": { $ref: "#/components/responses/ForbiddenOrigin" }`) ||
+			strings.Contains(block, `"403":`) && strings.Contains(block, "`forbidden_origin`")
+		if !declared {
+			t.Errorf("%s: sem o 403 forbidden_origin da 9003", path)
+		}
+		method := "GET"
+		if strings.Contains(block, "\n    post:\n") || strings.HasPrefix(block, "    post:\n") {
+			method = "POST"
+		}
+		// origem fora das redes da 9003: o guarda responde antes do mux, em qualquer rota
+		req := httptest.NewRequest(method, strings.NewReplacer("{", "", "}", "").Replace(path), nil)
+		req.RemoteAddr = "203.0.113.5:4000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden || errorCode(t, rec.Body.Bytes()) != errForbiddenOrigin {
+			t.Errorf("%s %s de fora: %d %s", method, path, rec.Code, rec.Body)
+		}
+	}
+	for _, path := range []string{"/bot/v1/ip/{ip}", "/bot/v1/fingerprints/{kind}/{value}"} {
+		if !strings.Contains(blocks[path], `"500": { $ref: "#/components/responses/Internal" }`) {
+			t.Errorf("%s: sem o 500 internal", path)
+		}
+	}
+	if !strings.Contains(blocks["/bot/v1/stream"], `"404":`) {
+		t.Error("/bot/v1/stream: sem o 404 do site fora da chave")
+	}
+
+	// 500 internal de fato, com o banco fechado
+	if err := f.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/bot/v1/ip/192.0.2.1", "/bot/v1/fingerprints/ja4/t13d1516h2_8daaf6152771_02713d6af862"} {
+		if c, _, b := f.do(f.internal, "GET", path, "", nil, ""); c != http.StatusInternalServerError ||
+			errorCode(t, b) != errInternal {
+			t.Errorf("%s com o banco fechado: %d %s", path, c, b)
+		}
+	}
+}
