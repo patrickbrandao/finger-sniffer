@@ -9,11 +9,13 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"modernc.org/sqlite"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
@@ -550,8 +552,13 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 		if !keep {
 			return nil
 		}
-		// a conexão pode ter saído do banco (retenção, DELETE): o tardio é descartado, sem derrubar o lote
+		// A conexão pode ter saído do banco (retenção, DELETE): só a FK recusada descarta o tardio sem derrubar o
+		// lote. Qualquer outro erro (SQLITE_FULL, E/S, transação desfeita) segue o caminho normal: rollback, modo
+		// banco cheio ou Nak (ADR 0034 item 6, ADR 0045 item 5; task 384).
 		if _, err := st.insPkt.ExecContext(ctx, c.id, p.TsNs, int(p.Dir), int(p.WireLen), frame); err != nil {
+			if !isFKViolation(err) {
+				return err
+			}
 			in.metrics.Add("store_late_dropped_total", 1)
 			return nil
 		}
@@ -1087,4 +1094,21 @@ func (s *stmts) insertStray(ctx context.Context, fi frameInfo, p event.Packet) e
 	rec, _ := json.Marshal(strayRecord(fi, p.TsNs, p.Dir, int(p.WireLen)))
 	_, err := s.insStray.ExecContext(ctx, p.TsNs, int(p.Dir), l4Name(fi.proto), addrOrNil(fi, true), addrOrNil(fi, false), string(rec), p.Frame)
 	return err
+}
+
+// sqliteConstraintFK é o código estendido SQLITE_CONSTRAINT_FOREIGNKEY (787) do SQLite.
+const sqliteConstraintFK = 787
+
+// isFKViolation diz se err é a FK recusada (SQLITE_CONSTRAINT_FOREIGNKEY), o único erro que o pacote tardio de
+// uma conexão apagada pode descartar (task 384).
+func isFKViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var se *sqlite.Error
+	if errors.As(err, &se) {
+		return se.Code() == sqliteConstraintFK
+	}
+	// algum caminho pode ter perdido o tipo (%v): o texto do SQLite é estável
+	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 }
