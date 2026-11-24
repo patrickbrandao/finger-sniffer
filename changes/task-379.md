@@ -1,0 +1,1 @@
+- store: erros inesperados da API (500) vão para o log com a rota (um por segundo por rota), a requisição abandonada conta `code="499"`, os servidores da 9000/9001 logam pelo slog, e o health omite `host.store.connections` (e o `/metrics` a série `fs_store_connections`) quando a contagem falha, em vez de publicar 0 (task 379).

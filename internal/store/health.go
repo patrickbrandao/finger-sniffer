@@ -53,12 +53,12 @@ type HostHealth struct {
 	Store              *DBHealth            `json:"store,omitempty"`
 }
 
-// DBHealth é o estado do banco.
+// DBHealth é o estado do banco. Connections fica ausente quando a contagem falhou (não é "banco vazio", task 379).
 type DBHealth struct {
 	DBBytes     int64   `json:"db_bytes"`
 	MaxBytes    int64   `json:"max_bytes"`
 	Retention   string  `json:"retention"`
-	Connections int64   `json:"connections"`
+	Connections *int64  `json:"connections,omitempty"`
 	Oldest      *string `json:"oldest"`
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,8 +15,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // errorCasesFile é a tabela de casos de erro, compartilhada com o e2e (test/e2e TestAPIErrorContractLive).
@@ -400,4 +404,118 @@ func shuttingDownServer(t *testing.T) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func int64p(v int64) *int64 { return &v }
+
+// syncBuf é um io.Writer seguro para o log de teste.
+type syncBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncBuf) Write(p []byte) (int, error) { b.mu.Lock(); defer b.mu.Unlock(); return b.b.Write(p) }
+
+func (b *syncBuf) String() string { b.mu.Lock(); defer b.mu.Unlock(); return b.b.String() }
+
+// TestAPIInternalErrorLogged: com o banco de leitura fechado, a rota devolve 500 "internal error" e o erro vai para
+// o log da API com a rota, um por segundo por rota; a métrica conta code=500 (task 379).
+func TestAPIInternalErrorLogged(t *testing.T) {
+	db, _ := testDB(t)
+	_ = db.Close()
+	var logBuf syncBuf
+	prom := newStoreMetrics(func(context.Context) Health { return Health{} }, func() int { return 0 }, nil)
+	api := &API{
+		OpenAPI: []byte("x"), Health: func(context.Context, time.Time) Health { return Health{} }, Now: time.Now,
+		Q: NewQueries(db, nil, 65535), W: db, Prom: prom, Log: slog.New(slog.NewJSONHandler(&logBuf, nil)),
+	}
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	for range 3 {
+		resp, err := http.Get(srv.URL + "/api/v1/connections")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != 500 || !strings.Contains(string(b), "internal error") || strings.Contains(string(b), "closed") {
+			t.Fatalf("%d %s", resp.StatusCode, b)
+		}
+	}
+	out := logBuf.String()
+	if strings.Count(out, `"msg":"api request failed"`) != 1 || !strings.Contains(out, `"route":"GET /api/v1/connections"`) ||
+		!strings.Contains(out, "database is closed") {
+		t.Fatalf("log: %s", out)
+	}
+	if v := testutil.ToFloat64(prom.apiRequests.WithLabelValues("GET /api/v1/connections", "500")); v != 3 {
+		t.Fatalf("code=500 counted %v", v)
+	}
+}
+
+// TestLogLimiter: um registro por chave a cada segundo, com a contagem dos suprimidos no seguinte.
+func TestLogLimiter(t *testing.T) {
+	var l logLimiter
+	t0 := time.Unix(100, 0)
+	if ok, n := l.allow("a", t0); !ok || n != 0 {
+		t.Fatal("first must pass")
+	}
+	if ok, _ := l.allow("a", t0.Add(500*time.Millisecond)); ok {
+		t.Fatal("second within 1 s must be suppressed")
+	}
+	if ok, _ := l.allow("b", t0); !ok {
+		t.Fatal("keys are independent")
+	}
+	if ok, n := l.allow("a", t0.Add(time.Second)); !ok || n != 1 {
+		t.Fatalf("after 1 s: ok %v suppressed %d", ok, n)
+	}
+}
+
+// TestAPICanceledCounts499: a requisição que o cliente abandona (contexto cancelado) conta como 499 em
+// fs_store_api_requests_total, não como 200, e nada é escrito (task 379).
+func TestAPICanceledCounts499(t *testing.T) {
+	prom := newStoreMetrics(func(context.Context) Health { return Health{} }, func() int { return 0 }, nil)
+	h := prom.instrument(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeErr(w, context.Canceled)
+	}), nil)
+	mux := http.NewServeMux()
+	mux.Handle("GET /x", h)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	if rec.Body.Len() != 0 {
+		t.Fatalf("canceled request wrote %q", rec.Body.String())
+	}
+	if v := testutil.ToFloat64(prom.apiRequests.WithLabelValues("GET /x", "499")); v != 1 {
+		t.Fatalf("code=499 counted %v", v)
+	}
+	if v := testutil.ToFloat64(prom.apiRequests.WithLabelValues("GET /x", "200")); v != 0 {
+		t.Fatalf("code=200 counted %v", v)
+	}
+}
+
+// TestHealthStatsUnavailable: com o leitor fechado, o health não devolve connections 0 como se fosse válido (o
+// campo fica ausente e oldest null) e o /metrics não publica fs_store_connections (task 379).
+func TestHealthStatsUnavailable(t *testing.T) {
+	s := exampleStore(t)
+	if c := s.HealthAt(context.Background(), t0).Host.Store.Connections; c == nil || *c != 0 {
+		t.Fatalf("open reader: connections %v", c)
+	}
+	rdb, _ := testDB(t)
+	_ = rdb.Close()
+	s.rdb = rdb
+	h := s.HealthAt(context.Background(), t0)
+	st := h.Host.Store
+	if st.Connections != nil || st.Oldest != nil {
+		t.Fatalf("closed reader: connections %v oldest %v", st.Connections, st.Oldest)
+	}
+	b, _ := json.Marshal(st)
+	if strings.Contains(string(b), `"connections"`) {
+		t.Fatalf("health store %s", b)
+	}
+	prom := newStoreMetrics(func(ctx context.Context) Health { return s.HealthAt(ctx, t0) }, func() int { return 0 }, nil)
+	api := &API{OpenAPI: []byte("x"), Health: s.HealthAt, Now: func() time.Time { return t0 }, Prom: prom}
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if body := rec.Body.String(); !strings.Contains(body, "fs_store_db_bytes") || strings.Contains(body, "fs_store_connections ") {
+		t.Fatalf("metrics without stats:\n%s", body)
+	}
 }

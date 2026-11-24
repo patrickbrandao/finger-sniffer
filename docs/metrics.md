@@ -228,14 +228,14 @@ Web, raw, dns e capture publicam por um produtor com buffer (spec 003 RF-05):
 | `fs_store_dns_queries_total` | contador | consultas DNS gravadas |
 | `fs_store_purged_total{reason}` | contador | registros expurgados, `reason` = `age` (retenção), `size` (teto do banco) ou `space` (livre do tmpfs do banco abaixo de 10%, ou expurgo de emergência depois de um `SQLITE_FULL`; ADR 0045) |
 | `fs_store_db_bytes` | gauge | tamanho do banco SQLite |
-| `fs_store_connections` | gauge | conexões guardadas no banco (abertas e fechadas, dentro da retenção) |
+| `fs_store_connections` | gauge | conexões guardadas no banco (abertas e fechadas, dentro da retenção); série ausente quando a contagem falha (leitor ocupado, prazo vencido), e `host.store.connections` some do health |
 | `fs_store_record_ready_seconds{reason}` | histograma | do fim da conexão até o registro completo gravado; `reason` = `close` (TCP com FIN/RST, meta p95 ≤ 500 ms), `quic_close` (QUIC encerrado, visto pelo web, mesma meta) ou `idle` (fechada por ociosidade, fora da meta); ver [abaixo](#tempo-até-o-registro) |
 | `fs_store_live_clients{transport}` | gauge | clientes de tempo real, `transport` = `sse` ou `ws` |
 | `fs_store_live_events_total{kind}` | contador | eventos ao vivo emitidos, por tipo |
 | `fs_store_live_dropped_total` | contador | eventos descartados para clientes lentos: fila cheia em eventos (`FS_LIVE_BUFFER`) ou em bytes (4 MiB por cliente, 64 MiB no hub); o cliente recebe `stream.dropped` (ADR 0020, ADR 0034) |
 | `fs_store_live_delay_seconds` | histograma | do `ts` do evento de origem até o envio ao cliente (meta: < 1 s) |
 | `fs_store_flows_dropped_total{reason}` | contador | tabela de fluxos cheia (8192 entradas): `reason` = `evicted` (entrada não estabelecida mais antiga despejada, sem registro nem avulso) ou `table_full` (pacote de 5-tupla nova recusado sem nada para despejar) |
-| `fs_store_api_requests_total{route,code}` | contador | requisições da API por rota e código |
+| `fs_store_api_requests_total{route,code}` | contador | requisições da API por rota e código; `code="499"` é a requisição que o cliente abandonou antes da resposta (nada escrito); a causa de cada `500` vai para o log (`api request failed`, um por segundo por rota) |
 | `fs_store_api_request_duration_seconds{route}` | histograma | duração das requisições da API (meta p95 < 100 ms) |
 | `fs_store_api_json_bytes_in_flight` | gauge | bytes das respostas JSON finitas montadas e ainda não escritas (orçamento de 256 MiB, ADR 0066) |
 | `fs_store_api_rejected_total{route,reason}` | contador | `503` da API por orçamento esgotado (`busy`) ou desligamento (`shutting_down`) (ADR 0066) |

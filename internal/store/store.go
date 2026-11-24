@@ -157,6 +157,8 @@ type Store struct {
 	conns   *connPublisher // fs.v1.store.connection para o bot (ADR 0047)
 	prom    *storeMetrics
 	space   *dbSpace // statfs do tmpfs do banco e modo banco cheio (ADR 0045)
+	// statsLog limita o log da contagem do health que falhou (um por segundo).
+	statsLog logLimiter
 }
 
 // New abre o banco e prepara o store.
@@ -243,11 +245,20 @@ func New(ctx context.Context, svc *service.Service, cfg Config, openapi []byte) 
 func (s *Store) HealthAt(ctx context.Context, now time.Time) Health {
 	services, allUp, match := s.tracker.Services(now, version.Version)
 	host, _ := ReadHost(s.cfg.Host)
-	size, conns, oldest := dbStats(ctx, s.rdb, s.cfg.DBPath)
-	st := &DBHealth{DBBytes: size, MaxBytes: s.cfg.MaxBytes, Retention: s.cfg.Retention, Connections: conns}
-	if oldest.Valid {
-		o := event.FormatTime(time.Unix(0, oldest.Int64))
-		st.Oldest = &o
+	size, conns, oldest, err := dbStats(ctx, s.rdb, s.cfg.DBPath)
+	st := &DBHealth{DBBytes: size, MaxBytes: s.cfg.MaxBytes, Retention: s.cfg.Retention}
+	switch {
+	case err != nil:
+		// sem a contagem, connections fica ausente e oldest null, em vez de um 0 que parece banco vazio (task 379)
+		if ok, n := s.statsLog.allow("stats", time.Now()); ok && s.svc != nil {
+			s.svc.Log.Warn("store stats unavailable", "err", err, "suppressed", n)
+		}
+	default:
+		st.Connections = &conns
+		if oldest.Valid {
+			o := event.FormatTime(time.Unix(0, oldest.Int64))
+			st.Oldest = &o
+		}
 	}
 	host.Store = st
 	tlsInfo := certs.Describe()
@@ -310,13 +321,15 @@ func (s *Store) Run(ctx context.Context) error {
 	go func() { defer wg.Done(); s.live.Run(ctx.Done()) }()
 	go func() { defer wg.Done(); s.conns.Run(ctx.Done()) }()
 
-	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom}
+	api := &API{OpenAPI: s.openapi, Health: s.HealthAt, Now: time.Now, Q: s.queries, W: s.db, Live: s.live, Prom: s.prom, Log: s.svc.Log}
 	// Contexto base das requisições: cancelado no desligamento só depois do sinal da API, para as rotas finitas
 	// pegas no meio responderem 503 em vez de um 200 vazio (ADR 0066 item 3); SSE e WS saem com ele.
 	base, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
 	srv := &http.Server{
 		Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+		// erros do próprio net/http (Accept, pânico de handler) no slog JSON, como no web (task 379)
+		ErrorLog:    slog.NewLogLogger(s.svc.Log.Handler(), slog.LevelDebug),
 		BaseContext: func(net.Listener) context.Context { return base },
 	}
 	addrs, err := s.cfg.apiAddrs(s.cfg.HTTPAddr)

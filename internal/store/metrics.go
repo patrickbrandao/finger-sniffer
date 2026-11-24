@@ -358,8 +358,11 @@ func (c *healthCollector) Collect(ch chan<- prometheus.Metric) {
 		if st := h.Host.Store; st != nil {
 			ch <- prometheus.MustNewConstMetric(prometheus.NewDesc("fs_store_db_bytes", "Size of the SQLite database in bytes.", nil, nil),
 				prometheus.GaugeValue, float64(st.DBBytes))
-			ch <- prometheus.MustNewConstMetric(prometheus.NewDesc("fs_store_connections", "Connections kept in the database.", nil, nil),
-				prometheus.GaugeValue, float64(st.Connections))
+			// sem a contagem (consulta falhou), a série fica ausente em vez de um 0 falso (task 379)
+			if st.Connections != nil {
+				ch <- prometheus.MustNewConstMetric(prometheus.NewDesc("fs_store_connections", "Connections kept in the database.", nil, nil),
+					prometheus.GaugeValue, float64(*st.Connections))
+			}
 		}
 	}
 }
@@ -667,8 +670,8 @@ func (c *liveCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 // instrument mede cada requisição pelo padrão do mux (r.Pattern, nunca o caminho com IDs).
-func (m *storeMetrics) instrument(next http.Handler) http.Handler {
-	if m == nil {
+func (m *storeMetrics) instrument(next http.Handler, onErr func(route string, err error)) http.Handler {
+	if m == nil && onErr == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -678,6 +681,12 @@ func (m *storeMetrics) instrument(next http.Handler) http.Handler {
 		route := r.Pattern
 		if route == "" || route == "/" {
 			route = "other"
+		}
+		if sw.err != nil && onErr != nil {
+			onErr(route, sw.err)
+		}
+		if m == nil {
+			return
 		}
 		m.apiRequests.WithLabelValues(route, itoa(sw.code)).Inc()
 		m.apiDuration.WithLabelValues(route).Observe(time.Since(start).Seconds())
@@ -696,6 +705,8 @@ type statusWriter struct {
 	http.ResponseWriter
 	code  int
 	wrote bool
+	// err é o erro inesperado que virou 500 (writeErr), para o log da API.
+	err error
 }
 
 func (w *statusWriter) WriteHeader(code int) {
