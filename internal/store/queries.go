@@ -221,6 +221,8 @@ type summaryJSON struct {
 	Ended    *string      `json:"ended"`
 	Requests int          `json:"requests"`
 	Degraded bool         `json:"degraded"`
+	// Discarded: ver connectionJSON.Discarded (só no connection.closed do tempo real, ADR 0076).
+	Discarded string `json:"discarded,omitempty"`
 }
 
 // Filtros dos probes apagados (ADR 0068 item 2): enquanto a linha de deleted_probes existir, as conexões e as

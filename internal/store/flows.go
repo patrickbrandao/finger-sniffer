@@ -80,6 +80,7 @@ type conn struct {
 	finAcked                                   [2]bool   // o outro lado já confirmou o FIN
 	lingerUntil                                int64     // depois de finalizada: até quando aceita pacotes tardios
 	serverSeen                                 bool
+	clientReplied                              bool     // UDP: datagrama do cliente depois da 1ª resposta do espelho
 	quicDCID                                   string   // DCID do primeiro Initial QUIC do cliente (hex)
 	quicSCIDs                                  []string // SCIDs do espelho nos cabeçalhos longos (hex), até maxQUICCIDs
 	ana                                        *analysis
@@ -88,6 +89,9 @@ type conn struct {
 	// do lote que a criou (a reentrega cria outra conn); finalTries = finalizações que falharam.
 	unstored   bool
 	finalTries int
+	// botOpened: o opened de fs.v1.store.connection já saiu (ou sai no commit do lote em curso) — ADR 0076 item 1.
+	// De mão única; o rollback do lote que o ligou o desfaz (Ingestor.botOpenUndo).
+	botOpened bool
 	// Estado da tabela de fluxos (com a trava): halfEl = posição na fila de não estabelecidas (despejo);
 	// countedLive = conta em liveLim (TCP/QUIC vivas do modo degradado).
 	halfEl      *list.Element
@@ -117,6 +121,9 @@ func (c *conn) observe(fi frameInfo, ts int64, grace time.Duration) {
 	cli := c.fromClient(fi)
 	if cli {
 		c.inSegs++
+		if c.serverSeen {
+			c.clientReplied = true
+		}
 	} else {
 		c.outSegs++
 		c.serverSeen = true
@@ -275,6 +282,19 @@ func (c *conn) isStray() bool {
 		return c.synAck == 0
 	}
 	return !c.serverSeen
+}
+
+// botReady informa se a conexão já está estabelecida para o canal do bot (ADR 0076 item 1): TCP com o ACK do
+// cliente depois do SYN-ACK, UDP com datagrama do cliente depois da resposta do espelho, ou qualquer evento de
+// aplicação incorporado.
+func (c *conn) botReady() bool {
+	if c.app != nil && c.app.events > 0 {
+		return true
+	}
+	if c.l4 == protoTCP {
+		return c.established != 0
+	}
+	return c.clientReplied
 }
 
 // flowTable guarda as conexões abertas. É usada pelo ingest e consultada pela API (registro ao vivo).

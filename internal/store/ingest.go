@@ -82,6 +82,11 @@ type Ingestor struct {
 	pendKeysSnap map[flowKey]int     // pendingKeys no início do lote em curso
 	toFinalize   []*conn             // conexões fora da tabela à espera da finalização (saem só depois do commit)
 	finalStats   []finalStat         // métricas da transação de finalização em curso
+	// Estágios garantidos (ADR 0076): conexões com botOpened ligado pelo lote em curso (o rollback desliga),
+	// despejadas pelo lote em curso e despejadas de um lote desfeito, refeitas (DELETE e closed) no próximo.
+	botOpenUndo  []*conn
+	batchEvicted []*conn
+	evictCarry   []*conn
 
 	// Pacotes em memória (task 248, pktbuf.go): total em bytes, número do lote em curso, fotos dos buffers
 	// tocados pelo lote e conexões despejadas cujo buffer é liberado no fim do lote.
@@ -343,7 +348,11 @@ func (in *Ingestor) drainPending() {
 	}()
 	if err != nil {
 		in.log.Error("drain pending events", "err", err, "events", len(in.pending))
+		return
 	}
+	in.commitBatch()
+	in.publishLive()
+	in.publishConns()
 }
 
 // msgSource é o que o Process precisa de uma mensagem (permite testar sem NATS).
@@ -404,6 +413,9 @@ func (in *Ingestor) processTx(ctx context.Context, msgs []msgSource) error {
 	}
 	defer st.close()
 	if err := in.reloadStaleApp(ctx, tx); err != nil {
+		return err
+	}
+	if err := in.redoEvicted(ctx, tx); err != nil {
 		return err
 	}
 
@@ -501,10 +513,10 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 	fi := parseFrame(p.Frame)
 	res := in.flows.handle(fi, p.TsNs)
 	if res.evicted != nil {
-		// Despejada pela tabela cheia (ADR 0034 item 1): sem registro nem avulso; a linha sai com as filhas.
+		// Despejada pela tabela cheia (ADR 0034 item 1): sem registro nem avulso; a linha sai com as filhas e o
+		// closed sai com discarded (ADR 0076).
 		in.prom.flowDropped(dropEvicted)
-		in.pktDrop = append(in.pktDrop, res.evicted)
-		if _, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", res.evicted.id); err != nil {
+		if err := in.evictConn(ctx, tx, res.evicted); err != nil {
 			return err
 		}
 	}
@@ -562,12 +574,21 @@ func (in *Ingestor) packet(ctx context.Context, tx *sql.Tx, st *stmts, p event.P
 			c.server.Addr().String(), int(c.server.Port()), l4Name(c.l4), c.started, boolInt(c.degraded), string(rec), c.started); err != nil {
 			return fmt.Errorf("insert connection: %w", err)
 		}
-		// O ID pode ser o de uma conexão criada antes só pelos eventos (pacotes atrasados).
-		if err := in.adoptEventOnly(ctx, tx, c, keyOf(c.l4, c.client, c.server)); err != nil {
+		// O ID pode ser o de uma conexão criada antes só pelos eventos (pacotes atrasados): adotada, ela já
+		// publicou o opened nos dois canais, e o fim é o desta conexão (ADR 0076 item 2).
+		adopted, err := in.adoptEventOnly(ctx, tx, c, keyOf(c.l4, c.client, c.server))
+		if err != nil {
 			return err
 		}
-		in.liveConn(LiveConnOpened, c.liveSummary(), c.started)
-		in.pubConn(event.StageOpened, c.started, rec, &r)
+		if adopted {
+			in.markBotOpened(c)
+		} else {
+			in.liveConn(LiveConnOpened, c.liveSummary(), c.started)
+		}
+	}
+	// Canal do bot: o opened só sai quando a conexão fica estabelecida (ADR 0076 item 1).
+	if err := in.openBot(ctx, tx, c, p.TsNs); err != nil {
+		return err
 	}
 	if c.degraded {
 		return nil // modo degradado: sem pcap nem bytes crus
@@ -736,10 +757,15 @@ func (in *Ingestor) finalizeQueued(ctx context.Context) error {
 func (in *Ingestor) closeUnfinalized(ctx context.Context, c *conn) {
 	end := c.endTs()
 	rec, _ := json.Marshal(c.record(end, "timeout"))
+	now := in.now().UnixNano()
 	if _, err := in.db.ExecContext(ctx, "UPDATE connections SET ended_ns = ?, record_json = ?, updated_ns = ? WHERE conn_id = ? AND ended_ns IS NULL",
-		end, string(rec), max(end, in.now().UnixNano()), c.id); err != nil {
+		end, string(rec), max(end, now), c.id); err != nil {
 		in.log.Error("close unfinalized connection", "conn_id", c.id, "err", err)
 	}
+	// Todo opened recebe um closed (ADR 0076 item 2), mesmo sem o pcap.
+	in.closeStages(c, now, "timeout", "")
+	in.publishLive()
+	in.publishConns()
 }
 
 // finalStat é o que a finalização conta nas métricas, aplicado só depois do commit (a nova tentativa não conta
@@ -804,7 +830,10 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		return nil
 	}
 	if in.flows.isHidden(c.id) {
-		return nil // probe apagado pelo DELETE: a linha já saiu, nada a gravar (finalized tira do conjunto)
+		// Probe apagado pelo DELETE: a linha já saiu, nada a gravar (finalized tira do conjunto); o closed sai
+		// com discarded (ADR 0076 item 3).
+		in.closeStages(c, in.now().UnixNano(), "", discardedDeleted)
+		return nil
 	}
 	pkts, err := in.finalPkts(ctx, tx, c)
 	if err != nil {
@@ -843,6 +872,8 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		if len(pkts) > 0 {
 			in.finalStats = append(in.finalStats, finalStat{stray: len(pkts), midflow: nMid})
 		}
+		// O connection.opened do SYN recebe o seu closed, junto dos packet.stray (ADR 0076 itens 2 e 3).
+		in.closeStages(c, decided, "", discardedStray)
 		_, err := tx.ExecContext(ctx, "DELETE FROM connections WHERE conn_id = ?", c.id)
 		return err
 	}
@@ -884,7 +915,9 @@ func (in *Ingestor) finalizeOne(ctx context.Context, tx *sql.Tx, c *conn) error 
 		liveTs = in.now().UnixNano()
 	}
 	in.liveConn(LiveConnClosed, summaryFrom(r), liveTs)
-	in.pubConn(event.StageClosed, liveTs, rec, &r)
+	if c.botOpened {
+		in.pubConn(event.StageClosed, liveTs, rec, &r) // nunca estabelecida: nada no canal do bot (ADR 0076)
+	}
 	in.finalStats = append(in.finalStats, finalStat{l4: r.L4, proto: r.Proto})
 	in.readyEnds = append(in.readyEnds, readyEnd{end, reason})
 	return nil
@@ -938,7 +971,14 @@ func (in *Ingestor) recoverOrphans(ctx context.Context) error {
 				return err
 			}
 		}
+		// O opened do tempo real saiu antes do reinício; o do bot, só se a conexão foi estabelecida (ADR 0076).
+		in.liveConn(LiveConnClosed, summaryFrom(r), now)
+		if in.conns != nil && in.orphanBotSeen(ctx, o.id, r) {
+			in.pubConn(event.StageClosed, now, rec, &r)
+		}
 	}
+	in.publishLive()
+	in.publishConns()
 	if len(list) > 0 {
 		in.log.Info("recovered orphan connections", "count", len(list))
 	}
