@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,8 @@ import (
 const (
 	opForget       = "forget"
 	opListsRefresh = "lists_refresh"
+	// refreshForcePrefix marca no arg o lists refresh --force <nome> (ADR 0077 item 3, sem migration).
+	refreshForcePrefix = "force:"
 	// controlRetention é quanto um pedido concluído fica no banco (o arg do forget é dado pessoal, ADR 0052).
 	controlRetention = 24 * time.Hour
 )
@@ -191,7 +194,10 @@ func (s *Server) controlRefresh(ctx context.Context, r controlRequest) error {
 		defer s.bg.Done()
 		defer s.refreshing.Store(false)
 		errs := map[string]error{}
-		if r.arg.Valid && r.arg.String != "" {
+		if name, ok := strings.CutPrefix(r.arg.String, refreshForcePrefix); ok && r.arg.Valid {
+			// --force <nome>: sem a regra da queda (ADR 0077 item 3); nomes do catálogo são [a-z0-9_]+, sem ambiguidade
+			errs[name] = s.lists.RefreshForced(ctx, name)
+		} else if r.arg.Valid && r.arg.String != "" {
 			errs[r.arg.String] = s.lists.Refresh(ctx, r.arg.String)
 		} else {
 			errs = s.lists.RefreshAll(ctx)

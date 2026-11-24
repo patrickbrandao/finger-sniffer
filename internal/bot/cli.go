@@ -30,7 +30,7 @@ const cliUsage = `usage:
   finger-sniffer-bot key revoke <id|prefix>
   finger-sniffer-bot key rotate <id|prefix>
   finger-sniffer-bot forget <ip|prefix>
-  finger-sniffer-bot lists refresh [name]
+  finger-sniffer-bot lists refresh [name | --force name]
 `
 
 // RunCLI executa um comando da CLI no banco em disco (FS_BOT_DB), com o serviço rodando ou não (WAL).
@@ -48,7 +48,7 @@ func RunCLI(ctx context.Context, args []string, dbPath string, out, errOut io.Wr
 	case "forget":
 		return cliForget(ctx, db, args[1:], out, errOut, now)
 	case "lists":
-		if len(args) < 2 || args[1] != "refresh" || len(args) > 3 {
+		if len(args) < 2 || args[1] != "refresh" || len(args) > 4 {
 			_, _ = fmt.Fprint(errOut, cliUsage)
 			return ErrUsage
 		}
@@ -199,9 +199,22 @@ func cliForget(ctx context.Context, db *sql.DB, args []string, out, errOut io.Wr
 // a troca são do serviço, que tem a rede e as permissões da unit (ADR 0056 item 2).
 func cliListsRefresh(ctx context.Context, db *sql.DB, args []string, out, errOut io.Writer, now time.Time) error {
 	var arg *string
-	if len(args) > 0 {
+	switch {
+	case len(args) == 0:
+	case args[0] == "--force":
+		// --force exige o nome (ADR 0077 item 3): forçar todas de uma vez tiraria a proteção de todas.
+		if len(args) != 2 || args[1] == "" || strings.HasPrefix(args[1], "-") {
+			_, _ = fmt.Fprint(errOut, cliUsage)
+			return ErrUsage
+		}
+		v := refreshForcePrefix + args[1]
+		arg = &v
+	case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
 		name := args[0]
 		arg = &name
+	default:
+		_, _ = fmt.Fprint(errOut, cliUsage)
+		return ErrUsage
 	}
 	id, err := insertControl(ctx, db, opListsRefresh, arg, now)
 	if err != nil {

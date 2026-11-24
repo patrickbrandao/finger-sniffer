@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/netip"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -18,6 +20,9 @@ type parsed struct {
 	prefixes []netip.Prefix          // listas de IP, sem repetição
 	ja4      map[string][]JA4DBLabel // ja4db
 	entries  int
+	// space é o espaço coberto por família ([0] IPv4, [1] IPv6): endereços da união dos prefixos, sem contar duas
+	// vezes os sobrepostos (ADR 0077 item 3). float64 basta: a comparação é só de metade.
+	space [2]float64
 }
 
 // errFormat marca conteúdo fora do formato esperado.
@@ -75,7 +80,37 @@ func (s *prefixSet) add(raw string) error {
 	return nil
 }
 
-func (s *prefixSet) result() parsed { return parsed{prefixes: s.out, entries: len(s.out)} }
+func (s *prefixSet) result() parsed {
+	return parsed{prefixes: s.out, entries: len(s.out), space: coveredSpace(s.out)}
+}
+
+// coveredSpace soma 2^(bits−len) da união dos prefixos (já normalizados) por família. Prefixos alinhados só se
+// sobrepõem por inclusão: em ordem de endereço e, no mesmo endereço, do mais curto ao mais longo, quem cai dentro do
+// último guardado é pulado.
+func coveredSpace(in []netip.Prefix) [2]float64 {
+	ps := make([]netip.Prefix, len(in))
+	copy(ps, in)
+	sort.Slice(ps, func(i, j int) bool {
+		if c := ps[i].Addr().Compare(ps[j].Addr()); c != 0 {
+			return c < 0
+		}
+		return ps[i].Bits() < ps[j].Bits()
+	})
+	var out [2]float64
+	var last netip.Prefix
+	for _, p := range ps {
+		if last.IsValid() && last.Addr().Is4() == p.Addr().Is4() && last.Contains(p.Addr()) {
+			continue
+		}
+		last = p
+		fam := 1
+		if p.Addr().Is4() {
+			fam = 0
+		}
+		out[fam] += math.Ldexp(1, p.Addr().BitLen()-p.Bits())
+	}
+	return out
+}
 
 func decodeJSON(b []byte, v any) error {
 	if err := json.Unmarshal(b, v); err != nil {

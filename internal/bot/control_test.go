@@ -263,6 +263,69 @@ func TestListsRefreshCLI(t *testing.T) {
 	}
 }
 
+// TestListsRefreshForce: critério da task 404 (ADR 0077 item 3) — a queda real do espaço é recusada pelo lists
+// refresh comum e aceita pelo `--force aws` (pedido com arg force:aws); `--force` sem nome é erro de uso e
+// `--force` com nome desconhecido sai com o erro no resultado do pedido.
+func TestListsRefreshForce(t *testing.T) {
+	shortWaits(t, time.Second, 5*time.Second)
+	full, err := os.ReadFile(filepath.Join("lists", "testdata", "aws.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body atomic.Value
+	body.Store(full)
+	up := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(body.Load().([]byte))
+	}))
+	t.Cleanup(up.Close)
+	db, path := testDB(t)
+	cfg := testConfig(path)
+	cfg.ListsDir = t.TempDir()
+	cfg.ListURLs = map[string]string{"aws": up.URL + "/ip-ranges.json"}
+	clock := newFakeClock(time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC))
+	s := New(cfg, Deps{DB: db, Now: clock.Now, ListsClient: up.Client(), Metrics: service.NewMetrics()})
+	runLoops(t, s)
+	ctx := context.Background()
+	var out, errOut bytes.Buffer
+	if err := RunCLI(ctx, []string{"lists", "refresh", "aws"}, path, &out, &errOut, clock.Now()); err != nil {
+		t.Fatalf("%v %s", err, out.String())
+	}
+	// Só um /28 do /24 e o IPv6 inteiro: queda do espaço IPv4.
+	body.Store([]byte(`{"prefixes":[{"ip_prefix":"203.0.113.0/28"}],"ipv6_prefixes":[{"ipv6_prefix":"2001:db8:aa00::/40"}]}`))
+	out.Reset()
+	err = RunCLI(ctx, []string{"lists", "refresh", "aws"}, path, &out, &errOut, clock.Now())
+	if !errors.Is(err, errRefreshFailed) || !strings.Contains(out.String(), "ipv4 covered space drop") {
+		t.Fatalf("queda sem forçar: %v %q", err, out.String())
+	}
+	if m := s.Lists().Lookup(netip.MustParseAddr("203.0.113.200")); len(m) == 0 {
+		t.Fatal("queda recusada trocou a cópia")
+	}
+	out.Reset()
+	if err := RunCLI(ctx, []string{"lists", "refresh", "--force", "aws"}, path, &out, &errOut, clock.Now()); err != nil {
+		t.Fatalf("forçado: %v %q", err, out.String())
+	}
+	if out.String() != "aws: ok\n" {
+		t.Fatalf("saída %q", out.String())
+	}
+	if m := s.Lists().Lookup(netip.MustParseAddr("203.0.113.200")); len(m) != 0 {
+		t.Fatalf("lista forçada não vale: %v", m)
+	}
+	var arg string
+	if err := db.QueryRow("SELECT arg FROM control_requests WHERE arg LIKE 'force:%'").Scan(&arg); err != nil || arg != "force:aws" {
+		t.Fatalf("arg %q: %v", arg, err)
+	}
+	out.Reset()
+	if err := RunCLI(ctx, []string{"lists", "refresh", "--force", "nope"}, path, &out, &errOut, clock.Now()); !errors.Is(err, errRefreshFailed) ||
+		!strings.Contains(out.String(), "nope: lists: unknown list") {
+		t.Fatalf("forçado desconhecido: %v %q", err, out.String())
+	}
+	for _, args := range [][]string{{"lists", "refresh", "--force"}, {"lists", "refresh", "--force", "a", "b"}, {"lists", "refresh", "--forse"}, {"lists", "refresh", "aws", "--force"}} {
+		if err := RunCLI(ctx, args, path, &out, &errOut, clock.Now()); !errors.Is(err, ErrUsage) {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+}
+
 // TestListsRefreshNoService: serviço parado — depois do prazo a CLI diz que o serviço não respondeu e sai com
 // erro; o pedido velho, quando o serviço volta, sai como expirado sem baixar nada.
 func TestListsRefreshNoService(t *testing.T) {
