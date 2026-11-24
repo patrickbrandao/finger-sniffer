@@ -25,7 +25,8 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | [018-bot.md](018-bot.md) | Serviço bot | veredito e sinais, listas (base própria, ja4db, IPs), agregados de 7 dias, LGPD, CLI de chaves, banco em disco | 001, 004, 008, 010, 013, 019, 020 | aprovada (pendências P4–P6) |
 | [019-requisitos-do-traefix.md](019-requisitos-do-traefix.md) | Integração com o traefix | o traefix (traefik modificado, projeto externo, consumido como está; ADRs 0054, 0062 e 0063): perfil de configuração, `X-Traefix-*`, lote `traefix.fingerprint/v1` e esquema copiado, visão TCP, leitura pelo bot, forwardAuth fail-open, sempre `latest`, métricas, custo, pedidos ao traefix, critérios de aceite | 001, 013, 018, 020 | aprovada |
 | [020-api-de-vereditos.md](020-api-de-vereditos.md) | API de vereditos | 9002/9003, chaves, domínios, limites, forwardAuth, consulta, probe, feed, webhook | 018, 019 | aprovada |
-| [PLAN.md](PLAN.md) | Plano de implementação | fases F1–F8, paralelismo, critérios de saída | todas | aprovada |
+| [PLAN.md](PLAN.md) | Plano de implementação | regra das fases, fase atual, tabela de pendências abertas | todas | aprovada |
+| [PLAN-HISTORICO.md](PLAN-HISTORICO.md) | Histórico do plano | fases F1–F8 concluídas: frentes, critérios e saídas, PRs e medidas (fora do `@` do AGENTS.md) | PLAN | registro |
 
 ## Contratos e pastas auxiliares
 | Caminho | Conteúdo |

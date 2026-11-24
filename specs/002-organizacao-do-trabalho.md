@@ -77,7 +77,8 @@ Regras de propriedade:
 4. Depois do merge: `make clean-worktrees` (só lista por padrão; com `--apply`, remove os worktrees limpos com PR
    mergeado e as branches locais deles; task 374) ou remover o próprio worktree e a branch `task/nnn-slug`.
 5. Tarefa descartada também é removida; se o descarte for uma decisão, registrar em ADR.
-6. Tarefas das fases seguintes são criadas pelo architect quando a fase anterior atinge o critério de saída.
+6. Tarefas das fases seguintes são criadas pelo architect quando a fase anterior atinge o critério de saída; o
+   architect mantém a tabela "Pendências abertas" do `specs/PLAN.md` ao criar, bloquear ou remover tarefa.
 
 ## Definition of Done
 Uma tarefa está concluída quando todos os itens forem verdadeiros:

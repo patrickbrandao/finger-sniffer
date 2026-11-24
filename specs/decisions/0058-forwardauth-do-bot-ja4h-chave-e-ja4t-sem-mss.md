@@ -1,8 +1,8 @@
 # 0058 — forwardAuth do bot: JA4H por cabeçalho, chave na requisição de auth, fail-open de 4xx sem veredito e JA4T sem MSS
 
 Status: aceita (item 2, opções do fork `fingerSniffer`/`apiKey` e `fingersniffer_*`: substituído pela 0062 itens 5–6,
-traefix consumido como está; nomes `X-Fs-*` dos itens 1 e 3: ver 0063 item 1; pesos e regras provisórios, ADRs 0049
-e 0057)
+traefix consumido como está; nomes `X-Fs-*` dos itens 1 e 3: ver 0063 item 1; pesos e regras provisórios, com o gatilho de
+revisão da ADR 0049)
 Data: 2026-11-16
 
 ## Contexto
