@@ -20,6 +20,9 @@
 #                        exportado para os testes; no CI (CI=true) a ausência dele falha o verify-full
 #   FS_E2E_TIMEOUT       -timeout do go test no passo e2e (padrão 45m; com FS_E2E_LONG=1 a suíte passa dos
 #                        10 min padrão do go test)
+#   FS_E2E_HOST          servidor do e2e, cujo health (9001) o passo "versão implantada" lê antes e depois do e2e
+#                        (padrão finger-01.badblock.net.br; o mesmo nome que o test/e2e usa)
+#   FS_E2E_EXPECT_VERSION versão que o e2e exige no servidor (padrão: git describe --tags --always --dirty local)
 #   FS_E2E_DURING_LOAD=1 roda o e2e mesmo com uma carga em andamento no servidor (/tmp/fs-load-running; por padrão o
 #                        passo é recusado, spec 017 RF-13, task 361). FS_LOAD_LOCK troca o caminho da trava (testes).
 #   FS_RACE_SPLIT_PKGS   pacotes (padrões do go list) cujos testes -race saem do passo de testes do full e rodam
@@ -1244,6 +1247,77 @@ load_lock_check() {
 	esac
 }
 
+# Versão implantada (spec 017 RF-09, task 356): o e2e só vale se o servidor roda a versão em teste do começo ao fim.
+E2E_HOST="${FS_E2E_HOST:-finger-01.badblock.net.br}"
+E2E_LABEL="${E2E_HOST%%.*}"
+E2E_STATE_BEFORE=""
+
+# e2e_expected_version: FS_E2E_EXPECT_VERSION ou o git describe local (-dirty conta como diferente).
+e2e_expected_version() {
+	if [ -n "${FS_E2E_EXPECT_VERSION:-}" ]; then
+		echo "$FS_E2E_EXPECT_VERSION"
+	else
+		git describe --tags --always --dirty 2>/dev/null
+	fi
+}
+
+# deployed_state: "<versão do store> <versions_match>" do health do servidor.
+deployed_state() {
+	local body
+	body=$(curl -fsS --max-time 15 "http://$E2E_HOST:9001/api/v1/health") || {
+		echo "health de $E2E_LABEL inacessível (http://$E2E_HOST:9001/api/v1/health)" >&2
+		return 1
+	}
+	printf '%s' "$body" | jq -r '"\(.services.store.version // "") \(.versions_match)"' 2>/dev/null || {
+		echo "health de $E2E_LABEL sem JSON válido" >&2
+		return 1
+	}
+}
+
+# e2e_version_before: antes do e2e, exige versions_match=true e a versão do store igual à esperada.
+e2e_version_before() {
+	local state want ver match
+	E2E_STATE_BEFORE=""
+	state=$(deployed_state) || return 1
+	want=$(e2e_expected_version)
+	ver="${state% *}"
+	match="${state##* }"
+	echo "$E2E_LABEL: store $ver, versions_match=$match; esperado $want"
+	if [ "$match" != true ]; then
+		echo "$E2E_LABEL com versions_match=$match (serviços em versões diferentes): rode make deploy"
+		return 1
+	fi
+	if [ -z "$want" ] || [ "$ver" != "$want" ]; then
+		echo "$E2E_LABEL roda $ver, o teste é de ${want:-?}: rode make deploy"
+		return 1
+	fi
+	E2E_STATE_BEFORE="$state"
+}
+
+# e2e_version_after: depois do e2e (passe ou falhe), reprova se a versão ou o versions_match mudou na suíte.
+e2e_version_after() {
+	local state
+	state=$(deployed_state) || return 1
+	echo "$E2E_LABEL: antes \"$E2E_STATE_BEFORE\", depois \"$state\" (versão do store e versions_match)"
+	if [ "$state" != "$E2E_STATE_BEFORE" ]; then
+		echo "$E2E_LABEL mudou durante o e2e (outro deploy no meio): o resultado não vale para esta versão; repita o e2e"
+		return 1
+	fi
+}
+
+# e2e_steps: versão implantada, e2e e versão implantada (depois). O "depois" roda mesmo com o e2e reprovado.
+e2e_steps() {
+	run_step "versão implantada" e2e_version_before
+	STOP_ON_FAIL=0
+	run_step "e2e ($VPS_LABEL)" e2e_tests
+	STOP_ON_FAIL=1
+	run_step "versão implantada (depois)" e2e_version_after
+	if [ "$FAILED" = 1 ]; then
+		summary
+		exit 1
+	fi
+}
+
 # e2e_tests: o passo e2e do full (matriz da spec 017), recusado durante uma carga.
 e2e_tests() {
 	load_lock_check || return 1
@@ -1307,7 +1381,7 @@ verify_full() {
 
 	if [ "$e2e" = 1 ]; then
 		if [ -d test/e2e ] && ls test/e2e/*_test.go >/dev/null 2>&1; then
-			run_step "e2e ($VPS_LABEL)" e2e_tests
+			e2e_steps
 		else
 			skip_step "e2e ($VPS_LABEL)" "test/e2e ainda não existe"
 		fi
