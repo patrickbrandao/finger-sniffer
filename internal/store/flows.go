@@ -310,13 +310,17 @@ type flowTable struct {
 	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
 	hidden   map[string]struct{}
 	reserved map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
-	newID    func(ts int64) string
-	grace    time.Duration
-	tcpIdle  time.Duration // TCP estabelecido
-	quicIdle time.Duration // UDP com evento h3 e sem close
-	udpIdle  time.Duration
-	maxFlows int        // teto de entradas (maxFlows; testes trocam)
-	half     *list.List // entradas despejáveis (evictable), da mais antiga para a mais nova
+	// maxReserved é o teto de reservas pedidas por fs.v1.store.conn_id (0: maxReservations; testes trocam) e
+	// reservedSwept o instante da última varredura das vencidas feita pelo teto (task 421).
+	maxReserved   int
+	reservedSwept int64
+	newID         func(ts int64) string
+	grace         time.Duration
+	tcpIdle       time.Duration // TCP estabelecido
+	quicIdle      time.Duration // UDP com evento h3 e sem close
+	udpIdle       time.Duration
+	maxFlows      int        // teto de entradas (maxFlows; testes trocam)
+	half          *list.List // entradas despejáveis (evictable), da mais antiga para a mais nova
 	// answered são os fluxos UDP não-QUIC respondidos (answeredUDP), do mais antigo para o mais novo, até
 	// maxAnswered (ADR 0069 item 2).
 	answered    *list.List

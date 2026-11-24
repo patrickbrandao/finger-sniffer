@@ -138,7 +138,7 @@ func TestLagEventOnly(t *testing.T) {
 func TestLagReservation(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	lag := 70 * time.Second
-	id, reserved := in.flows.connID(protoTCP, client, mirror, base, base)
+	id, reserved, _ := in.flows.connID(protoTCP, client, mirror, base, base)
 	if !reserved {
 		t.Fatal("not reserved")
 	}

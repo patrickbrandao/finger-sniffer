@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -18,12 +19,12 @@ import (
 // TestConnIDReservedBeforeSYN: a requisição chega antes dos pacotes; a conexão criada por eles usa o ID reservado.
 func TestConnIDReservedBeforeSYN(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
-	id, reserved := in.flows.connID(protoTCP, client, mirror, base, base)
+	id, reserved, _ := in.flows.connID(protoTCP, client, mirror, base, base)
 	if !reserved || len(id) != 26 {
 		t.Fatalf("id=%q reserved=%v", id, reserved)
 	}
 	// Repetir a pergunta devolve a mesma reserva.
-	if again, _ := in.flows.connID(protoTCP, client, mirror, base, base+1); again != id {
+	if again, _, _ := in.flows.connID(protoTCP, client, mirror, base, base+1); again != id {
 		t.Fatalf("second request %q != %q", again, id)
 	}
 	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP))
@@ -48,18 +49,18 @@ func TestConnIDOpenConnection(t *testing.T) {
 	for id := range open {
 		want = id
 	}
-	id, reserved := in.flows.connID(protoTCP, client, mirror, base, base)
+	id, reserved, _ := in.flows.connID(protoTCP, client, mirror, base, base)
 	if id != want || reserved {
 		t.Fatalf("id=%q reserved=%v want %q", id, reserved, want)
 	}
-	if id2, _ := in.flows.connID(protoTCP, mirror, client, base, base); id2 != want {
+	if id2, _, _ := in.flows.connID(protoTCP, mirror, client, base, base); id2 != want {
 		t.Fatalf("reverse direction %q", id2)
 	}
 	if in.flows.reservations() != 0 {
 		t.Fatal("no reservation expected")
 	}
 	// Outro protocolo com a mesma tupla não é a mesma conexão.
-	if _, reserved := in.flows.connID(protoUDP, client, mirror, base, base); !reserved {
+	if _, reserved, _ := in.flows.connID(protoUDP, client, mirror, base, base); !reserved {
 		t.Fatal("udp must reserve")
 	}
 	run(t, in, 5000, batch(client, mirror, protoTCP, fullTCP[4:]))
@@ -73,7 +74,7 @@ func TestConnIDOpenConnection(t *testing.T) {
 func TestConnIDClosingConnectionReserves(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
 	run(t, in, 1100, batch(client, mirror, protoTCP, fullTCP)) // fechou, ainda na folga
-	id, reserved := in.flows.connID(protoTCP, client, mirror, base+1100e6, base+1100e6)
+	id, reserved, _ := in.flows.connID(protoTCP, client, mirror, base+1100e6, base+1100e6)
 	if !reserved {
 		t.Fatal("closing connection must not be reused")
 	}
@@ -91,7 +92,7 @@ func TestConnIDClosingConnectionReserves(t *testing.T) {
 // TestConnIDReservationExpires: reserva sem uso some depois de 30 s e não afeta a conexão seguinte.
 func TestConnIDReservationExpires(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
-	id, _ := in.flows.connID(protoTCP, client, mirror, base, base)
+	id, _, _ := in.flows.connID(protoTCP, client, mirror, base, base)
 	_ = in.flows.due(base + int64(29*time.Second))
 	if in.flows.reservations() != 1 {
 		t.Fatal("reservation must survive 29 s")
@@ -112,7 +113,7 @@ func TestConnIDReservationExpires(t *testing.T) {
 		p.ms += 40_000
 		late[i] = p
 	}
-	id2, _ := in2.flows.connID(protoTCP, client, mirror, base, base)
+	id2, _, _ := in2.flows.connID(protoTCP, client, mirror, base, base)
 	if err := in2.process(context.Background(), []msgSource{batch(client, mirror, protoTCP, late)}); err != nil {
 		t.Fatal(err)
 	}
@@ -319,5 +320,42 @@ func TestEnsureStreamUpdatesMaxBytes(t *testing.T) {
 	info, _ := s.Info(ctx)
 	if info.State.Msgs != 1 || info.Config.MaxBytes != 128<<20 {
 		t.Fatalf("msgs=%d max_bytes=%d", info.State.Msgs, info.Config.MaxBytes)
+	}
+}
+
+// TestConnIDReservationsCap: com o mapa de reservas no teto, o pedido de uma 5-tupla nova é recusado sem crescer o
+// mapa (replyConnID devolve errReservationsFull, que fica sem resposta); a reserva já feita continua respondida, e
+// as vencidas são varridas no teto, liberando lugar (task 421).
+func TestConnIDReservationsCap(t *testing.T) {
+	in, _ := newTestIngestor(t, nil)
+	const limit = 8
+	in.flows.maxReserved = limit
+	req := func(port int) []byte {
+		return []byte(fmt.Sprintf(`{"flow":{"l4":"tcp","src_ip":"192.0.2.10","src_port":%d,"dst_ip":"170.247.40.86","dst_port":7700}}`, port))
+	}
+	for i := range limit {
+		if _, err := replyConnID(in.flows, req(40000+i), base); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 100 {
+		if _, err := replyConnID(in.flows, req(50000+i), base+1); !errors.Is(err, errReservationsFull) {
+			t.Fatalf("request above the cap: %v", err)
+		}
+	}
+	if n := in.flows.reservations(); n != limit {
+		t.Fatalf("reservations grew to %d", n)
+	}
+	// a 5-tupla já reservada continua com o mesmo ID
+	if _, err := replyConnID(in.flows, req(40000), base+2); err != nil {
+		t.Fatalf("existing reservation refused: %v", err)
+	}
+	// vencidas as reservas, o teto varre e o pedido novo passa
+	later := base + reservationTTL.Nanoseconds() + 2e9
+	if _, err := replyConnID(in.flows, req(60000), later); err != nil {
+		t.Fatalf("after expiry: %v", err)
+	}
+	if n := in.flows.reservations(); n != 1 {
+		t.Fatalf("reservations after sweep = %d", n)
 	}
 }
