@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("{\"ConnId\":\"00AA0A0A0a0000000000000000\",\"fields\":[{\"nAme\":\"User-Agent\"},{\"nAme\":\"ACCept\"}],\"tYpe\":\"request\"}")
+string("0")

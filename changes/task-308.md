@@ -1,0 +1,1 @@
+- test(bot): fuzz dos parsers do formato do traefix — registro `traefix.fingerprint/v1` (JSON cru e estruturado), `decodeALPNHeader` e `parseForkHeaders` (conjuntos `X-Traefix-*`/`X-Fs-*`), com tetos, lista permitida e padrões do openapi conferidos; corpus mínimo em `internal/bot/testdata/fuzz` (task 308).

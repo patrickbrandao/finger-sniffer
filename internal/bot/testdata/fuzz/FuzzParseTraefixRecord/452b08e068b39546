@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("\x8f\n      \"connId\": \"01JC0X3K8V2T7Q9F4M6P1R5T08\",\n      \"dst\": {\n        \"ip\": \"10.249.0.2\",\n        \"port\": 443\n      },\n      \"entryPoint\": \"websecure\",\n      \"aroto\": \"h1\",\n      \"src\": {\n        \"ip\": \"198.51.100.48\",\n        \"port\": 40400\n      },\n      \"time\": \"2026-11-16T12:00:00.010000000Z\",\n      \"type\": \"connection\"\n    }")
+string("websMcure")

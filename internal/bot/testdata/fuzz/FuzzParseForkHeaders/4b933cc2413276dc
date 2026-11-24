@@ -1,0 +1,12 @@
+go test fuzz v1
+bool(true)
+string("h2")
+string("0")
+string("\x88\xa9\xe3\xd6\xe80\xb7\x8b\xe1\xf6\xc7\xee\xdf\xd7\xc1\xd40")
+string("0")
+string("0")
+string("0")
+string("0")
+byte('X')
+string("0.0.0.0")
+string("0")

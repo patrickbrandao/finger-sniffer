@@ -1,0 +1,13 @@
+go test fuzz v1
+string("connection")
+string("h2")
+string("t13d1516h2_8daaf6152771_02713d6af862")
+string("771,4$<zf\xfc\xef\\865-4866,0-23,29-23,0")
+string("1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p")
+string("1:1:0:256")
+string("64240_2-4-8-1-3_1460_12")
+[]byte("E\x00\x00<W\x9b@\x00\x80\x06^4\xac\xe9\x18Uh\x14\x17\x9a\x8e\x1a\x00P\xdaJ\xd8b\x00\x00\x00\x00\xa0\x02\xfa\xf0h\xf3\x00\x00\x02\x04\x05\xb4\x04\x02\b\n\x9dK\xc0\xc6\x00\x00\x00\x00\x01\x03\x03\f")
+int64(128)
+string("User-Agent")
+string("curl/8.0")
+byte('\x00')

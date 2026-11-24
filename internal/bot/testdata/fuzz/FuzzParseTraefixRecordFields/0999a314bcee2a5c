@@ -1,0 +1,13 @@
+go test fuzz v1
+string("request")
+string("00")
+string("\xcf")
+string("\xc5")
+string("")
+string("0")
+string("")
+[]byte("")
+int64(-1)
+string("00")
+string("00")
+byte('\x02')

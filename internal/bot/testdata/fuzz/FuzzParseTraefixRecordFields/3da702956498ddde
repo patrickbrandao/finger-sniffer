@@ -1,0 +1,13 @@
+go test fuzz v1
+string("connection")
+string("h1")
+string("0")
+string("")
+string("")
+string("")
+string("")
+[]byte("0")
+int64(-32)
+string("")
+string("")
+byte('\x00')

@@ -1,0 +1,12 @@
+go test fuzz v1
+bool(false)
+string("h3")
+string("q13d031031055b375c5d22e_cd85d2d88918")
+string("\x1e\x1e")
+string("")
+string("256")
+string("1_2_3_4")
+string("src=kernel")
+byte('\x02')
+string("2001:db8::1%9")
+string("\x80")

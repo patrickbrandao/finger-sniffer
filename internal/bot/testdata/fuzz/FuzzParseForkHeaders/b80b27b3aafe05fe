@@ -1,0 +1,12 @@
+go test fuzz v1
+bool(true)
+string("h1")
+string("0")
+string("0")
+string("0000%00")
+string("0")
+string("0")
+string("0")
+byte('\x01')
+string("::")
+string("0")
