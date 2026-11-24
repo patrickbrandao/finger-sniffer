@@ -835,6 +835,13 @@ verify_quick() {
 		skip_step "release-test" "scripts de release sem mudança"
 	fi
 
+	# 4c'. limpeza de worktrees alterada: teste dela num repositório temporário (task 374)
+	if echo "$files" | grep -qE '^scripts/clean-worktrees(_test)?\.sh$'; then
+		run_step "clean-worktrees-test" scripts/clean-worktrees_test.sh
+	else
+		skip_step "clean-worktrees-test" "clean-worktrees.sh sem mudança"
+	fi
+
 	# 4d. o próprio verify ou um workflow alterado: teste dele (inclui as checagens dos workflows)
 	if echo "$files" | grep -qE '^(scripts/(verify(-test)?|check-binaries)\.sh|\.github/workflows/[^/]+\.yml|\.golangci\.yml|lefthook\.yml)$'; then
 		run_step "verify-test" scripts/verify-test.sh

@@ -214,3 +214,6 @@ jobs:
 
       - name: make release (teste)
         run: scripts/release-test.sh
+
+      - name: make clean-worktrees (teste)
+        run: scripts/clean-worktrees_test.sh
