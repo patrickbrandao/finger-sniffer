@@ -131,3 +131,79 @@ func TestRetainedFieldsReserve(t *testing.T) {
 		t.Fatalf("used %d after release", used)
 	}
 }
+
+// task 349: com cada stream esquecido depois de publicado, uma conexão com mais streams que o teto continua
+// registrando todos; a tabela HPACK segue em sincronia (campo novo por stream, indexado no seguinte); os
+// trailers tardios de um stream esquecido não o recriam; a ordem dos pseudo-cabeçalhos do primeiro stream
+// (Akamai) sobrevive ao esquecimento; e, sem esquecer, o teto continua valendo.
+func TestForgetStreamFreesSlot(t *testing.T) {
+	enc := newHPACKBlocks()
+	p := NewParser(Options{})
+	p.Feed(0, []byte(Preface))
+	const n = DefaultMaxStreams + 100
+	for i := range n {
+		id := uint32(2*i + 1)
+		fields := manyFields(3)
+		// x-prev repete o valor do stream anterior (entrada da tabela dinâmica: Indexed) e x-cur é novo
+		if i > 0 {
+			fields = append(fields, [2]string{"x-prev", "v" + strconv.Itoa(i-1)})
+		}
+		fields = append(fields, [2]string{"x-cur", "v" + strconv.Itoa(i)})
+		p.Feed(0, frame(FrameHeaders, FlagEndHeaders|FlagEndStream, id, enc.block(fields...)))
+		st, ok := p.Stream(id)
+		if !ok || p.Err() != nil || st.FieldsCut || len(st.Fields) != len(fields) || len(st.PseudoOrder) != 4 {
+			t.Fatalf("stream %d: ok %v err %v fields %d", id, ok, p.Err(), len(st.Fields))
+		}
+		for j, f := range fields {
+			if st.Fields[j].Name != f[0] || st.Fields[j].Value != f[1] {
+				t.Fatalf("stream %d campo %d: %+v, esperado %v", id, j, st.Fields[j], f)
+			}
+		}
+		p.ForgetStream(id)
+		if _, ok := p.Stream(id); ok || len(p.Info().Streams) != 0 || p.RetainedFieldBytes() != 0 {
+			t.Fatalf("stream %d não esquecido: %d registrados, %d bytes", id, len(p.Info().Streams), p.RetainedFieldBytes())
+		}
+	}
+	// trailer, DATA e RST_STREAM tardios de um stream esquecido: nada é recriado, o HPACK continua decodificando
+	p.Feed(0, frame(FrameHeaders, FlagEndHeaders|FlagEndStream, 1, enc.block([2]string{"x-t", "1"})))
+	p.Feed(0, frame(FrameData, FlagEndStream, 3, nil))
+	p.Feed(0, frame(FrameRSTStream, 0, 5, []byte{0, 0, 0, 8}))
+	if got := len(p.Info().Streams); got != 0 || p.Err() != nil {
+		t.Fatalf("stream esquecido recriado: %d registrados, err %v", got, p.Err())
+	}
+	next := uint32(2*n + 1)
+	p.Feed(0, frame(FrameHeaders, FlagEndHeaders, next, enc.block([2]string{":method", "GET"}, [2]string{"x-t", "1"})))
+	if st, ok := p.Stream(next); !ok || len(st.Fields) != 2 || st.Fields[1].Value != "1" || st.Fields[1].Repr != ReprIndexed {
+		t.Fatalf("stream novo depois dos esquecidos: %v %+v", ok, st.Fields)
+	}
+	info := p.Info()
+	if info.FirstHeadersStream != 1 || len(info.FirstPseudoOrder) != 4 || info.FirstPseudoOrder[0] != ":method" {
+		t.Fatalf("pseudo do primeiro stream: %d %v", info.FirstHeadersStream, info.FirstPseudoOrder)
+	}
+	p.ForgetStream(999999) // desconhecido: nada acontece
+	if len(p.Info().Streams) != 1 {
+		t.Fatal("esqueceu stream errado")
+	}
+
+	// sem esquecer, o teto de streams registrados ao mesmo tempo continua valendo
+	q := NewParser(Options{Limits: Limits{MaxStreams: 3}})
+	q.Feed(0, []byte(Preface))
+	for i := range 5 {
+		q.Feed(0, frame(FrameHeaders, FlagEndHeaders|FlagEndStream, uint32(2*i+1), simpleBlock()))
+	}
+	if got := len(q.Info().Streams); got != 3 {
+		t.Fatalf("%d streams com teto 3", got)
+	}
+	q.ForgetStream(3)
+	q.Feed(0, frame(FrameHeaders, FlagEndHeaders|FlagEndStream, 11, simpleBlock()))
+	ids := []uint32{}
+	for _, s := range q.Info().Streams {
+		ids = append(ids, s.StreamID)
+	}
+	if len(ids) != 3 || ids[0] != 1 || ids[1] != 5 || ids[2] != 11 {
+		t.Fatalf("depois de esquecer o 3: %v", ids)
+	}
+	if st, ok := q.Stream(5); !ok || st.StreamID != 5 {
+		t.Fatal("índice do stream 5 depois do esquecimento")
+	}
+}

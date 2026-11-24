@@ -9,8 +9,8 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
-// FuzzParse alimenta o parser com bytes arbitrários, inteiros e em dois pedaços: não pode entrar em pânico,
-// o resultado tem de virar JSON e os tetos têm de ser respeitados.
+// FuzzParse alimenta o parser com bytes arbitrários, inteiros e em dois pedaços (esquecendo um stream entre
+// eles): não pode entrar em pânico, o resultado tem de virar JSON e os tetos têm de ser respeitados.
 func FuzzParse(f *testing.F) {
 	if raw, err := os.ReadFile("testdata/chrome-foxio-in.bin"); err == nil {
 		f.Add(raw[:min(len(raw), 4096)], uint16(100), true)
@@ -29,8 +29,17 @@ func FuzzParse(f *testing.F) {
 		p := NewParser(opts)
 		c := min(int(cut), len(b))
 		p.Feed(0, b[:c])
+		// esquece o stream do meio entre os pedaços (como o web faz ao publicar; task 349)
+		if st := p.Info().Streams; len(st) > 0 {
+			p.ForgetStream(st[len(st)/2].StreamID)
+		}
 		p.Feed(1, b[c:])
 		info := p.Info()
+		for _, st := range info.Streams {
+			if got, ok := p.Stream(st.StreamID); !ok || got.StreamID != st.StreamID {
+				t.Fatalf("índice do stream %d inconsistente", st.StreamID)
+			}
+		}
 		if len(info.Frames) > 64 || len(info.Streams) > 8 || len(info.Priorities) > 4 {
 			t.Fatalf("teto violado: frames=%d streams=%d prio=%d", len(info.Frames), len(info.Streams), len(info.Priorities))
 		}

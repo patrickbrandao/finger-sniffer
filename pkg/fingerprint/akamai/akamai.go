@@ -32,10 +32,14 @@ func FromInfo(info *h2passive.HTTP2Info) string {
 	in := Input{Settings: info.Settings, WindowUpdate: info.WindowUpdate}
 	n := min(info.PrioritiesBeforeHeaders, len(info.Priorities))
 	in.Priorities = info.Priorities[:n]
-	for _, s := range info.Streams {
-		if s.StreamID == info.FirstHeadersStream {
-			in.PseudoOrder = s.PseudoOrder
-			break
+	// a ordem do primeiro bloco fica guardada no parser mesmo depois que o stream é esquecido (task 349)
+	in.PseudoOrder = info.FirstPseudoOrder
+	if in.PseudoOrder == nil {
+		for _, s := range info.Streams {
+			if s.StreamID == info.FirstHeadersStream {
+				in.PseudoOrder = s.PseudoOrder
+				break
+			}
 		}
 	}
 	return Fingerprint(in)

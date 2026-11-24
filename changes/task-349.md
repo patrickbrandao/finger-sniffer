@@ -1,0 +1,1 @@
+- web/pkg: o parser h2 passivo esquece cada stream publicado (`ForgetStream`) e o teto de 1000 streams passa a valer para os registrados ao mesmo tempo; conexões h2 com mais de 1000 requisições deixam de publicar streams com `stream_id` 0, sem campos e sem JA4H, e o Akamai guarda a ordem dos pseudo-cabeçalhos do primeiro stream (task 349).
