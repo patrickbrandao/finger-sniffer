@@ -74,8 +74,10 @@ Regras de propriedade:
 1. Problemas encontrados por inspeção viram uma nova tarefa (próximo `nnn` livre, template em AGENTS/INDEX).
 2. Antes de começar: `status: em-andamento` e `responsavel: <papel>`. Nunca pegar tarefa já `em-andamento`.
 3. Ao concluir: remover o arquivo da tarefa e fazer o commit da entrega citando o ID.
-4. Tarefa descartada também é removida; se o descarte for uma decisão, registrar em ADR.
-5. Tarefas das fases seguintes são criadas pelo architect quando a fase anterior atinge o critério de saída.
+4. Depois do merge: `make clean-worktrees` (só lista por padrão; com `--apply`, remove os worktrees limpos com PR
+   mergeado e as branches locais deles; task 374) ou remover o próprio worktree e a branch `task/nnn-slug`.
+5. Tarefa descartada também é removida; se o descarte for uma decisão, registrar em ADR.
+6. Tarefas das fases seguintes são criadas pelo architect quando a fase anterior atinge o critério de saída.
 
 ## Definition of Done
 Uma tarefa está concluída quando todos os itens forem verdadeiros:
