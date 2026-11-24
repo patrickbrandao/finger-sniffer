@@ -308,3 +308,43 @@ func TestPacketBatchHeaders(t *testing.T) {
 		t.Fatal("short batch must be discarded whole")
 	}
 }
+
+// TestLatePacketOnlyFKDropped: o tardio de uma conexão apagada continua descartado e contado (FK), mas qualquer
+// outro erro de SQL no INSERT do tardio aborta o lote inteiro (task 384).
+func TestLatePacketOnlyFKDropped(t *testing.T) {
+	in, db := newTestIngestor(t, func(c *IngestConfig) { c.CloseGrace = prodGrace(t) })
+	other := netip.AddrPortFrom(mirror.Addr(), 7701)
+	run(t, in, 1060, segBatch(client, other, closeSegs))
+	if n := count(t, db, "SELECT count(*) FROM connections"); n != 1 {
+		t.Fatalf("%d conexões", n)
+	}
+	pcapLen := count(t, db, "SELECT length(data) FROM pcaps")
+
+	// erro diferente da FK no tardio (gatilho só em packets, a conexão segue no banco): o lote volta
+	drop := failOn(t, db, "packets")
+	late := segBatch(client, other, []seg{{ms: 1100, fromCli: true, flags: tcpRST, seq: 1102}})
+	if err := processErr(in, late); err == nil {
+		t.Fatal("non-FK SQL error in a late packet must abort the batch")
+	}
+	if v := in.metrics.Get("store_late_dropped_total"); v != 0 {
+		t.Fatalf("store_late_dropped_total = %v", v)
+	}
+	drop()
+	if err := processErr(in, late); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, db, "SELECT length(data) FROM pcaps"); n <= pcapLen {
+		t.Fatalf("redelivery: pcap %d bytes, want > %d", n, pcapLen)
+	}
+
+	// conexão apagada: a FK recusa o tardio, que é descartado e contado sem derrubar o lote
+	if _, err := db.Exec("DELETE FROM connections"); err != nil {
+		t.Fatal(err)
+	}
+	if err := processErr(in, segBatch(client, other, []seg{{ms: 1150, fromCli: true, flags: tcpRST, seq: 1102}})); err != nil {
+		t.Fatalf("FK violation of a late packet must not abort the batch: %v", err)
+	}
+	if v := in.metrics.Get("store_late_dropped_total"); v != 1 {
+		t.Fatalf("store_late_dropped_total = %v", v)
+	}
+}

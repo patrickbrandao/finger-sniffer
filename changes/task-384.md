@@ -1,0 +1,1 @@
+- store: o pacote tardio só é descartado quando a FK recusa a linha (conexão apagada); qualquer outro erro de SQL (inclusive `SQLITE_FULL`) aborta o lote e segue o caminho normal de rollback, banco cheio ou `Nak` (task 384).
