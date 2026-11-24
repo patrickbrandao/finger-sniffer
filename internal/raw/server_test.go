@@ -112,6 +112,8 @@ type sessionResult struct {
 	truncated map[string]bool
 	// Eventos TLS publicados pela sessão (envelope com payload cru).
 	clientHello, handshake *event.Envelope
+	// clientHellos conta os fs.v1.web.tls.client_hello da sessão (um por handshake).
+	clientHellos int
 }
 
 // waitSession lê eventos até o fs.v1.raw.session.
@@ -145,6 +147,7 @@ func (e *testEnv) waitSession(t *testing.T) sessionResult {
 				}
 			case event.SubjectWebTLSClientHello:
 				res.clientHello = &env
+				res.clientHellos++
 			case event.SubjectWebTLSHandshake:
 				res.handshake = &env
 			case event.SubjectRawSession:

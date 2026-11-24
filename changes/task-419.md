@@ -1,0 +1,1 @@
+- raw: TLS nas portas cruas retoma sessão (1.2 e 1.3) com uma tls.Config por servidor em vez de um clone por conexão; `tls.negotiated.resumed` passa a sair `true` e o ClientHello continua publicado uma vez (task 419).

@@ -466,3 +466,66 @@ func TestStartTLSKeepsDeliverySocket(t *testing.T) {
 		_ = conn.Close()
 	}
 }
+
+// TestTLSResumption confere que o raw retoma sessões TLS entre conexões TCP (task 419, como o web na task 346):
+// com o mesmo ClientSessionCache, a segunda conexão retoma no cliente, o evento de handshake marca resumed=true e
+// o ClientHello cru da conexão retomada (com pre_shared_key no 1.3, session_ticket no 1.2) continua publicado uma
+// vez, com JA4. Vale na porta tls-* e no TLS automático.
+func TestTLSResumption(t *testing.T) {
+	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo", TLS: true}, {Port: 0, Mode: "echo"}}, withTLS(t))
+	for _, port := range []struct {
+		name string
+		addr string
+	}{{"tls-echo", env.addr[0]}, {"auto", env.addr[len(env.addr)/2]}} {
+		for _, tc := range []struct {
+			name    string
+			version uint16
+			ja4     string
+			ext     func(tlsparse.Info) bool
+		}{
+			{"tls13", tls.VersionTLS13, "t13", func(i tlsparse.Info) bool { return i.PreSharedKey }},
+			{"tls12", tls.VersionTLS12, "t12", func(i tlsparse.Info) bool { return i.SessionTicket }},
+		} {
+			t.Run(port.name+"/"+tc.name, func(t *testing.T) {
+				cache := tls.NewLRUClientSessionCache(4)
+				for i := range 2 {
+					c := dialTLS(t, port.addr, "", func(cfg *tls.Config) {
+						cfg.MinVersion, cfg.MaxVersion, cfg.ClientSessionCache = tc.version, tc.version, cache
+					})
+					if got, want := c.ConnectionState().DidResume, i == 1; got != want {
+						t.Fatalf("conn %d: DidResume %v, want %v", i, got, want)
+					}
+					// Uma troca completa: no 1.3 o cliente só guarda o ticket ao ler o NewSessionTicket pós-handshake.
+					if _, err := c.Write([]byte("x")); err != nil {
+						t.Fatal(err)
+					}
+					if got := readN(t, c, 1); got != "x" {
+						t.Fatalf("echo = %q", got)
+					}
+					_ = c.Close()
+					r := env.waitSession(t)
+					var hs event.TLSHandshake
+					if r.handshake == nil {
+						t.Fatalf("conn %d: no handshake event", i)
+					}
+					if err := json.Unmarshal(r.handshake.Payload, &hs); err != nil {
+						t.Fatal(err)
+					}
+					if hs.Negotiated == nil || hs.Negotiated.Resumed != (i == 1) {
+						t.Fatalf("conn %d: handshake %+v", i, hs.Negotiated)
+					}
+					if r.clientHellos != 1 {
+						t.Fatalf("conn %d: %d client hello events", i, r.clientHellos)
+					}
+					info := decodeTLSInfo(t, r.clientHello)
+					if !strings.HasPrefix(info.JA4, tc.ja4) || len(info.ClientHelloB64) == 0 {
+						t.Fatalf("conn %d: client hello ja4=%q", i, info.JA4)
+					}
+					if i == 1 && !tc.ext(info) {
+						t.Fatalf("conn %d: resumption extension not seen in client hello", i)
+					}
+				}
+			})
+		}
+	}
+}
