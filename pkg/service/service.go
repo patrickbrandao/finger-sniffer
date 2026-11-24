@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -40,6 +41,9 @@ type Service struct {
 	status  StatusFunc
 }
 
+// logOutput é a saída do log do serviço; os testes a trocam para inspecionar o que é registrado.
+var logOutput io.Writer = os.Stdout
+
 // New carrega a configuração, cria o log e conecta ao NATS. A conexão é assíncrona: se o NATS estiver fora,
 // o serviço sobe assim mesmo e o produtor guarda os eventos (ADR 0003).
 func New(name string) (*Service, error) {
@@ -47,7 +51,7 @@ func New(name string) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})).
+	log := slog.New(slog.NewJSONHandler(logOutput, &slog.HandlerOptions{Level: cfg.LogLevel})).
 		With("service", name, "version", version.Version)
 	s := &Service{
 		Name: name, Config: cfg, Log: log, Metrics: NewMetrics(), started: time.Now(),
@@ -55,8 +59,8 @@ func New(name string) (*Service, error) {
 	}
 	var closeOnce sync.Once
 
-	nc, err := nats.Connect(cfg.NATSURL,
-		nats.Name("finger-sniffer-"+name),
+	opts := []nats.Option{
+		nats.Name("finger-sniffer-" + name),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(time.Second),
@@ -69,13 +73,38 @@ func New(name string) (*Service, error) {
 		}),
 		// Avisa o Run de que a conexão fechou: no Drain, isso só ocorre depois do flush das publicações.
 		nats.ClosedHandler(func(*nats.Conn) { closeOnce.Do(func() { close(s.closed) }) }),
+		// Credencial recusada (ou ausente, com o NATS exigindo) não encerra a conexão de vez: o serviço segue
+		// tentando (ADR 0003), como com o NATS fora, e a recusa fica no log a cada tentativa.
+		nats.IgnoreAuthErrorAbort(),
+	}
+	if cfg.NATSUser != "" {
+		opts = append(opts, nats.UserInfo(cfg.NATSUser, cfg.NATSPassword.Reveal()))
+	}
+	// Erros assíncronos e recusas de credencial ("Authorization Violation") vão para o log com o usuário e nunca
+	// com a senha. Falha de reconexão por NATS fora não é registrada aqui: o DisconnectErrHandler já avisou.
+	opts = append(opts,
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			log.Error("nats error", "err", err, "nats_user", cfg.NATSUser)
+		}),
+		nats.ReconnectErrHandler(func(_ *nats.Conn, err error) {
+			if isAuthError(err) {
+				log.Error("nats authorization failed", "err", err, "nats_user", cfg.NATSUser)
+			}
+		}),
 	)
+	nc, err := nats.Connect(cfg.NATSURL, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("service: nats: %w", err)
 	}
 	s.NC = nc
 	s.Producer = NewProducer(nc, cfg.BufferMaxAge, cfg.BufferMaxBytes, s.Metrics)
 	return s, nil
+}
+
+// isAuthError diz se o erro é uma recusa de credencial pelo NATS.
+func isAuthError(err error) bool {
+	return errors.Is(err, nats.ErrAuthorization) || errors.Is(err, nats.ErrAuthExpired) ||
+		errors.Is(err, nats.ErrAuthRevoked) || errors.Is(err, nats.ErrAccountAuthExpired)
 }
 
 // SetStatus define a função de estado usada no heartbeat (padrão: sempre ok).

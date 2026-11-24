@@ -3,6 +3,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,7 +16,12 @@ import (
 
 // Config reúne a configuração comum a todos os serviços.
 type Config struct {
-	NATSURL           string
+	NATSURL string
+	// NATSUser é o usuário NATS do serviço (FS_NATS_USER, ADR 0075 item 1.3); vazio = sem autenticação.
+	NATSUser string
+	// NATSPassword é a senha do NATSUser (FS_NATS_PASSWORD_FILE ou FS_NATS_PASSWORD). O tipo Secret esconde o valor
+	// em qualquer formatação (%v, %+v, slog, JSON): a senha nunca vai para log, health nem mensagem de erro.
+	NATSPassword      Secret
 	LogLevel          slog.Level
 	BufferMaxAge      time.Duration
 	BufferMaxBytes    int
@@ -31,6 +37,9 @@ func LoadConfig() (Config, error) {
 	var c Config
 	var err error
 	c.NATSURL = Env("FS_NATS_URL", "nats://127.0.0.1:4222")
+	if c.NATSUser, c.NATSPassword, err = loadNATSAuth(); err != nil {
+		return c, err
+	}
 	if c.LogLevel, err = parseLevel(Env("FS_LOG_LEVEL", "info")); err != nil {
 		return c, err
 	}
@@ -57,6 +66,56 @@ func LoadConfig() (Config, error) {
 		return c, fmt.Errorf("service: %s não pode ser negativo", event.EnvRawStreamMaxBytes)
 	}
 	return c, nil
+}
+
+// Secret guarda um valor sensível; toda forma de impressão devolve "[redacted]". O valor só sai por Reveal.
+type Secret string
+
+const redacted = "[redacted]"
+
+// Reveal devolve o valor real, para entregar à biblioteca que precisa dele.
+func (s Secret) Reveal() string { return string(s) }
+
+// String esconde o valor (%v, %s, %+v).
+func (Secret) String() string { return redacted }
+
+// GoString esconde o valor (%#v).
+func (Secret) GoString() string { return redacted }
+
+// LogValue esconde o valor no slog.
+func (Secret) LogValue() slog.Value { return slog.StringValue(redacted) }
+
+// MarshalText esconde o valor em JSON e afins.
+func (Secret) MarshalText() ([]byte, error) { return []byte(redacted), nil }
+
+// loadNATSAuth lê o usuário e a senha do NATS (ADR 0075 item 1.3). Sem usuário, nada de senha. Com usuário, a
+// senha vem de exatamente uma das duas chaves e não pode ser vazia. Os erros citam chaves e caminho, nunca a senha.
+func loadNATSAuth() (string, Secret, error) {
+	user := Env("FS_NATS_USER", "")
+	direct := Env("FS_NATS_PASSWORD", "")
+	file := Env("FS_NATS_PASSWORD_FILE", "")
+	if direct != "" && file != "" {
+		return "", "", errors.New("service: FS_NATS_PASSWORD e FS_NATS_PASSWORD_FILE juntos; use só uma")
+	}
+	if user == "" {
+		if direct != "" || file != "" {
+			return "", "", errors.New("service: senha do NATS sem FS_NATS_USER")
+		}
+		return "", "", nil
+	}
+	pw := direct
+	if file != "" {
+		b, err := os.ReadFile(file) //nolint:gosec // caminho vem da unit, não do cliente
+		if err != nil {
+			// Só o erro do sistema (caminho e motivo): o conteúdo do arquivo nunca entra na mensagem.
+			return "", "", fmt.Errorf("service: FS_NATS_PASSWORD_FILE: %w", err)
+		}
+		pw = strings.TrimRight(string(b), " \t\r\n")
+	}
+	if pw == "" {
+		return "", "", fmt.Errorf("service: FS_NATS_USER=%s sem senha (FS_NATS_PASSWORD_FILE ou FS_NATS_PASSWORD)", user)
+	}
+	return user, Secret(pw), nil
 }
 
 // Env devolve a variável ou o padrão quando ausente ou vazia.
