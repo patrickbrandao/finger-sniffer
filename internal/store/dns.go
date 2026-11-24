@@ -69,8 +69,5 @@ func (in *Ingestor) insertDNS(ctx context.Context, tx *sql.Tx, ev appEvent, conn
 	in.metrics.Add("store_dns_queries_total", 1)
 	in.prom.dnsQuery()
 	in.liveDNS(ev.ts, data, h.Resolver.IP, connID, probeID)
-	if probeID != nil {
-		return upsertProbe(ctx, tx, *probeID, ev.ts)
-	}
 	return nil
 }

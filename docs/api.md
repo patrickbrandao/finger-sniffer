@@ -44,7 +44,8 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
   e suas consultas DNS (204). Tudo some na hora de todas as leituras (`/probes/{id}`, `/connections`, `/dns`, tempo
   real); as linhas saem do banco em lotes logo depois (ADR 0068), e pacotes e eventos
   que ainda chegarem para as conexões que estavam abertas são descartados até elas fecharem (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
-  probe novo.
+  probe novo. Um probe só existe enquanto houver conexão ou consulta DNS visível com o seu ID: sem nenhuma (nunca
+  visto, expirado ou já apagado), o `DELETE` responde 404, como o `GET /api/v1/probes/{id}` (ADR 0077).
 - Não há histórico além da retenção nem paginação por cursor: as listas aceitam só `limit` (1 a 1000, padrão 100)
   e vêm das mais novas para as mais antigas. Uma lista pode vir com **menos itens que `limit`** quando o corpo
   chegaria a 64 MiB (ADR 0066, contrato 0.7.0); continue pela janela de tempo (`until`/`since`).

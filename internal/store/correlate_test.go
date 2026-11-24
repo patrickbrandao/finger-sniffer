@@ -18,9 +18,8 @@ func TestEventBeforeSYNSameBatch(t *testing.T) {
 		t.Fatalf("probe %v", r.ProbeID)
 	}
 	if count(t, db, "SELECT count(*) FROM app_events WHERE conn_id = ?", id) != 1 ||
-		count(t, db, "SELECT count(*) FROM connections WHERE probe_id = 't1a2b3c4'") != 1 ||
-		count(t, db, "SELECT count(*) FROM probes WHERE probe_id = 't1a2b3c4'") != 1 {
-		t.Fatal("event, probe column or probes row missing")
+		count(t, db, "SELECT count(*) FROM connections WHERE probe_id = 't1a2b3c4'") != 1 {
+		t.Fatal("event or probe column missing")
 	}
 	if len(in.pending) != 0 {
 		t.Fatal("pending must be empty")
@@ -140,8 +139,9 @@ func TestEventFirstProbeWins(t *testing.T) {
 	if r.ProbeID == nil || *r.ProbeID != "aaaaaaaa" {
 		t.Fatalf("%v", r.ProbeID)
 	}
-	if count(t, db, "SELECT count(*) FROM probes") != 2 {
-		t.Fatal("both probes seen")
+	// o segundo probe fica só no envelope do evento: sem tabela probes (ADR 0077 item 2)
+	if count(t, db, "SELECT count(*) FROM app_events WHERE conn_id IS NOT NULL") != 3 {
+		t.Fatal("app events missing")
 	}
 }
 

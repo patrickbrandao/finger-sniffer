@@ -127,3 +127,50 @@ func TestDropQUICDCID(t *testing.T) {
 		t.Fatal("down para 00001: quic_dcid de volta, índice fora, linhas preservadas")
 	}
 }
+
+// TestDropProbes: a 00005 tira a tabela probes e o índice probes_last_seen; o Down os recria vazios, como na 00001
+// (ADR 0077 item 2, task 383).
+func TestDropProbes(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	p, err := goose.NewProvider(goose.DialectSQLite3, db, FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(kind, name string) bool {
+		t.Helper()
+		var n int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type = ? AND name = ?", kind, name).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n > 0
+	}
+	if _, err := p.UpTo(ctx, 4); err != nil {
+		t.Fatal(err)
+	}
+	if !has("table", "probes") || !has("index", "probes_last_seen") {
+		t.Fatal("00004: probes e o índice deviam existir")
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO probes (probe_id, first_seen, last_seen) VALUES ('abc12345', 1, 2)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 5); err != nil {
+		t.Fatal(err)
+	}
+	if has("table", "probes") || has("index", "probes_last_seen") {
+		t.Fatal("00005: probes e o índice deviam sumir")
+	}
+	if _, err := p.DownTo(ctx, 4); err != nil {
+		t.Fatal(err)
+	}
+	if !has("table", "probes") || !has("index", "probes_last_seen") {
+		t.Fatal("down para 00004: probes e o índice deviam voltar")
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM probes").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("down para 00004: probes devia voltar vazia (%d, %v)", n, err)
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO probes (probe_id, first_seen, last_seen) VALUES ('abc12345', 1, 2)"); err != nil {
+		t.Fatalf("down para 00004: probes com o esquema da 00001: %v", err)
+	}
+}

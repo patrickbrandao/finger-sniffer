@@ -76,14 +76,11 @@ func TestDeleteProbeAtomic(t *testing.T) {
 	if _, err := db.Exec("UPDATE connections SET probe_id = ? WHERE conn_id = ?", probeID, f.opened); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("CREATE TRIGGER fail_probe BEFORE DELETE ON probes BEGIN SELECT RAISE(ABORT, 'injected'); END"); err != nil {
+	if _, err := db.Exec("CREATE TRIGGER fail_probe BEFORE INSERT ON deleted_probes BEGIN SELECT RAISE(ABORT, 'injected'); END"); err != nil {
 		t.Fatal(err)
 	}
 	q := NewQueries(db, f.in.flows.live, 65535)
 	q.SetHideOpen(f.in.flows.hide, f.in.flows.unhide)
-	if _, err := db.Exec("INSERT OR IGNORE INTO probes (probe_id, first_seen, last_seen) VALUES (?, 0, 0)", probeID); err != nil {
-		t.Fatal(err)
-	}
 	if err := q.DeleteProbe(context.Background(), db, probeID); err == nil {
 		t.Fatal("want error")
 	}
@@ -158,7 +155,8 @@ func TestDeleteProbeMissingSkipsWriter(t *testing.T) {
 	}
 }
 
-// TestDeleteProbeOneAtATime: DELETE simultâneos de probes existentes nunca seguram juntos o escritor (task 317).
+// TestDeleteProbeOneAtATime: DELETE simultâneos de probes existentes (cada um com uma consulta DNS visível) nunca
+// seguram juntos o escritor (task 317).
 func TestDeleteProbeOneAtATime(t *testing.T) {
 	db, _ := testDB(t)
 	ctx := context.Background()
@@ -166,7 +164,8 @@ func TestDeleteProbeOneAtATime(t *testing.T) {
 	const n = 20
 	for i := range n {
 		id := fmt.Sprintf("real%010d", i)
-		if _, err := db.Exec("INSERT INTO probes (probe_id, first_seen, last_seen) VALUES (?, 0, 0)", id); err != nil {
+		if _, err := db.Exec(`INSERT INTO dns_queries (ts_ns, probe_id, resolver_ip, resolver_port, proto, qname, qtype, record_json)
+			VALUES (1, ?, '198.51.100.53', 53, 'udp', 'x.', 'A', '{}')`, id); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -184,7 +183,39 @@ func TestDeleteProbeOneAtATime(t *testing.T) {
 	if q.deleteTx.Load() != n || q.deleteMax.Load() != 1 {
 		t.Fatalf("writer transactions %d, max simultaneous %d; want %d and 1", q.deleteTx.Load(), q.deleteMax.Load(), n)
 	}
-	if c := count(t, db, "SELECT count(*) FROM probes"); c != 0 {
-		t.Fatalf("probes left: %d", c)
+	if c := count(t, db, "SELECT count(*) FROM deleted_probes"); c != n {
+		t.Fatalf("deleted_probes: %d, want %d", c, n)
+	}
+}
+
+// TestDeleteProbeWithoutProbesTable: sem a tabela probes (ADR 0077 item 2, task 383), o probe existe enquanto
+// houver conexão ou consulta DNS visível com o seu ID: 204 com uma delas, 404 sem nenhuma (e no segundo DELETE).
+func TestDeleteProbeWithoutProbesTable(t *testing.T) {
+	db, _ := testDB(t)
+	ctx := context.Background()
+	if c := count(t, db, "SELECT count(*) FROM sqlite_master WHERE name IN ('probes', 'probes_last_seen')"); c != 0 {
+		t.Fatalf("probes table or index still present: %d", c)
+	}
+	q := NewQueries(db, nil, 65535)
+	const onlyDNS, onlyConn, none = "dnsonly1", "connonly", "nothing1"
+	if _, err := db.Exec(`INSERT INTO dns_queries (ts_ns, probe_id, resolver_ip, resolver_port, proto, qname, qtype, record_json)
+		VALUES (1, ?, '198.51.100.53', 53, 'udp', 'x.', 'A', '{}')`, onlyDNS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO connections (conn_id, probe_id, l4, family, src_ip, src_port, dst_ip, dst_port, proto,
+		started_ns, ended_ns, record_json, updated_ns) VALUES ('01JC0X3K8V2T7Q9N4M6P1R5S8W', ?, 'tcp', 4, '192.0.2.1', 41234,
+		'172.233.24.85', 8443, 'tls/http1.1', 1, 2, '{}', 2)`, onlyConn); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{onlyDNS, onlyConn} {
+		if err := q.DeleteProbe(ctx, db, id); err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if err := q.DeleteProbe(ctx, db, id); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s again: %v, want not found", id, err)
+		}
+	}
+	if err := q.DeleteProbe(ctx, db, none); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("%s: %v, want not found", none, err)
 	}
 }

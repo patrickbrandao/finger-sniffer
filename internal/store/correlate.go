@@ -361,11 +361,6 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 			return err
 		}
 	}
-	if ev.env.ProbeID != nil && *ev.env.ProbeID != "" {
-		if err := upsertProbe(ctx, tx, *ev.env.ProbeID, ev.ts); err != nil {
-			return err
-		}
-	}
 	if tg.open {
 		probeSet, before, after, ok := in.flows.addApp(tg.id, ev)
 		if ok {
