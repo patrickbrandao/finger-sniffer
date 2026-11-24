@@ -9,12 +9,10 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
-	"time"
 
 	"github.com/gopacket/gopacket/afpacket"
 	"golang.org/x/net/bpf"
 
-	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
@@ -64,77 +62,34 @@ func Run(ctx context.Context, svc *service.Service, cfg Config) error {
 		"snaplen", cfg.Snaplen, "block_timeout", cfg.BlockTimeout.String(), "aggregating_offloads", aggOn,
 		"offload_check_error", errString(aggErr))
 
-	flush := func() {
-		if msg := batch.Take(); msg != nil {
-			svc.Producer.Publish(msg)
-			m.Add("capture_batches_total", 1)
-		}
-	}
-	stats := time.NewTicker(time.Second)
-	defer stats.Stop()
-	refresh := time.NewTicker(30 * time.Second)
-	defer refresh.Stop()
+	return runLoop(ctx, tpacketReader{tp}, loopEnv{
+		metrics: m, health: health, cls: cls, batch: batch, batchWait: cfg.BatchWait, publish: svc.Producer.Publish,
+		refresh: func() { cls.local = refreshLocal(svc.Log, cfg.Iface, cls.local, ifc.Addrs) },
+	})
+}
 
-	for ctx.Err() == nil {
-		select {
-		case <-stats.C:
-			_, s3, err := tp.SocketStats()
-			if err == nil {
-				m.Set("capture_kernel_packets_total", float64(s3.Packets()))
-				m.Set("capture_kernel_drops_total", float64(s3.Drops()))
-				m.Set("capture_queue_freezes_total", float64(s3.QueueFreezes()))
-				health.ObserveDrops(uint64(s3.Drops()))
-			}
-		case <-refresh.C:
-			cls.local = refreshLocal(svc.Log, cfg.Iface, cls.local, ifc.Addrs)
-		default:
-		}
+// tpacketReader adapta o *afpacket.TPacket ao packetReader do laço, traduzindo os erros do gopacket.
+type tpacketReader struct{ tp *afpacket.TPacket }
 
-		data, ci, err := tp.ZeroCopyReadPacketData()
-		if err != nil {
-			if errors.Is(err, afpacket.ErrTimeout) || errors.Is(err, afpacket.ErrPoll) {
-				if batch.Due(time.Now()) {
-					flush()
-				}
-				continue
-			}
-			return fmt.Errorf("capture: read: %w", err)
-		}
-		fr := parseFrame(data)
-		if cls.excludedPort(fr) {
-			m.Add("capture_filtered_userspace_total", 1)
-			continue
-		}
-		dir := cls.direction(fr)
-		fl := cls.flags(ci.Length, ci.CaptureLength)
-		if cls.oversize(ci.Length) {
-			health.ObserveSuspect(1)
-		}
-		if fl&event.FlagOffloadSuspect != 0 {
-			m.Add("capture_offload_suspect_total", 1)
-		}
-		if fl&event.FlagTruncated != 0 {
-			m.Add("capture_truncated_total", 1)
-		}
-		if dir == event.DirOut {
-			m.Add("capture_packets_out_total", 1)
-		} else {
-			m.Add("capture_packets_in_total", 1)
-		}
-		if ci.Length > int(m.Get("capture_max_frame_bytes")) {
-			m.Set("capture_max_frame_bytes", float64(ci.Length))
-		}
-		now := time.Now()
-		pkt := event.Packet{TsNs: ci.Timestamp.UnixNano(), Dir: dir, Flags: fl, WireLen: uint32(ci.Length), Frame: data} //nolint:gosec // frame <= maxSnap
-		if !batch.Fits(pkt) {
-			flush()
-		}
-		if batch.Add(pkt, now) || batch.Due(now) {
-			flush()
-		}
+func (r tpacketReader) ReadPacket() ([]byte, frameInfo, error) {
+	data, ci, err := r.tp.ZeroCopyReadPacketData()
+	switch {
+	case err == nil:
+		return data, frameInfo{Timestamp: ci.Timestamp, Length: ci.Length, CaptureLength: ci.CaptureLength}, nil
+	case errors.Is(err, afpacket.ErrTimeout):
+		return nil, frameInfo{}, errReadTimeout
+	case errors.Is(err, afpacket.ErrPoll):
+		return nil, frameInfo{}, errReadPoll
 	}
-	flush()
-	return nil
+	return nil, frameInfo{}, err
+}
+
+func (r tpacketReader) Stats() (kernelStats, error) {
+	_, s3, err := r.tp.SocketStats()
+	if err != nil {
+		return kernelStats{}, err
+	}
+	return kernelStats{Packets: uint64(s3.Packets()), Drops: uint64(s3.Drops()), QueueFreezes: uint64(s3.QueueFreezes())}, nil
 }
 
 func errString(err error) string {

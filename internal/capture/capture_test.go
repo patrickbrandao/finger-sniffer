@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats.go"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -311,6 +314,16 @@ func TestHealth(t *testing.T) {
 		t.Fatal("no new drops: must be ok")
 	}
 
+	// POLLERR desde o último heartbeat: degraded com motivo próprio (task 376); sem novos, volta a ok.
+	h.ObservePollError()
+	h.ObservePollError()
+	if st, r := h.Status(); st != event.StatusDegraded || len(r) != 1 || r[0] != "capture socket error" {
+		t.Fatalf("%s %v", st, r)
+	}
+	if st, _ := h.Status(); st != event.StatusOK {
+		t.Fatal("no new poll errors: must be ok")
+	}
+
 	// Sem ethtool: cai para o arquivo da unit de rede.
 	h.features = func(context.Context, string) (string, error) { return "", errors.New("no ethtool") }
 	if _, r := h.Status(); len(r) != 1 || r[0] != "offload state unavailable" {
@@ -342,4 +355,120 @@ func FuzzParseFrame(f *testing.F) {
 	f.Add(buildFrame(frameOpt{vlan: true, v6: true, proto: 17, sport: 1, dport: 2}))
 	f.Add(buildFrame(frameOpt{v6: true, v6ext: []byte{0, 43, 44, 51, 60}, proto: 6, sport: 1, dport: 2}))
 	f.Fuzz(func(t *testing.T, b []byte) { _ = parseFrame(b) })
+}
+
+// fakeReader devolve os passos em ordem e, no fim, repete o último erro (ou errReadTimeout).
+type fakeReader struct {
+	steps []fakeStep
+	reads atomic.Int64
+}
+
+type fakeStep struct {
+	frame []byte
+	err   error
+}
+
+func (f *fakeReader) ReadPacket() ([]byte, frameInfo, error) {
+	n := int(f.reads.Add(1)) - 1
+	if n >= len(f.steps) {
+		if len(f.steps) > 0 && f.steps[len(f.steps)-1].err != nil {
+			return nil, frameInfo{}, f.steps[len(f.steps)-1].err
+		}
+		time.Sleep(time.Millisecond)
+		return nil, frameInfo{}, errReadTimeout
+	}
+	st := f.steps[n]
+	if st.err != nil {
+		return nil, frameInfo{}, st.err
+	}
+	return st.frame, frameInfo{Timestamp: time.Unix(0, 1), Length: len(st.frame), CaptureLength: len(st.frame)}, nil
+}
+
+func (f *fakeReader) Stats() (kernelStats, error) { return kernelStats{Packets: 3, Drops: 1}, nil }
+
+func testLoopEnv(t *testing.T, wait time.Duration, published *[]*nats.Msg) (loopEnv, *Health) {
+	t.Helper()
+	h := NewHealth("ens192", filepath.Join(t.TempDir(), "x.json"))
+	h.features = func(context.Context, string) (string, error) { return "", nil }
+	m := service.NewMetrics()
+	initMetrics(m)
+	return loopEnv{
+		metrics: m, health: h, batch: NewBatcher(256, wait, "ens192"), batchWait: wait,
+		cls:     &classifier{local: map[netip.Addr]bool{}, excluded: toSet([]uint16{9000}), mtu: 1500},
+		publish: func(msg *nats.Msg) { *published = append(*published, msg) },
+	}, h
+}
+
+// POLLERR seguido (sk_err pendurado depois de a interface cair): o laço dorme BatchWait a cada volta em vez de
+// girar, conta capture_poll_errors_total, marca o heartbeat e sai com erro depois do prazo (task 376).
+func TestRunLoopPollError(t *testing.T) {
+	const wait, limit = 10 * time.Millisecond, 200 * time.Millisecond
+	var pub []*nats.Msg
+	e, h := testLoopEnv(t, wait, &pub)
+	e.pollLimit = limit
+	tcp := buildFrame(frameOpt{proto: 6, sport: 40000, dport: 8080, src: []byte{10, 0, 0, 1}, dst: []byte{10, 0, 0, 2}})
+	r := &fakeReader{steps: []fakeStep{{frame: tcp}, {err: errReadPoll}}}
+
+	start := time.Now()
+	err := runLoop(context.Background(), r, e)
+	el := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "POLLERR") {
+		t.Fatalf("err=%v", err)
+	}
+	if el < limit || el > limit+time.Second {
+		t.Fatalf("returned after %v, want ~%v", el, limit)
+	}
+	polls := r.reads.Load() - 1
+	// Uma leitura por BatchWait, com folga para o agendador: sem a pausa seriam milhões.
+	if maxPolls := int64(limit/wait) + 3; polls > maxPolls || polls < 2 {
+		t.Fatalf("%d poll errors in %v (max %d)", polls, el, maxPolls)
+	}
+	if got := e.metrics.Get("capture_poll_errors_total"); int64(got) != polls {
+		t.Fatalf("capture_poll_errors_total=%v, want %d", got, polls)
+	}
+	// O pacote lido antes do erro sai no lote, não fica preso.
+	if len(pub) != 1 || e.metrics.Get("capture_packets_in_total") != 1 {
+		t.Fatalf("published %d batches, in=%v", len(pub), e.metrics.Get("capture_packets_in_total"))
+	}
+	if st, rs := h.Status(); st != event.StatusDegraded || !contains(rs, "capture socket error") {
+		t.Fatalf("%s %v", st, rs)
+	}
+}
+
+// POLLERR passageiro (menos que o prazo) não derruba: uma leitura boa zera a sequência.
+func TestRunLoopPollErrorRecovers(t *testing.T) {
+	const wait = 5 * time.Millisecond
+	var pub []*nats.Msg
+	e, _ := testLoopEnv(t, wait, &pub)
+	e.pollLimit = 30 * time.Millisecond
+	tcp := buildFrame(frameOpt{proto: 6, sport: 40000, dport: 8080, src: []byte{10, 0, 0, 1}, dst: []byte{10, 0, 0, 2}})
+	var steps []fakeStep
+	for range 4 {
+		steps = append(steps, fakeStep{err: errReadPoll}, fakeStep{err: errReadPoll}, fakeStep{frame: tcp})
+	}
+	r := &fakeReader{steps: steps}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if err := runLoop(ctx, r, e); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if e.metrics.Get("capture_poll_errors_total") != 8 || e.metrics.Get("capture_packets_in_total") != 4 {
+		t.Fatalf("%v", e.metrics.Snapshot())
+	}
+}
+
+// Timeout segue como antes; erro de leitura desconhecido continua fatal; porta excluída conta em espaço de usuário.
+func TestRunLoopTimeoutAndReadError(t *testing.T) {
+	var pub []*nats.Msg
+	e, _ := testLoopEnv(t, 5*time.Millisecond, &pub)
+	excl := buildFrame(frameOpt{proto: 6, sport: 9000, dport: 50000, src: []byte{10, 0, 0, 1}, dst: []byte{10, 0, 0, 2}})
+	boom := errors.New("boom")
+	r := &fakeReader{steps: []fakeStep{{err: errReadTimeout}, {frame: excl}, {err: errReadTimeout}, {err: boom}}}
+	err := runLoop(context.Background(), r, e)
+	if !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), "capture: read:") {
+		t.Fatalf("err=%v", err)
+	}
+	if e.metrics.Get("capture_filtered_userspace_total") != 1 || e.metrics.Get("capture_poll_errors_total") != 0 || len(pub) != 0 {
+		t.Fatalf("%v pub=%d", e.metrics.Snapshot(), len(pub))
+	}
 }
