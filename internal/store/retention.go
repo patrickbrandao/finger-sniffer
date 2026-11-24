@@ -67,6 +67,12 @@ type Retention struct {
 	// Path é o arquivo do banco: o que ele ocupa além de page_count já vai voltar ao tmpfs no próximo checkpoint
 	// (incremental_vacuum feito, arquivo ainda não cortado) e não precisa de mais expurgo.
 	Path string
+	// Reserve é o arquivo da reserva de espaço (dbSpace.reserve; vazio = sem reserva). Enquanto ela está solta (o
+	// expurgo de emergência a apaga antes de começar), o expurgo por espaço mira spaceOKPct de livre **mais** o que
+	// falta da reserva: é o livre de que ensureReserve precisa para recriá-la (task 416). Sem isso, o expurgo parava
+	// em spaceOKPct contando o espaço da reserva solta, a reserva não voltava e, num tmpfs em que ela é uma parte
+	// grande do tamanho, o déficit dava zero e nada era expurgado.
+	Reserve string
 	// spaceMode é a histerese do expurgo por espaço: liga abaixo de spaceLowPct, desliga em spaceOKPct.
 	spaceMode bool
 	// Checkpoint, se definido, é o checkpoint TRUNCATE do WAL que o expurgo de emergência faz depois de cada
@@ -242,7 +248,8 @@ func (r *Retention) Emergency(ctx context.Context) (int64, error) {
 }
 
 // spaceGoal devolve o tamanho lógico (páginas usadas) a que o expurgo por espaço precisa chegar, ou -1 quando o
-// livre do tmpfs não pede expurgo. force (emergência) ignora a histerese e mira spaceOKPct de livre.
+// livre do tmpfs não pede expurgo. force (emergência) ignora a histerese e mira spaceOKPct de livre (mais o que
+// falta da reserva de espaço, ver Reserve).
 func (r *Retention) spaceGoal(ctx context.Context, force bool) (int64, error) {
 	if r.Space == nil {
 		return -1, nil
@@ -251,16 +258,18 @@ func (r *Retention) spaceGoal(ctx context.Context, force bool) (int64, error) {
 	if err != nil || size <= 0 {
 		return -1, nil
 	}
-	switch pct := freePct(size, free); {
-	case pct < spaceLowPct:
+	// O livre que conta para o fim do expurgo desconta o que falta da reserva (ver Reserve).
+	missing := r.reserveMissing()
+	switch {
+	case freePct(size, free) < spaceLowPct:
 		r.spaceMode = true
-	case pct >= spaceOKPct:
+	case freePct(size, free-missing) >= spaceOKPct:
 		r.spaceMode = false
 	}
 	if !r.spaceMode && !force {
 		return -1, nil
 	}
-	need := spaceDeficit(size, free)
+	need := spaceDeficit(size, free-missing)
 	if need == 0 {
 		return -1, nil
 	}
@@ -274,6 +283,19 @@ func (r *Retention) spaceGoal(ctx context.Context, force bool) (int64, error) {
 		return -1, nil
 	}
 	return max(logical-need, 0), nil
+}
+
+// reserveMissing devolve quanto falta da reserva de espaço (ReserveBytes) no tmpfs: tudo se ela foi solta, a
+// diferença se ficou menor, 0 sem reserva configurada.
+func (r *Retention) reserveMissing() int64 {
+	if r.Reserve == "" || ReserveBytes <= 0 {
+		return 0
+	}
+	st, err := os.Stat(r.Reserve) //nolint:gosec // ao lado de FS_STORE_DB
+	if err != nil {
+		return ReserveBytes
+	}
+	return max(ReserveBytes-st.Size(), 0)
 }
 
 // pageUse devolve o tamanho lógico (páginas usadas) e quanto do arquivo do banco já pode voltar ao tmpfs: as

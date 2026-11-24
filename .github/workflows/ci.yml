@@ -149,12 +149,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # 32 MiB, não os 16 MiB da RF-08c: em 16 MiB o TestDBFullRealTmpfs reprova de forma determinística (só passa
-      # de 24 a 40 MiB); volta a 16 MiB com a task 416.
-      - name: tmpfs de 32 MiB
+      # 16 MiB, o da RF-08c (task 416: o TestDBFullRealTmpfs passa de 16 MiB para cima).
+      - name: tmpfs de 16 MiB
         run: |
           sudo mkdir -p /mnt/fs-tmpfs
-          sudo mount -t tmpfs -o size=32m,mode=1777 tmpfs /mnt/fs-tmpfs
+          sudo mount -t tmpfs -o size=16m,mode=1777 tmpfs /mnt/fs-tmpfs
           df -h /mnt/fs-tmpfs
 
       - name: testes sem -race
