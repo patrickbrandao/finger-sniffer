@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -295,7 +294,6 @@ func probeNow(t *testing.T, id string) probeResp {
 func checkH3Conn(t *testing.T, name string, c record, ref quicRef) {
 	t.Helper()
 	h := c.HTTP3
-	known := false
 	if c.Proto != "quic/h3" || c.L4 != "udp" || c.Dst.Port != portTLS || h == nil {
 		t.Fatalf("%s: proto=%s l4=%s porta=%d http3=%v", name, c.Proto, c.L4, c.Dst.Port, h != nil)
 	}
@@ -348,7 +346,7 @@ func checkH3Conn(t *testing.T, name string, c record, ref quicRef) {
 	if len(ref.HTTP3.ClientSettings) == 0 {
 		t.Errorf("tshark não decifrou o SETTINGS do cliente (keylog?)")
 	} else {
-		known = checkH3Settings(t, h.H3Settings, ref.HTTP3.ClientSettings[0])
+		checkH3Settings(t, h.H3Settings, ref.HTTP3.ClientSettings[0])
 	}
 	if len(h.Requests) == 0 || len(ref.HTTP3.ClientHeaders) == 0 {
 		t.Fatalf("requisições h3: registro %d, tshark %d", len(h.Requests), len(ref.HTTP3.ClientHeaders))
@@ -378,42 +376,25 @@ func checkH3Conn(t *testing.T, name string, c record, ref quicRef) {
 	}
 	t.Logf("%s: %s JA4=%s, %d parâmetros de transporte, %d campos QPACK, settings %v", name, c.ConnID, h.ClientHello.JA4,
 		len(h.TransportParams), len(rq.Fields), h.H3Settings)
-	if known {
-		// demais conferências já feitas acima; o skip só deixa a falha conhecida visível no relatório
-		t.Skipf("demais campos conferidos; pendente: %s", knownBigSettings)
-	}
 }
 
-// knownBigSettings marca a falha conhecida da task 062: o store decodifica o evento h3 em map[string]any e os
-// valores de SETTINGS acima de 2^53 (ex. 2^62-1 do curl) perdem precisão no JSON.
-const knownBigSettings = "task 062: h3_settings acima de 2^53 perdem precisão no store (float64)"
-
-// checkH3Settings compara os SETTINGS; diferença só em valores acima de 2^53 é a falha conhecida da task 062.
-func checkH3Settings(t *testing.T, got, want [][2]json.Number) bool {
+// checkH3Settings compara os SETTINGS, na ordem, valor a valor como texto: valores acima de 2^53 (ex. 2^62-1 do
+// curl e do quic-go) têm de sair exatos no registro (inteiros de 64 bits sem float64), e qualquer diferença falha.
+func checkH3Settings(t *testing.T, got, want [][2]json.Number) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Errorf("h3_settings %v, tshark %v", got, want)
-		return false
+		return
 	}
-	known := false
 	for i := range want {
 		if got[i][0] != want[i][0] {
 			t.Errorf("h3_settings[%d] id %s, tshark %s", i, got[i][0], want[i][0])
 			continue
 		}
-		if got[i][1] == want[i][1] {
-			continue
+		if got[i][1] != want[i][1] {
+			t.Errorf("h3_settings[%d] = %s, tshark %s", i, got[i][1], want[i][1])
 		}
-		gf, _ := got[i][1].Float64()
-		wf, _ := want[i][1].Float64()
-		if wf > 1<<53 && math.Abs(gf-wf) <= wf*1e-15 {
-			t.Logf("AVISO (%s): SETTINGS %s = %s no registro, %s no tshark", knownBigSettings, want[i][0], got[i][1], want[i][1])
-			known = true
-			continue
-		}
-		t.Errorf("h3_settings[%d] = %s, tshark %s", i, got[i][1], want[i][1])
 	}
-	return known
 }
 
 // TestCase12H3Controls: controles de resposta compatíveis com h3 (status, size, delay_*, h=) e 400 com
