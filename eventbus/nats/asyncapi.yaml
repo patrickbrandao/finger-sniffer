@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.7.0
+  version: 0.8.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 128 MiB — ADRs 0016 e 0039) assina a lista explícita de subjects de eventos
@@ -38,7 +38,10 @@ info:
     no heartbeat; nenhum payload do openapi do store mudou; 0.6.1, documental, ADR 0056: métricas com rótulos no
     heartbeat; 0.6.2, documental, ADR 0057: o bucket `+Inf` dos histogramas não é enviado; 0.7.0, aditivo, com o
     openapi 0.7.0, ADRs 0070 e 0067: `method_truncated`/`version_truncated` e `controls.truncated` no `HTTP1Request`;
-    `http_truncated`, `streams_truncated` e `requests_truncated` no `Connection` de `fs.v1.store.connection`).
+    `http_truncated`, `streams_truncated` e `requests_truncated` no `Connection` de `fs.v1.store.connection`; 0.8.0,
+    aditivo, com o openapi 0.8.0, ADR 0076: no `fs.v1.store.connection` o `opened` só sai com a conexão estabelecida
+    e a nunca estabelecida não publica nada; todo `opened` recebe um `closed`, que leva `connection.discarded` quando
+    a conexão saiu do banco sem registro).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes
@@ -216,7 +219,7 @@ operations:
   publishStoreConnection:
     action: send
     channel: { $ref: "#/channels/storeConnection" }
-    summary: store, depois do commit de cada estágio da conexão (opened, updated, closed).
+    summary: store, depois do commit de cada estágio da conexão estabelecida (opened, updated, closed; ADR 0076).
   consumeStoreConnection:
     action: receive
     channel: { $ref: "#/channels/storeConnection" }
@@ -265,9 +268,15 @@ components:
     StoreConnectionPayload:
       type: object
       description: |
-        Estado da conexão depois do commit do store (spec 004 RF-12, ADR 0047). `opened` = conexão criada com o SYN
-        (ou primeiro datagrama/evento) analisado; `updated` = evento de aplicação incorporado, no máximo um a cada
-        100 ms por conexão (os da janela saem como um só no fim dela, ADR 0055); `closed` = registro final. `connection` é o mesmo `Connection` de `GET /api/v1/connections/{conn_id}`, sem BLOBs; listas e
+        Estado da conexão depois do commit do store (spec 004 RF-12, ADRs 0047 e 0076). `opened` = primeiro estágio,
+        quando a conexão fica estabelecida (TCP: ACK do cliente depois do SYN-ACK ou primeiro evento de aplicação;
+        UDP: datagrama do cliente depois da primeira resposta do espelho ou evento h3; só de eventos: na criação),
+        com o estado daquele instante e `started` do SYN ou do primeiro datagrama; conexão nunca estabelecida
+        (avulso, SYN-ACK sem ACK, UDP respondido uma vez) não publica nenhum estágio; `updated` = evento de aplicação
+        incorporado, no máximo um a cada 100 ms por conexão (os da janela saem como um só no fim dela, ADR 0055);
+        `closed` = registro final, exatamente um por `opened`; quando a conexão saiu do banco sem registro
+        (despejada, probe apagado), `connection.discarded` diz o motivo e `connection` é o estado em memória
+        daquele instante (o `conn_id` não existe mais na API). `connection` é o mesmo `Connection` de `GET /api/v1/connections/{conn_id}`, sem BLOBs; listas e
         strings cortadas para caber em 900 KiB levam as marcas `*_truncated` de sempre e `connection_truncated`.
       required: [stage, connection]
       properties:
