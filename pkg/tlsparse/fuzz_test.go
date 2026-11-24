@@ -21,6 +21,8 @@ func FuzzParseClientHello(f *testing.F) {
 	}
 	f.Add([]byte{0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00})
 	f.Add(buildHello(ext(ExtKeyShare, 0, 4, 0, 0x1d, 0, 0)))
+	// extensão repetida (task 386)
+	f.Add(buildHello(append(ext(ExtALPN, 0, 3, 2, 'h', '2'), ext(ExtALPN, 0, 3, 2, 'x', '1')...)))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		ch, _ := Parse(data)
 		if ch == nil {

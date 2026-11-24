@@ -571,3 +571,72 @@ func TestReassembleErrors(t *testing.T) {
 		t.Fatal("Parse sem erro")
 	}
 }
+
+// TestDuplicateExtensions: com ALPN, supported_versions e signature_algorithms repetidos, todos os campos vêm da
+// primeira ocorrência, as duas ficam cruas em Extensions e cada repetição aparece em ExtensionErrors (task 386).
+func TestDuplicateExtensions(t *testing.T) {
+	exts := ext(ExtALPN, 0, 3, 2, 'h', '2')
+	exts = append(exts, ext(ExtALPN, 0, 3, 2, 'x', '1')...)
+	exts = append(exts, ext(ExtSupportedVersions, 2, 0x03, 0x04)...)
+	exts = append(exts, ext(ExtSupportedVersions, 2, 0x03, 0x03)...)
+	exts = append(exts, ext(ExtSignatureAlgorithms, 0, 2, 0x04, 0x03)...)
+	exts = append(exts, ext(ExtSignatureAlgorithms, 0, 2, 0x08, 0x04)...)
+	exts = append(exts, ext(ExtServerName, 0, 4, 0, 0, 1, 'a')...)
+	exts = append(exts, ext(ExtServerName, 0, 4, 0, 0, 1, 'b')...)
+	exts = append(exts, ext(ExtKeyShare, 0, 6, 0, 0x1d, 0, 2, 1, 2)...)
+	exts = append(exts, ext(ExtKeyShare, 0, 6, 0, 0x17, 0, 2, 1, 2)...)
+	ch, err := ParseMessage(buildHello(exts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Extensions) != 10 {
+		t.Fatalf("extensões cruas: %d", len(ch.Extensions))
+	}
+	if !slices.Equal(ch.ALPN, []string{"h2"}) || !slices.Equal(ch.SupportedVersions, []uint16{0x0304}) ||
+		!slices.Equal(ch.SignatureAlgorithms, []uint16{0x0403}) || ch.SNI != "a" ||
+		len(ch.KeyShares) != 1 || ch.KeyShares[0].Group != 0x1d {
+		t.Fatalf("alpn=%v versions=%x sigs=%x sni=%q keyshares=%v",
+			ch.ALPN, ch.SupportedVersions, ch.SignatureAlgorithms, ch.SNI, ch.KeyShares)
+	}
+	want := []uint16{ExtALPN, ExtSupportedVersions, ExtSignatureAlgorithms, ExtServerName, ExtKeyShare}
+	if len(ch.ExtensionErrors) != len(want) {
+		t.Fatalf("errors=%v", ch.ExtensionErrors)
+	}
+	for i, e := range ch.ExtensionErrors {
+		var pe *ParseError
+		if !errors.Is(e, ErrDuplicateExtension) || !errors.As(e, &pe) ||
+			pe.Field != fmt.Sprintf("extension 0x%04x", want[i]) || pe.Offset == 0 {
+			t.Fatalf("erro %d: %v", i, e)
+		}
+	}
+	// ALPS antigo e novo são tipos diferentes: não é repetição.
+	alps := append(ext(ExtALPSOld, 0, 3, 2, 'h', '2'), ext(ExtALPS, 0, 3, 2, 'h', '2')...)
+	if ch, _ := ParseMessage(buildHello(alps)); len(ch.ExtensionErrors) != 0 || len(ch.ALPS) != 2 {
+		t.Fatalf("alps=%v errors=%v", ch.ALPS, ch.ExtensionErrors)
+	}
+}
+
+// TestOddCipherSuites: cipher_suites de tamanho ímpar segue analisado (o byte que sobra é ignorado) e fica
+// marcado em FieldErrors (task 386).
+func TestOddCipherSuites(t *testing.T) {
+	msg := buildHello(nil)
+	// troca "0, 2, 0x13, 0x01" por "0, 3, 0x13, 0x01, 0xff" e corrige o tamanho do handshake
+	i := handshakeHeaderLen + 2 + 32 + 1
+	body := append(append([]byte{}, msg[handshakeHeaderLen:i]...), 0, 3, 0x13, 0x01, 0xff)
+	body = append(body, msg[i+4:]...)
+	n := len(body)
+	msg = append([]byte{1, byte(n >> 16), byte(n >> 8), byte(n)}, body...)
+	ch, err := ParseMessage(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pe *ParseError
+	if !slices.Equal(ch.CipherSuites, []uint16{0x1301}) || len(ch.FieldErrors) != 1 ||
+		!errors.Is(ch.FieldErrors[0], ErrOddLength) || !errors.As(ch.FieldErrors[0], &pe) ||
+		pe.Field != "cipher_suites" || pe.Offset != i {
+		t.Fatalf("suites=%x errors=%v", ch.CipherSuites, ch.FieldErrors)
+	}
+	if ch, _ := ParseMessage(buildHello(nil)); len(ch.FieldErrors) != 0 {
+		t.Fatalf("errors=%v", ch.FieldErrors)
+	}
+}
