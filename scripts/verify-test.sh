@@ -7,7 +7,9 @@
 #   - o openapi do bot entra nos contratos (task 262);
 #   - os testes -race do store em lotes no CI: repartição, união dos lotes = lista (falha com um teste omitido de
 #     propósito), race-shard num módulo mínimo e o workflow (task 294);
-#   - o passo e2e é recusado com a trava da carga no servidor, salvo FS_E2E_DURING_LOAD=1 (task 361).
+#   - o passo e2e é recusado com a trava da carga no servidor, salvo FS_E2E_DURING_LOAD=1 (task 361);
+#   - o quick acha os pacotes de mudanças fora de .go: testdata, arquivo embutido, diretório de dados, go.mod e o
+#     pacote deploy (task 362).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -421,6 +423,71 @@ ci_shards=$(sed -nE 's/^ +shard: \[([0-9, ]+)\]$/\1/p' "$CI_YML" | tr ',' '\n' |
 check "CI: race-check com o número de lotes da matriz" '[ "$ci_shards" -ge 2 ] && grep -qE "verify\.sh race-check $ci_shards " "$CI_YML"'
 check "CI: race-check depende do verify-full e dos lotes" 'grep -qF "needs: [verify-full, store-race]" "$CI_YML"'
 check "CI: lote com race-shard e tamanho da matriz" 'grep -qF "race-shard \"\${{ matrix.shard }}\" \"\${{ strategy.job-total }}\"" "$CI_YML"'
+
+# ---- task 362: mudanças fora de .go no quick (spec 017 RF-03) ----------------------------------------------
+# Módulo mínimo: p com testdata; q embute data.txt e r importa q; c cita "q/data.txt" num teste; g tem um
+# diretório de dados sem .go (pcaps) citado só por g/sub; s importa o módulo example.com/dep (replace local).
+NG="$T/nongo"
+mkdir -p "$NG/p/testdata" "$NG/q" "$NG/r" "$NG/c" "$NG/s" "$NG/g/pcaps" "$NG/g/sub" "$NG/g/other" "$NG/dep" "$NG/dep2" "$NG/docs"
+cat >"$NG/go.mod" <<'EOM'
+module example.com/ng
+
+go 1.21
+
+require example.com/dep v0.0.0
+
+replace example.com/dep => ./dep
+EOM
+printf 'module example.com/dep\n\ngo 1.21\n' >"$NG/dep/go.mod"
+printf 'package dep\n\nfunc D() int { return 1 }\n' >"$NG/dep/dep.go"
+cp "$NG/dep/go.mod" "$NG/dep/dep.go" "$NG/dep2/"
+printf 'package q\n\nimport _ "embed"\n\n//go:embed data.txt\nvar Data string\n' >"$NG/q/q.go"
+echo um >"$NG/q/data.txt"
+printf 'package r\n\nimport "example.com/ng/q"\n\nvar R = q.Data\n' >"$NG/r/r.go"
+printf 'package s\n\nimport "example.com/dep"\n\nvar S = dep.D()\n' >"$NG/s/s.go"
+for pkg in p c g; do printf 'package %s\n' "$pkg" >"$NG/$pkg/$pkg.go"; done
+for pkg in p q r s; do printf 'package %s\n\nimport "testing"\n\nfunc TestX(t *testing.T) {}\n' "$pkg" >"$NG/$pkg/x_test.go"; done
+printf 'package c\n\nimport "testing"\n\nfunc TestX(t *testing.T) { _ = "q/data.txt" }\n' >"$NG/c/c_test.go"
+printf 'package sub\n\nimport "testing"\n\nfunc TestX(t *testing.T) { _ = "../pcaps" }\n' >"$NG/g/sub/sub_test.go"
+printf 'package other\n\nimport "testing"\n\nfunc TestX(t *testing.T) {}\n' >"$NG/g/other/other_test.go"
+echo '{}' >"$NG/p/testdata/x.json"
+echo pcap >"$NG/g/pcaps/a.pcap"
+echo doc >"$NG/docs/x.md"
+(cd "$NG" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -qm init) || {
+	echo "FAIL git init do módulo de mudanças fora de .go"
+	exit 1
+}
+# ng_pkgs <tipo> <arquivos...>: pacotes (sem o prefixo do módulo) de nongo_pkgs do tipo dado, numa linha
+ng_pkgs() {
+	local kind="$1"
+	shift
+	(cd "$NG" && nongo_pkgs "$@") | awk -v k="$kind" '$1 == k { sub("^example.com/ng/", "", $2); print $2 }' |
+		sort -u | tr '\n' ' '
+}
+check "fora de .go: testdata/ põe só o dono (p)" '[ "$(ng_pkgs owner p/testdata/x.json)" = "p " ] && [ -z "$(ng_pkgs test p/testdata/x.json)" ]'
+check "fora de .go: arquivo embutido põe o dono (q)" '[ "$(ng_pkgs owner q/data.txt)" = "q " ]'
+check "fora de .go: arquivo embutido testa quem importa (r) e quem cita o caminho (c)" '[ "$(ng_pkgs test q/data.txt)" = "c r " ]'
+check "fora de .go: diretório de dados sem .go testa quem o cita abaixo do dono" '[ "$(ng_pkgs owner g/pcaps/a.pcap)" = "g " ] && [ "$(ng_pkgs test g/pcaps/a.pcap)" = "g/sub " ]'
+check "fora de .go: docs/ e .md da raiz não afetam pacote" '[ -z "$(ng_pkgs owner docs/x.md README.md specs/x.md)" ]'
+check "fora de .go: arquivo sem pacote acima (raiz) não afeta nada" '[ -z "$(cd "$NG" && nongo_pkgs Makefile)" ]'
+# go.mod: replace trocado (módulo dep) testa só quem o importa; linha go alterada testa ./...
+ng_gomod() { (cd "$NG" && gomod_test_pkgs HEAD) | sed "s|^example.com/ng/||" | sort -u | tr '\n' ' '; }
+check "go.mod sem mudança: nenhum pacote" '[ -z "$(ng_gomod)" ]'
+sed -i.bak 's|=> ./dep$|=> ./dep2|' "$NG/go.mod" && rm -f "$NG/go.mod.bak"
+check "go.mod: dependência trocada testa quem a importa (s)" '[ "$(ng_gomod)" = "s " ]'
+(cd "$NG" && git checkout -q go.mod)
+sed -i.bak 's|^go 1.21$|go 1.22|' "$NG/go.mod" && rm -f "$NG/go.mod.bak"
+check "go.mod: linha go alterada testa ./..." '[ "$(ng_gomod | wc -w | tr -d " ")" = "$(cd "$NG" && go list ./... | wc -l | tr -d " ")" ]'
+(cd "$NG" && git checkout -q go.mod)
+# pacote deploy: arquivos de deploy/, nats.conf, .env.example ou literal FS_* num .go fora de teste
+printf 'package z\n\nconst k = "FS_NEW_KEY"\n' >"$T/fskey.go"
+printf 'package z\n\nconst k = "FS_NEW_KEY"\n' >"$T/fskey_test.go"
+check "deploy: unit alterada aciona o pacote deploy" 'deploy_triggered "deploy/systemd/finger-sniffer-web.service" ""'
+check "deploy: nats.conf e .env.example acionam" 'deploy_triggered "eventbus/nats/nats.conf" "" && deploy_triggered ".env.example" ""'
+check "deploy: chave FS_* num .go aciona; num _test.go, não" 'deploy_triggered "" "$T/fskey.go" && ! deploy_triggered "" "$T/fskey_test.go"'
+check "deploy: docs/ não aciona" '! deploy_triggered "docs/x.md" ""'
+# o verify.sh real: unit alterada sozinha põe o pacote deploy nos afetados (owner)
+check "fora de .go: unit em deploy/systemd conta para o pacote deploy" '(cd "$ROOT" && nongo_pkgs deploy/systemd/finger-sniffer-web.service) | grep -qx "owner $MODULE/deploy"'
 
 # ---- task 361: o passo e2e é recusado com a trava da carga no servidor --------------------------------------
 # O ssh é o stub acima (o "servidor" é esta máquina); go é trocado por um stub que só registra a chamada.
