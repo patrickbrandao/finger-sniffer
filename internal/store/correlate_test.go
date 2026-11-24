@@ -53,7 +53,7 @@ func TestEventBeforeSYNEarlierBatch(t *testing.T) {
 // TestEventWithoutPackets: capture parado; depois de 2 s o evento cria a conexão sem pacotes, que o probe encontra.
 func TestEventWithoutPackets(t *testing.T) {
 	in, db := newTestIngestor(t, nil)
-	reservedID, _ := in.flows.connID(protoTCP, client, mirror, base, base)
+	reservedID, _, _ := in.flows.connID(protoTCP, client, mirror, base, base)
 	processAt(t, in, 0, appMsg(t, event.SubjectWebTLSClientHello, "tcp", client, mirror, 0, "t1a2b3c4", hello))
 	processAt(t, in, 1900)
 	if count(t, db, "SELECT count(*) FROM connections") != 0 {

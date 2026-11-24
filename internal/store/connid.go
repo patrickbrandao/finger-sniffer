@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"time"
@@ -14,6 +15,14 @@ import (
 // reservationTTL é quanto vale um conn_id reservado sem conexão (ADR 0017).
 const reservationTTL = 30 * time.Second
 
+// maxReservations é o teto padrão de reservas pendentes pedidas por fs.v1.store.conn_id (task 421). A 100
+// conexões novas/s e 30 s de validade, o uso legítimo fica perto de 3 000; 65 536 reservas são uns 10 MiB.
+const maxReservations = 65536
+
+// errReservationsFull recusa um pedido de conn_id com o mapa de reservas no teto: o pedido fica sem resposta e o
+// produtor segue com conn_id: unknown, como num pedido inválido.
+var errReservationsFull = errors.New("conn_id: reservations full")
+
 // reservation é um conn_id prometido a uma 5-tupla antes de o store ver os pacotes dela.
 type reservation struct {
 	id      string
@@ -22,23 +31,44 @@ type reservation struct {
 
 // connID responde fs.v1.store.conn_id: o ID da conexão aberta com a 5-tupla ou um ULID reservado por 30 s.
 // now é o instante de chegada da requisição; ts é o instante do accept informado pelo produtor.
-func (t *flowTable) connID(l4 uint8, client, server netip.AddrPort, ts, now int64) (id string, reserved bool) {
+// Com o mapa de reservas no teto (reservedFull), a reserva nova é recusada com errReservationsFull.
+func (t *flowTable) connID(l4 uint8, client, server netip.AddrPort, ts, now int64) (id string, reserved bool, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	k := keyOf(l4, client, server)
 	// Conexão já fechando é a anterior com a mesma 5-tupla: a nova (do accept) ainda vai começar.
 	if c := t.conns[k]; c != nil && !c.closing() {
-		return c.id, false
+		return c.id, false, nil
 	}
 	if r, ok := t.reserved[k]; ok && now <= r.expires {
-		return r.id, true
+		return r.id, true, nil
+	}
+	if _, ok := t.reserved[k]; !ok && t.reservedFull(now) {
+		return "", false, errReservationsFull
 	}
 	if ts <= 0 {
 		ts = now
 	}
 	r := reservation{id: t.newID(ts), expires: now + reservationTTL.Nanoseconds()}
 	t.reserved[k] = r
-	return r.id, true
+	return r.id, true, nil
+}
+
+// reservedFull diz se o mapa de reservas chegou ao teto. No teto, varre as vencidas antes de recusar, no máximo
+// uma vez por segundo (a varredura percorre o mapa inteiro). Chamado com a trava.
+func (t *flowTable) reservedFull(now int64) bool {
+	limit := t.maxReserved
+	if limit <= 0 {
+		limit = maxReservations
+	}
+	if len(t.reserved) < limit {
+		return false
+	}
+	if now-t.reservedSwept >= time.Second.Nanoseconds() {
+		t.reservedSwept = now
+		t.expireReservations(now)
+	}
+	return len(t.reserved) >= limit
 }
 
 // takeReserved devolve o ID reservado para a 5-tupla (e consome a reserva) ou gera um novo. Chamado com a trava.
@@ -112,6 +142,11 @@ func addrPort(ip string, port int) (netip.AddrPort, error) {
 // segue com conn_id: unknown depois do timeout).
 func (s *Store) handleConnID(m *nats.Msg) {
 	data, err := replyConnID(s.ingest.flows, m.Data, time.Now().UnixNano())
+	if errors.Is(err, errReservationsFull) {
+		// teto de reservas (task 421): sem resposta e sem log por pedido; a métrica conta as recusas
+		s.svc.Metrics.Add("store_conn_id_refused_total", 1)
+		return
+	}
 	if err != nil {
 		s.svc.Log.Warn("invalid conn_id request", "err", err)
 		s.svc.Metrics.Add("store_conn_id_invalid_total", 1)
@@ -131,6 +166,9 @@ func replyConnID(flows *flowTable, req []byte, now int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	id, reserved := flows.connID(l4, client, server, ts, now)
+	id, reserved, err := flows.connID(l4, client, server, ts, now)
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(event.ConnIDReply{ConnID: id, Reserved: reserved})
 }

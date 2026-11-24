@@ -1,0 +1,1 @@
+- store: teto de 65 536 reservas no mapa de `conn_id` pedidos por `fs.v1.store.conn_id` (com varredura das vencidas no teto, no máximo uma por segundo); acima dele o pedido fica sem resposta e conta em `fs_store_conn_id_refused_total` (task 421).
