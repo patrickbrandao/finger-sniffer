@@ -316,6 +316,35 @@ sobre o ClientHello completo**, antes do corte: só as listas e as strings longa
 evento não é mais descartado por tamanho, então um ClientHello enorme ou um alvo HTTP/1 longo aparecem no
 registro.
 
+### Erros de análise do ClientHello (0.9.0)
+
+O contrato 0.9.0 (aditivo, spec 008 RF-02, task 386) acrescenta ao `tls` (schema `TLSInfo`, também no evento
+`fs.v1.web.tls.client_hello`) duas listas opcionais com os erros que **não impediram a análise**. Cada item é um
+`TLSParseIssue` `{field, offset, error}`: `field` é `extension 0x<tipo em 4 hex minúsculos>` (ex.:
+`extension 0x0010`) ou o nome do campo (ex.: `cipher_suites`), `offset` é o deslocamento em bytes do início do item
+contado do início da mensagem de handshake (tipo 1), e `error` é um código estável.
+
+| Campo | Item quando | Códigos |
+| --- | --- | --- |
+| `tls.extension_errors` | extensão repetida (proibida pela RFC 8446 §4.2), a partir da segunda ocorrência do tipo; extensão conhecida cujos dados não decodificam | `duplicate`, `malformed` |
+| `tls.field_errors` | campo fora das extensões lido com sobra (ex.: `cipher_suites` de tamanho ímpar; o byte que sobra é ignorado) | `odd_length` |
+
+Com extensão repetida, os campos decodificados (`alpn`, `sni`, `supported_groups`…) vêm da **primeira**
+ocorrência, e todas as ocorrências seguem cruas em `extensions`, na ordem da mensagem. Cada lista tem **até 64
+itens** (acima disso, `lists_truncated: true`). **Ausente ou vazio = nenhum erro**; registros anteriores ao 0.9.0
+também não têm os campos. Trate código desconhecido em `error` como possível (o contrato pode crescer de forma
+aditiva). Exemplo de um ClientHello com SNI `example.com`, o ALPN repetido (`h2` e depois `x1`) e
+`cipher_suites` de 3 bytes, saída do `pkg/tlsparse`:
+
+```json
+{
+  "sni": "example.com",
+  "alpn": ["h2"],
+  "extension_errors": [{ "field": "extension 0x0010", "offset": 77, "error": "duplicate" }],
+  "field_errors": [{ "field": "cipher_suites", "offset": 39, "error": "odd_length" }]
+}
+```
+
 Outros valores com sentido definido:
 
 - `http[].head_too_large`: cabeçalho acima de 1 MiB, de 1024 campos ou do orçamento de entrada do web; a resposta
