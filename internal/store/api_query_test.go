@@ -435,3 +435,87 @@ func BenchmarkConnectionsListRecordSize(b *testing.B) {
 		})
 	}
 }
+
+// TestAPIDNSUntilPagination: com 2500 consultas num probe, paginar /dns para trás por until (inclusivo) cobre todas;
+// o cliente descarta as linhas repetidas da borda, de mesmo ts (ADR 0077 item 1, task 378).
+func TestAPIDNSUntilPagination(t *testing.T) {
+	f := newAPIFixture(t)
+	const pid, total = "pg2500aa", 2500
+	tx, err := f.q.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range total {
+		// pares de consultas com o mesmo ts: exercita a regra de empate do <=
+		ts := base + int64(i/2)*1000
+		rec := fmt.Sprintf(`{"ts":%q,"probe_id":%q,"qname":"q%04d.%s.finger-west-01.badblock.net.br."}`,
+			time.Unix(0, ts).UTC().Format(time.RFC3339Nano), pid, i, pid)
+		if _, err := tx.Exec(`INSERT INTO dns_queries (ts_ns, probe_id, resolver_ip, resolver_port, proto, qname, qtype, record_json)
+			VALUES (?, ?, '198.51.100.53', 53, 'udp', 'x.', 'A', ?)`, ts, pid, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	path := "/api/v1/dns?probe=" + pid + "&limit=1000"
+	for pages := 0; ; pages++ {
+		if pages > 10 {
+			t.Fatalf("paginação não termina: %d de %d", len(seen), total)
+		}
+		code, body := f.get(t, path)
+		var list []struct{ TS, Qname string }
+		if code != 200 || json.Unmarshal([]byte(body), &list) != nil {
+			t.Fatalf("%s: %d %s", path, code, body)
+		}
+		fresh := 0
+		for _, d := range list {
+			if !seen[d.Qname] {
+				seen[d.Qname], fresh = true, fresh+1
+			}
+		}
+		if fresh == 0 {
+			break
+		}
+		path = "/api/v1/dns?probe=" + pid + "&limit=1000&until=" + list[len(list)-1].TS
+	}
+	if len(seen) != total {
+		t.Fatalf("paginação cobriu %d de %d consultas", len(seen), total)
+	}
+	// until tem efeito: só as consultas com ts <= until (as 4 primeiras, ts base e base+1000)
+	until := time.Unix(0, base+1000).UTC().Format(time.RFC3339Nano)
+	code, body := f.get(t, "/api/v1/dns?probe="+pid+"&until="+until)
+	var list []json.RawMessage
+	if code != 200 || json.Unmarshal([]byte(body), &list) != nil || len(list) != 4 {
+		t.Fatalf("until: %d %d %s", code, len(list), body)
+	}
+}
+
+// TestAPIListUndeclaredFilters: filtro do conjunto comum que a rota não declara dá 400, nunca é ignorado; os
+// declarados e os parâmetros fora do conjunto comum seguem aceitos (ADR 0077 item 1, task 378).
+func TestAPIListUndeclaredFilters(t *testing.T) {
+	f := newAPIFixture(t)
+	for path, want := range map[string]string{
+		"/api/v1/dns?src_ip=192.0.2.10":    "parameter src_ip not supported on /api/v1/dns",
+		"/api/v1/dns?dst_port=8443":        "parameter dst_port not supported on /api/v1/dns",
+		"/api/v1/packets?dst_port=8443":    "parameter dst_port not supported on /api/v1/packets",
+		"/api/v1/packets?probe=" + probeID: "parameter probe not supported on /api/v1/packets",
+	} {
+		code, body := f.get(t, path)
+		var e struct{ Error string }
+		if code != 400 || json.Unmarshal([]byte(body), &e) != nil || e.Error != want {
+			t.Errorf("%s: %d %s", path, code, body)
+		}
+	}
+	for _, path := range []string{
+		"/api/v1/dns?_=1", "/api/v1/packets?_=1",
+		"/api/v1/dns?probe=" + probeID + "&since=2026-01-01T00:00:00Z&until=9999-12-31T23:59:59Z",
+		"/api/v1/packets?src_ip=192.0.2.10&since=2026-01-01T00:00:00Z&until=9999-12-31T23:59:59Z",
+		"/api/v1/connections?src_ip=192.0.2.10&dst_port=8443&since=2026-01-01T00:00:00Z&until=9999-12-31T23:59:59Z&probe=" + probeID,
+	} {
+		if code, body := f.get(t, path); code != 200 {
+			t.Errorf("%s: %d %s", path, code, body)
+		}
+	}
+}

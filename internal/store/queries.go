@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -160,6 +161,21 @@ func saturatedUnixNano(t time.Time) int64 {
 		return math.MaxInt64
 	}
 	return t.UnixNano()
+}
+
+// listFilterParams é o conjunto comum de filtros das listas da API (ADR 0077 item 1).
+var listFilterParams = []string{"src_ip", "dst_port", "since", "until", "probe"}
+
+// rejectUndeclared devolve 400 quando a consulta traz um filtro do conjunto comum que a rota não declara no
+// openapi (ADR 0077 item 1): aceitá-lo sem aplicar devolveria a mesma página em silêncio. Parâmetros fora do
+// conjunto comum (ex.: _=<cache-buster>) seguem ignorados.
+func rejectUndeclared(has func(string) bool, route string, declared ...string) error {
+	for _, name := range listFilterParams {
+		if has(name) && !slices.Contains(declared, name) {
+			return bad("parameter %s not supported on %s", name, route)
+		}
+	}
+	return nil
 }
 
 // ParseListFilter valida os parâmetros de consulta.
@@ -517,6 +533,11 @@ func (q *Queries) DNS(ctx context.Context, f ListFilter) ([]json.RawMessage, err
 	}
 	if f.Since != 0 {
 		where, args = append(where, "ts_ns >= ?"), append(args, f.Since)
+	}
+	// until inclusivo, como em /connections e /packets: o cliente anda para trás repetindo com o ts da mais velha
+	// recebida e descarta as linhas repetidas da borda (ADR 0077 item 1); o índice dns_queries_probe atende.
+	if f.Until != 0 {
+		where, args = append(where, "ts_ns <= ?"), append(args, f.Until)
 	}
 	where = append(where, visibleDNS)
 	sqlq := "SELECT record_json FROM dns_queries WHERE " + strings.Join(where, " AND ")

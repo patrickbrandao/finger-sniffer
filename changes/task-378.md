@@ -1,0 +1,1 @@
+- `GET /api/v1/dns` aceita `until` (inclusivo) e pagina para trás um probe com mais de 2000 consultas; `src_ip`/`dst_port` em `/dns` e `dst_port`/`probe` em `/packets` dão 400 em vez de serem ignorados (ADR 0077, contrato 0.9.0; task 378).
