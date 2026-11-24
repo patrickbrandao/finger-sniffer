@@ -262,7 +262,6 @@ func (a *API) authenticate(internal bool, next http.HandlerFunc) http.Handler {
 				writeError(w, http.StatusTooManyRequests, errRateLimited, "key limit reached")
 				return
 			}
-			a.cors(w, r, p.key)
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
@@ -293,20 +292,6 @@ func bearerKey(h string) (string, bool) {
 		return "", true
 	}
 	return strings.TrimSpace(tok), true
-}
-
-// cors libera a origem só se ela for um domínio da chave, nas rotas GET (spec 020 RF-08).
-func (a *API) cors(w http.ResponseWriter, r *http.Request, k *Key) {
-	origin := r.Header.Get("Origin")
-	if r.Method != http.MethodGet || origin == "" {
-		return
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" || !MatchDomain(k.Domains, u.Host) {
-		return
-	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Add("Vary", "Origin")
 }
 
 func (a *API) health(w http.ResponseWriter, _ *http.Request) {

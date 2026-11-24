@@ -130,6 +130,43 @@ func TestRevokedKey(t *testing.T) {
 }
 
 // TestIngest: critério 2 da task 267 — lote válido aceito, registro inválido conta em rejected, 413 acima de
+// TestNoCORS: task 407 (spec 020 RF-08, sem CORS) — nem o GET autenticado com Origin de domínio da chave nem o
+// preflight OPTIONS (com ou sem a chave) trazem cabeçalho Access-Control-* ou Vary: Origin.
+func TestNoCORS(t *testing.T) {
+	f := newFixture(t)
+	_, key := f.createKey(KeyOptions{Name: "site", Domains: []string{"*.example.com"}})
+	origin := map[string]string{"Origin": "https://www.example.com"}
+	preflight := map[string]string{
+		"Origin": "https://www.example.com", "Access-Control-Request-Method": "GET",
+		"Access-Control-Request-Headers": "authorization",
+	}
+	cases := []struct {
+		name, method, path, key string
+		hdr                     map[string]string
+		code                    int
+	}{
+		{"get ip", "GET", "/bot/v1/ip/192.0.2.1", key, origin, 200},
+		{"get verdict", "GET", "/bot/v1/verdict?src_ip=192.0.2.1&src_port=1&site=a.example.com", key, origin, 404},
+		{"get health", "GET", "/bot/v1/health", "", origin, 200},
+		{"options sem chave", "OPTIONS", "/bot/v1/ip/192.0.2.1", "", preflight, 401},
+		{"options com chave", "OPTIONS", "/bot/v1/ip/192.0.2.1", key, preflight, 404},
+	}
+	for _, c := range cases {
+		code, h, b := f.do(f.public, c.method, c.path, c.key, c.hdr, "")
+		if code != c.code {
+			t.Errorf("%s: %d %s", c.name, code, b)
+		}
+		for name := range h {
+			if strings.HasPrefix(http.CanonicalHeaderKey(name), "Access-Control-") {
+				t.Errorf("%s: cabeçalho %s: %q", c.name, name, h.Get(name))
+			}
+		}
+		if slices.Contains(h.Values("Vary"), "Origin") {
+			t.Errorf("%s: Vary: Origin", c.name)
+		}
+	}
+}
+
 // 4 MiB, e o registro vira a conexão do fork no índice, sem query nem valor de cookie.
 func TestIngest(t *testing.T) {
 	f := newFixture(t)
