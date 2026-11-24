@@ -33,7 +33,9 @@ que o traefik entrega ao web por passthrough.
   0,5 s até o intervalo de varredura), zerada na recarga bem-sucedida ou em evento de um dos arquivos, e o aviso
   sai uma vez por erro distinto.
 - RF-05: renovação automática (30 dias antes). Falha: mantém o anterior; sem nenhum, gera autoassinado; tenta de
-  novo com backoff até 1 h. Health `degraded` se faltar < 14 dias para expirar ou se estiver autoassinado.
+  novo com backoff até 1 h. Health `degraded` se faltar < 14 dias para expirar, se estiver autoassinado ou, com o
+  motivo `acme_issue_capped:<slot>`, enquanto um slot estiver no teto de emissões de produção da RF-06 (3 por slot em
+  7 dias; tasks 351 e 420).
 - RF-06: no máximo 3 emissões de produção por semana sem perguntar ao humano (spec 002); testes automatizados
   usam Pebble (local) ou LE staging.
 - RF-07: sem certificado para nomes desconhecidos: usa o B como padrão.

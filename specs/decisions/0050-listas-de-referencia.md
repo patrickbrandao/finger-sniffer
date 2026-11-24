@@ -1,6 +1,6 @@
 # 0050 — Listas de referência: base própria, ja4db da FoxIO e listas de IP de bots
 
-Status: aceita (provisória quanto à ja4db — revisar se a pendência P4 da spec 018 mudar o uso; ja4db desligada por padrão até a P4, ver 0056; robôs sem DNS reverso no item 4: ver 0057)
+Status: aceita (provisória quanto à ja4db — revisar se a pendência P4 da spec 018 mudar o uso; ja4db desligada por padrão até a P4, ver 0056; robôs sem DNS reverso no item 4: ver 0057; critério de queda do item 3 substituído pela 0077: espaço coberto e `--force`)
 Data: 2026-11-16
 
 ## Contexto

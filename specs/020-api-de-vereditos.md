@@ -77,11 +77,15 @@ arquivo).
 - RF-07: erros JSON `{"error": "<código>", "detail": "..."}` com os códigos `invalid_key`, `rate_limited`,
   `not_found`, `bad_request`, `missing_fork_headers`, `payload_too_large`, `forbidden_origin`, `internal`, `busy`
   (503 de capacidade do ingest, ADR 0073 item 2) e `forbidden` (403 do modo `block`, ADR 0074).
-- RF-08: CORS: `Access-Control-Allow-Origin` só para os domínios da chave nas rotas `GET` (consulta pelo navegador
-  não é o uso previsto; a chave fica no backend do site).
+- RF-08: sem CORS. A chave fica no backend do site e a consulta é feita por ele, nunca pelo navegador do visitante
+  (que exporia a chave): nenhuma resposta traz `Access-Control-*` e não há rota de `OPTIONS` (cai no catch-all, 401
+  sem chave na 9002). A promessa anterior (`Access-Control-Allow-Origin` para os domínios da chave nas rotas `GET`)
+  nunca funcionou em navegador: o `Authorization` exige pré-voo, que não tinha rota (revisão de 2026-11-21, task
+  407).
 
 ## Critérios de aceite
 - [ ] Teste de contrato: respostas de cada rota validadas contra o openapi do bot (`redocly lint` limpo).
+- [ ] Nenhuma resposta traz `Access-Control-*`, nem com `Origin` de domínio da chave nem no `OPTIONS` (RF-08).
 - [ ] 401/404/429 conforme RF-02–RF-04, inclusive domínio fora da chave indistinguível de recurso inexistente.
 - [ ] Limites da ADR 0073: conexões ociosas de uma origem não impedem outra de responder `health`; upload lento no
       ingest não segura a vaga além de 10 s; uma chave não passa do seu balde de registros nem despeja conexões da
