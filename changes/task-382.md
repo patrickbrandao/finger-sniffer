@@ -1,0 +1,1 @@
+- test(store): `TestRetentionDoesNotStallIngest` sem o teto absoluto de 200 ms como falha (só loga; falha só com `FS_STRICT_TIMING=1` sem `-race`); o limite relativo ao passo do expurgo e o lote máximo seguem valendo (task 382).

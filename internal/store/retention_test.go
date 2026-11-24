@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -163,9 +164,15 @@ func TestRetentionDoesNotStallIngest(t *testing.T) {
 	if limit := 2*step + 20*time.Millisecond; worst > limit {
 		t.Fatalf("ingest stalled %v during the purge (limit %v = 2 x longest purge step %v + 20ms)", worst, limit, step)
 	}
-	// Sem -race, vale também o teto absoluto da task 105 (medido: < 60 ms).
+	// Teto absoluto da task 105 (medido: < 60 ms num Mac ocioso). Ele só mede a máquina: no verify-quick o Mac é
+	// compartilhado (até 3 tarefas por pacote, ADR 0059, e outros agentes) e um lote passa de 200 ms sem regressão
+	// (task 382). Por isso só falha com FS_STRICT_TIMING=1 e sem -race (o job dedicado proposto na task 360);
+	// fora disso, só registra no log.
 	if !raceEnabled && worst >= 200*time.Millisecond {
-		t.Fatalf("ingest stalled %v during the purge (limit 200ms)", worst)
+		if os.Getenv("FS_STRICT_TIMING") == "1" {
+			t.Fatalf("ingest stalled %v during the purge (limit 200ms, FS_STRICT_TIMING=1)", worst)
+		}
+		t.Logf("ingest stalled %v during the purge, above the 200ms absolute ceiling: slow machine? (FS_STRICT_TIMING=1 makes it fail)", worst)
 	}
 }
 
