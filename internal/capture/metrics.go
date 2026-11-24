@@ -15,6 +15,7 @@ var startMetrics = []string{
 	"capture_filtered_userspace_total",
 	"capture_offload_suspect_total",
 	"capture_truncated_total",
+	"capture_poll_errors_total",
 	service.MetricDropped,
 }
 

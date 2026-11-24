@@ -41,7 +41,7 @@ com a série ausente, e não `== 0` nem comparação com o valor anterior:
 
 | Serviço | Métricas |
 | --- | --- |
-| capture | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total`, `fs_capture_packets_in_total`, `fs_capture_packets_out_total`, `fs_capture_batches_total`, `fs_capture_queue_freezes_total`, `fs_capture_max_frame_bytes`, `fs_capture_filtered_userspace_total`, `fs_capture_offload_suspect_total`, `fs_capture_truncated_total`, `fs_dropped_events_total` (detalhes [abaixo](#capture)) |
+| capture | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total`, `fs_capture_packets_in_total`, `fs_capture_packets_out_total`, `fs_capture_batches_total`, `fs_capture_queue_freezes_total`, `fs_capture_max_frame_bytes`, `fs_capture_filtered_userspace_total`, `fs_capture_offload_suspect_total`, `fs_capture_truncated_total`, `fs_capture_poll_errors_total`, `fs_dropped_events_total` (detalhes [abaixo](#capture)) |
 | web | `fs_web_connections_active`, `fs_web_connections_total`, `fs_web_http1_requests_total`, `fs_web_http2_connections_total`, `fs_web_http2_streams_total`, `fs_web_http3_connections_total`, `fs_web_http3_requests_total`, `fs_web_websocket_connections_total`, `fs_web_websocket_frames_total`, `fs_web_h3_listening`, `fs_web_h3_init_table_full_total`, `fs_web_input_budget_used_bytes`, `fs_web_input_budget_denied_total`, `fs_web_events_oversize_total`, `fs_web_events_marshal_errors_total`, `fs_web_panics_total`, `fs_web_acme_issued_total`, `fs_web_acme_failures_total`, `fs_web_acme_capped_total` (detalhes [abaixo](#web)) |
 | raw | `fs_raw_sessions_total`, `fs_raw_active_sessions`, `fs_raw_events_oversize_total`, `fs_raw_input_budget_used_bytes`, `fs_raw_input_budget_denied_total`, `fs_raw_panics_total` (detalhes [abaixo](#raw)) |
 | dns | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total`, `fs_dns_formerr_total`, `fs_dns_dropped_total`, `fs_dns_rate_limited_total` (detalhes [abaixo](#dns)) |
@@ -60,6 +60,7 @@ série ausente quer dizer capture fora do ar, não "nada aconteceu".
 | --- | --- |
 | `fs_capture_packets_in_total`, `fs_capture_packets_out_total` | pacotes publicados, do cliente para o espelho (`in`) e do espelho para o cliente (`out`) |
 | `fs_capture_kernel_packets_total`, `fs_capture_kernel_drops_total` | estatísticas do socket AF_PACKET: pacotes vistos e perdidos pelo kernel (spec 003 RF-07) |
+| `fs_capture_poll_errors_total` | erros do socket AF_PACKET (`POLLERR`, ex.: interface caiu); o capture espera `FS_CAPTURE_BATCH_WAIT`, fica `degraded` e sai depois de 1 s seguido de erro (task 376) |
 | `fs_capture_batches_total` | lotes FSPB publicados no NATS (fecham em 5 ms, 256 pacotes ou 900 KiB) |
 | `fs_capture_queue_freezes_total` | vezes que o anel TPACKET_V3 encheu e o kernel congelou a fila (estatística do socket; vem junto com perdas) |
 | `fs_capture_max_frame_bytes` | maior frame visto desde a partida (gauge); acima de MTU + 14 indica offload de agregação ligado |

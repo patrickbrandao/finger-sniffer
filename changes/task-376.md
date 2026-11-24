@@ -1,0 +1,1 @@
+- capture: `POLLERR` do socket AF_PACKET (sk_err pendurado depois de a interface cair) deixa de girar o laço a 100% de um núcleo: conta `capture_poll_errors_total`, dorme `FS_CAPTURE_BATCH_WAIT` por volta, põe o heartbeat em `degraded` ("capture socket error") e, com 1 s seguido de erro, o serviço sai para o systemd reabrir o socket (task 376).

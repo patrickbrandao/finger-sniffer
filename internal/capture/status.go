@@ -31,6 +31,9 @@ type Health struct {
 	lastDrops uint64 // total no último heartbeat
 	suspect   uint64
 	lastSusp  uint64
+	// pollErrs conta os POLLERR do socket (sk_err ligado, por exemplo depois de a interface cair).
+	pollErrs     uint64
+	lastPollErrs uint64
 }
 
 // NewHealth cria o avaliador.
@@ -59,8 +62,16 @@ func (h *Health) ObserveSuspect(n uint64) {
 	h.mu.Unlock()
 }
 
+// ObservePollError registra um POLLERR do socket AF_PACKET.
+func (h *Health) ObservePollError() {
+	h.mu.Lock()
+	h.pollErrs++
+	h.mu.Unlock()
+}
+
 // Status implementa service.StatusFunc. Consulta os offloads atuais (ethtool), cai para o arquivo gravado no
-// boot pela unit de rede quando o ethtool não responde, e marca perdas e frames suspeitos desde o último heartbeat.
+// boot pela unit de rede quando o ethtool não responde, e marca erros de socket (POLLERR), perdas e frames
+// suspeitos desde o último heartbeat.
 func (h *Health) Status() (string, []string) {
 	var reasons []string
 	if on, err := h.Refresh(); err != nil {
@@ -71,8 +82,12 @@ func (h *Health) Status() (string, []string) {
 
 	h.mu.Lock()
 	newDrops, newSuspect := h.drops-h.lastDrops, h.suspect-h.lastSusp
-	h.lastDrops, h.lastSusp = h.drops, h.suspect
+	newPoll := h.pollErrs - h.lastPollErrs
+	h.lastDrops, h.lastSusp, h.lastPollErrs = h.drops, h.suspect, h.pollErrs
 	h.mu.Unlock()
+	if newPoll > 0 {
+		reasons = append(reasons, "capture socket error")
+	}
 	if newDrops > 0 {
 		reasons = append(reasons, fmt.Sprintf("kernel dropped %d packets", newDrops))
 	}
