@@ -1074,8 +1074,31 @@ func TestDiscardedAndEstablishedDocs(t *testing.T) {
 		}
 	}
 	data, _ := os.ReadFile("api.md")
-	if strings.Contains(string(data), "versão 0.7.0") {
-		t.Error("api.md ainda cita a versão 0.7.0 como a do contrato")
+	if strings.Contains(string(data), "versão 0.8.0") {
+		t.Error("api.md ainda cita a versão 0.8.0 como a do contrato")
+	}
+}
+
+// TestClientHelloParseIssuesDocs: contrato 0.9.0 do store (spec 008 RF-02, task 386): extension_errors e
+// field_errors do TLSInfo na api.md, com o formato do item, os códigos, o teto e a regra do ausente.
+func TestClientHelloParseIssuesDocs(t *testing.T) {
+	data, err := os.ReadFile("api.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// junta as quebras de linha para as frases que atravessam linhas
+	s := strings.Join(strings.Fields(string(data)), " ")
+	for _, w := range []string{
+		"### Erros de análise do ClientHello (0.9.0)", "`tls.extension_errors`", "`tls.field_errors`",
+		"`TLSParseIssue` `{field, offset, error}`", "`duplicate`, `malformed`", "`odd_length`",
+		"`extension 0x0010`", "`cipher_suites`", "início da mensagem de handshake", "**primeira** ocorrência",
+		"**até 64 itens**", "`lists_truncated: true`", "**Ausente ou vazio = nenhum erro**",
+		"`fs.v1.web.tls.client_hello`", "spec 008 RF-02",
+		`"field": "cipher_suites", "offset": 39, "error": "odd_length"`,
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("api.md sem %q", w)
+		}
 	}
 }
 

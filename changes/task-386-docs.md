@@ -1,0 +1,1 @@
+- docs: `tls.extension_errors` e `tls.field_errors` do ClientHello (`{field, offset, error}`, códigos, teto de 64, ausente = nenhum) na api.md e versão 0.9.0 do contrato (task 386).
