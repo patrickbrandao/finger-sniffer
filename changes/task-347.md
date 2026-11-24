@@ -1,0 +1,1 @@
+- web: resposta a HEAD sai sem corpo também nos erros (404 do htdocs e do ACME, 400 de controles, alvo `*`, cabeçalho ou corpo inválido); a conexão keep-alive não dessincroniza mais (task 347).

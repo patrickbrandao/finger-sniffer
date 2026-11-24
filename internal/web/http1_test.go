@@ -313,6 +313,41 @@ func TestHead(t *testing.T) {
 	}
 }
 
+// TestHeadErrorNoBody: HEAD que cai em 404, 400 de controle inválido, 404 do ACME ou 400 do alvo "*" sai
+// sem corpo (RFC 9110 §9.3.2); o GET seguinte na mesma conexão é lido inteiro e o registro do HEAD não tem
+// corpo depois do cabeçalho.
+func TestHeadErrorNoBody(t *testing.T) {
+	h := newHarness(t, harnessOpts{})
+	writeFile(t, h.htdocs, "index.html", "<p>hi</p>")
+	for _, tc := range []struct {
+		target string
+		status int
+	}{
+		{"/nao-existe.html", 404},
+		{"/r?size=abc", 400},
+		{"/.well-known/acme-challenge/x", 404},
+		{"*", 400},
+	} {
+		c := dial(t, h.addr80)
+		cl := newClient(t, c)
+		cl.send("HEAD " + tc.target + " HTTP/1.1\r\nHost: x\r\n\r\n")
+		resp, body := cl.response("HEAD")
+		if resp.StatusCode != tc.status || body != "" || resp.ContentLength <= 0 {
+			t.Fatalf("%s: head %d len %d %q", tc.target, resp.StatusCode, resp.ContentLength, body)
+		}
+		cl.send(get("/index.html", "x"))
+		if resp, body := cl.response("GET"); resp.StatusCode != 200 || body != "<p>hi</p>" {
+			t.Fatalf("%s: get after head %d %q", tc.target, resp.StatusCode, body)
+		}
+		p := h.events.wait(t, event.SubjectWebHTTP1Request, srcPort(c), 2)[0].Payload
+		sent, _ := base64.StdEncoding.DecodeString(p["response_sent_b64"].(string))
+		if num(t, p["status"]) != tc.status || !strings.HasSuffix(string(sent), "\r\n\r\n") ||
+			strings.Count(string(sent), "\r\n\r\n") != 1 {
+			t.Fatalf("%s: response_sent %q", tc.target, sent)
+		}
+	}
+}
+
 // memConn é uma net.Conn em memória: lê de in, descarta o que é escrito.
 type memConn struct {
 	in *strings.Reader
