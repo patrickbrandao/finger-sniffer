@@ -13,7 +13,8 @@
 #   - o passo "testes com tag" compila e roda os pacotes de cada tag e falha com um pacote fora dos padrões (task 359);
 #   - o p0f.fp de deploy/versions.env (download, SHA, cache) e os testes sem -race: lista completa e job norace
 #     (task 360);
-#   - o e2e confere a versão implantada antes e depois, com um health falso (stub de curl) (task 356).
+#   - o e2e confere a versão implantada antes e depois, com um health falso (stub de curl) (task 356);
+#   - todo passo do full aparece em algum job do CI e o race-check espera todos os jobs (task 397).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -425,7 +426,7 @@ CI_YML="$ROOT/.github/workflows/ci.yml"
 check "CI: FS_RACE_SPLIT_PKGS do store no workflow" 'grep -qE "^  FS_RACE_SPLIT_PKGS: \./internal/store/\.\.\.$" "$CI_YML"'
 ci_shards=$(sed -nE 's/^ +shard: \[([0-9, ]+)\]$/\1/p' "$CI_YML" | tr ',' '\n' | grep -c .)
 check "CI: race-check com o número de lotes da matriz" '[ "$ci_shards" -ge 2 ] && grep -qE "verify\.sh race-check $ci_shards " "$CI_YML"'
-check "CI: race-check depende do verify-full, dos lotes e do norace" 'grep -qF "needs: [verify-full, store-race, norace]" "$CI_YML"'
+check "CI: race-check depende do verify-full e dos lotes" 'grep -qE "needs: \[verify-full, .*store-race" "$CI_YML"'
 check "CI: lote com race-shard e tamanho da matriz" 'grep -qF "race-shard \"\${{ matrix.shard }}\" \"\${{ strategy.job-total }}\"" "$CI_YML"'
 
 # ---- task 362: mudanças fora de .go no quick (spec 017 RF-03) ----------------------------------------------
@@ -672,6 +673,69 @@ vv_rc=$?
 check "versão implantada: o depois roda mesmo com o e2e reprovado" '[ "$vv_rc" != 0 ] && [ "$(cat "$VV/count")" = 2 ] && grep -qE "✓ +versão implantada \(depois\)" "$T/out.version-e2efalha"'
 check "versão implantada: sem FS_E2E_EXPECT_VERSION vale o git describe local" '[ "$(cd "$M" && env -u FS_E2E_EXPECT_VERSION bash -c ". \"\$1/scripts/verify.sh\" lib; cd \"\$2\"; e2e_expected_version" _ "$ROOT" "$M")" = "$(cd "$M" && git describe --tags --always --dirty)" ]'
 check "versão implantada: o full chama e2e_steps" 'grep -qE "^[[:space:]]+e2e_steps$" "$ROOT/scripts/verify.sh"'
+
+# ---- task 397: passos do full em jobs paralelos do CI (spec 017 RF-11) -------------------------------------
+# fn_body <arquivo> <função>: corpo da função (até o primeiro "}" na coluna 0).
+fn_body() { awk -v f="$2() {" '$0 == f { on = 1; next } on && /^}/ { exit } on' "$1"; }
+# job_body <workflow> <job>: trecho do job (até o próximo job de 2 espaços).
+job_body() { awk -v j="  $2:" '$0 == j { on = 1; next } on && /^  [a-z][a-z0-9-]*:$/ { exit } on' "$1"; }
+# ci_coverage <verify.sh> <workflow>: todo passo do full roda em algum job. Passo comum (run_step) roda no job
+# verify-full; passo de split_step <VAR> roda no verify-full se o job não define VAR: "1", senão tem de estar no
+# verify_<modo> do CI_SPLITS e algum job tem de rodar `verify.sh <modo>`. linux_priv e e2e ficam fora do CI
+# (RF-11). Imprime os passos sem job.
+ci_coverage() {
+	local vsh="$1" yml="$2" full vf line var name mode split
+	full=$(fn_body "$vsh" verify_full)
+	vf=$(job_body "$yml" verify-full)
+	echo "$vf" | grep -qE 'make verify-full|verify\.sh full' || echo "job verify-full não roda o full"
+	echo "$full" | grep -oE '(split_step FS_SKIP_[A-Z_]+ |run_step )"[^"]+"' | while IFS= read -r line; do
+		name=$(echo "$line" | sed -E 's/.*"([^"]+)"$/\1/')
+		case "$name" in *linux_priv* | e2e* | "versão implantada"*) continue ;; esac
+		case "$line" in
+		run_step*) continue ;;
+		esac
+		var=$(echo "$line" | awk '{ print $2 }')
+		echo "$vf" | grep -qE "^ +$var: \"1\"$" || continue
+		split=$(echo " $CI_SPLITS " | grep -oE " $var:[a-z]+ " | tr -d ' ')
+		mode="${split#*:}"
+		if [ -z "$split" ]; then
+			echo "$name: $var sem modo em CI_SPLITS"
+		elif ! fn_body "$vsh" "verify_$mode" | grep -qF "\"$name\""; then
+			echo "$name: pulado no verify-full ($var) e ausente de verify_$mode"
+		elif ! grep -qE "verify\.sh $mode( |$)" "$yml"; then
+			echo "$name: pulado no verify-full ($var) e nenhum job roda verify.sh $mode"
+		fi
+	done
+}
+CI_YML="$ROOT/.github/workflows/ci.yml"
+ci_coverage "$ROOT/scripts/verify.sh" "$CI_YML" >"$T/out.ci-coverage" 2>&1
+check "CI: todo passo do full em algum job" '[ ! -s "$T/out.ci-coverage" ]'
+# workflow sem o job fuzz (e sem o static): o verify-test tem de reprovar
+awk '/^  fuzz:$/ { skip = 1; next } skip && /^  [a-z][a-z0-9-]*:$/ { skip = 0 } !skip' "$CI_YML" >"$T/ci-sem-fuzz.yml"
+ci_coverage "$ROOT/scripts/verify.sh" "$T/ci-sem-fuzz.yml" >"$T/out.ci-sem-fuzz" 2>&1
+check "CI: workflow sem o job fuzz reprova a cobertura" 'grep -q "^fuzz curto.*nenhum job roda verify.sh fuzz" "$T/out.ci-sem-fuzz"'
+sed 's/^\(  static\):$/\1-x:/; s|scripts/verify.sh static|true|' "$CI_YML" >"$T/ci-sem-static.yml"
+ci_coverage "$ROOT/scripts/verify.sh" "$T/ci-sem-static.yml" >"$T/out.ci-sem-static" 2>&1
+check "CI: workflow sem o static reprova lint, testes com tag e govulncheck" '[ "$(grep -c "nenhum job roda verify.sh static" "$T/out.ci-sem-static")" = 3 ]'
+# verify.sh com um passo novo pulado no CI e fora do modo: reprova
+sed 's/split_step FS_SKIP_STATIC "govulncheck" govulncheck/split_step FS_SKIP_STATIC "passo novo" true; split_step FS_SKIP_STATIC "govulncheck" govulncheck/' \
+	"$ROOT/scripts/verify.sh" >"$T/verify-passo-novo.sh"
+ci_coverage "$T/verify-passo-novo.sh" "$CI_YML" >"$T/out.ci-passo-novo" 2>&1
+check "CI: passo novo do full fora de todo job reprova" 'grep -q "^passo novo: pulado no verify-full (FS_SKIP_STATIC) e ausente de verify_static" "$T/out.ci-passo-novo"'
+# race-check depende de todos os outros jobs (um check só na proteção da branch)
+ci_jobs=$(awk '/^jobs:$/ { on = 1; next } on && /^  [a-z][a-z0-9-]*:$/ { sub(/:$/, ""); sub(/^  /, ""); print }' "$CI_YML" | grep -vx race-check | sort)
+ci_needs=$(job_body "$CI_YML" race-check | sed -nE 's/^    needs: \[(.*)\]$/\1/p' | tr ',' '\n' | tr -d ' ' | sort)
+check "CI: race-check com needs em todos os outros jobs" '[ -n "$ci_jobs" ] && [ "$ci_jobs" = "$ci_needs" ]'
+check "CI: verify-full pula static, fuzz e norace" '[ "$(job_body "$CI_YML" verify-full | grep -cE "^ +FS_SKIP_(STATIC|FUZZ|NORACE): \"1\"$")" = 3 ]'
+check "CI: fuzz com um alvo por CPU do runner" 'job_body "$CI_YML" fuzz | grep -qF "FS_FUZZ_JOBS=\"\$(nproc)\""'
+# split_step: pulado com a nota quando a variável vale 1; senão roda
+(
+	STEP_NAMES=() STEP_STATUS=() STEP_NOTES=() STEP_TIMES=()
+	FS_SKIP_X=1 split_step FS_SKIP_X "pulado" false
+	FS_SKIP_X=0 split_step FS_SKIP_X "rodado" true
+	echo "${STEP_STATUS[*]}|${STEP_NOTES[0]}"
+) >"$T/out.split" 2>&1
+check "split_step: pula com a nota (job próprio no CI) ou roda" 'tail -1 "$T/out.split" | grep -qx "skip ok|FS_SKIP_X=1 (job próprio no CI)"'
 
 if [ "$fail" != 0 ]; then
 	for f in "$T"/out.*; do

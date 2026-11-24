@@ -1,5 +1,9 @@
 # CI: verify-full em todo PR e na main (spec 017 RF-11, ADR 0013).
 # Sem --e2e e sem testes linux_priv (precisam do finger-01, ADR 0038).
+# Os passos que não dependem dos testes rodam em jobs próprios, em paralelo (task 397): static (lint, testes com
+# tag, govulncheck), fuzz e norace; o verify-full os pula (FS_SKIP_*) e o race-check espera todos os jobs, sendo o
+# único check exigido pela proteção da branch. O scripts/verify-test.sh confere que todo passo do full está em
+# algum job.
 name: ci
 
 on:
@@ -25,9 +29,9 @@ env:
   FS_RACE_OUT: tmp/race
 
 jobs:
-  # Tempo (task 253): ~13 min depois do fuzz em lotes paralelos (eram 17–20 min, colado no limite antigo de 20).
-  # O passo tem 25 min pelo `timeout`, que imprime o resumo e marca o erro como tempo esgotado; o job tem 30 min
-  # só como rede de segurança (setup + ferramentas ~1,5 min).
+  # Tempo: ~12 min com lint, fuzz e govulncheck (tasks 253 e 294); sem eles (task 397), o resto. O passo tem 25 min
+  # pelo `timeout`, que imprime o resumo e marca o erro como tempo esgotado; o job tem 30 min só como rede de
+  # segurança (setup + ferramentas ~1,5 min).
   verify-full:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -48,8 +52,10 @@ jobs:
       - name: verify-full
         env:
           FS_SKIP_LINUX_PRIV: "1"
-          # testes sem -race no job norace (task 360)
+          # passos com job próprio (tasks 360 e 397)
           FS_SKIP_NORACE: "1"
+          FS_SKIP_STATIC: "1"
+          FS_SKIP_FUZZ: "1"
         run: |
           rc=0
           timeout --kill-after=30s 25m make verify-full || rc=$?
@@ -66,6 +72,37 @@ jobs:
           path: tmp/race/
           if-no-files-found: error
           retention-days: 3
+
+  # Lint, testes com tag (RF-08a) e govulncheck (task 397).
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Ferramentas
+        run: make tools-ci
+
+      - name: static
+        run: timeout --kill-after=30s 15m scripts/verify.sh static
+
+  # Fuzz curto de todos os alvos (task 397), um alvo por CPU do runner (FUZZ_TIME por alvo, como no full).
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: fuzz
+        run: FS_FUZZ_JOBS="$(nproc)" timeout --kill-after=30s 15m scripts/verify.sh fuzz
 
   # Lotes do store com -race (task 294). Lotes e pesos: race_assign em scripts/verify.sh e
   # scripts/race-weights.txt; o número de lotes é o tamanho da matriz (o race-check recebe o mesmo número).
@@ -125,10 +162,10 @@ jobs:
           FS_TEST_TMPFS: /mnt/fs-tmpfs
         run: timeout --kill-after=30s 10m scripts/verify.sh norace
 
-  # Nenhum teste fora dos lotes (nem repetido) e cobertura total = verify-full + lotes; depende também do norace
-  # para a proteção da branch seguir com um check só.
+  # Nenhum teste fora dos lotes (nem repetido) e cobertura total = verify-full + lotes. Depende de todos os outros
+  # jobs: é o único check exigido pela proteção da branch (task 397).
   race-check:
-    needs: [verify-full, store-race, norace]
+    needs: [verify-full, static, fuzz, store-race, norace, release-build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
