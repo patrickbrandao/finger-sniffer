@@ -1,0 +1,1 @@
+- bot: `GET /bot/v1/stream?site=` fora dos domínios da chave responde 404 `not_found`, como as outras rotas, em vez de um feed aberto que nunca entrega nada (spec 020 RF-03, openapi 0.7.1; task 409).

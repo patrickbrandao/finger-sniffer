@@ -898,6 +898,12 @@ func (a *API) fingerprintStats(w http.ResponseWriter, r *http.Request) {
 func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r)
 	c := &streamClient{queue: make(chan *Verdict, streamQueue), site: NormalizeSite(r.URL.Query().Get("site"))}
+	// site fora dos domínios da chave: o mesmo 404 das outras rotas, em vez de um feed que nunca entrega nada
+	// (spec 020 RF-03, task 409); sem chave na 9003, qualquer site
+	if p.key != nil && c.site != "" && !p.allows(c.site) {
+		notFound(w)
+		return
+	}
 	if p.key != nil {
 		c.domains, c.keyHash, c.hasKey = p.key.Domains, p.key.hash, true
 	}
