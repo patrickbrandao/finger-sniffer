@@ -25,7 +25,7 @@ func TestControlsRepeatCap(t *testing.T) {
 }
 
 // TestControlsRepeatRetained (task 322): conexões que mandam ~850 KB de h=a: e não leem a resposta retêm
-// menos de 2× o que reservam no orçamento.
+// menos de 2× o que reservam no orçamento (3× com -race, retainFactor).
 func TestControlsRepeatRetained(t *testing.T) {
 	h := newHarness(t, harnessOpts{})
 	req := "GET /p/" + testProbe + "/r?size=50000000&" + strings.Repeat("h=a:&", 170_000) +
@@ -48,8 +48,8 @@ func TestControlsRepeatRetained(t *testing.T) {
 	reserved := h.srv.budget.inUse()
 	retained := heapInUse() - base
 	t.Logf("reservado %d, retido %d", reserved, retained)
-	if reserved <= 0 || retained > 2*reserved {
-		t.Fatalf("retido %d > 2× reservado %d", retained, reserved)
+	if reserved <= 0 || retained > retainFactor*reserved {
+		t.Fatalf("retido %d > %d× reservado %d", retained, retainFactor, reserved)
 	}
 	for _, c := range conns {
 		_ = c.Close()
