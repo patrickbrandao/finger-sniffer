@@ -1,0 +1,1 @@
+- docs: README com a fatia de 10 GiB e o openapi do bot; `docs/README.md` com as 8 units e `bot 1G`; `docs/api.md` com o health de 6 serviços e o contrato do store 0.7.0 (503 `busy`/`shutting down`, corte por 64 MiB, `*_truncated` das listas, `DELETE` em lotes); `TestSliceDocs` lê o `MemoryMax` do deploy (task 394).

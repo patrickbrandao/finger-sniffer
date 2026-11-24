@@ -217,7 +217,7 @@ func TestHTTP3Fields(t *testing.T) {
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.6.x", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"versão 0.7.0", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
 			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
 		},
 		"metrics.md": {
@@ -327,7 +327,7 @@ func TestConnectionCloseDocs(t *testing.T) {
 func TestContracts04Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.6.x", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
+			"versão 0.7.0", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
 			"settle and min_conns require wait", "`settle` fora de `0s`–`10s`", "`min_conns` fora de 1–1000",
 			"`request_started_at`", "`request_ended_at`", "`response_started_at`", "`response_ended_at`",
 			"Cada instante é **independente**", "RST_STREAM", "`ip.packets`", "`first_data`",
@@ -386,7 +386,7 @@ func TestMSSWindowDocs(t *testing.T) {
 func TestContracts05Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.6.x", "contrato (0.6.x)", "ADRs 0029, 0031 e 0032", "### MSS, MTU implícito e tipo da origem",
+			"versão 0.7.0", "contrato (0.7.0)", "ADRs 0029, 0031, 0032, 0066 e 0067", "### MSS, MTU implícito e tipo da origem",
 			"`tcp.syn_mss`", "`tcp.mtu_implied`", "`tcp.mss_reduction`", "`ip.src_kind`",
 			"anteriores ao 0.5.0", "`1460 − syn_mss`", "`1440 − syn_mss`", "MSS clamping",
 			"`shared`", "`teredo`", "`6to4`", "`nat64`", "`other`", "`global`", ".tcp.syn_mss", ".ip.src_kind",
@@ -426,7 +426,7 @@ func TestContracts05Docs(t *testing.T) {
 func TestContracts06Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.6.x", "ADR 0032", "**1000 conexões**", "`truncated: true`",
+			"versão 0.7.0", "ADR 0032", "**1000 conexões**", "`truncated: true`",
 			"conjunto inteiro", "`GET /api/v1/connections?probe=<id>`", "**64** esperas `wait` simultâneas",
 			"`Retry-After: 1`", "**4** downloads", "**60 s**", "### Marcas de corte e valores especiais (0.6.0)",
 			"**ausente equivale a `false`**", "`http[].request_line.target_truncated`", "`tls.lists_truncated`",
@@ -955,5 +955,67 @@ func TestBotDoc(t *testing.T) {
 				t.Errorf("%s ainda cita a configuração antiga do traefix: %q", f, w)
 			}
 		}
+	}
+}
+
+// memoryMaxRe lê o MemoryMax da fatia no arquivo de deploy (a fonte do valor que os READMEs citam).
+var memoryMaxRe = regexp.MustCompile(`(?m)^MemoryMax=(\S+)$`)
+
+// TestSliceDocs: os dois READMEs citam o MemoryMax da fatia lido de deploy/systemd/finger-sniffer.slice e não
+// trazem os valores antigos (6 GiB da ADR 0039, substituído pela ADR 0045; 7 units, antes do bot) (task 394).
+func TestSliceDocs(t *testing.T) {
+	slice, err := os.ReadFile(filepath.Join("..", "deploy", "systemd", "finger-sniffer.slice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := memoryMaxRe.FindStringSubmatch(string(slice))
+	if m == nil {
+		t.Fatal("finger-sniffer.slice sem MemoryMax")
+	}
+	want := "`MemoryMax=" + m[1] + "`"
+	for _, f := range []string{filepath.Join("..", "README.md"), "README.md"} {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(data)
+		if !strings.Contains(s, want) {
+			t.Errorf("%s sem %s (deploy/systemd/finger-sniffer.slice)", f, want)
+		}
+		for _, old := range []string{"6 GiB", "7 units"} {
+			if strings.Contains(s, old) {
+				t.Errorf("%s ainda cita %q", f, old)
+			}
+		}
+	}
+	readme, _ := os.ReadFile("README.md")
+	if !strings.Contains(string(readme), "bot 1G") {
+		t.Error("README.md sem o MemoryMax do bot (bot 1G)")
+	}
+	root, _ := os.ReadFile(filepath.Join("..", "README.md"))
+	if !strings.Contains(string(root), "](cmd/finger-sniffer-bot/openapi.yaml)") {
+		t.Error("README.md de raiz sem o openapi do bot em Contratos")
+	}
+}
+
+// TestContracts07Docs: api.md descreve o contrato 0.7.0 do store (ADRs 0066, 0067 e 0068) e o health com o bot.
+func TestContracts07Docs(t *testing.T) {
+	data, err := os.ReadFile("api.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	for _, w := range []string{
+		"versão 0.7.0", "64 MiB", "256 MiB", "`{\"error\":\"busy\"}`", "`{\"error\":\"shutting down\"}`",
+		"`fs_store_api_rejected_total{route,reason}`", "`fs_store_api_json_bytes_in_flight`", "`http_truncated`",
+		"`http2.streams_truncated`", "`http3.requests_truncated`", "em lotes", "ADR 0068", "\"bot\": \"ok\"",
+		"sexto serviço, `bot`",
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("api.md sem %q", w)
+		}
+	}
+	if regexp.MustCompile("```console\\n```").MatchString(s) {
+		t.Error("api.md com bloco console vazio")
 	}
 }

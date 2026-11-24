@@ -55,14 +55,16 @@ comparar caminhos estão em [docs/probes.md](docs/probes.md).
 - [specs/](specs/INDEX.md): especificações, a fonte da verdade; decisões em
   [specs/decisions/HISTORY.md](specs/decisions/HISTORY.md).
 - Contratos: API HTTP em [openapi.yaml](cmd/finger-sniffer-store/openapi.yaml) (OpenAPI 3.1, também em
-  `/api/v1/openapi.yaml`), eventos NATS em [asyncapi.yaml](eventbus/nats/asyncapi.yaml) (AsyncAPI 3.0).
+  `/api/v1/openapi.yaml`), API de vereditos do bot em [openapi.yaml](cmd/finger-sniffer-bot/openapi.yaml)
+  (OpenAPI 3.1, também em `/bot/v1/openapi.yaml`), eventos NATS em [asyncapi.yaml](eventbus/nats/asyncapi.yaml)
+  (AsyncAPI 3.0).
 - [CHANGELOG.md](CHANGELOG.md).
 
 ## Arquitetura em uma linha
 
 Seis serviços Go estáticos (capture, web, raw, dns, store e bot) e um NATS JetStream, em units systemd numa fatia
-própria (`finger-sniffer.slice`, 6 GiB e 8 vCPU no máximo) de uma VM compartilhada: o capture lê a `ens192` por
-AF_PACKET, os serviços de protocolo publicam o que viram, e o store correlaciona tudo
+própria (`finger-sniffer.slice`, `MemoryMax=10G`: 10 GiB e 8 vCPU no máximo) de uma VM compartilhada: o capture lê a
+`ens192` por AF_PACKET, os serviços de protocolo publicam o que viram, e o store correlaciona tudo
 por conexão e probe num SQLite com retenção curta; o bot junta essa visão à do traefix para dar vereditos de bot. Detalhes na [spec 001](specs/001-arquitetura.md).
 
 ## Desenvolvimento
