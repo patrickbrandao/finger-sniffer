@@ -24,10 +24,30 @@ TLS (web e raw) e para o ClientHello dentro do QUIC Initial (spec 011). Técnica
   (ADR 0018), o produtor (web e raw) reduz as listas analisadas e corta as strings longas `ja3`, `ja3n`, `ja4_r` e
   `ja4_o`, marcando `lists_truncated`; o evento nunca é descartado por tamanho, e o ClientHello cru segue em
   `client_hello_b64` e no fluxo `in` (ADR 0032).
+  - Extensão repetida (proibida pela RFC 8446 §4.2): só a **primeira** ocorrência de cada tipo é decodificada, para
+    todos os campos (valor único e listas); todas as ocorrências aparecem cruas em `extensions`, e cada repetição
+    entra em `tls.extension_errors` com `error: duplicate`. Extensão conhecida cujos dados não decodificam entra ali
+    com `error: malformed`. Campo fora das extensões lido com sobra (ex.: `cipher_suites` de tamanho ímpar, o byte que
+    sobra é ignorado) entra em `tls.field_errors` com `error: odd_length`. Item: `{field, offset, error}`, com
+    `offset` contado do início da mensagem de handshake; até 64 itens por lista (contrato 0.9.0, task 386).
 - RF-03: fingerprints (`pkg/fingerprint`): **JA3** (texto e MD5), **JA3N** (extensões ordenadas), **JA4**,
   **JA4_r**, **JA4_o**, **JA4 stable** (sem extensões dependentes de estado, como no fingerproxy). Prefixo `t` para
   TCP, `q` para QUIC. Calculados sempre sobre o ClientHello completo, antes de qualquer corte da RF-02, e só
   quando ele foi analisado sem erro, em TCP e em QUIC; com erro de parse os fingerprints ficam vazios.
+  - Referência do JA4: a definição publicada da FoxIO (`technical_details/JA4.md`, commit `c6469a7`, o mesmo dos
+    pcaps), que o tshark 4.4 segue. Trecho ALPN da parte `a`: primeiro e último byte do primeiro protocolo ALPN; se
+    algum dos dois não for `[0-9A-Za-z]`, o primeiro e o último caractere do **hex minúsculo** dos bytes do
+    protocolo (`0xAB` → `ab`, `0x20` → `20`, `0xAB 0xCD` → `ad`, `0x20 0x61` → `21`, `0x30 0xAB` → `3b`,
+    `0x61 0x20` → `60`, `_x` → `58`); maiúsculas alfanuméricas passam como vieram (`H2` → `H2`); sem ALPN, `00`. A
+    parte `a` sempre casa `^[tqd][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}$`.
+  - Divergência conhecida: a ferramenta `ja4` em Rust 0.18.6 (e o `python/ja4.py`) troca só o byte não ASCII por
+    `9` e deixa o ASCII não alfanumérico cru (`99` onde a definição dá hex, no pcap `foxio-tls-non-ascii-alpn`). Nos
+    pcaps em que as duas discordam, o gabarito é o da definição (o `tshark_ja4`); nos outros, o `ja4` 0.18.6 segue
+    como gabarito.
+  - Extensão repetida: o JA4 usa a primeira ocorrência (versão, ALPN, algoritmos de assinatura). Divergência
+    conhecida: o `ja4` 0.18.6 (lendo os campos do tshark) usa o primeiro ALPN, mas o **maior** `supported_versions`
+    entre todas as cópias; com versões diferentes nas cópias, a versão do JA4 do espelho pode diferir da dele. O
+    `crypto/tls` recusa esse ClientHello (`decode_error`), e o registro o mostra em `tls.extension_errors`.
 - RF-04: resultado do handshake: versão, cifra, grupo e ALPN negociados, retomada, tempo de handshake (`handshake_ms`, milissegundos em float, como as demais durações do contrato),
   alertas (nível e descrição) dos dois sentidos durante o handshake (ADR 0029): primeiro todo registro de alerta
   (tipo `0x15`) em texto claro visto nos bytes de cada sentido, com nível e descrição exatos dos bytes, na ordem
@@ -46,9 +66,14 @@ TLS (web e raw) e para o ClientHello dentro do QUIC Initial (spec 011). Técnica
 Pertencem ao registro da conexão (store).
 
 ## Critérios de aceite
-- [ ] JA4 bate com os snapshots dos pcaps oficiais da FoxIO (portados do `ja4pcap` do fingerproxy).
+- [ ] JA4 bate com os snapshots dos pcaps oficiais da FoxIO (portados do `ja4pcap` do fingerproxy), com o trecho
+      ALPN pela definição publicada (RF-03) nos pcaps de ALPN não alfanumérico.
+- [ ] Teste unitário com os exemplos do ALPN da RF-03 (`0xAB`, `0x20`, `0xAB 0xCD`, `0x20 0x61`, `0x30 0xAB`,
+      `0x61 0x20`, `_x`, `H2`).
 - [ ] JA3/JA4 de curl, Go, Chrome e Firefox batem com `tshark`/FoxIO `ja4` sobre o pcap da mesma conexão.
 - [ ] ClientHello partido em 2 registros e em 2 segmentos é reconhecido e marcado.
+- [ ] ClientHello com ALPN, `supported_versions` e `signature_algorithms` repetidos: campos e JA4 da primeira
+      ocorrência e as repetições em `tls.extension_errors`; `cipher_suites` ímpar em `tls.field_errors`.
 - [ ] Cliente que aborta o handshake com alerta em texto claro (ex. `openssl s_client` sem CA confiável,
       `unknown_ca` 48) aparece em `tls.alerts` com `dir: in`, `description: 48`, igual ao tshark.
 - [ ] Fuzz do parser sem pânico: 10 s por alvo no verify-full e 60 s antes de cada release (spec 017, ADR 0023).

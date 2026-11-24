@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.7.1
+  version: 0.8.0
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -31,6 +31,11 @@ info:
     `ForbiddenOrigin`; no `/bot/v1/auth`, junto do 403 do modo `block`), o 500 `internal` de `/bot/v1/ip/{ip}` e
     `/bot/v1/fingerprints/{kind}/{value}` (falha do banco) e o 404 do feed com `site` fora dos domínios da chave
     (spec 020 RF-03).
+
+    0.8.0 (aditiva): o trecho ALPN da parte `a` do JA4 nos cabeçalhos `X-Traefix-Ja4`, `X-Traefix-Ja4o` e `X-Fs-Ja4`
+    aceita `[0-9A-Za-z]{2}` (era `[0-9a-z]{2}`), pela definição publicada da FoxIO (spec 008 RF-03: hex quando o byte
+    não é alfanumérico; maiúsculas passam como vieram). Sem CORS (spec 020 RF-08, documental): nenhuma resposta traz
+    `Access-Control-*` e `OPTIONS` não tem rota; a consulta é do backend do site, onde fica a chave.
 
     Uso não comercial (ADR 0053): JA4 é BSD-3-Clause; JA4H e JA4T seguem a FoxIO License 1.1; uso comercial exige
     licença da FoxIO.
@@ -122,7 +127,7 @@ paths:
           in: header
           required: false
           description: JA4 (FoxIO) do ClientHello calculado pelo traefix, `t` em TCP e `q` em QUIC (ADR 0062).
-          schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
+          schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
         - name: X-Traefix-Ja3
           in: header
           required: false
@@ -170,14 +175,14 @@ paths:
           in: header
           required: false
           description: "JA4_o (FoxIO), com `headerDetail: full` (ADR 0065 item 6)."
-          schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
+          schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" }
         - { name: X-Fs-Src-Ip, in: header, required: false, deprecated: true, schema: { type: string } }
         - { name: X-Fs-Src-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
         - { name: X-Fs-Dst-Port, in: header, required: false, deprecated: true, schema: { type: integer, minimum: 0, maximum: 65535 } }
         - { name: X-Fs-Conn-Id, in: header, required: false, deprecated: true, schema: { $ref: "#/components/schemas/ULID" } }
         - { name: X-Fs-Proto, in: header, required: false, deprecated: true, schema: { type: string, enum: [h1, h2, h3] } }
         - { name: X-Fs-Ja4h, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[a-z0-9]{12}_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$" } }
-        - { name: X-Fs-Ja4, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" } }
+        - { name: X-Fs-Ja4, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[tq][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$" } }
         - { name: X-Fs-Ja3, in: header, required: false, deprecated: true, schema: { type: string, pattern: "^[0-9a-f]{32}$" } }
         - { name: X-Fs-H2, in: header, required: false, deprecated: true, schema: { type: string, maxLength: 512 } }
         - { name: X-Forwarded-Host, in: header, schema: { type: string } }

@@ -1,7 +1,7 @@
 asyncapi: 3.1.0
 info:
   title: finger-sniffer events
-  version: 0.8.0
+  version: 0.9.0
   description: |
     Eventos internos no NATS local (ADR 0003). Subjects `fs.v1.<origem>.<tipo>`. O stream JetStream `FS_EVENTS`
     (em memória, max_age 60 s, max_bytes 128 MiB — ADRs 0016 e 0039) assina a lista explícita de subjects de eventos
@@ -41,7 +41,8 @@ info:
     `http_truncated`, `streams_truncated` e `requests_truncated` no `Connection` de `fs.v1.store.connection`; 0.8.0,
     aditivo, com o openapi 0.8.0, ADR 0076: no `fs.v1.store.connection` o `opened` só sai com a conexão estabelecida
     e a nunca estabelecida não publica nada; todo `opened` recebe um `closed`, que leva `connection.discarded` quando
-    a conexão saiu do banco sem registro).
+    a conexão saiu do banco sem registro; 0.9.0, aditivo, com o openapi 0.9.0: `extension_errors` e `field_errors`
+    no `TLSInfo` de `fs.v1.web.tls.client_hello`, spec 008 RF-02, task 386).
 
     Exemplos (spec 017 RF-12): cada mensagem JSON referencia em `examples` (ou num trait `*Examples`) os eventos
     golden gerados pelo código real dos produtores (`internal/<svc>/testdata/`), regravados pelos próprios testes

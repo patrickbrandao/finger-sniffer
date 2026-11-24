@@ -1,6 +1,6 @@
 # 0068 — `DELETE` de probe em lotes, com as leituras filtradas na hora
 
-Status: aceita
+Status: aceita (tabela `probes` removida pela 0077; a transação do item 1 já não apaga essa linha)
 Data: 2026-11-22
 
 ## Contexto

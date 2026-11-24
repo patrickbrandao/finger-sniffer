@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer API
-  version: 0.8.0
+  version: 0.9.0
   summary: Espelho de análise de conexões.
   description: |
     API do espelho de análise de conexões (spec 004). Sem autenticação (ADR 0007): todo o tráfego
@@ -27,14 +27,20 @@ info:
     `/raw`), corte por bytes (64 MiB por resposta) e a descrição do `DELETE` de probe (ADR 0068); (ADR 0067) `http_truncated`,
     `http2.streams_truncated` e `http3.requests_truncated`. 0.8.0 (ADR 0076, aditivo): `ConnectionSummary.discarded`
     no `connection.closed` da conexão que saiu do banco sem registro; todo `connection.opened` recebe um
-    `connection.closed`.
+    `connection.closed`. 0.9.0 (ADR 0077, aditivo): `until` em `/dns`; os filtros do conjunto comum (`src_ip`,
+    `dst_port`, `since`, `until`, `probe`) que a rota não declara dão `400` em vez de serem ignorados; o `DELETE` de
+    probe responde `404` quando não há conexão nem consulta DNS visível do probe (a tabela `probes` saiu);
+    (spec 008 RF-02, task 386) `TLSInfo.extension_errors` e `TLSInfo.field_errors` (extensão repetida ou
+    malformada, vetor de tamanho ímpar); ausentes = nenhum erro.
 
     Instantes por requisição: cada um é independente dos outros; nulo = o web não observou aquele momento.
     O fim da requisição pode existir sem o início da resposta e vice-versa.
 
     Erros (corpo `Error`): `400` quando um parâmetro de consulta **ou de caminho** foge do formato declarado
     (ex. `conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente); `404` quando o ID tem o
-    formato certo mas é desconhecido ou expirou, e para qualquer rota inexistente; `500` em erro interno das
+    formato certo mas é desconhecido ou expirou, e para qualquer rota inexistente; `400` também para um filtro do
+    conjunto comum (`src_ip`, `dst_port`, `since`, `until`, `probe`) que a rota não declara (ADR 0077); qualquer
+    outro parâmetro de consulta não declarado é ignorado; `500` em erro interno das
     rotas de consulta. `OPTIONS` em qualquer caminho responde `204` sem corpo (pré-voo CORS).
   license:
     name: Apache-2.0
@@ -139,7 +145,8 @@ paths:
         hora de todas as leituras (`/probes/{id}`, `/connections`, tempo real), e as linhas saem do banco em lotes
         logo depois (ADR 0068). Pacotes e eventos
         que ainda chegarem para as conexões que estavam abertas são descartados até elas fecharem (ADR 0034).
-        Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo.
+        Tráfego novo com o mesmo probe ID depois do `DELETE` cria um probe novo. `404` quando o probe não tem
+        nenhuma conexão nem consulta DNS visível (ADR 0077).
       responses:
         "204": { description: Apagado. }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -240,9 +247,17 @@ paths:
       tags: [dns]
       operationId: listDNSQueries
       summary: Consultas DNS recebidas pela zona
+      description: |
+        Mais novas primeiro. Para andar para trás (probe com mais consultas que o `/probes/{id}` devolve, ADR 0032),
+        repita com `until` = `ts` da mais velha recebida: `until` é inclusivo, então as consultas da borda (mesmo
+        `ts`) voltam na página seguinte e o cliente as descarta (ADR 0077). `src_ip` e `dst_port` → `400`.
       parameters:
         - { name: probe, in: query, schema: { $ref: "#/components/schemas/ProbeID" } }
         - { name: since, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
+        - name: until
+          in: query
+          description: Inclusivo (`ts <= until`), como em `/connections` e `/packets` (ADR 0077).
+          schema: { $ref: "#/components/schemas/Timestamp" }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
       responses:
         "200":
@@ -263,6 +278,7 @@ paths:
       tags: [packets]
       operationId: listStrayPackets
       summary: Pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto)
+      description: "`dst_port` e `probe` não são filtros desta rota → `400` (ADR 0077)."
       parameters:
         - { name: since, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
         - { name: until, in: query, schema: { $ref: "#/components/schemas/Timestamp" } }
@@ -777,6 +793,21 @@ components:
         name: { type: string }
         grease: { type: boolean }
         data_hex: { $ref: "#/components/schemas/Hex" }
+    TLSParseIssue:
+      type: object
+      required: [field, offset, error]
+      description: Erro de análise do ClientHello que não impediu o parse (spec 008 RF-02, task 386).
+      properties:
+        field:
+          type: string
+          description: "`extension 0x<tipo em 4 hex minúsculos>` (ex.: `extension 0x0010`) ou o nome do campo (ex.: `cipher_suites`)."
+        offset:
+          type: integer
+          minimum: 0
+          description: Deslocamento em bytes do início do item, contado do início da mensagem de handshake (tipo 1).
+        error:
+          type: string
+          description: "Código: `duplicate`, `malformed` ou `odd_length`; código desconhecido deve ser tolerado (aditivo)."
     TLSInfo:
       type: object
       description: Spec 008.
@@ -790,6 +821,23 @@ components:
             Listas analisadas (cipher suites, extensões, grupos, algoritmos etc.) reduzidas e `ja3`, `ja3n`,
             `ja4_r`, `ja4_o` cortados para o evento caber em 900 KiB (ADR 0032). Os fingerprints são calculados
             sobre o ClientHello completo, antes do corte. Ausente = `false`.
+        extension_errors:
+          type: array
+          maxItems: 64
+          items: { $ref: "#/components/schemas/TLSParseIssue" }
+          description: |
+            Extensões repetidas (a partir da segunda ocorrência de um tipo, `error: duplicate`) e extensões conhecidas
+            cujos dados não puderam ser decodificados (`error: malformed`), na ordem da mensagem (spec 008 RF-02). Os
+            campos decodificados vêm da **primeira** ocorrência; todas as ocorrências seguem cruas em `extensions`.
+            Até 64 itens (acima, `lists_truncated`). Ausente ou vazio = nenhum erro (registros anteriores ao 0.9.0
+            também não o têm).
+        field_errors:
+          type: array
+          maxItems: 64
+          items: { $ref: "#/components/schemas/TLSParseIssue" }
+          description: |
+            Campos fora das extensões lidos com sobra, sem impedir a análise (ex.: `cipher_suites` de tamanho ímpar,
+            `error: odd_length`, o byte que sobra é ignorado; spec 008 RF-02). Até 64 itens. Ausente ou vazio = nenhum.
         client_hello_segments: { type: integer }
         record_version: { type: integer }
         handshake_version: { type: integer }

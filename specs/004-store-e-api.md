@@ -183,8 +183,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   `close.how = quic_close` (ou `timeout` quando o web informa `idle_timeout`). O `tls` do registro QUIC é o ClientHello do Initial, mas
   o `proto` não ganha o prefixo `tls/`. Fluxo UDP com evento h3 e sem
   `close` usa ociosidade `FS_IDLE_DEFAULT` + 30 s, não a de UDP.
-- `probe_id` da conexão: o primeiro `probe_id` não nulo dos envelopes da conexão; a tabela `probes` é atualizada
-  (`first_seen`/`last_seen`) a cada conexão ou consulta DNS com probe.
+- `probe_id` da conexão: o primeiro `probe_id` não nulo dos envelopes da conexão. Não há tabela de probes (ADR
+  0077): um probe existe enquanto houver conexão ou consulta DNS visível com o seu ID.
 - Long-poll `GET /api/v1/probes/{id}?wait=10s` (máx 60 s): responde quando o probe tem **ao menos uma conexão** e
   todas estão fechadas, ou no fim do prazo. Só consultas DNS (ou nada) não bastam: a espera continua até a
   primeira conexão aparecer e fechar (ex.: o resolvedor do cliente ou de um proxy já consultou o nome, mas a
@@ -192,7 +192,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   `wait`, responde na hora como antes.
   - Teto da resposta (ADR 0032, decisão do humano): no máximo as 1000 primeiras conexões (por início) e as 1000
     primeiras consultas DNS (por instante), com `truncated: true` quando alguma lista foi cortada; o restante fica
-    em `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`. O critério do `wait` e `all_closed` olham o
+    em `GET /api/v1/connections?probe=` e `GET /api/v1/dns?probe=`, que paginam para trás por `until` (inclusivo:
+    o cliente descarta as linhas da borda com o mesmo instante; ADR 0077). O critério do `wait` e `all_closed` olham o
     conjunto inteiro.
   - No máximo 64 `wait` simultâneos no store; acima, `503` na hora com `Retry-After: 1`. A volta do laço lê só o
     estado das conexões; o registro completo é lido uma vez, ao sair.
@@ -205,8 +206,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
     `wait_met`. Para
     o conjunto completo de uma sondagem, o uso recomendado é `wait=30s&settle=1s` (acima dos 500 ms do RNF-04).
 - `DELETE /api/v1/probes/{id}` (ADRs 0034 e 0068): uma transação curta grava em `deleted_probes` o corte do probe
-  (maior `conn_id` e maior `rowid` de `dns_queries` dele naquele instante) e apaga a linha de `probes`; responde
-  `204`. Toda leitura (por probe, lista, detalhe, `/pcap`, `/raw`, `/dns` e tempo real) exclui na hora as linhas do
+  (maior `conn_id` e maior `rowid` de `dns_queries` dele naquele instante); responde `204`, ou `404` quando o probe
+  não tem conexão nem consulta DNS visível (ADR 0077). Toda leitura (por probe, lista, detalhe, `/pcap`, `/raw`, `/dns` e tempo real) exclui na hora as linhas do
   probe abaixo do corte; o laço de retenção apaga as conexões (com as filhas) e as consultas abaixo do corte em
   lotes de 100, com o passo de 25 ms e a vez do ingest entre lotes, e tira a linha de `deleted_probes` no fim. Os `conn_id` das conexões que ainda estavam abertas (ou à espera da finalização) ficam
   em memória no ingest, que descarta os pacotes, os eventos e a finalização delas, sem recriar a linha, até a
@@ -236,7 +237,9 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - Reinício: o índice vem do SQLite (tmpfs, ADR 0045); o consumidor durável retoma do último ack. Depois do
   reinício do host o banco começa vazio e o que ainda estiver no stream entra nele.
 - Erros da API (corpo `{"error": "..."}`): 400 para parâmetro de consulta ou de caminho fora do formato do
-  openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido); 404 para
+  openapi (`conn_id` que não é ULID, probe ID fora de `^[a-z0-9]{8,32}$`, `dir` ausente ou inválido) e para filtro
+  do conjunto comum (`src_ip`, `dst_port`, `since`, `until`, `probe`) que a rota não declara (ADR 0077: `src_ip` e
+  `dst_port` em `/dns`, `dst_port` e `probe` em `/packets`; outro parâmetro não declarado é ignorado); 404 para
   ID no formato certo mas desconhecido/expirado e para rota inexistente; 500 para erro interno; 503 com
   `Retry-After` acima do teto de `wait` (`/probes/{id}`), de downloads (`/pcap`, `/raw`) ou do orçamento de
   respostas JSON, e em qualquer rota finita durante o desligamento (ADR 0066). Toda rota do
@@ -248,7 +251,8 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   ADR 0032; asyncapi 0.5.0 com `upgrade_only`; 0.7.0, aditivo: `503` nas rotas finitas, corte por bytes, marcas
   `http_truncated`, `streams_truncated`, `requests_truncated`, `method_truncated`, `version_truncated` e
   `controls.truncated`, ADRs 0066, 0067 e 0070; asyncapi 0.7.0; entram com as tasks 318, 319, 327 e 340; 0.8.0,
-  aditivo: `ConnectionSummary.discarded`, ADR 0076, asyncapi 0.8.0, entra com a task 341).
+  aditivo: `ConnectionSummary.discarded`, ADR 0076, asyncapi 0.8.0, entra com a task 341; 0.9.0, aditivo: `until` em
+  `/dns`, 400 dos filtros não declarados e `404` do `DELETE` sem a tabela `probes`, ADR 0077, entra com as tasks 378 e 383).
 
 ### Tempo real (RF-08, ADR 0020)
 - Eventos, emitidos depois do commit do lote que os produziu:
@@ -328,8 +332,8 @@ Contrato: [cmd/finger-sniffer-store/openapi.yaml](../cmd/finger-sniffer-store/op
 | `GET /api/v1/connections/{conn_id}` | registro completo (specs 008–013) |
 | `GET /api/v1/connections/{conn_id}/pcap` | pcap da conexão (`application/vnd.tcpdump.pcap`); 503 acima de 4 downloads |
 | `GET /api/v1/connections/{conn_id}/raw?dir=in\|out` | bytes de aplicação de cada sentido (`out` = o que o espelho mandou); 503 acima de 4 downloads |
-| `GET /api/v1/dns?probe=&since=` | consultas DNS |
-| `GET /api/v1/packets?since=&until=&src_ip=` | pacotes avulsos; `src_ip` = IP do cliente (origem com `dir=in`, destino com `dir=out`) |
+| `GET /api/v1/dns?probe=&since=&until=&limit=` | consultas DNS, mais novas primeiro; `until` inclusivo para andar para trás (ADR 0077) |
+| `GET /api/v1/packets?since=&until=&src_ip=&limit=` | pacotes avulsos; `src_ip` = IP do cliente (origem com `dir=in`, destino com `dir=out`) |
 | `DELETE /api/v1/probes/{id}` | apaga o probe, suas conexões (abertas também) e consultas DNS, na hora |
 | `GET /api/v1/stream` | SSE |
 | `GET /api/v1/ws` | WebSocket |
@@ -352,7 +356,8 @@ Consome: os subjects de eventos do stream (ADR 0017). Responde: `fs.v1.store.con
 (RF-12, para o bot; ADR 0047 item 3) e o push para clientes da API.
 
 ## Dados
-Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql)): `probes`, `connections`
+Tabelas (migration [00001_initial.sql](../database/sqlite/migrations/00001_initial.sql); `probes` removida pela ADR
+0077): `connections`
 (registro completo em `record_json`), `packets` (BLOB por pacote; só transbordo, tardios e desligamento, RF-04a), `pcaps` (BLOB),
 `app_events`, `raw_streams` (BLOB), `dns_queries`, `stray_packets`, `deleted_probes` (cortes dos `DELETE` em
 andamento, ADR 0068). Tabelas filhas com `ON DELETE CASCADE`
@@ -419,3 +424,4 @@ de conexão aberta, na lista e no detalhe (ADR 0034). Retenção conforme RF-06.
 - specs/decisions/0069-despejo-do-udp-na-tabela-de-fluxos.md
 - specs/decisions/0056-segunda-onda-da-f8.md
 - specs/decisions/0076-estagios-da-conexao-sem-registro-e-opened-do-bot-no-handshake.md
+- specs/decisions/0077-filtros-por-rota-tabela-probes-e-queda-das-listas.md
