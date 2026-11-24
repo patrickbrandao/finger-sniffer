@@ -6,6 +6,8 @@
 #   scripts/verify.sh race-shard <k> <n> <saída>   (CI: lote k de n dos testes -race de FS_RACE_SPLIT_PKGS)
 #   scripts/verify.sh race-check <n> <diretório>   (CI: união dos lotes = lista de testes; cobertura total)
 #   scripts/verify.sh norace                       (CI: p0f.fp e os testes de tempo sem -race, spec 017 RF-08c)
+#   scripts/verify.sh static                       (CI: lint, testes com tag e govulncheck, spec 017 RF-11)
+#   scripts/verify.sh fuzz                         (CI: fuzz curto de todos os alvos, spec 017 RF-11)
 #
 # quick: só o que mudou desde `git merge-base HEAD main` (commits, alterações e arquivos novos).
 #        Roda todos os passos e sai com código != 0 se algum falhar.
@@ -34,6 +36,8 @@
 #                        tmp/p0f/p0f.fp e exportam (spec 017 RF-08b)
 #   FS_TEST_TMPFS        tmpfs pequeno (16 MiB na RF-08c; 32 MiB no CI até a task 416) do TestDBFullRealTmpfs no passo sem -race (sem ela, o teste se pula)
 #   FS_SKIP_NORACE=1     o full pula os testes sem -race (o CI os roda no job norace)
+#   FS_SKIP_STATIC=1     o full pula lint, testes com tag e govulncheck (o CI os roda no job static)
+#   FS_SKIP_FUZZ=1       o full pula o fuzz curto (o CI o roda no job fuzz)
 #
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
@@ -118,7 +122,7 @@ on_term() {
 		STEP_NOTES+=("interrompido por TERM")
 	fi
 	case "${MODE:-}" in
-	quick | full | norace)
+	quick | full | norace | static | fuzz)
 		summary
 		echo "== interrompido por TERM durante: ${CURRENT_STEP:-nenhum passo}"
 		;;
@@ -1324,6 +1328,47 @@ e2e_tests() {
 	go test -count=1 -timeout "$E2E_TIMEOUT" -tags e2e ./test/e2e/...
 }
 
+# Passos do full que o CI roda em jobs próprios (task 397, spec 017 RF-11): "<variável>:<modo>". Com a variável em
+# 1, o full marca o passo como pulado e o job do modo (verify.sh <modo>) o roda; o verify-test.sh confere que todo
+# passo do full aparece em algum job do workflow.
+CI_SPLITS="FS_SKIP_STATIC:static FS_SKIP_FUZZ:fuzz FS_SKIP_NORACE:norace"
+
+# split_step <variável> <nome> <comando...>: run_step, ou pulado com a nota "(job próprio no CI)" quando a
+# variável vale 1.
+split_step() {
+	local var="$1"
+	shift
+	if [ "${!var:-0}" = 1 ]; then
+		skip_step "$1" "$var=1 (job próprio no CI)"
+	else
+		run_step "$@"
+	fi
+}
+
+# verify_static: lint, testes com tag e govulncheck (job static do CI).
+verify_static() {
+	STOP_ON_FAIL=1
+	echo "== verify static"
+	run_step "lint" golangci-lint run ./...
+	run_step "testes com tag" tagged_tests
+	run_step "govulncheck" govulncheck ./...
+	summary
+	[ "$FAILED" = 0 ]
+}
+
+# verify_fuzz: fuzz curto de todos os alvos (job fuzz do CI).
+verify_fuzz() {
+	STOP_ON_FAIL=1
+	echo "== verify fuzz"
+	if has_fuzz; then
+		run_step "fuzz curto ($FUZZ_TIME)" fuzz_all
+	else
+		skip_step "fuzz curto ($FUZZ_TIME)" "nenhum alvo Fuzz*"
+	fi
+	summary
+	[ "$FAILED" = 0 ]
+}
+
 verify_full() {
 	local e2e=0 pkgs
 	while [ $# -gt 0 ]; do
@@ -1345,9 +1390,9 @@ verify_full() {
 	run_step "format" gofumpt_all
 	run_step "binários versionados" scripts/check-binaries.sh
 	run_step "verify-test" scripts/verify-test.sh
-	run_step "lint" golangci-lint run ./...
+	split_step FS_SKIP_STATIC "lint" golangci-lint run ./...
 	run_step "vet" go vet ./...
-	run_step "testes com tag" tagged_tests
+	split_step FS_SKIP_STATIC "testes com tag" tagged_tests
 	run_step "contratos" contracts_check
 	run_step "examples asyncapi" asyncapi_examples_check
 	run_step "p0f.fp" p0f_prepare
@@ -1355,19 +1400,15 @@ verify_full() {
 	# no CI, o store sai deste passo e roda em lotes (race-shard/race-check)
 	[ -z "$RACE_SPLIT_PKGS" ] || STEP_NOTES[$((${#STEP_NOTES[@]} - 1))]="sem $RACE_SPLIT_PKGS (lotes)"
 
-	if [ "${FS_SKIP_NORACE:-0}" = 1 ]; then
-		skip_step "testes sem -race" "FS_SKIP_NORACE=1 (job próprio no CI)"
-	else
-		run_step "testes sem -race" norace_tests
-	fi
+	split_step FS_SKIP_NORACE "testes sem -race" norace_tests
 
 	if has_fuzz; then
-		run_step "fuzz curto ($FUZZ_TIME)" fuzz_all
+		split_step FS_SKIP_FUZZ "fuzz curto ($FUZZ_TIME)" fuzz_all
 	else
 		skip_step "fuzz curto ($FUZZ_TIME)" "nenhum alvo Fuzz*"
 	fi
 
-	run_step "govulncheck" govulncheck ./...
+	split_step FS_SKIP_STATIC "govulncheck" govulncheck ./...
 	run_step "build linux/amd64" make -s build
 
 	pkgs=$(linux_priv_pkgs)
@@ -1398,8 +1439,10 @@ full) verify_full "$@" ;;
 race-shard) race_shard "$@" ;;
 race-check) race_check "$@" ;;
 norace) verify_norace "$@" ;;
+static) verify_static "$@" ;;
+fuzz) verify_fuzz "$@" ;;
 *)
-	echo "uso: verify.sh quick|full|race-shard|race-check|norace [...]" >&2
+	echo "uso: verify.sh quick|full|race-shard|race-check|norace|static|fuzz [...]" >&2
 	exit 2
 	;;
 esac
