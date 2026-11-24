@@ -13,6 +13,15 @@ devolve um **veredito explicável**: a classe, o score e a lista dos sinais que 
 está** ([ADR 0062](../specs/decisions/0062-traefix-consumido-como-esta.md)): os recursos e formatos são dele,
 documentados no projeto traefix; aqui fica só o perfil de configuração usado com o bot ([abaixo](#guia-de-integração)).
 
+A visão do store (`fs.v1.store.connection`) chega ao bot **só para conexões estabelecidas**
+([ADR 0076](../specs/decisions/0076-estagios-da-conexao-sem-registro-e-opened-do-bot-no-handshake.md)): o `opened`
+sai no ACK do cliente depois do SYN-ACK (TCP) ou no primeiro datagrama do cliente depois da primeira resposta do
+espelho (UDP), ou no primeiro evento de aplicação. Varredura, SYN sem resposta, SYN-ACK seguido de RST ou de silêncio
+e SYN flood (com ou sem origem falsificada) não entram no índice do bot, e o teto do índice só é disputado por
+conexões que completaram o handshake. O `closed` com `connection.discarded` (`evicted` ou `deleted`, conexão que saiu
+do store sem registro; `stray` não chega a esse canal) é tratado como qualquer `closed`: substitui o registro e marca
+a conexão fechada.
+
 > **Uso não comercial** ([ADR 0053](../specs/decisions/0053-uso-nao-comercial-e-licencas.md)). A API e as chaves são
 > oferecidas sem cobrança e só para uso não comercial (campo `info.x-terms` do contrato). O JA4 é BSD-3-Clause; JA4H e
 > JA4T seguem a FoxIO License 1.1: uso comercial por terceiros exige licença da FoxIO e é responsabilidade deles. Vale

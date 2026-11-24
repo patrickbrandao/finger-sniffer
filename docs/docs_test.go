@@ -217,7 +217,7 @@ func TestHTTP3Fields(t *testing.T) {
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.7.0", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"versão 0.8.0", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
 			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
 		},
 		"metrics.md": {
@@ -327,7 +327,7 @@ func TestConnectionCloseDocs(t *testing.T) {
 func TestContracts04Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.7.0", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
+			"versão 0.8.0", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
 			"settle and min_conns require wait", "`settle` fora de `0s`–`10s`", "`min_conns` fora de 1–1000",
 			"`request_started_at`", "`request_ended_at`", "`response_started_at`", "`response_ended_at`",
 			"Cada instante é **independente**", "RST_STREAM", "`ip.packets`", "`first_data`",
@@ -386,7 +386,7 @@ func TestMSSWindowDocs(t *testing.T) {
 func TestContracts05Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.7.0", "contrato (0.7.0)", "ADRs 0029, 0031, 0032, 0066 e 0067", "### MSS, MTU implícito e tipo da origem",
+			"versão 0.8.0", "contrato (0.8.0)", "ADRs 0029, 0031, 0032, 0066, 0067 e 0076", "### MSS, MTU implícito e tipo da origem",
 			"`tcp.syn_mss`", "`tcp.mtu_implied`", "`tcp.mss_reduction`", "`ip.src_kind`",
 			"anteriores ao 0.5.0", "`1460 − syn_mss`", "`1440 − syn_mss`", "MSS clamping",
 			"`shared`", "`teredo`", "`6to4`", "`nat64`", "`other`", "`global`", ".tcp.syn_mss", ".ip.src_kind",
@@ -426,7 +426,7 @@ func TestContracts05Docs(t *testing.T) {
 func TestContracts06Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.7.0", "ADR 0032", "**1000 conexões**", "`truncated: true`",
+			"versão 0.8.0", "ADR 0032", "**1000 conexões**", "`truncated: true`",
 			"conjunto inteiro", "`GET /api/v1/connections?probe=<id>`", "**64** esperas `wait` simultâneas",
 			"`Retry-After: 1`", "**4** downloads", "**60 s**", "### Marcas de corte e valores especiais (0.6.0)",
 			"**ausente equivale a `false`**", "`http[].request_line.target_truncated`", "`tls.lists_truncated`",
@@ -998,7 +998,8 @@ func TestSliceDocs(t *testing.T) {
 	}
 }
 
-// TestContracts07Docs: api.md descreve o contrato 0.7.0 do store (ADRs 0066, 0067 e 0068) e o health com o bot.
+// TestContracts07Docs: api.md descreve o que entrou no contrato 0.7.0 do store (ADRs 0066, 0067 e 0068; hoje 0.8.0) e o
+// health com o bot.
 func TestContracts07Docs(t *testing.T) {
 	data, err := os.ReadFile("api.md")
 	if err != nil {
@@ -1006,7 +1007,7 @@ func TestContracts07Docs(t *testing.T) {
 	}
 	s := string(data)
 	for _, w := range []string{
-		"versão 0.7.0", "64 MiB", "256 MiB", "`{\"error\":\"busy\"}`", "`{\"error\":\"shutting down\"}`",
+		"versão 0.8.0", "64 MiB", "256 MiB", "`{\"error\":\"busy\"}`", "`{\"error\":\"shutting down\"}`",
 		"`fs_store_api_rejected_total{route,reason}`", "`fs_store_api_json_bytes_in_flight`", "`http_truncated`",
 		"`http2.streams_truncated`", "`http3.requests_truncated`", "em lotes", "ADR 0068", "\"bot\": \"ok\"",
 		"sexto serviço, `bot`",
@@ -1037,5 +1038,43 @@ func TestBotPrivacyControlRequests(t *testing.T) {
 	}
 	if !strings.Contains(string(doc), "\n"+m[1]+" |\n") {
 		t.Errorf("bot.md sem a linha da ADR 0052: %q", m[1]+" |")
+	}
+}
+
+// TestDiscardedAndEstablishedDocs: contrato 0.8.0 do store (ADR 0076, task 418): o connection.closed com discarded no
+// tempo real (um por connection.opened, 404 na API), o campo na api.md e o opened do bot só com a conexão
+// estabelecida.
+func TestDiscardedAndEstablishedDocs(t *testing.T) {
+	want := map[string][]string{
+		"realtime.md": {
+			"`data.discarded`", "exatamente um por `connection.opened`", "`stray`", "`evicted`", "`deleted`",
+			"junto dos `packet.stray`", "**404**", "o instante em que o store decidiu", "com ou sem `discarded`",
+			"Contrato 0.8.0", "ADR 0076",
+		},
+		"api.md": {
+			"versão 0.8.0", "contrato 0.8.0", "`discarded`", "**nenhuma rota da API o devolve**",
+			"realtime.md#conexão-que-sai-sem-registro-discarded",
+		},
+		"bot.md": {
+			"**só para conexões estabelecidas**", "ACK do cliente depois do SYN-ACK", "SYN flood",
+			"não entram no índice do bot", "`connection.discarded`", "tratado como qualquer `closed`", "ADR 0076",
+		},
+	}
+	for file, ws := range want {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// junta as quebras de linha para as frases que atravessam linhas
+		s := strings.Join(strings.Fields(string(data)), " ")
+		for _, w := range ws {
+			if !strings.Contains(s, w) {
+				t.Errorf("%s sem %q", file, w)
+			}
+		}
+	}
+	data, _ := os.ReadFile("api.md")
+	if strings.Contains(string(data), "versão 0.7.0") {
+		t.Error("api.md ainda cita a versão 0.7.0 como a do contrato")
 	}
 }

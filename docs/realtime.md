@@ -5,7 +5,8 @@ Derivado da [spec 004](../specs/004-store-e-api.md) ("Tempo real"), da
 [openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml).
 
 O store empurra para os clientes um evento a cada coisa nova que **já foi gravada** (o que aparece no feed já está
-na API de consulta), em menos de 1 s. Sem filtros, é o **feed global**: as sondagens de todo mundo.
+na API de consulta, exceto o `connection.closed` com `discarded`, abaixo), em menos de 1 s. Sem filtros, é o
+**feed global**: as sondagens de todo mundo.
 
 | Transporte | URL |
 | --- | --- |
@@ -54,7 +55,7 @@ Cada evento é um `LiveEvent`:
 | --- | --- | --- |
 | `connection.opened` | conexão criada (por pacotes ou só por eventos) | `ConnectionSummary` |
 | `connection.updated` | camada de aplicação fundida no registro aberto (até 1 a cada 250 ms) | `ConnectionSummary` |
-| `connection.closed` | registro finalizado e gravado | `ConnectionSummary` |
+| `connection.closed` | registro finalizado e gravado, ou a conexão saiu do banco sem registro (`data.discarded`, [abaixo](#conexão-que-sai-sem-registro-discarded)); exatamente um por `connection.opened` | `ConnectionSummary` |
 | `http.request` | cada requisição HTTP/1, stream h2 ou requisição h3 | `HTTP1Request`, `HTTP2Stream` ou `HTTP3Request` |
 | `dns.query` | cada consulta DNS gravada | `DNSQuery` |
 | `packet.stray` | cada pacote avulso gravado | `StrayPacket` |
@@ -64,6 +65,28 @@ Cada evento é um `LiveEvent`:
 conexão: `request_line` existe só em HTTP/1; h2 e h3 trazem `fields` (com pseudo-cabeçalhos `:method`, `:path`…)
 e o h3 traz `body_len`. Para saber IP e porta de uma requisição, guarde o `ConnectionSummary` do
 `connection.opened` com o mesmo `conn_id`.
+
+### Conexão que sai sem registro (`discarded`)
+
+Contrato 0.8.0 ([ADR 0076](../specs/decisions/0076-estagios-da-conexao-sem-registro-e-opened-do-bot-no-handshake.md)).
+O `connection.opened` sai na criação, já no SYN ou no primeiro datagrama, mesmo que o handshake nunca complete (o
+feed mostra que o SYN chegou). Toda conexão com `connection.opened` recebe **exatamente um** `connection.closed`:
+o de sempre, com o registro gravado, ou, quando a linha sai do banco sem registro, um `connection.closed` com
+`data.discarded`:
+
+| `data.discarded` | O que aconteceu |
+| --- | --- |
+| `stray` | virou pacotes avulsos (TCP sem SYN-ACK, varredura, UDP sem resposta); o `connection.closed` sai junto dos `packet.stray` dos mesmos pacotes |
+| `evicted` | despejada pela tabela de fluxos cheia |
+| `deleted` | o probe foi apagado pelo `DELETE /api/v1/probes/{id}` |
+
+Sem `discarded` (campo ausente), a conexão tem registro gravado. Com `discarded`, o `data` é o estado em memória da
+conexão naquele instante (`ended` = último pacote), o `ts` é o instante em que o store decidiu (saída da tabela ou
+despejo) e o `conn_id` já não existe na API: `GET /api/v1/connections/{conn_id}` dá **404**.
+
+Para acompanhar as conexões abertas, guarde cada `connection.opened` e remova a entrada no `connection.closed` do
+mesmo `conn_id`, com ou sem `discarded`; nenhuma entrada fica aberta para sempre (descontados os eventos perdidos
+avisados por `stream.dropped`).
 
 ## SSE com curl
 
