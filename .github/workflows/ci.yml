@@ -48,6 +48,8 @@ jobs:
       - name: verify-full
         env:
           FS_SKIP_LINUX_PRIV: "1"
+          # testes sem -race no job norace (task 360)
+          FS_SKIP_NORACE: "1"
         run: |
           rc=0
           timeout --kill-after=30s 25m make verify-full || rc=$?
@@ -97,9 +99,36 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Nenhum teste fora dos lotes (nem repetido) e cobertura total = verify-full + lotes.
+  # Testes de tempo sem -race (spec 017 RF-08c, task 360): se pulam ou afrouxam com -race, então rodam aqui, por
+  # nome (lista em scripts/verify.sh), com o p0f.fp real (RF-08b) e um tmpfs pequeno de verdade para o
+  # TestDBFullRealTmpfs (ADR 0045).
+  norace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # 32 MiB, não os 16 MiB da RF-08c: em 16 MiB o TestDBFullRealTmpfs reprova de forma determinística (só passa
+      # de 24 a 40 MiB); volta a 16 MiB com a task 416.
+      - name: tmpfs de 32 MiB
+        run: |
+          sudo mkdir -p /mnt/fs-tmpfs
+          sudo mount -t tmpfs -o size=32m,mode=1777 tmpfs /mnt/fs-tmpfs
+          df -h /mnt/fs-tmpfs
+
+      - name: testes sem -race
+        env:
+          FS_TEST_TMPFS: /mnt/fs-tmpfs
+        run: timeout --kill-after=30s 10m scripts/verify.sh norace
+
+  # Nenhum teste fora dos lotes (nem repetido) e cobertura total = verify-full + lotes; depende também do norace
+  # para a proteção da branch seguir com um check só.
   race-check:
-    needs: [verify-full, store-race]
+    needs: [verify-full, store-race, norace]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

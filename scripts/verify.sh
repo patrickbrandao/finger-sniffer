@@ -5,6 +5,7 @@
 #   scripts/verify.sh full  [--e2e]
 #   scripts/verify.sh race-shard <k> <n> <saída>   (CI: lote k de n dos testes -race de FS_RACE_SPLIT_PKGS)
 #   scripts/verify.sh race-check <n> <diretório>   (CI: união dos lotes = lista de testes; cobertura total)
+#   scripts/verify.sh norace                       (CI: p0f.fp e os testes de tempo sem -race, spec 017 RF-08c)
 #
 # quick: só o que mudou desde `git merge-base HEAD main` (commits, alterações e arquivos novos).
 #        Roda todos os passos e sai com código != 0 se algum falhar.
@@ -26,6 +27,10 @@
 #                        full local): tudo de uma vez
 #   FS_RACE_OUT          com FS_RACE_SPLIT_PKGS, diretório onde o full deixa o cover.out (cover-main.out) para o
 #                        race-check somar à cobertura dos lotes
+#   FS_P0F_DB            p0f.fp dos testes; vazio: o full, o norace e o race-shard baixam o de deploy/versions.env em
+#                        tmp/p0f/p0f.fp e exportam (spec 017 RF-08b)
+#   FS_TEST_TMPFS        tmpfs pequeno (16 MiB na RF-08c; 32 MiB no CI até a task 416) do TestDBFullRealTmpfs no passo sem -race (sem ela, o teste se pula)
+#   FS_SKIP_NORACE=1     o full pula os testes sem -race (o CI os roda no job norace)
 #
 # Compatível com o bash 3.2 do macOS (sem arrays associativos nem mapfile).
 set -u
@@ -110,7 +115,7 @@ on_term() {
 		STEP_NOTES+=("interrompido por TERM")
 	fi
 	case "${MODE:-}" in
-	quick | full)
+	quick | full | norace)
 		summary
 		echo "== interrompido por TERM durante: ${CURRENT_STEP:-nenhum passo}"
 		;;
@@ -240,6 +245,106 @@ with_tests() {
 	for p in "$@"; do
 		ls "$(pkg_to_dir "$p")"/*_test.go >/dev/null 2>&1 && echo "$p"
 	done
+}
+
+# ---------------------------------------------------------------------------
+# p0f.fp real e testes sem -race (spec 017 RF-08b e RF-08c, task 360)
+# ---------------------------------------------------------------------------
+P0F_VERSIONS_FILE="deploy/versions.env"
+P0F_OUT="tmp/p0f/p0f.fp"
+# Testes de tempo que se pulam ou afrouxam com -race: rodam sem ele, por nome. Um teste novo com
+# `if raceEnabled { t.Skip` entra aqui no mesmo PR (o verify-test.sh confere).
+NORACE_TESTS="TestWriterNoStallDuringPurge TestRetentionDoesNotStallIngest TestForwardAuthLatency TestDBFullRealTmpfs"
+NORACE_PKGS="./internal/store ./internal/bot"
+
+sha256_of() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$1" | awk '{ print $1 }'
+	else
+		shasum -a 256 "$1" | awk '{ print $1 }'
+	fi
+}
+
+# versions_get <chave>: valor de deploy/versions.env (sem executar o arquivo).
+versions_get() { sed -nE "s/^$1=(.*)\$/\1/p" "$P0F_VERSIONS_FILE" | tail -1; }
+
+# p0f_prepare: FS_P0F_DB já definido fica; senão garante tmp/p0f/p0f.fp na versão e com os SHA-256 do
+# deploy/versions.env (baixa só quando falta ou o SHA não bate) e exporta FS_P0F_DB.
+p0f_prepare() {
+	if [ -n "${FS_P0F_DB:-}" ]; then
+		echo "FS_P0F_DB=$FS_P0F_DB (já definido)"
+		return 0
+	fi
+	local ver tgz_sha fp_sha url dl
+	ver=$(versions_get P0F_VERSION)
+	tgz_sha=$(versions_get P0F_TGZ_SHA256)
+	fp_sha=$(versions_get P0F_FP_SHA256)
+	url="${FS_P0F_URL:-$(versions_get P0F_URL)}"
+	if [ -z "$ver" ] || [ -z "$tgz_sha" ] || [ -z "$fp_sha" ] || [ -z "$url" ]; then
+		echo "P0F_VERSION, P0F_TGZ_SHA256, P0F_FP_SHA256 ou P0F_URL ausente em $P0F_VERSIONS_FILE"
+		return 1
+	fi
+	if [ ! -f "$P0F_OUT" ] || [ "$(sha256_of "$P0F_OUT")" != "$fp_sha" ]; then
+		echo "baixando p0f $ver de $url"
+		dl="$WORK/p0f"
+		rm -rf "$dl" && mkdir -p "$dl" "$(dirname "$P0F_OUT")" || return 1
+		curl -fsSL --retry 3 -o "$dl/p0f.tgz" "$url" || {
+			echo "download do p0f falhou ($url)"
+			return 1
+		}
+		if [ "$(sha256_of "$dl/p0f.tgz")" != "$tgz_sha" ]; then
+			echo "SHA-256 do p0f-$ver.tgz não bate com P0F_TGZ_SHA256"
+			return 1
+		fi
+		tar -xzf "$dl/p0f.tgz" -C "$dl" "p0f-$ver/p0f.fp" || return 1
+		if [ "$(sha256_of "$dl/p0f-$ver/p0f.fp")" != "$fp_sha" ]; then
+			echo "SHA-256 do p0f.fp não bate com P0F_FP_SHA256"
+			return 1
+		fi
+		mv "$dl/p0f-$ver/p0f.fp" "$P0F_OUT" || return 1
+	fi
+	FS_P0F_DB="$ROOT/$P0F_OUT"
+	export FS_P0F_DB
+	echo "FS_P0F_DB=$FS_P0F_DB (p0f $ver)"
+}
+
+# norace_tests: os testes de NORACE_TESTS sem -race, com -v (o log mostra PASS ou SKIP de cada um).
+norace_tests() {
+	unset FS_TEST_DB FS_TEST_DB_TEMPLATE FS_TEST_BOT_DB FS_TEST_BOT_DB_TEMPLATE
+	local re
+	re=$(echo "$NORACE_TESTS" | tr ' ' '|')
+	[ -n "${FS_TEST_TMPFS:-}" ] || echo "FS_TEST_TMPFS vazio: TestDBFullRealTmpfs se pula"
+	# shellcheck disable=SC2086 # lista de pacotes
+	go test -count=1 -v -run "^($re)\$" $NORACE_PKGS | grep -E '^(=== RUN|--- |PASS|FAIL|ok|panic|[[:space:]]+[a-z_]+\.go:[0-9]+:)'
+	return "${PIPESTATUS[0]}"
+}
+
+# race_skip_tests <arquivos _test.go>: testes de nível superior com `if raceEnabled {` seguido de t.Skip.
+race_skip_tests() {
+	awk '
+		/^func Test[A-Za-z0-9_]*\(/ { name = $2; sub(/\(.*/, "", name) }
+		pending && /t\.Skip/ { print name }
+		{ pending = ($0 ~ /^[[:space:]]*if raceEnabled[[:space:]]*\{/) }' "$@" | sort -u
+}
+
+# p0f_real_tests: os testes que só valem com o p0f.fp real (assinatura e palpite de SO contra o p0f -r), com -v para
+# o log do CI mostrar PASS e não SKIP; no full eles já rodam no passo -race.
+P0F_REAL_TESTS="TestP0FGolden TestRealDBLoads"
+p0f_real_tests() {
+	local re
+	re=$(echo "$P0F_REAL_TESTS" | tr ' ' '|')
+	go test -count=1 -v -run "^($re)\$" ./pkg/fingerprint/p0f | grep -E '^(=== RUN|--- |PASS|FAIL|ok)'
+	return "${PIPESTATUS[0]}"
+}
+
+verify_norace() {
+	STOP_ON_FAIL=1
+	echo "== verify norace"
+	run_step "p0f.fp" p0f_prepare
+	run_step "testes sem -race" norace_tests
+	run_step "testes do p0f.fp real" p0f_real_tests
+	summary
+	[ "$FAILED" = 0 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -920,6 +1025,10 @@ race_shard() {
 	if command -v npm >/dev/null && [ -f "$CONTRACTS_TOOLS_DIR/package-lock.json" ]; then
 		npm_deps "$CONTRACTS_TOOLS_DIR" || return 1
 	fi
+	# p0f.fp real para o SO do golden do store (RF-08b); fora do repositório (módulos de teste), sem p0f
+	if [ -f "$P0F_VERSIONS_FILE" ]; then
+		p0f_prepare || return 1
+	fi
 	race_list >"$out/expected-$k.txt" || return 1
 	race_assign "$n" <"$out/expected-$k.txt" | awk -v k="$k" '$1 == k { print $2, $3 }' >"$WORK/mine.txt"
 	echo "lote $k/$n: $(wc -l <"$WORK/mine.txt" | tr -d ' ') de $(wc -l <"$out/expected-$k.txt" | tr -d ' ') testes"
@@ -1167,9 +1276,16 @@ verify_full() {
 	run_step "testes com tag" tagged_tests
 	run_step "contratos" contracts_check
 	run_step "examples asyncapi" asyncapi_examples_check
+	run_step "p0f.fp" p0f_prepare
 	run_step "testes -race + cobertura" full_tests
 	# no CI, o store sai deste passo e roda em lotes (race-shard/race-check)
 	[ -z "$RACE_SPLIT_PKGS" ] || STEP_NOTES[$((${#STEP_NOTES[@]} - 1))]="sem $RACE_SPLIT_PKGS (lotes)"
+
+	if [ "${FS_SKIP_NORACE:-0}" = 1 ]; then
+		skip_step "testes sem -race" "FS_SKIP_NORACE=1 (job próprio no CI)"
+	else
+		run_step "testes sem -race" norace_tests
+	fi
 
 	if has_fuzz; then
 		run_step "fuzz curto ($FUZZ_TIME)" fuzz_all
@@ -1207,8 +1323,9 @@ quick) verify_quick "$@" ;;
 full) verify_full "$@" ;;
 race-shard) race_shard "$@" ;;
 race-check) race_check "$@" ;;
+norace) verify_norace "$@" ;;
 *)
-	echo "uso: verify.sh quick|full|race-shard|race-check [...]" >&2
+	echo "uso: verify.sh quick|full|race-shard|race-check|norace [...]" >&2
 	exit 2
 	;;
 esac
