@@ -1,8 +1,8 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.6.x, ADRs 0029, 0031 e 0032, servido também em
-`/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.7.0, ADRs 0029, 0031, 0032, 0066 e 0067,
+servido também em `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo estão resumidas, e o IP do cliente foi trocado por um IP de documentação (`203.0.113.10`). As de
 pcap, bytes crus, DNS e saúde foram recapturadas no finger-01
@@ -41,11 +41,13 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
 - O banco fica em RAM, num tmpfs de 4G (ADR 0045): sobrevive ao reinício do store (deploy), mas **some no reinício do
   host**; probes e IDs anteriores passam a dar 404, como depois da retenção.
 - `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões fechadas e suas consultas DNS (204).
-  As conexões do probe ainda abertas somem na hora de todas as leituras (`/probes/{id}`, `/connections`, tempo
-  real) e são apagadas quando fecham (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
+  Tudo some na hora de todas as leituras (`/probes/{id}`, `/connections`, `/dns`, tempo real), inclusive as
+  conexões do probe ainda abertas; as linhas saem do banco em lotes logo depois (ADR 0068), e pacotes e eventos
+  que ainda chegarem para as conexões que estavam abertas são descartados até elas fecharem (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
   probe novo.
 - Não há histórico além da retenção nem paginação por cursor: as listas aceitam só `limit` (1 a 1000, padrão 100)
-  e vêm das mais novas para as mais antigas.
+  e vêm das mais novas para as mais antigas. Uma lista pode vir com **menos itens que `limit`** quando o corpo
+  chegaria a 64 MiB (ADR 0066, contrato 0.7.0); continue pela janela de tempo (`until`/`since`).
 
 ## Rotas
 
@@ -81,7 +83,8 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
 
 A resposta traz no máximo **1000 conexões** (as mais antigas primeiro) e **1000 consultas DNS** (pela ordem de
 chegada). Acima disso vem `truncated: true` e o restante fica em `GET /api/v1/connections?probe=<id>` e
-`GET /api/v1/dns?probe=<id>`, que paginam por `since`/`until`/`limit`. `all_closed` e o critério do `wait` olham o
+`GET /api/v1/dns?probe=<id>`, que paginam por `since`/`until`/`limit`. O mesmo corte, com `truncated: true`,
+vale quando o corpo chegaria a **64 MiB** (ADR 0066). `all_closed` e o critério do `wait` olham o
 conjunto inteiro, não só o que veio na resposta (ADR 0032).
 
 ### Long-poll `wait`
@@ -290,6 +293,15 @@ opcional: **ausente equivale a `false`** (registros anteriores ao 0.6.0 não o t
 | `http3.transport_params_truncated` | o parser parou em 1024 parâmetros de transporte, ou a lista foi reduzida para caber no evento | pcap (o Initial, decifrável com as chaves públicas do QUIC) |
 | `http3.h3_settings_truncated` | o parser parou em 256 pares de SETTINGS do h3, ou a lista foi reduzida para caber no evento | não fica guardado (o stream de controle vai cifrado) |
 
+O contrato 0.7.0 (ADR 0067) limita as listas de requisições de cada conexão às **1000 primeiras**; acima disso o
+store só conta (`requests` segue o total h1+h2+h3). Mesma regra: ausente equivale a `false`.
+
+| Campo | `true` quando | Onde está o dado completo |
+| --- | --- | --- |
+| `http_truncated` | `http[]` lista só as 1000 primeiras requisições HTTP/1 (por `index`) | fluxo `in`/`out` (`/raw`) |
+| `http2.streams_truncated` | `http2.streams[]` lista só os 1000 primeiros streams (por chegada) | pcap (cifrado) e `/raw` |
+| `http3.requests_truncated` | `http3.requests[]` lista só as 1000 primeiras requisições h3 (por chegada) | pcap (cifrado) |
+
 Com `lists_truncated`, os fingerprints (`ja4`, `ja3_md5`, `ja3n_md5`, `ja4_stable`…) **continuam calculados
 sobre o ClientHello completo**, antes do corte: só as listas e as strings longas do registro ficam incompletas. O
 evento não é mais descartado por tamanho, então um ClientHello enorme ou um alvo HTTP/1 longo aparecem no
@@ -407,9 +419,6 @@ $ tshark -r c.pcap | head -4
 O SYN-ACK do finger-01 em IPv4: janela 65160, MSS 1460, WS 4096 (escala 12), ECN aceito, SACK e timestamps; em
 IPv6, janela 64260 e MSS 1440. Esses valores são da pilha do host e não da conexão do cliente.
 
-```console
-```
-
 - Formato libpcap com nanossegundos, `Content-Type: application/vnd.tcpdump.pcap`, os dois sentidos.
 - Teto de `FS_PCAP_MAX_BYTES_PER_CONN` (16 MiB): acima disso os pacotes ficam só com os cabeçalhos, por mais
   16 MiB; esgotado esse segundo orçamento, os pacotes seguintes ficam fora do pcap (o pcap tem no máximo ~32 MiB).
@@ -505,7 +514,7 @@ $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq '{ok, version
   "ok": true,
   "version": "v0.2.1-68-g7fb82fb",
   "versions_match": true,
-  "services": { "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
+  "services": { "bot": "ok", "capture": "ok", "dns": "ok", "raw": "ok", "store": "ok", "web": "ok" },
   "store": {
     "db_bytes": 76218368,
     "max_bytes": 3221225472,
@@ -517,8 +526,12 @@ $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq '{ok, version
 $ curl -s http://finger-01.badblock.net.br:9001/api/v1/health | jq -c '{reasons: (.services | map_values(.reasons)),
     iface: .host.iface, offloads: .host.offloads."generic-receive-offload", conntrack_loaded: .host.conntrack_loaded,
     nft_ruleset_lines: .host.nft_ruleset_lines}'
-{"reasons":{"capture":null,"dns":null,"raw":null,"store":null,"web":null},"iface":"ens192","offloads":"off","conntrack_loaded":true,"nft_ruleset_lines":57}
+{"reasons":{"bot":null,"capture":null,"dns":null,"raw":null,"store":null,"web":null},"iface":"ens192","offloads":"off","conntrack_loaded":true,"nft_ruleset_lines":57}
 ```
+
+Desde a F8 o health conhece o sexto serviço, `bot` (spec 004 RF-13), como os outros: heartbeat, `down` sem
+heartbeat há 15 s e `versions_match`; o smoke do deploy exige os 6 `ok`. (Exemplo capturado antes da F8, com a
+entrada `bot` acrescentada.)
 
 O `conntrack_loaded: true` e as 57 linhas do ruleset do host do traefik não deixaram nada `degraded`. Enquanto o
 certificado **B** (`finger-01.*`, emitido por TLS-ALPN-01 pelo passthrough do traefik) for o autoassinado
@@ -557,14 +570,17 @@ Sysctls do host que o espelho **não** fixa e que moldam o que o cliente vê do 
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.6.x):
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.7.0):
 
 | Código | Quando |
 | --- | --- |
 | 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, `settle` ou `min_conns` sem `wait`, `settle` fora de `0s`–`10s` ou mal formado, `min_conns` fora de 1–1000, filtro de tempo real inválido |
 | 404 | ID no formato certo mas desconhecido ou expirado (retenção), e qualquer rota inexistente |
-| 503 | em `/stream` e `/ws`, acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo; em `/probes/{id}?wait=`, acima de 64 esperas simultâneas, e em `/pcap` e `/raw`, acima de 4 downloads em andamento (esses dois com `Retry-After: 1`) |
+| 503 | em `/stream` e `/ws`, acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo; em `/probes/{id}?wait=`, acima de 64 esperas simultâneas; em `/pcap` e `/raw`, acima de 4 downloads em andamento; nas rotas JSON finitas (`/probes/{id}`, `/connections`, `/connections/{conn_id}`, `/dns`, `/packets`), com o orçamento de 256 MiB das respostas em andamento esgotado (`{"error":"busy"}`); em todas as rotas finitas, inclusive o `DELETE` de probe, `/pcap` e `/raw`, com o store desligando (`{"error":"shutting down"}`, num deploy). Todos esses, menos o de `/stream` e `/ws`, vêm com `Retry-After: 1` (ADRs 0032 e 0066) |
 | 500 | erro interno nas rotas de consulta |
+
+Os 503 de orçamento e de desligamento contam em `fs_store_api_rejected_total{route,reason}` (`busy`,
+`shutting_down`) e o orçamento em uso em `fs_store_api_json_bytes_in_flight` ([metrics.md](metrics.md)).
 
 `OPTIONS` em qualquer caminho responde **204** sem corpo (pré-voo CORS, com `Access-Control-Allow-Origin: *` e
 `Access-Control-Allow-Methods: GET, DELETE, OPTIONS`).

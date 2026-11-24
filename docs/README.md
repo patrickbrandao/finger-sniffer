@@ -39,9 +39,10 @@ Toda sondagem web leva a porta explícita: `https://<id>.finger-west-01.badblock
 
 ### Limites
 
-- As 7 units ficam em `finger-sniffer.slice` com `MemoryMax=10G` e `CPUQuota=800%`; por unit, `MemoryMax` store 6G
-  (com o tmpfs de 4G do banco, [ADR 0045](../specs/decisions/0045-banco-do-store-em-ram.md)), nats 1G, web 768M,
-  capture 512M, raw 256M e dns 256M.
+- As 8 units dos serviços (rede, NATS e os 6 serviços) e a mount unit do banco ficam em `finger-sniffer.slice` com
+  `MemoryMax=10G` e `CPUQuota=800%`; por unit, `MemoryMax` store 6G (com o tmpfs de 4G do banco,
+  [ADR 0045](../specs/decisions/0045-banco-do-store-em-ram.md)), nats 1G, bot 1G, web 768M, capture 512M, raw 256M e
+  dns 256M (soma de 9,75 GiB, dentro dos 10G).
 - Modo degradado: `FS_MAX_CONNS=1000` e `FS_MAX_NEW_CONNS_PER_S=250`; garantia do RNF-01: 400 conexões simultâneas
   e 100 novas/s com análise completa ([ADR 0046](../specs/decisions/0046-rnf-01-400-100-com-o-banco-em-ram.md)).
 - Limite conhecido da `v0.3.0` no finger-01 (ADR 0043), **resolvido na F7**: na `v0.3.0` a garantia era 200/50 e, a
@@ -72,7 +73,8 @@ O espelho não fixa estes sysctls do host, e eles aparecem no que o cliente vê 
 
 ## Para quem desenvolve
 
-- [dev/README.md](dev/README.md): índice do que é de desenvolvimento (spike de carga da F1, teste de carga da F5).
+- [dev/README.md](dev/README.md): índice do que é de desenvolvimento (spike de carga da F1, cargas de 10 min da F5 à
+  v0.5.1, vazão do ingest, traefix no finger-01).
 - Visão geral do repositório e comandos: [README de raiz](../README.md).
 - Organização do trabalho, papéis e Definition of Done: [specs/002](../specs/002-organizacao-do-trabalho.md).
 - Verificação (`make verify-quick`, `make verify-full`): [specs/017](../specs/017-verificacao.md).
