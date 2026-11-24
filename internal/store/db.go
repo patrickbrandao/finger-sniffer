@@ -65,12 +65,13 @@ func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// dbStats lê o que o health publica sobre o banco.
+// dbStats lê o que o health publica sobre o banco. err diz que a contagem falhou (leitor ocupado, prazo vencido,
+// banco fechado): conns e oldestNs não valem nada nesse caso (task 379).
 // Recebe o banco de leitura: a contagem não pode disputar a conexão do escritor com o ingest (task 105).
-func dbStats(ctx context.Context, db *sql.DB, path string) (size int64, conns int64, oldestNs sql.NullInt64) {
+func dbStats(ctx context.Context, db *sql.DB, path string) (size int64, conns int64, oldestNs sql.NullInt64, err error) {
 	size = dbFileSize(path)
-	_ = db.QueryRowContext(ctx, "SELECT count(*), min(started_ns) FROM connections").Scan(&conns, &oldestNs)
-	return size, conns, oldestNs
+	err = db.QueryRowContext(ctx, "SELECT count(*), min(started_ns) FROM connections").Scan(&conns, &oldestNs)
+	return size, conns, oldestNs, err
 }
 
 // dbFileSize soma o arquivo do banco e o WAL.

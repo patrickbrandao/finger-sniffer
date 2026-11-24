@@ -39,7 +39,7 @@ var heartbeatNames = map[string][]string{
 }
 
 func metricsHealth(context.Context) Health {
-	h := Health{Services: map[string]ServiceHealth{}, Host: &HostHealth{SyncookiesSent: 3, Store: &DBHealth{DBBytes: 4096, Connections: 2}}}
+	h := Health{Services: map[string]ServiceHealth{}, Host: &HostHealth{SyncookiesSent: 3, Store: &DBHealth{DBBytes: 4096, Connections: int64p(2)}}}
 	for svc, names := range heartbeatNames {
 		m := map[string]float64{}
 		for i, n := range names {

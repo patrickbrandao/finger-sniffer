@@ -7,10 +7,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -28,6 +30,9 @@ type API struct {
 	Live *Hub
 	// Prom são as métricas do /metrics e da própria API (nil desliga /metrics).
 	Prom *storeMetrics
+	// Log recebe os erros inesperados das rotas (os 500), no máximo um por segundo por rota (nil: sem log).
+	Log    *slog.Logger
+	errLog logLimiter
 	// closing é o sinal de desligamento, ligado antes de cancelar o contexto base do servidor (ADR 0066 item 3).
 	closing atomic.Bool
 }
@@ -71,7 +76,41 @@ func (a *API) handler(withMetrics bool) http.Handler {
 		mux.Handle("/debug/pprof/", pprofHandler(notFound))
 	}
 	mux.Handle("/", notFound)
-	return cors(a.Prom.instrument(mux))
+	return cors(a.Prom.instrument(mux, a.logErr))
+}
+
+// logErr registra o erro inesperado de uma rota (500), com a rota, limitado a um por segundo por rota para não
+// inundar o journald; suppressed conta os que ficaram de fora desde o último (task 379).
+func (a *API) logErr(route string, err error) {
+	if a.Log == nil {
+		return
+	}
+	if ok, n := a.errLog.allow(route, time.Now()); ok {
+		a.Log.Error("api request failed", "route", route, "err", err, "suppressed", n)
+	}
+}
+
+// logLimiter deixa passar um registro por chave a cada segundo e conta os suprimidos. O valor zero está pronto.
+type logLimiter struct {
+	mu   sync.Mutex
+	last map[string]time.Time
+	skip map[string]int
+}
+
+// allow diz se o registro da chave pode sair agora e quantos foram suprimidos desde o último que saiu.
+func (l *logLimiter) allow(key string, now time.Time) (bool, int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.last == nil {
+		l.last, l.skip = map[string]time.Time{}, map[string]int{}
+	}
+	if t, ok := l.last[key]; ok && now.Sub(t) < time.Second {
+		l.skip[key]++
+		return false, 0
+	}
+	n := l.skip[key]
+	l.last[key], l.skip[key] = now, 0
+	return true, n
 }
 
 func cors(next http.Handler) http.Handler {
@@ -188,10 +227,35 @@ func writeErr(w http.ResponseWriter, err error) {
 		w.Header().Set("Retry-After", "1")
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 	case errors.Is(err, context.Canceled):
-		// cliente desistiu
+		// cliente desistiu: nada é escrito, e a métrica conta 499 em vez do 200 padrão (convênio do nginx)
+		if sw := asStatusWriter(w); sw != nil && !sw.wrote {
+			sw.code = statusClientClosed
+		}
 	default:
+		// o erro vai para o log da API (instrument → API.logErr); o cliente só vê "internal error"
+		if sw := asStatusWriter(w); sw != nil {
+			sw.err = err
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}
+}
+
+// statusClientClosed é o código registrado quando o cliente desiste antes da resposta (499, convênio do nginx).
+const statusClientClosed = 499
+
+// asStatusWriter acha o statusWriter do instrument por baixo de w (nil se não houver).
+func asStatusWriter(w http.ResponseWriter) *statusWriter {
+	for w != nil {
+		if sw, ok := w.(*statusWriter); ok {
+			return sw
+		}
+		u, ok := w.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return nil
+		}
+		w = u.Unwrap()
+	}
+	return nil
 }
 
 func (a *API) listConnections(w http.ResponseWriter, r *http.Request) {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -45,6 +46,8 @@ func (s *Store) serveHTTPS(ctx context.Context, api *API) (*http.Server, <-chan 
 	srv := &http.Server{
 		Handler: api.HTTPSHandler(), TLSConfig: httpsTLSConfig(s.certs),
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+		// handshake TLS falho de varredura e afins no slog JSON, em debug, como no web (task 379)
+		ErrorLog:    slog.NewLogLogger(s.svc.Log.Handler(), slog.LevelDebug),
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 	addrs, err := s.cfg.apiAddrs(s.cfg.HTTPSAddr)
