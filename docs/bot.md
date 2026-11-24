@@ -863,6 +863,7 @@ sobre base legal e controlador). O IP é dado pessoal.
 | agregados por fingerprint por dia (sem IP) | disco | 7 dias |
 | chaves e webhooks; uso diário das chaves | disco | enquanto a chave existir; uso diário 90 dias |
 | listas baixadas | disco | até a próxima atualização |
+| pedidos da CLI ao serviço (`control_requests`: `forget` com o IP ou prefixo, `lists refresh`) | disco | concluídos apagados em 24 h |
 
 Os agregados em memória têm teto por origem (IPv4 ou /64 IPv6): até 32 pares IP + site por hora e 256 fingerprints
 novas por dia; acima, a observação daquela origem é descartada (`fs_bot_agg_limited_total{reason}`), sem afetar as

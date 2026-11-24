@@ -1,0 +1,1 @@
+- docs: `control_requests` (argumento do `forget` e `lists refresh`, apagados 24 h depois de concluídos) na tabela de dados e retenção do `docs/bot.md`, igual à ADR 0052 item 1 (task 300).

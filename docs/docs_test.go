@@ -1019,3 +1019,23 @@ func TestContracts07Docs(t *testing.T) {
 		t.Error("api.md com bloco console vazio")
 	}
 }
+
+// TestBotPrivacyControlRequests: a tabela de dados e retenção do bot.md tem a linha dos control_requests com o
+// mesmo texto da ADR 0052 item 1 (sem a referência à task) (task 300).
+func TestBotPrivacyControlRequests(t *testing.T) {
+	adr, err := os.ReadFile(filepath.Join("..", "specs", "decisions", "0052-dados-pessoais-e-retencao-de-7-dias.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile("(?m)^\\s*(\\| pedidos da CLI ao serviço \\(`control_requests`[^|]*\\| disco \\| concluídos apagados em 24 h) ").FindStringSubmatch(string(adr))
+	if m == nil {
+		t.Fatal("ADR 0052 sem a linha dos control_requests")
+	}
+	doc, err := os.ReadFile("bot.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doc), "\n"+m[1]+" |\n") {
+		t.Errorf("bot.md sem a linha da ADR 0052: %q", m[1]+" |")
+	}
+}
