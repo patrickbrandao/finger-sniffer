@@ -267,3 +267,59 @@ func TestNoPreviousServer(t *testing.T) {
 		}
 	}
 }
+
+// TestIndexCSP: a página traz a Content-Security-Policy em <meta>, antes de qualquer recurso, com script e estilo
+// só da própria origem, sem 'unsafe-inline'/'unsafe-eval', e connect-src só para a API (9000/9001, inclusive o
+// ?api= de testes) e a zona dos probes (task 391). O web não manda CSP: as respostas do espelho não mudam.
+func TestIndexCSP(t *testing.T) {
+	elems, _ := parseHTML(t, readFile(t, "index.html"))
+	csp := ""
+	for _, e := range elems {
+		if e.name == "meta" && strings.EqualFold(e.attrs["http-equiv"], "Content-Security-Policy") {
+			csp = e.attrs["content"]
+			break
+		}
+		if e.name == "link" || e.name == "script" || e.name == "style" || e.name == "img" {
+			t.Fatalf("<%s> antes da CSP: a política em <meta> só vale para o que vem depois dela", e.name)
+		}
+	}
+	if csp == "" {
+		t.Fatal(`index.html sem <meta http-equiv="Content-Security-Policy">`)
+	}
+	dirs := map[string][]string{}
+	for _, d := range strings.Split(csp, ";") {
+		f := strings.Fields(d)
+		if len(f) > 0 {
+			dirs[strings.ToLower(f[0])] = f[1:]
+		}
+	}
+	want := map[string]string{
+		"default-src": "'none'", "script-src": "'self'", "style-src": "'self'", "img-src": "'self'",
+		"base-uri": "'none'", "form-action": "'none'",
+	}
+	for d, v := range want {
+		if got := strings.Join(dirs[d], " "); got != v {
+			t.Errorf("CSP %s = %q, quero %q", d, got, v)
+		}
+	}
+	if strings.Contains(csp, "'unsafe-inline'") || strings.Contains(csp, "'unsafe-eval'") {
+		t.Errorf("CSP com unsafe-inline/unsafe-eval: %q", csp)
+	}
+	allowed := map[string]bool{
+		"https://*:9000": true, "wss://*:9000": true, "http://*:9001": true, "ws://*:9001": true,
+		"https://*" + probeZone + ":8443": true, "wss://*" + probeZone + ":8443": true,
+		"http://*" + probeZone + ":8080": true,
+	}
+	got := map[string]bool{}
+	for _, src := range dirs["connect-src"] {
+		got[src] = true
+		if !allowed[src] {
+			t.Errorf("connect-src com origem fora da API e da zona: %q", src)
+		}
+	}
+	for src := range allowed {
+		if !got[src] {
+			t.Errorf("connect-src sem %q (API, ?api= de testes ou probe da zona)", src)
+		}
+	}
+}
