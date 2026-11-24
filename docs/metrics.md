@@ -122,7 +122,7 @@ aparecem no primeiro uso.
 | --- | --- |
 | `fs_dns_queries_udp_total`, `fs_dns_queries_tcp_total` | mensagens DNS recebidas por UDP e por TCP |
 | `fs_dns_formerr_total` | consultas ilegíveis (cabeçalho legível, corpo não) respondidas com FORMERR |
-| `fs_dns_dropped_total` | mensagens sem resposta (menos de 12 bytes ou com QR=1, que já é resposta) e conexões TCP recusadas com as 256 em uso |
+| `fs_dns_dropped_total` | mensagens sem resposta (menos de 12 bytes ou com QR=1, que já é resposta) e conexões TCP recusadas com as 256 em uso ou acima de 8 da mesma origem (IP ou /64, task 385) |
 | `fs_dns_rate_limited_total` | consultas UDP acima do RRL, respondidas com TC=1 sem dados para o resolvedor repetir em TCP; o TCP fica fora do RRL (ADR 0035) |
 
 ### bot

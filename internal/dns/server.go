@@ -26,12 +26,18 @@ const (
 	udpMaxNoEDNS = 512
 	// udpMaxEDNS é o maior tamanho de resposta UDP que anunciamos e usamos (DNS flag day 2020, sem fragmentar).
 	udpMaxEDNS = 1232
-	// tcpIdleTimeout fecha conexões TCP paradas (RFC 7766 recomenda alguns segundos).
+	// tcpIdleTimeout fecha conexões TCP paradas entre consultas (RFC 7766 recomenda alguns segundos).
 	tcpIdleTimeout = 10 * time.Second
+	// tcpFirstTimeout é a espera pela primeira consulta de uma conexão nova, mais curta que a ociosidade entre
+	// consultas para que conexões mudas não prendam vagas (RFC 7766 §6.2.3).
+	tcpFirstTimeout = 3 * time.Second
 	// tcpMaxQueries é o máximo de consultas por conexão TCP.
 	tcpMaxQueries = 100
 	// tcpMaxConns limita as conexões TCP simultâneas.
 	tcpMaxConns = 256
+	// tcpMaxPerSrc limita as conexões TCP simultâneas de uma origem (IP em IPv4, /64 em IPv6, a chave do RRL),
+	// para que uma origem só não ocupe as vagas do fallback do TC=1 (ADR 0035 item 3).
+	tcpMaxPerSrc = 8
 	// defaultRetry é o intervalo entre tentativas de subir um listener que falhou.
 	defaultRetry = 10 * time.Second
 )
@@ -70,6 +76,15 @@ type Server struct {
 	Observer func(*Query)
 	// RetryEvery é o intervalo para tentar de novo um listener que não subiu.
 	RetryEvery time.Duration
+	// Limites próprios do TCP (ADR 0035 item 3), lidos no Start; NewServer põe os padrões acima.
+	TCPMaxConns     int           // conexões simultâneas no total
+	TCPMaxPerSrc    int           // conexões simultâneas por origem
+	TCPMaxQueries   int           // consultas por conexão
+	TCPFirstTimeout time.Duration // espera pela primeira consulta
+	TCPIdleTimeout  time.Duration // ociosidade entre consultas
+
+	// tcpSrcKey agrupa as origens TCP para o teto por origem (rrlKey; trocada só em teste).
+	tcpSrcKey func(netip.Addr) netip.Addr
 
 	mu      sync.Mutex
 	failed  map[string]string // "udp ip:porta" → erro
@@ -77,6 +92,7 @@ type Server struct {
 	tcp     []*net.TCPListener
 	wg      sync.WaitGroup
 	tcpSem  chan struct{}
+	tcpSrc  map[netip.Addr]int // conexões TCP abertas por chave de origem
 	conns   map[*net.TCPConn]struct{}
 	stopped bool
 }
@@ -91,7 +107,9 @@ func NewServer(cfg Config, zone *Zone, log *slog.Logger, metrics *service.Metric
 	}
 	return &Server{
 		cfg: cfg, zone: zone, log: log, metrics: metrics, RetryEvery: defaultRetry, RRL: NewRRL(cfg.RRLPerIP, nil),
-		failed: map[string]string{}, conns: map[*net.TCPConn]struct{}{}, tcpSem: make(chan struct{}, tcpMaxConns),
+		failed: map[string]string{}, conns: map[*net.TCPConn]struct{}{}, tcpSrc: map[netip.Addr]int{},
+		TCPMaxConns: tcpMaxConns, TCPMaxPerSrc: tcpMaxPerSrc, TCPMaxQueries: tcpMaxQueries,
+		TCPFirstTimeout: tcpFirstTimeout, TCPIdleTimeout: tcpIdleTimeout, tcpSrcKey: rrlKey,
 	}
 }
 
@@ -126,6 +144,11 @@ func (s *Server) Addrs() (udp, tcp []net.Addr) {
 // Start sobe os listeners. Os que falham ficam em degraded e são tentados de novo a cada RetryEvery até ctx
 // terminar. Não bloqueia.
 func (s *Server) Start(ctx context.Context) {
+	s.mu.Lock()
+	if s.tcpSem == nil {
+		s.tcpSem = make(chan struct{}, max(1, s.TCPMaxConns))
+	}
+	s.mu.Unlock()
 	type slot struct{ proto, addr string }
 	var pending []slot
 	for _, a := range s.cfg.listenAddrs() {
@@ -260,9 +283,16 @@ func (s *Server) serveTCP(l *net.TCPListener) {
 			}
 			continue
 		}
+		key, ok := s.acquireSrc(c)
+		if !ok {
+			_ = c.Close()
+			s.metrics.Add(MetricDropped, 1)
+			continue
+		}
 		select {
 		case s.tcpSem <- struct{}{}:
 		default:
+			s.releaseSrc(key)
 			_ = c.Close()
 			s.metrics.Add(MetricDropped, 1)
 			continue
@@ -270,9 +300,30 @@ func (s *Server) serveTCP(l *net.TCPListener) {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			defer func() { <-s.tcpSem }()
+			defer func() { <-s.tcpSem; s.releaseSrc(key) }()
 			s.serveTCPConn(c)
 		}()
+	}
+}
+
+// acquireSrc reserva uma vaga da origem da conexão; false quando a origem já está no teto por origem.
+func (s *Server) acquireSrc(c *net.TCPConn) (netip.Addr, bool) {
+	key := s.tcpSrcKey(addrPort(c.RemoteAddr()).Addr())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tcpSrc[key] >= max(1, s.TCPMaxPerSrc) {
+		return key, false
+	}
+	s.tcpSrc[key]++
+	return key, true
+}
+
+// releaseSrc devolve a vaga da origem.
+func (s *Server) releaseSrc(key netip.Addr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tcpSrc[key]--; s.tcpSrc[key] <= 0 {
+		delete(s.tcpSrc, key)
 	}
 }
 
@@ -293,8 +344,13 @@ func (s *Server) serveTCPConn(c *net.TCPConn) {
 	}()
 	src, dst := addrPort(c.RemoteAddr()), addrPort(c.LocalAddr())
 	var lenBuf [2]byte
-	for range tcpMaxQueries {
-		_ = c.SetReadDeadline(time.Now().Add(tcpIdleTimeout))
+	for i := range s.TCPMaxQueries {
+		// A primeira consulta tem prazo curto; as seguintes, a ociosidade normal.
+		wait := s.TCPIdleTimeout
+		if i == 0 {
+			wait = s.TCPFirstTimeout
+		}
+		_ = c.SetReadDeadline(time.Now().Add(wait))
 		if _, err := io.ReadFull(c, lenBuf[:]); err != nil {
 			return
 		}
@@ -309,7 +365,7 @@ func (s *Server) serveTCPConn(c *net.TCPConn) {
 			frame := make([]byte, 2+len(out))
 			binary.BigEndian.PutUint16(frame, uint16(len(out))) //nolint:gosec // Pack limita a mdns.MaxMsgSize
 			copy(frame[2:], out)
-			_ = c.SetWriteDeadline(time.Now().Add(tcpIdleTimeout))
+			_ = c.SetWriteDeadline(time.Now().Add(s.TCPIdleTimeout))
 			if _, err := c.Write(frame); err != nil {
 				return
 			}
