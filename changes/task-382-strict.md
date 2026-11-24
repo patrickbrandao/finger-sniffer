@@ -1,0 +1,1 @@
+- CI: o job `norace` liga `FS_STRICT_TIMING=1` e passa a exigir o teto absoluto de 200 ms da retenção (task 382).

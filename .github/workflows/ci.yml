@@ -160,6 +160,8 @@ jobs:
       - name: testes sem -race
         env:
           FS_TEST_TMPFS: /mnt/fs-tmpfs
+          # teto absoluto de 200 ms do TestRetentionDoesNotStallIngest (task 382): só aqui, sem -race e sem disputa
+          FS_STRICT_TIMING: "1"
         run: timeout --kill-after=30s 10m scripts/verify.sh norace
 
   # Nenhum teste fora dos lotes (nem repetido) e cobertura total = verify-full + lotes. Depende de todos os outros
