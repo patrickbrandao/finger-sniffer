@@ -101,10 +101,11 @@ func observe(t *testing.T, db *DB, file string) []pcaptest.P0FObs {
 	return out
 }
 
-// TestP0FGolden compara assinatura e palpite com o p0f -r (testdata/p0f.golden.log, gerado por
-// testdata/regen.sh): todas as observações syn e syn+ack, na mesma ordem.
-func TestP0FGolden(t *testing.T) {
-	db := realDB(t)
+// compareGolden percorre todos os pcaps com o banco dado e compara cada observação syn e syn+ack com o p0f -r
+// (testdata/p0f.golden.log, gerado por testdata/regen.sh), na mesma ordem: mod, cliente, servidor e os campos
+// pedidos. Exige o gabarito inteiro conferido (nenhuma observação a mais nem a menos) e o piso de 70 SYNs.
+func compareGolden(t *testing.T, db *DB, keys []string) (total, syns int) {
+	t.Helper()
 	golden, err := pcaptest.P0FGolden()
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +118,6 @@ func TestP0FGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	total, syns := 0, 0
 	for _, file := range files {
 		name := path.Base(file)
 		ours := observe(t, db, file)
@@ -135,15 +135,34 @@ func TestP0FGolden(t *testing.T) {
 				t.Errorf("%s #%d: %s %s→%s, p0f -r: %s %s→%s", name, i, o.Mod, o.Cli, o.Srv, g.Mod, g.Cli, g.Srv)
 				continue
 			}
-			for _, k := range []string{"os", "app", "dist", "params", "raw_sig"} {
+			for _, k := range keys {
 				if g.Fields[k] != o.Fields[k] {
 					t.Errorf("%s #%d %s %s: %s = %q, p0f -r = %q", name, i, g.Mod, g.Cli, k, o.Fields[k], g.Fields[k])
 				}
 			}
 		}
 	}
+	if total != len(golden) {
+		t.Errorf("%d de %d observações do p0f -r conferidas (pcap sem gabarito ou observações a menos)", total, len(golden))
+	}
 	if syns < 70 {
 		t.Fatalf("gabarito com só %d SYNs; regere com testdata/regen.sh", syns)
 	}
+	return total, syns
+}
+
+// TestP0FGolden compara assinatura e palpite com o p0f -r: precisa do p0f.fp real (os, app e params dependem das
+// assinaturas do banco).
+func TestP0FGolden(t *testing.T) {
+	db := realDB(t)
+	total, syns := compareGolden(t, db, []string{"os", "app", "dist", "params", "raw_sig"})
 	t.Logf("%d observações (%d SYNs) conferidas contra o p0f -r", total, syns)
+}
+
+// TestP0FGoldenRawSig roda sempre, sem o p0f.fp (no CI os testes linux_priv são pulados): a assinatura crua, a
+// distância e a sequência de observações não dependem do banco, então um banco vazio tem de bater com o p0f -r
+// nesses campos. os, app e params ficam para o TestP0FGolden com o banco real (task 389).
+func TestP0FGoldenRawSig(t *testing.T) {
+	total, syns := compareGolden(t, &DB{}, []string{"dist", "raw_sig"})
+	t.Logf("%d observações (%d SYNs) conferidas contra o p0f -r sem banco (raw_sig, dist, mod, cli, srv)", total, syns)
 }

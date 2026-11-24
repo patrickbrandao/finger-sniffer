@@ -1,0 +1,1 @@
+- test(pkg): `TestP0FGoldenRawSig` confere sempre (sem o p0f.fp, também no CI) as 153 observações do `p0f -r` em `raw_sig`, `dist`, `mod`, cliente e servidor; `os`, `app` e `params` seguem no `TestP0FGolden` com o banco real (task 389).
