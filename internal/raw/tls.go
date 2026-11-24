@@ -38,6 +38,8 @@ func (c *prefixConn) Read(p []byte) (int, error) {
 func (s *session) startTLS(prefix []byte) bool {
 	start := time.Now()
 	s.info.TLS = true
+	// drainUntilIdle abaixo reusa o buf: nada pendente pode apontar para ele.
+	s.flushStreams()
 	tcp := s.conn
 	// A captura do ClientHello reserva do orçamento até o fim do handshake; sem orçamento, a sessão fecha
 	// antes do handshake (spec 006 RF-07b, exceção à RF-07; ADR 0070 item 8).

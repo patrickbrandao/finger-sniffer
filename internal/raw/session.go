@@ -19,6 +19,12 @@ const (
 	maxTimed = 8192
 	// drainAfterSource é quanto o servidor ainda lê depois de mandar o source e o FIN.
 	drainAfterSource = 5 * time.Second
+	// flushDelay é o prazo máximo de um pendente de fs.v1.raw.read (task 345): passado ele sem a sessão
+	// publicar, o laço de leitura acorda e publica.
+	flushDelay = 100 * time.Millisecond
+	// minReadRoom é o espaço mínimo para a próxima leitura depois dos pendentes no buf; abaixo disso eles
+	// são publicados e a leitura volta ao início do buf.
+	minReadRoom = 4 << 10
 )
 
 var probePrefix = []byte("PROBE ")
@@ -65,8 +71,11 @@ type session struct {
 	// hold guarda as reservas da sessão no orçamento de entrada (RF-07b); devolvidas em defer no serve. O
 	// servidor sempre o preenche; nil (só em testes de unidade) não limita.
 	hold *hold
-	// buf é o único buffer de leitura da sessão (retenção fixa de 32 KiB, ADR 0070 item 1).
+	// buf é o único buffer de leitura da sessão (retenção fixa de 32 KiB, ADR 0070 item 1). Os pendentes de
+	// in e out são vistas dele; a leitura seguinte vai para depois deles (readPos).
 	buf []byte
+	// cur é a posição em buf dos bytes da leitura atual (-1: nenhuma); viewAt a usa para reconhecer uma vista.
+	cur int
 }
 
 // testHook, nos testes, roda a cada leitura com dados (permite provocar um pânico no meio da sessão).
@@ -81,6 +90,7 @@ func newSession(conn net.Conn, cfg *Config, port PortSpec, start time.Time, em *
 		in:        stream{dir: event.DirectionIn, max: cfg.StreamMax},
 		out:       stream{dir: event.DirectionOut, max: cfg.StreamMax},
 		info:      Info{ReadsIn: []TimedLength{}, WritesOut: []TimedLength{}},
+		cur:       -1,
 	}
 }
 
@@ -100,17 +110,31 @@ func (s *session) run() {
 		}
 	}
 	buf := s.readBuf()
+	// idleFrom é o início da ociosidade (RF-07): o fim da última leitura; acordar só para publicar os
+	// pendentes não a renova.
+	var idleFrom time.Time
 	for {
-		deadline := time.Now().Add(s.cfg.Idle)
+		if idleFrom.IsZero() {
+			idleFrom = time.Now()
+		}
+		deadline := idleFrom.Add(s.cfg.Idle)
 		// No modo source o servidor só espera a linha PROBE por ProbeWait; depois começa a mandar.
 		waitingProbe := s.mode == probe.ModeSource && !s.lineDone
 		if waitingProbe {
 			deadline = s.waitFrom.Add(s.cfg.ProbeWait)
 		}
-		_ = s.conn.SetReadDeadline(deadline)
-		n, err := s.conn.Read(buf)
+		// readPos vem antes do prazo: pode publicar os pendentes para abrir espaço.
+		pos := s.readPos()
+		rd := deadline
+		if fl := s.flushDeadline(); !fl.IsZero() && fl.Before(rd) {
+			rd = fl
+		}
+		_ = s.conn.SetReadDeadline(rd)
+		n, err := s.conn.Read(buf[pos:])
 		if n > 0 {
-			data, upgrade := s.sniffTLS(buf[:n])
+			idleFrom = time.Time{}
+			s.cur = pos
+			data, upgrade := s.sniffTLS(buf[pos : pos+n])
 			if upgrade != nil {
 				if !s.startTLS(upgrade) {
 					return
@@ -136,9 +160,16 @@ func (s *session) run() {
 			}
 		}
 		if err == nil {
+			idleFrom = time.Time{}
 			continue
 		}
 		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() && rd.Before(deadline) {
+			// Prazo do pendente, não da ociosidade: publica e segue lendo. O crypto/tls aceita ler de novo
+			// depois de um prazo vencido (erro temporário).
+			s.flushStreams()
+			continue
+		}
 		switch {
 		case errors.As(err, &ne) && ne.Timeout() && waitingProbe:
 			s.lineDone, s.lineBuf = true, nil
@@ -198,6 +229,14 @@ func (s *session) flushSniff() ([]byte, []byte) {
 func (s *session) feed(b []byte) []byte {
 	if s.lineDone {
 		return b
+	}
+	if len(s.lineBuf) == 0 {
+		// Nada guardado e já não começa com "PROBE ": segue como dado comum sem cópia (a vista do buf
+		// continua juntável no eco, task 345).
+		if k := min(len(b), len(probePrefix)); !bytes.Equal(b[:k], probePrefix[:k]) {
+			s.lineDone = true
+			return b
+		}
 	}
 	s.lineBuf = append(s.lineBuf, b...)
 	k := min(len(s.lineBuf), len(probePrefix))
@@ -278,9 +317,11 @@ func (s *session) runSource() {
 	buf := s.readBuf()
 	_ = s.conn.SetReadDeadline(time.Now().Add(drainAfterSource))
 	for {
-		n, err := s.conn.Read(buf)
+		pos := s.readPos()
+		n, err := s.conn.Read(buf[pos:])
 		if n > 0 {
-			s.recordRead(buf[:n])
+			s.cur = pos
+			s.recordRead(buf[pos : pos+n])
 		}
 		if err != nil {
 			return
@@ -295,7 +336,7 @@ func (s *session) write(b []byte) error {
 	if n > 0 {
 		now := time.Now()
 		s.info.WritesOut = s.appendTimed(s.info.WritesOut, &s.info.WritesOutTruncated, s.elapsedMS(now), n)
-		s.out.write(s.em, now, s.probeID, b[:n])
+		s.out.add(s.em, s.buf, now, s.probeID, b[:n], s.viewAt(b))
 	}
 	return err
 }
@@ -303,7 +344,51 @@ func (s *session) write(b []byte) error {
 func (s *session) recordRead(b []byte) {
 	now := time.Now()
 	s.info.ReadsIn = s.appendTimed(s.info.ReadsIn, &s.info.ReadsInTruncated, s.elapsedMS(now), len(b))
-	s.in.write(s.em, now, s.probeID, b)
+	s.in.add(s.em, s.buf, now, s.probeID, b, s.viewAt(b))
+}
+
+// viewAt devolve a posição de b em buf quando b é a vista da leitura atual (começa em cur), ou -1.
+func (s *session) viewAt(b []byte) int {
+	if s.cur >= 0 && s.cur < len(s.buf) && len(b) > 0 && &b[0] == &s.buf[s.cur] {
+		return s.cur
+	}
+	return -1
+}
+
+// readPos devolve onde a próxima leitura entra em buf: depois dos pendentes, que não podem ser sobrescritos.
+// Com menos de minReadRoom livres, publica os pendentes e volta ao início.
+func (s *session) readPos() int {
+	end := 0
+	for _, st := range []*stream{&s.in, &s.out} {
+		if st.pending() {
+			end = max(end, st.pEnd)
+		}
+	}
+	if len(s.buf)-end < minReadRoom {
+		s.flushStreams()
+		return 0
+	}
+	return end
+}
+
+// flushDeadline é quando o pendente mais antigo precisa sair (zero sem pendente).
+func (s *session) flushDeadline() time.Time {
+	var t time.Time
+	for _, st := range []*stream{&s.in, &s.out} {
+		if st.pending() && (t.IsZero() || st.pTS.Before(t)) {
+			t = st.pTS
+		}
+	}
+	if t.IsZero() {
+		return t
+	}
+	return t.Add(flushDelay)
+}
+
+// flushStreams publica os pendentes dos dois sentidos.
+func (s *session) flushStreams() {
+	s.in.flush(s.em, s.buf)
+	s.out.flush(s.em, s.buf)
 }
 
 // elapsedMS é o tempo desde o accept em milissegundos, com resolução de nanossegundo.
@@ -349,6 +434,8 @@ func (s *session) appendTimed(list []TimedLength, cut *bool, ms float64, n int) 
 // finish fecha a conexão e publica o resumo da sessão (ts = accept, para o store achar a conexão).
 func (s *session) finish() {
 	_ = s.conn.Close()
+	// Os pendentes saem antes do resumo, como quando cada leitura era publicada na hora.
+	s.flushStreams()
 	s.info.Mode = s.mode
 	s.em.publish(event.SubjectRawSession, s.start, s.probeID, s.info)
 }
