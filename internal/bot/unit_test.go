@@ -731,3 +731,54 @@ func TestIngestNoRouterOutOfAgg(t *testing.T) {
 		t.Errorf("métricas %v", small.deps.Metrics.Snapshot())
 	}
 }
+
+// TestStoreClosedDiscarded: task 417 (ADR 0076 item 4) — o closed com connection.discarded (evicted, deleted ou um
+// valor ainda desconhecido, campo aditivo) é aceito como qualquer closed: vira StoreConn com Stage closed, substitui
+// o opened da mesma conexão no índice, o MatchStore sem first não casa a entrada e nada conta como recusa.
+func TestStoreClosedDiscarded(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	for _, kind := range []string{"evicted", "deleted", "other"} {
+		t.Run(kind, func(t *testing.T) {
+			closed := bytes.Replace(storeMessage(StageClosed, testStoreConnID, "203.0.113.9", 40000),
+				[]byte(`"ended":null`), []byte(`"ended":"2026-11-16T12:00:05.000000000Z","discarded":"`+kind+`"`), 1)
+			if !bytes.Contains(closed, []byte(`"discarded":"`+kind+`"`)) {
+				t.Fatalf("mensagem sem discarded: %s", closed)
+			}
+			c, err := ParseStoreConnection(closed)
+			if err != nil {
+				t.Fatalf("recusado: %v", err)
+			}
+			if c.Stage != StageClosed || c.ConnID != testStoreConnID || c.SrcIP != mustAddr("203.0.113.9") || c.SrcPort != 40000 {
+				t.Fatalf("%+v", c)
+			}
+
+			ix := NewIndex(10*time.Minute, 100, 0, nil)
+			feed := NewStoreFeed(ix, func() time.Time { return now })
+			if err := feed.Handle(storeMessage(StageOpened, testStoreConnID, "203.0.113.9", 40000)); err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := ix.MatchStore(mustAddr("203.0.113.9"), 40000, 443, "tcp", time.Time{}, now); !ok || got.Stage != StageOpened {
+				t.Fatalf("opened não casou: %+v %v", got, ok)
+			}
+			if err := feed.Handle(closed); err != nil {
+				t.Fatalf("closed com discarded recusado: %v", err)
+			}
+			if feed.Messages() != 2 || feed.Invalid() != 0 {
+				t.Fatalf("messages %d invalid %d", feed.Messages(), feed.Invalid())
+			}
+			if got, ok := ix.MatchStore(mustAddr("203.0.113.9"), 40000, 443, "tcp", time.Time{}, now); ok {
+				t.Fatalf("sem first, a entrada fechada casou: %+v", got)
+			}
+			got, ok := ix.MatchStore(mustAddr("203.0.113.9"), 40000, 443, "tcp", c.Started, now)
+			if !ok || got.Stage != StageClosed || got.ConnID != testStoreConnID {
+				t.Fatalf("o closed não substituiu o opened: %+v %v", got, ok)
+			}
+			if byID, ok := ix.StoreByID(testStoreConnID, now); !ok || byID.Stage != StageClosed {
+				t.Errorf("StoreByID: %+v %v", byID, ok)
+			}
+			if n, _ := ix.Len(); n != 1 {
+				t.Errorf("entradas do store no índice: %d", n)
+			}
+		})
+	}
+}

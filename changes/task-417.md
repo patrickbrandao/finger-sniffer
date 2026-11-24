@@ -1,0 +1,1 @@
+- bot: teste de compatibilidade da ADR 0076 — `closed` com `connection.discarded` (`evicted`, `deleted` ou valor desconhecido) aceito pelo parser e tratado no índice como qualquer `closed`, sem recusa contada (task 417).
