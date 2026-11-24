@@ -290,3 +290,111 @@ func TestGoldenEvents(t *testing.T) {
 		}
 	}
 }
+
+// byteConn entrega um byte por Read (cada byte vira uma leitura separada, como segmentos de 1 byte bem
+// espaçados), descarta as escritas e termina com EOF.
+type byteConn struct {
+	discardConn
+	data []byte
+}
+
+func (c *byteConn) Read(p []byte) (int, error) {
+	if len(c.data) == 0 {
+		return 0, io.EOF
+	}
+	p[0] = c.data[0]
+	c.data = c.data[1:]
+	return 1, nil
+}
+
+func (*byteConn) SetReadDeadline(time.Time) error { return nil }
+func (*byteConn) CloseWrite() error               { return nil }
+
+// rawReads remonta pelo offset os fs.v1.raw.read de cada sentido, conferindo que os offsets são contíguos.
+func rawReads(t *testing.T, msgs []*nats.Msg) (in, out []byte, nIn, nOut int, ids map[string][]string) {
+	t.Helper()
+	ids = map[string][]string{}
+	for _, m := range msgs {
+		if m.Subject != event.SubjectRawRead {
+			continue
+		}
+		env, err := event.Decode(m.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sb event.StreamBytes
+		if err := json.Unmarshal(env.Payload, &sb); err != nil {
+			t.Fatal(err)
+		}
+		dst, cnt := &in, &nIn
+		if sb.Dir == event.DirectionOut {
+			dst, cnt = &out, &nOut
+		}
+		if int64(len(*dst)) != sb.Offset {
+			t.Fatalf("%s: offset %d, remontado %d", sb.Dir, sb.Offset, len(*dst))
+		}
+		*dst = append(*dst, sb.Data...)
+		*cnt++
+		id := ""
+		if env.ProbeID != nil {
+			id = *env.ProbeID
+		}
+		ids[sb.Dir] = append(ids[sb.Dir], id)
+	}
+	return in, out, nIn, nOut, ids
+}
+
+// TestEchoCoalescesSmallReads: leituras de 1 byte no eco saem juntadas em poucos fs.v1.raw.read por sentido,
+// com offset e data_b64 reconstruindo exatamente os bytes; reads_in e writes_out seguem com uma entrada por
+// leitura e escrita (task 345).
+func TestEchoCoalescesSmallReads(t *testing.T) {
+	big := bytes.Repeat([]byte("0123456789"), 10_000)
+	cases := []struct {
+		name    string
+		data    []byte
+		maxIn   int
+		maxOut  int
+		probeID string
+	}{
+		// 1000 bytes cabem num só pendente; no out, o eco juntado e o half-close.
+		{"1000 bytes", bytes.Repeat([]byte("ab"), 500), 1, 2, ""},
+		// 100 000 bytes: um pedaço a cada (32 KiB − 4 KiB) de buf.
+		{"100000 bytes", big, len(big)/(readBufSize-minReadRoom) + 1, len(big)/(readBufSize-minReadRoom) + 2, ""},
+		// A linha PROBE muda o probe_id: o pendente de antes sai sem ele, os bytes depois saem com ele.
+		{"probe line", append([]byte("PROBE abcdefgh\r\n"), bytes.Repeat([]byte("z"), 1000)...), 2, 2, "abcdefgh"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := &fakePub{}
+			em := &emitter{pub: pub, log: quietLog(), flow: &event.Flow{L4: "tcp"}}
+			cfg := &Config{Idle: time.Second, StreamMax: DefaultStreamMax}
+			s := newSession(&byteConn{data: append([]byte(nil), tc.data...)}, cfg, PortSpec{Port: 7, Mode: probe.ModeEcho}, time.Now(), em)
+			s.run()
+			in, out, nIn, nOut, ids := rawReads(t, pub.all())
+			if !bytes.Equal(in, tc.data) {
+				t.Fatalf("in remontado: %d bytes, esperado %d", len(in), len(tc.data))
+			}
+			wantOut := append(bytes.TrimPrefix(tc.data, []byte("PROBE abcdefgh\r\n")), HalfCloseMessage...)
+			if !bytes.Equal(out, wantOut) {
+				t.Fatalf("out remontado: %d bytes, esperado %d", len(out), len(wantOut))
+			}
+			if nIn > tc.maxIn || nOut > tc.maxOut {
+				t.Errorf("fs.v1.raw.read in=%d out=%d, teto %d/%d", nIn, nOut, tc.maxIn, tc.maxOut)
+			}
+			if got := len(s.info.ReadsIn); got != min(len(tc.data), maxTimed) {
+				t.Errorf("reads_in = %d entradas", got)
+			}
+			if tc.probeID != "" {
+				// A primeira leitura (com a linha) é registrada antes de a linha ser lida, como antes.
+				if got := ids[event.DirectionIn]; len(got) != 2 || got[0] != "" || got[1] != tc.probeID {
+					t.Errorf("probe_id in = %q", got)
+				}
+				for _, id := range ids[event.DirectionOut] {
+					if id != tc.probeID {
+						t.Errorf("probe_id out = %q", ids[event.DirectionOut])
+					}
+				}
+			}
+		})
+	}
+}

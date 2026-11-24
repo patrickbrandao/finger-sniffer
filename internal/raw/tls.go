@@ -38,6 +38,8 @@ func (c *prefixConn) Read(p []byte) (int, error) {
 func (s *session) startTLS(prefix []byte) bool {
 	start := time.Now()
 	s.info.TLS = true
+	// drainUntilIdle abaixo reusa o buf: nada pendente pode apontar para ele.
+	s.flushStreams()
 	tcp := s.conn
 	// A captura do ClientHello reserva do orçamento até o fim do handshake; sem orçamento, a sessão fecha
 	// antes do handshake (spec 006 RF-07b, exceção à RF-07; ADR 0070 item 8).
@@ -56,11 +58,16 @@ func (s *session) startTLS(prefix []byte) bool {
 	// do handshake (spec 006 RF-08, spec 008 RF-04).
 	ac := newAlertConn(under)
 	tc := tlsparse.NewConn(ac)
+	s.hello = tc
+	// A captura é solta logo depois de publicar o ClientHello (spec 006 RF-07b); o tls.Conn segura o tc pela
+	// sessão inteira, então sem Release os registros e a mensagem ficariam retidos depois da reserva devolvida.
+	defer tc.Release()
 	published := false
 	publishHello := func() {
 		if !published {
 			published = true
 			s.publishClientHello(tc)
+			tc.Release()
 		}
 	}
 	cfg := s.tlsCfg.Clone()
@@ -95,12 +102,14 @@ func (s *session) startTLS(prefix []byte) bool {
 // publishClientHello publica o ClientHello cru e analisado com JA3/JA4 (spec 008); o SNI de uma zona dos
 // probes associa o probe.
 func (s *session) publishClientHello(tc *tlsparse.Conn) {
-	records, _ := tc.Records()
-	ch, perr := tlsparse.Parse(records)
-	if ch == nil {
-		return
-	}
+	// Registros crus como chegaram (até tlsparse.MaxCapturedRecords, com client_hello_truncated acima) e a
+	// mensagem remontada pela captura: os fingerprints saem com qualquer fragmentação (task 323, como no web).
+	records, _ := tc.RawRecords()
+	ch, perr := tc.ClientHello()
 	info := tlsparse.NewInfo(ch, records, s.cfg.EventInlineMax)
+	if tc.RecordsTruncated() {
+		info.ClientHelloTruncated = true
+	}
 	if perr == nil {
 		ja3.Fill(info, ch)
 		ja4.Fill(info, ch, ja4.TCP)

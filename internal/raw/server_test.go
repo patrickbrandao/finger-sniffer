@@ -516,3 +516,85 @@ func TestListenConfigNoKeepAlive(t *testing.T) {
 		t.Fatalf("listenConfig = %+v", lc)
 	}
 }
+
+// TestPendingReadFlushedWhileOpen: um byte isolado não espera o fim da sessão; o pendente sai em fs.v1.raw.read
+// pelo prazo curto (flushDelay) com a conexão aberta (task 345).
+func TestPendingReadFlushedWhileOpen(t *testing.T) {
+	env := startEnv(t, []PortSpec{{Port: 0, Mode: "echo"}}, nil)
+	c := dial(t, env.addr[0])
+	if _, err := c.Write([]byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readN(t, c, 1); got != "a" {
+		t.Fatalf("eco = %q", got)
+	}
+	seen := map[string]bool{}
+	timeout := time.After(2 * time.Second)
+	for !seen[event.DirectionIn] || !seen[event.DirectionOut] {
+		select {
+		case m := <-env.msgs:
+			if m.Subject == event.SubjectRawSession {
+				t.Fatal("fs.v1.raw.session antes do fim da conexão")
+			}
+			if m.Subject != event.SubjectRawRead {
+				continue
+			}
+			ev, err := event.Decode(m.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sb event.StreamBytes
+			if err := json.Unmarshal(ev.Payload, &sb); err != nil {
+				t.Fatal(err)
+			}
+			if string(sb.Data) != "a" || sb.Offset != 0 {
+				t.Fatalf("pedaço %+v", sb)
+			}
+			seen[sb.Dir] = true
+		case <-timeout:
+			t.Fatalf("pendente não publicado com a conexão aberta: %v", seen)
+		}
+	}
+	// A sessão continua: o eco segue e o resumo só sai no fim.
+	if _, err := c.Write([]byte("b")); err != nil {
+		t.Fatal(err)
+	}
+	if got := readN(t, c, 1); got != "b" {
+		t.Fatalf("eco = %q", got)
+	}
+	_ = c.CloseWrite()
+	var in []byte
+	for {
+		select {
+		case m := <-env.msgs:
+			ev, err := event.Decode(m.Data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch m.Subject {
+			case event.SubjectRawRead:
+				var sb event.StreamBytes
+				if err := json.Unmarshal(ev.Payload, &sb); err != nil {
+					t.Fatal(err)
+				}
+				if sb.Dir == event.DirectionIn {
+					if sb.Offset != int64(1+len(in)) {
+						t.Fatalf("offset in %d depois do pendente", sb.Offset)
+					}
+					in = append(in, sb.Data...)
+				}
+			case event.SubjectRawSession:
+				var info Info
+				if err := json.Unmarshal(ev.Payload, &info); err != nil {
+					t.Fatal(err)
+				}
+				if string(in) != "b" || len(info.ReadsIn) != 2 {
+					t.Fatalf("in depois do pendente = %q, reads_in %v", in, info.ReadsIn)
+				}
+				return
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("sem fs.v1.raw.session")
+		}
+	}
+}

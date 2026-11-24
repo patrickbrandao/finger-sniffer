@@ -454,6 +454,15 @@ func TestStartTLSKeepsDeliverySocket(t *testing.T) {
 		if _, ok := s.deliverySock().(syscall.Conn); !ok || s.deliverySock() != conn {
 			t.Errorf("auto=%v: delivery socket = %T", auto, s.deliverySock())
 		}
+		// A captura do ClientHello foi solta depois de publicada: nada dela fica retido pela sessão (spec 006
+		// RF-07b, task 323).
+		if recs, _ := s.hello.RawRecords(); len(recs) != 0 {
+			t.Errorf("auto=%v: captura retida depois do handshake: %d bytes de registros", auto, len(recs))
+		}
+		// Só o cabeçalho de 4 bytes do handshake, que fica no array fixo da Conn, pode sobrar.
+		if ch, _ := s.hello.ClientHello(); len(ch.Raw) > 4 {
+			t.Errorf("auto=%v: mensagem retida depois do handshake: %d bytes", auto, len(ch.Raw))
+		}
 		_ = conn.Close()
 	}
 }

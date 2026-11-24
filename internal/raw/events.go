@@ -93,6 +93,46 @@ type stream struct {
 	max       int64
 	offset    int64
 	truncated bool
+
+	// Pendente (task 345): leituras e escritas pequenas e seguidas são juntadas num só fs.v1.raw.read. O
+	// pendente é a vista [pStart, pEnd) do buffer de leitura da sessão, sem cópia e sem memória a mais (a
+	// retenção fixa do buf, spec 006 RF-07b); pTS e pProbe são os da primeira leitura juntada.
+	pStart, pEnd int
+	pTS          time.Time
+	pProbe       string
+}
+
+// pending informa se há bytes juntados ainda não publicados.
+func (s *stream) pending() bool { return s.pEnd > s.pStart }
+
+// add publica b, juntando pedaços pequenos. at >= 0 diz que b é buf[at:at+len(b)]: contíguo ao pendente e com o
+// mesmo probe, estende a vista; senão o pendente sai antes e b vira o novo pendente. at < 0 (bytes fora do buf:
+// banner, source, linha guardada) publica na hora, depois do pendente. Offsets e bytes são os mesmos de uma
+// publicação por chamada; só há menos mensagens.
+func (s *stream) add(e *emitter, buf []byte, ts time.Time, probeID string, b []byte, at int) {
+	if len(b) == 0 {
+		return
+	}
+	if at >= 0 && s.pending() && s.pEnd == at && s.pProbe == probeID {
+		s.pEnd += len(b)
+		return
+	}
+	s.flush(e, buf)
+	if at < 0 || s.truncated {
+		s.write(e, ts, probeID, b)
+		return
+	}
+	s.pStart, s.pEnd, s.pTS, s.pProbe = at, at+len(b), ts, probeID
+}
+
+// flush publica o pendente, se houver.
+func (s *stream) flush(e *emitter, buf []byte) {
+	if !s.pending() {
+		return
+	}
+	b := buf[s.pStart:s.pEnd]
+	s.pStart, s.pEnd = 0, 0
+	s.write(e, s.pTS, s.pProbe, b)
 }
 
 // write publica os bytes em pedaços de até event.StreamChunkBytes; passado o teto, manda um último pedaço vazio com
