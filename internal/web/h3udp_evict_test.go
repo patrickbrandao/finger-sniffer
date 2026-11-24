@@ -63,12 +63,12 @@ func TestInitTrackerEvictsWhenFull(t *testing.T) {
 	var orphans []*initEntry
 	tr.orphans = func(e *initEntry, _ *quicparse.Info) { orphans = append(orphans, e) }
 	local := udpAddr(443)
+	tr.observe(local, udpAddr(9999), []byte{0x80, 1, 2}) // ilegível: não abre entrada (task 350)
+	if len(tr.m) != 0 {
+		t.Fatal("cabeçalho ilegível abriu entrada")
+	}
 	for i := range initMaxEntries {
-		if i%2 == 0 {
-			tr.observe(local, udpAddr(10000+i), []byte{0x80, 1, 2}) // ilegível: sem versão
-		} else {
-			tr.observe(local, udpAddr(10000+i), unknownVersion(byte(i)))
-		}
+		tr.observe(local, udpAddr(10000+i), unknownVersion(byte(i)))
 	}
 	if len(tr.m) != initMaxEntries || tr.evictNoCH.Len() != initMaxEntries {
 		t.Fatalf("%d entradas, %d na fila", len(tr.m), tr.evictNoCH.Len())
@@ -81,13 +81,13 @@ func TestInitTrackerEvictsWhenFull(t *testing.T) {
 	if got := tr.srv.metrics.Get(MetricH3InitTableFull); got != 1 {
 		t.Fatalf("contador %v", got)
 	}
-	// a mais antiga (porta 10000, ilegível) saiu sem handshake_failed
-	if _, ok := tr.m[udpAddr(10000).String()]; ok || len(orphans) != 0 {
+	// a mais antiga (porta 10000, versão legível) saiu como handshake_failed
+	if _, ok := tr.m[udpAddr(10000).String()]; ok || len(orphans) != 1 || orphans[0].key != udpAddr(10000).String() {
 		t.Fatalf("despejo: mais antiga ficou ou %d órfãs", len(orphans))
 	}
 	tr.observe(local, udpAddr(8), rfcInitial(t))
-	if _, ok := tr.m[udpAddr(10001).String()]; ok || len(orphans) != 1 {
-		t.Fatalf("segunda mais antiga (versão legível) ficou ou %d órfãs", len(orphans))
+	if _, ok := tr.m[udpAddr(10001).String()]; ok || len(orphans) != 2 {
+		t.Fatalf("segunda mais antiga ficou ou %d órfãs", len(orphans))
 	}
 	checkTrackerInvariants(t, tr)
 }
@@ -190,16 +190,29 @@ func TestH3InitTableFullStillAnalyzed(t *testing.T) {
 	pc := startH3(t, h)
 	tr := h.srv.h3.tracker
 	local := pc.LocalAddr()
+	// versão desconhecida: encerrada sem ClientHello (a despejada sai como handshake_failed órfão)
 	for i := range initMaxEntries {
-		tr.observe(local, udpAddr(10000+i), []byte{0x80, 1, 2})
+		tr.observe(local, udpAddr(10000+i), unknownVersion(byte(i)))
 	}
 	cl := &http.Client{Transport: h3Client(t), Timeout: 5 * time.Second}
-	resp, _ := h3Get(t, cl, "https://127.0.0.1:"+itoa(pc.LocalAddr().(*net.UDPAddr).Port)+"/p/"+testProbe+"/")
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	resp, _ := h3Get(t, cl, "https://127.0.0.1:"+itoa(port)+"/p/"+testProbe+"/")
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
-	conns := h.events.wait(t, event.SubjectWebHTTP3Connection, 0, 1)
-	first := conns[0].Payload
+	// o evento da conexão real é o que não veio de uma 5-tupla forjada (portas 10000+)
+	var first map[string]any
+	for deadline := time.Now().Add(5 * time.Second); first == nil; time.Sleep(10 * time.Millisecond) {
+		for _, c := range h.events.find(t, event.SubjectWebHTTP3Connection, 0) {
+			if c.Env.Flow != nil && (c.Env.Flow.SrcPort < 10000 || c.Env.Flow.SrcPort >= 10000+initMaxEntries) {
+				first = c.Payload
+				break
+			}
+		}
+		if first == nil && time.Now().After(deadline) {
+			t.Fatal("sem http3.connection da conexão real")
+		}
+	}
 	tps, _ := first["transport_params"].([]any)
 	if first["client_hello"] == nil || len(tps) == 0 {
 		t.Fatalf("Initial sem análise com a tabela cheia: %v", first)
