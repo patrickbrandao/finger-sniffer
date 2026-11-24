@@ -11,10 +11,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/patrickbrandao/finger-sniffer/internal/bot/agg"
 	"github.com/patrickbrandao/finger-sniffer/pkg/certs"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
@@ -284,4 +286,74 @@ func TestPublicIdleTrim(t *testing.T) {
 func isTimeout(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// TestServeShutdownWithStreamClient: com um cliente SSE conectado na 9003, cancelar o Serve fecha o feed antes do
+// Shutdown e o flush final ainda grava a observação feita 1 s antes (task 400); o Serve volta bem antes de
+// shutdownTimeout.
+func TestServeShutdownWithStreamClient(t *testing.T) {
+	db, path := testDB(t)
+	cfg := testConfig(path)
+	cfg.FlushInterval = time.Hour // só o flush final grava
+	srv := New(cfg, Deps{Log: slog.New(slog.DiscardHandler), Metrics: service.NewMetrics(), DB: db, Version: "test"})
+	in, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(ctx, nil, []net.Listener{in}) }()
+
+	resp, err := http.Get("http://" + in.Addr().String() + "/bot/v1/stream")
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		cancel()
+		t.Fatalf("stream: %d", resp.StatusCode)
+	}
+	for srv.hub.Clients() != 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	srv.Agg().Observe(agg.Request{
+		Time: time.Now().Add(-time.Second), IP: netip.MustParseAddr("192.0.2.40"), Site: "s.com", Path: "/",
+		Class: agg.ClassHuman, UAFamily: "curl",
+	})
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve não parou")
+	}
+	if d := time.Since(start); d > shutdownTimeout/2 {
+		t.Errorf("Serve levou %s para parar com o cliente SSE", d)
+	}
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM ip_hourly").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("ip_hourly com %d linhas (%v): flush final perdido", n, err)
+	}
+}
+
+// TestHubClose: Close encerra o serve dos clientes abertos e recusa os novos.
+func TestHubClose(t *testing.T) {
+	h := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := &streamClient{queue: make(chan *Verdict, 1), cancel: cancel}
+	if err := h.add(c); err != nil {
+		t.Fatal(err)
+	}
+	h.Close()
+	if ctx.Err() == nil || h.Clients() != 0 {
+		t.Fatal("Close não encerrou o cliente")
+	}
+	if err := h.add(&streamClient{queue: make(chan *Verdict, 1)}); !errors.Is(err, errStreamFull) {
+		t.Fatalf("add depois do Close: %v", err)
+	}
 }

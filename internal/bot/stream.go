@@ -39,6 +39,8 @@ type Hub struct {
 	max     int
 	ping    time.Duration
 	sink    func(v *Verdict, site string) // saída extra (webhook); não pode bloquear
+	// closed recusa clientes novos depois do Close (desligamento).
+	closed bool
 }
 
 type streamClient struct {
@@ -109,7 +111,7 @@ func (c *streamClient) accepts(class, site string) bool {
 func (h *Hub) add(c *streamClient) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.clients) >= h.max {
+	if h.closed || len(h.clients) >= h.max {
 		return errStreamFull
 	}
 	if c.public {
@@ -157,6 +159,20 @@ func (h *Hub) dropRevoked(active func(hash [32]byte) bool) int {
 		n++
 	}
 	return n
+}
+
+// Close encerra os clientes abertos e recusa os novos (503). O Shutdown do http.Server não cancela o contexto das
+// requisições ativas: sem isto, cada feed aberto segura o desligamento até o prazo vencer (task 400).
+func (h *Hub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for c := range h.clients {
+		delete(h.clients, c)
+		if c.cancel != nil {
+			c.cancel()
+		}
+	}
 }
 
 // Clients conta os clientes conectados.

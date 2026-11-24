@@ -1,0 +1,1 @@
+- bot: no desligamento, os feeds SSE abertos são encerrados antes do `Shutdown` e os flushes finais do uso e dos agregados têm prazo próprio; com um cliente SSE conectado, o reinício não perde mais os últimos segundos de `key_usage_daily` e `ip_hourly` nem espera os 5 s inteiros (task 400).

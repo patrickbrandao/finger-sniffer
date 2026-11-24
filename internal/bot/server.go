@@ -361,15 +361,20 @@ func (s *Server) Serve(ctx context.Context, public, internal []net.Listener) err
 	s.bg.Wait()
 	s.hooks.Wait()
 	s.judge.bg.Wait()
+	// os feeds SSE só terminam com o contexto da requisição: fechados antes do Shutdown, que não os cancela
+	s.hub.Close()
 	shCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	for _, srv := range servers {
 		_ = srv.Shutdown(shCtx)
 	}
-	if err := s.limiter.Flush(shCtx); err != nil {
+	// prazo próprio para os flushes finais: um Shutdown que esgotou o dele não leva junto o uso e os agregados
+	flushCtx, cancelFlush := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancelFlush()
+	if err := s.limiter.Flush(flushCtx); err != nil {
 		s.deps.Log.Warn("bot: final usage flush", "err", err)
 	}
-	if err := s.flushAgg(shCtx); err != nil {
+	if err := s.flushAgg(flushCtx); err != nil {
 		s.deps.Log.Warn("bot: final aggregate flush", "err", err)
 	}
 	return runErr
