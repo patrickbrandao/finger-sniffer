@@ -1,0 +1,1 @@
+- test(store, dns): fuzz do caminho inteiro de bytes anônimos: `FuzzIngestFrame` (lote com 1–3 frames por `process` e `Finalize`, análise IP/TCP e SQLite) e `FuzzHandle` (datagrama/mensagem DNS por `handle`, RRL e `BuildQuery`, resposta com o mesmo ID e no limite do transporte) (task 398).
