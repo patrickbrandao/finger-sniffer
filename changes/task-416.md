@@ -1,0 +1,1 @@
+- store: o expurgo de emergência mira 15% de livre mais a reserva de espaço solta e recria a reserva no fim; num tmpfs em que a reserva pesa (16 MiB) ele não expurgava nada e, de 48 MiB para cima, a reserva não voltava. `TestDBFullRealTmpfs` passa de 16 a 256 MiB e o job `norace` volta ao tmpfs de 16 MiB da RF-08c (task 416).

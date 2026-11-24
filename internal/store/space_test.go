@@ -251,9 +251,11 @@ type logWriter struct{ t *testing.T }
 
 func (w logWriter) Write(p []byte) (int, error) { w.t.Log(string(p)); return len(p), nil }
 
-// TestDBFullRealTmpfs: com FS_TEST_TMPFS apontando para um tmpfs pequeno (Linux, montado por quem roda o teste),
-// enche o tmpfs de verdade com o laço do store ligado (checkpoint com recomeço do WAL) e depois manda lotes ao
-// ingest: o store nunca trava nem devolve o lote por Nak, e o expurgo de emergência devolve espaço ao tmpfs.
+// TestDBFullRealTmpfs: com FS_TEST_TMPFS apontando para um tmpfs pequeno (Linux, montado por quem roda o teste;
+// spec 017 RF-08c, 16 MiB), enche o tmpfs de verdade com o laço do store ligado (checkpoint com recomeço do WAL) e
+// depois manda lotes ao ingest: o store nunca trava nem devolve o lote por Nak, e o expurgo de emergência devolve
+// espaço ao tmpfs e recria a reserva. Passa em qualquer tamanho de 16 MiB para cima (task 416: 16, 24, 32, 40, 48,
+// 64 e 128 MiB).
 func TestDBFullRealTmpfs(t *testing.T) {
 	dir := os.Getenv("FS_TEST_TMPFS")
 	if dir == "" {
@@ -289,6 +291,7 @@ func TestDBFullRealTmpfs(t *testing.T) {
 	ReserveBytes = 2 << 20 // tmpfs de teste pequeno
 	t.Cleanup(func() { ReserveBytes = old })
 	space := newDBSpace(sp).withReserve(path)
+	r.Reserve = space.reserve // como no store (newRetention)
 	if err := space.ensureReserve(); err != nil {
 		t.Fatal(err)
 	}
@@ -331,14 +334,20 @@ func TestDBFullRealTmpfs(t *testing.T) {
 	if d := time.Since(start); d > 60*time.Second {
 		t.Fatalf("ingest took %v on a full tmpfs", d)
 	}
+	// O laço do store faz o checkpoint a cada rodada: o WAL dos 20 lotes não é crescimento do banco.
+	if err := CheckpointTruncate(ctx, cdb); err != nil {
+		t.Fatal(err)
+	}
 	size, free, err := sp.Space()
+	t.Logf("free after the batches: %d of %d (%.1f%%)", free, size, freePct(size, free))
 	if err != nil || freePct(size, free) < spaceLowPct || in.space.isFull() {
 		t.Fatalf("emergency purge left %d of %d free, full mode %v (err %v)", free, size, in.space.isFull(), err)
 	}
 	if n := count(t, db, "SELECT count(*) FROM connections WHERE conn_id NOT LIKE 'f%'"); n != 400 {
 		t.Fatalf("%d of 400 new connections written", n)
 	}
-	// Com o livre de volta, a reserva é recriada (laço do store).
+	// O expurgo de emergência mira 15% de livre mais a reserva e a recria no fim (task 416); o laço do store só
+	// confirma.
 	if err := space.ensureReserve(); err != nil {
 		t.Fatal(err)
 	}
@@ -377,5 +386,44 @@ func TestReserve(t *testing.T) {
 	sp.enterFull(time.Now())
 	if err := sp.ensureReserve(); err != nil || size() != -1 {
 		t.Fatal("no reserve in full mode")
+	}
+}
+
+// TestSpacePurgeCountsMissingReserve: com a reserva de espaço solta, o expurgo por espaço mira 15% de livre mais a
+// reserva (o livre de que ensureReserve precisa para recriá-la), e o expurgo de emergência recria a reserva no fim
+// (task 416). Antes, num tmpfs em que a reserva é uma parte grande do tamanho, o livre depois de soltá-la já
+// passava de 15%, nada era expurgado e a reserva não voltava.
+func TestSpacePurgeCountsMissingReserve(t *testing.T) {
+	db, path := testDB(t)
+	ctx := context.Background()
+	fillConns(t, db, "c", 200, base)
+	old := ReserveBytes
+	ReserveBytes = 400_000
+	t.Cleanup(func() { ReserveBytes = old })
+	const size = 4_000_000
+	sp := newFakeSpace(size, size*16/100) // acima de 15%, mas a reserva (10% do tamanho) está solta
+	r := NewRetention(db, time.Hour, 1<<40)
+	r.Space, r.Path = sp, path
+	space := newDBSpace(sp).withReserve(path)
+	r.Reserve = space.reserve
+	logical, _ := r.logicalSize(ctx)
+	goal, err := r.spaceGoal(ctx, true)
+	if err != nil || goal < 0 || logical-goal < size*9/100-size/100 {
+		t.Fatalf("missing reserve must be purged for: logical %d, goal %d, err %v", logical, goal, err)
+	}
+	// Com a reserva no lugar, os mesmos 16% livres não pedem expurgo.
+	sp.set(size, size/2)
+	if err := space.ensureReserve(); err != nil {
+		t.Fatal(err)
+	}
+	sp.set(size, size*16/100)
+	if goal, err := r.spaceGoal(ctx, true); err != nil || goal != -1 {
+		t.Fatalf("reserve in place: goal %d, err %v", goal, err)
+	}
+	// O expurgo de emergência solta a reserva e a recria no fim, com o livre de volta.
+	sp.set(size, size/2)
+	emergencyPurge(ctx, r, space, db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if st, err := os.Stat(path + "-reserve"); err != nil || st.Size() != ReserveBytes {
+		t.Fatalf("emergency purge must recreate the reserve: %v", err)
 	}
 }

@@ -478,14 +478,14 @@ func (s *Store) newRetention() *Retention {
 	r.Observe = s.prom.writerOp
 	r.StepTarget = DefaultRetentionStep
 	r.Tracked, r.OrphanIdle = s.ingest.flows.tracked, s.cfg.Ingest.TCPIdle
-	r.Space, r.Path = s.space.reader, s.cfg.DBPath
+	r.Space, r.Path, r.Reserve = s.space.reader, s.cfg.DBPath, s.space.reserve
 	return r
 }
 
 // emergencyPurge devolve o expurgo de emergência do SQLITE_FULL no ingest (ADR 0045 item 5): apaga a reserva de
 // espaço (ReserveBytes), checkpoint TRUNCATE (o WAL cortado devolve espaço para o próprio expurgo escrever),
-// expurgo fora do orçamento até spaceOKPct de livre ou emergencyPurgeMax, e outro checkpoint TRUNCATE, que corta
-// o arquivo do banco no tmpfs. Usa um expurgador próprio: roda no laço de ingest, em paralelo ao laço do store.
+// expurgo fora do orçamento até spaceOKPct de livre mais a reserva ou emergencyPurgeMax, outro checkpoint TRUNCATE,
+// que corta o arquivo do banco no tmpfs, e a reserva recriada (task 416). Usa um expurgador próprio: roda no laço de ingest, em paralelo ao laço do store.
 func (s *Store) emergencyPurge() func(ctx context.Context) {
 	r := s.newRetention()
 	r.Checkpoint = func(ctx context.Context) error { return CheckpointTruncate(ctx, s.cdb) }
@@ -508,6 +508,11 @@ func emergencyPurge(ctx context.Context, r *Retention, sp *dbSpace, cdb *sql.DB,
 	}
 	if err := CheckpointTruncate(ctx, cdb); err != nil {
 		log.Warn("emergency wal checkpoint", "err", err)
+	}
+	// A reserva volta já, com o livre que o expurgo devolveu (task 416): esperar o laço do store deixava o ingest
+	// gastar esse livre antes, e a reserva não voltava mais até o livre subir de novo.
+	if err := sp.ensureReserve(); err != nil {
+		log.Warn("db space reserve", "err", err)
 	}
 	log.Warn("emergency purge done", "purged", n)
 }

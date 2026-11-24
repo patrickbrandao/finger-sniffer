@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -85,8 +86,8 @@ func isDBFull(err error) bool {
 // ReserveBytes é o tamanho da reserva de espaço ao lado do banco (arquivo path-reserve). Com o tmpfs cheio de
 // verdade, nem o expurgo nem o checkpoint conseguem rodar: o DELETE precisa de quadros novos no WAL e o
 // checkpoint, de páginas novas no arquivo do banco, e os dois dão SQLITE_FULL (medido num tmpfs de 32 MiB). O
-// expurgo de emergência apaga a reserva antes de começar, e o laço do store a recria quando o livre volta a
-// spaceOKPct. 32 MiB são 0,8% do tmpfs de 4G e cobrem com folga o WAL de um expurgo de 2 s. Variável para os
+// expurgo de emergência apaga a reserva antes de começar e a recria no fim (o expurgo mira spaceOKPct de livre
+// mais a reserva, Retention.Reserve); se não der, o laço do store a recria quando o livre voltar a spaceOKPct. 32 MiB são 0,8% do tmpfs de 4G e cobrem com folga o WAL de um expurgo de 2 s. Variável para os
 // testes.
 var ReserveBytes int64 = 32 << 20
 
@@ -95,6 +96,9 @@ type dbSpace struct {
 	reader SpaceReader // nil: sem statfs (o modo banco cheio sai só pelo tempo, ver checkExit)
 	// reserve é o arquivo da reserva de espaço (ReserveBytes); vazio = sem reserva.
 	reserve string
+	// reserveMu serializa a criação e a remoção da reserva: o laço do store e o expurgo de emergência (no laço de
+	// ingest) mexem nela.
+	reserveMu sync.Mutex
 	// full é o modo banco cheio (ADR 0045 item 5): conexões novas degradadas e lotes sem BLOBs.
 	full atomic.Bool
 	// lastFull é o instante (UnixNano) do último SQLITE_FULL; fullSince, o da entrada no modo banco cheio.
@@ -116,6 +120,8 @@ func (s *dbSpace) ensureReserve() error {
 	if s == nil || s.reserve == "" || s.isFull() || ReserveBytes <= 0 {
 		return nil
 	}
+	s.reserveMu.Lock()
+	defer s.reserveMu.Unlock()
 	if st, err := os.Stat(s.reserve); err == nil && st.Size() >= ReserveBytes { //nolint:gosec // ao lado de FS_STORE_DB
 		return nil
 	}
@@ -142,7 +148,12 @@ func (s *dbSpace) ensureReserve() error {
 
 // releaseReserve apaga a reserva (o espaço volta ao tmpfs na hora); true se havia reserva.
 func (s *dbSpace) releaseReserve() bool {
-	return s != nil && s.reserve != "" && os.Remove(s.reserve) == nil //nolint:gosec // ao lado de FS_STORE_DB
+	if s == nil || s.reserve == "" {
+		return false
+	}
+	s.reserveMu.Lock()
+	defer s.reserveMu.Unlock()
+	return os.Remove(s.reserve) == nil //nolint:gosec // ao lado de FS_STORE_DB
 }
 
 // read devolve tamanho e livre; ok=false sem leitor ou com erro.
