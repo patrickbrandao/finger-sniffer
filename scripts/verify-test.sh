@@ -10,7 +10,9 @@
 #   - o passo e2e é recusado com a trava da carga no servidor, salvo FS_E2E_DURING_LOAD=1 (task 361);
 #   - o quick acha os pacotes de mudanças fora de .go: testdata, arquivo embutido, diretório de dados, go.mod e o
 #     pacote deploy (task 362);
-#   - o passo "testes com tag" compila e roda os pacotes de cada tag e falha com um pacote fora dos padrões (task 359).
+#   - o passo "testes com tag" compila e roda os pacotes de cada tag e falha com um pacote fora dos padrões (task 359);
+#   - o p0f.fp de deploy/versions.env (download, SHA, cache) e os testes sem -race: lista completa e job norace
+#     (task 360).
 # O ssh/scp do servidor (finger-01) é trocado por stubs que executam localmente (o "remoto" é o /tmp desta máquina).
 set -uo pipefail
 
@@ -422,7 +424,7 @@ CI_YML="$ROOT/.github/workflows/ci.yml"
 check "CI: FS_RACE_SPLIT_PKGS do store no workflow" 'grep -qE "^  FS_RACE_SPLIT_PKGS: \./internal/store/\.\.\.$" "$CI_YML"'
 ci_shards=$(sed -nE 's/^ +shard: \[([0-9, ]+)\]$/\1/p' "$CI_YML" | tr ',' '\n' | grep -c .)
 check "CI: race-check com o número de lotes da matriz" '[ "$ci_shards" -ge 2 ] && grep -qE "verify\.sh race-check $ci_shards " "$CI_YML"'
-check "CI: race-check depende do verify-full e dos lotes" 'grep -qF "needs: [verify-full, store-race]" "$CI_YML"'
+check "CI: race-check depende do verify-full, dos lotes e do norace" 'grep -qF "needs: [verify-full, store-race, norace]" "$CI_YML"'
 check "CI: lote com race-shard e tamanho da matriz" 'grep -qF "race-shard \"\${{ matrix.shard }}\" \"\${{ strategy.job-total }}\"" "$CI_YML"'
 
 # ---- task 362: mudanças fora de .go no quick (spec 017 RF-03) ----------------------------------------------
@@ -534,6 +536,59 @@ check "testes com tag no quick: nenhum candidato com tag" '[ -z "$(tg tagged_qui
 check "testes com tag: passo no full" 'grep -qE "run_step \"testes com tag\" tagged_tests" "$ROOT/scripts/verify.sh"'
 check "lint com as tags e2e, load e golden" 'grep -qE "^  build-tags: \[e2e, load, golden\]$" "$ROOT/.golangci.yml"'
 check "TestF8SimOffline sem a tag e2e" '! head -1 "$ROOT/test/e2e/f8_sim_offline_test.go" | grep -q "go:build" && grep -q "^func TestF8SimOffline(" "$ROOT/test/e2e/f8_sim_offline_test.go"'
+
+# ---- task 360: p0f.fp real e testes sem -race (spec 017 RF-08b e RF-08c) -----------------------------------
+# p0f_prepare com um tgz local (file://) e um versions.env próprio: baixa, confere os SHA, não baixa de novo e
+# reprova SHA errado; FS_P0F_DB já definido fica.
+PF="$T/p0f"
+mkdir -p "$PF/src/p0f-9.9" "$PF/repo"
+echo "assinaturas de teste" >"$PF/src/p0f-9.9/p0f.fp"
+(cd "$PF/src" && tar -czf "$PF/p0f.tgz" p0f-9.9/p0f.fp)
+pf_versions() {
+	printf 'P0F_VERSION=9.9\nP0F_TGZ_SHA256=%s\nP0F_FP_SHA256=%s\nP0F_URL=file://%s\n' \
+		"${1:-$(sha256_of "$PF/p0f.tgz")}" "${2:-$(sha256_of "$PF/src/p0f-9.9/p0f.fp")}" "$PF/p0f.tgz" >"$PF/versions.env"
+}
+pf() {
+	(cd "$PF/repo" && env -u FS_P0F_DB ROOT="$PF/repo" P0F_VERSIONS_FILE="$PF/versions.env" bash -c \
+		'. "$1/scripts/verify.sh" lib; cd "$2"; ROOT="$2" P0F_VERSIONS_FILE="$3"; p0f_prepare && echo "env=$FS_P0F_DB"' \
+		_ "$ROOT" "$PF/repo" "$PF/versions.env")
+}
+pf_versions
+pf >"$T/out.p0f1" 2>&1
+pf_rc=$?
+check "p0f.fp: baixado, conferido e exportado" '[ "$pf_rc" = 0 ] && grep -q "^env=$PF/repo/tmp/p0f/p0f.fp$" "$T/out.p0f1" && cmp -s "$PF/repo/tmp/p0f/p0f.fp" "$PF/src/p0f-9.9/p0f.fp"'
+mv "$PF/p0f.tgz" "$PF/p0f.tgz.off"
+pf >"$T/out.p0f2" 2>&1
+pf_rc=$?
+check "p0f.fp: com o SHA certo não baixa de novo" '[ "$pf_rc" = 0 ] && ! grep -q baixando "$T/out.p0f2"'
+mv "$PF/p0f.tgz.off" "$PF/p0f.tgz"
+rm -rf "$PF/repo/tmp"
+pf_versions 0000
+pf >"$T/out.p0f3" 2>&1
+pf_rc=$?
+check "p0f.fp: SHA do tgz errado reprova" '[ "$pf_rc" != 0 ] && grep -q "P0F_TGZ_SHA256" "$T/out.p0f3" && [ ! -f "$PF/repo/tmp/p0f/p0f.fp" ]'
+pf_versions "" 0000
+pf >"$T/out.p0f4" 2>&1
+pf_rc=$?
+check "p0f.fp: SHA do p0f.fp errado reprova" '[ "$pf_rc" != 0 ] && grep -q "P0F_FP_SHA256" "$T/out.p0f4"'
+check "p0f.fp: FS_P0F_DB já definido fica" '[ "$(FS_P0F_DB=/x/p0f.fp bash -c ". \"\$1/scripts/verify.sh\" lib; p0f_prepare >/dev/null; echo \$FS_P0F_DB" _ "$ROOT")" = /x/p0f.fp ]'
+check "p0f.fp: versão do deploy/versions.env" '(cd "$ROOT" && [ -n "$(versions_get P0F_VERSION)" ] && [ -n "$(versions_get P0F_FP_SHA256)" ])'
+
+# testes sem -race: todo teste com `if raceEnabled {` + t.Skip está na lista
+printf 'package z\n\nfunc TestA(t *testing.T) {\n\tif raceEnabled {\n\t\tt.Skip("x")\n\t}\n}\n\nfunc TestB(t *testing.T) {\n\tif !raceEnabled && x {\n\t}\n}\n' >"$T/race_skip_test.go"
+check "sem -race: acha o teste que se pula com -race" '[ "$(race_skip_tests "$T/race_skip_test.go")" = TestA ]'
+missing=""
+for name in $(cd "$ROOT" && race_skip_tests $(go_source_files | grep -E "_test\.go$")); do
+	case " $NORACE_TESTS " in *" $name "*) ;; *) missing="$missing $name" ;; esac
+done
+check "sem -race: todo teste com if raceEnabled { t.Skip na lista do passo${missing:+ (faltam:$missing)}" '[ -z "$missing" ]'
+check "sem -race: TestDBFullRealTmpfs e TestRetentionDoesNotStallIngest na lista" 'case " $NORACE_TESTS " in *" TestDBFullRealTmpfs "*" "*|*" TestRetentionDoesNotStallIngest "*) true ;; *) false ;; esac'
+check "norace: confere os testes do p0f.fp real" 'grep -q "run_step \"testes do p0f.fp real\" p0f_real_tests" "$ROOT/scripts/verify.sh" && [ "$P0F_REAL_TESTS" = "TestP0FGolden TestRealDBLoads" ]'
+check "sem -race: passo e p0f.fp no full" 'grep -q "run_step \"testes sem -race\" norace_tests" "$ROOT/scripts/verify.sh" && grep -q "run_step \"p0f.fp\" p0f_prepare" "$ROOT/scripts/verify.sh"'
+CI_YML="$ROOT/.github/workflows/ci.yml"
+check "CI: job norace com verify.sh norace, tmpfs pequeno e FS_TEST_TMPFS" 'awk "/^  norace:/{f=1} /^  race-check:/{f=0} f" "$CI_YML" >"$T/norace.yml" &&
+	grep -q "scripts/verify.sh norace" "$T/norace.yml" && grep -qE "mount -t tmpfs -o size=(16|32)m" "$T/norace.yml" && grep -q "FS_TEST_TMPFS: /mnt/fs-tmpfs" "$T/norace.yml"'
+check "CI: verify-full pula os testes sem -race" 'grep -qE "^          FS_SKIP_NORACE: \"1\"$" "$CI_YML"'
 
 # ---- task 361: o passo e2e é recusado com a trava da carga no servidor --------------------------------------
 # O ssh é o stub acima (o "servidor" é esta máquina); go é trocado por um stub que só registra a chamada.
