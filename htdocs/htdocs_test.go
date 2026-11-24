@@ -150,6 +150,8 @@ func TestIndexStructure(t *testing.T) {
 		"/api/v1/openapi.yaml",
 		"10 minutes",
 		"All traffic is public",
+		"This is a non-commercial service.", "FoxIO License 1.1", "BSD-3-Clause",
+		"https://finger-01.badblock.net.br:9002/bot/v1/openapi.yaml",
 		"9000", "9001",
 	} {
 		if !strings.Contains(text, want) {

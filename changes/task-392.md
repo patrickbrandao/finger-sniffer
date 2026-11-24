@@ -1,0 +1,1 @@
+- htdocs: aviso de uso não comercial na página (JA4H/JA4T sob a FoxIO License 1.1, JA4 BSD-3-Clause) e a API de vereditos (9002/9003, chave do operador) com o link do contrato do bot, ADR 0053 item 1 (task 392).

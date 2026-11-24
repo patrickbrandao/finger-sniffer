@@ -36,6 +36,9 @@ kept for about <strong>10 minutes</strong> and then deleted.</p>
 Everything that reaches the server's network interface is captured, including the traffic of those sites
 (addresses, TLS server names and plain HTTP requests on port 80), and is public through the API for the same
 10 minutes.</p>
+<p class="notice"><strong>Non-commercial service.</strong> This is a non-commercial service. JA4H and JA4T are
+&copy; FoxIO under the FoxIO License 1.1 (non-commercial); JA4 is BSD-3-Clause. Commercial use of JA4H or JA4T
+by third parties needs a license from FoxIO.</p>
 </section>
 
 <section aria-labelledby="live">
@@ -148,6 +151,9 @@ When you are done, <code>DELETE /api/v1/probes/&lt;id&gt;</code> removes your re
 <a href="https://finger-01.badblock.net.br:9000/api/v1/openapi.yaml">https://finger-01.badblock.net.br:9000/api/v1/openapi.yaml</a>
 (also over HTTP on port 9001). It covers connections, raw bytes, pcaps, DNS queries, stray packets, health and
 the live event stream.</p>
+<p>A bot verdict API (ports 9002 and 9003) needs a key issued by the operator, for non-commercial use only. Its
+contract is at
+<a href="https://finger-01.badblock.net.br:9002/bot/v1/openapi.yaml">https://finger-01.badblock.net.br:9002/bot/v1/openapi.yaml</a>.</p>
 </section>
 </main>
 
