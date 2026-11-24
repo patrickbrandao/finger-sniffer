@@ -10,6 +10,7 @@ import (
 	"github.com/patrickbrandao/finger-sniffer/pkg/detect"
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/probe"
+	"github.com/patrickbrandao/finger-sniffer/pkg/tlsparse"
 )
 
 // Limites internos da sessão.
@@ -57,9 +58,11 @@ type session struct {
 
 	// TLS (spec 006 RF-02/RF-03). tlsCfg nil desliga o TLS; sniff guarda os primeiros bytes do cliente até
 	// decidir se são um registro TLS (0x16 0x03).
-	tlsCfg    *tls.Config
-	probes    *probe.Extractor
-	tlsOn     bool
+	tlsCfg *tls.Config
+	probes *probe.Extractor
+	tlsOn  bool
+	// hello é a captura do ClientHello do último startTLS (solta depois de publicada; os testes conferem).
+	hello     *tlsparse.Conn
 	sniff     []byte
 	sniffDone bool
 	// waitFrom é o início da espera pela linha PROBE no modo source (accept, ou fim do handshake TLS).
