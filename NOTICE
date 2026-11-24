@@ -18,5 +18,9 @@ JA4+ methods other than JA4 (such as JA4T and JA4H), kept in pkg/fingerprint/ja4
 are licensed under the FoxIO License 1.1 (https://github.com/FoxIO-LLC/ja4/blob/main/License%20FAQ.md),
 which restricts commercial use. See that directory for details.
 
+- ja4db (https://ja4db.com)
+  FoxIO. Used by the bot service only when enabled (FS_BOT_JA4DB_ENABLE), under the terms
+  published by FoxIO; downloaded at runtime and not redistributed (ADR 0050 item 2).
+
 The p0f fingerprint database (p0f.fp) is distributed separately as a data file under
 the GNU Lesser General Public License 2.1 and is not embedded in the binaries.

@@ -2,6 +2,7 @@
 # Teste de `make release` (task 070; rodado no CI): gera o pacote de uma versão de teste num diretório
 # temporário, sem conferência de Git nem verify-full, e confere que:
 #   - o tar tem os 6 binários, units, nats.conf, htdocs e SHA256SUMS, e o SHA256SUMS bate com o conteúdo;
+#   - o NOTICE do pacote cita as fontes de terceiros, inclusive a ja4db (ADR 0053 item 3, task 392);
 #   - nada no Git mudou (HEAD, refs/tags, status).
 set -euo pipefail
 
@@ -44,6 +45,14 @@ for s in $SERVICES; do
 done
 check "nats.conf" "[ -f '$PKG/eventbus/nats/nats.conf' ]"
 check "htdocs/index.html" "[ -f '$PKG/htdocs/index.html' ]"
+# atribuições exigidas no NOTICE (ADR 0053 item 3)
+notice_cites_all() {
+	local w
+	for w in Fingerproxy JA3 'FoxIO License 1.1' p0f 'ja4db (https://ja4db.com)'; do
+		grep -qF "$w" "$1" || return 1
+	done
+}
+check "NOTICE com as atribuições (ja4db inclusive)" "notice_cites_all '$PKG/NOTICE'"
 check "SHA256SUMS confere com o conteúdo" "[ \"\$(sums_of_dir '$PKG')\" = \"\$(cat '$PKG/SHA256SUMS')\" ]"
 check "SHA256SUMS cobre os binários" "[ \$(grep -c ' bin/finger-sniffer-' '$PKG/SHA256SUMS') = 6 ]"
 check "SHA256SUMS ao lado do tar" "cmp -s '$PKG/SHA256SUMS' '$WORK/dist/$NAME.SHA256SUMS'"
