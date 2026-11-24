@@ -91,18 +91,7 @@ func JA4H(in JA4HInput) JA4HResult {
 		names = append(names, f.Name)
 	}
 
-	var a strings.Builder
-	a.WriteString(methodCode(in.Method))
-	a.WriteString(versionCode(in.Version))
-	a.WriteByte(marker(hasCookie, 'c'))
-	a.WriteByte(marker(hasRefer, 'r'))
-	n := min(len(names), 99)
-	if n < 10 {
-		a.WriteByte('0')
-	}
-	a.WriteString(strconv.Itoa(n))
-	a.WriteString(primaryLanguage(lang))
-	first := a.String()
+	first := partA(methodCode(in.Method)+versionCode(in.Version), hasCookie, hasRefer, len(names), lang)
 	headers := strings.Join(names, ",")
 
 	sorted := make([]cookiePair, len(cookies))
@@ -119,6 +108,38 @@ func JA4H(in JA4HInput) JA4HResult {
 	r.JA4HR, r.JA4H = build(sorted)
 	r.JA4HRO, r.JA4HO = build(cookies)
 	return r
+}
+
+// JA4HAB devolve as partes a e b do JA4H ("a_b", sem as partes dos cookies) a partir de códigos e nomes já
+// conhecidos, para quem recalcula o JA4H sem a requisição inteira (ex.: o `ja4h_library` do bot sem Origin e
+// Referer, ADR 0060). methodVersion são os 4 primeiros caracteres da parte a (método e versão, ex.: "ge11");
+// cookie e referer são os sinalizadores `c` e `r`; names são os nomes dos campos na ordem e na caixa recebidas, dos
+// quais pseudo-cabeçalhos, Cookie e Referer saem da contagem e do hash como no JA4H; lang é o valor do
+// Accept-Language ("" = 0000). Com as mesmas entradas, é igual ao começo de JA4H(...).JA4H.
+func JA4HAB(methodVersion string, cookie, referer bool, names []string, lang string) string {
+	kept := make([]string, 0, len(names))
+	for _, n := range names {
+		if strings.HasPrefix(n, ":") || strings.EqualFold(n, "cookie") || strings.EqualFold(n, "referer") {
+			continue
+		}
+		kept = append(kept, n)
+	}
+	return partA(methodVersion, cookie, referer, len(kept), lang) + "_" + hash12(strings.Join(kept, ","))
+}
+
+// partA monta a parte a do JA4H: método e versão, sinalizadores de cookie e referer, contagem com teto 99 e idioma.
+func partA(methodVersion string, cookie, referer bool, count int, lang string) string {
+	var a strings.Builder
+	a.WriteString(methodVersion)
+	a.WriteByte(marker(cookie, 'c'))
+	a.WriteByte(marker(referer, 'r'))
+	n := min(count, 99)
+	if n < 10 {
+		a.WriteByte('0')
+	}
+	a.WriteString(strconv.Itoa(n))
+	a.WriteString(primaryLanguage(lang))
+	return a.String()
 }
 
 func marker(set bool, c byte) byte {

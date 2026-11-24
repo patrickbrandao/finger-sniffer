@@ -57,14 +57,19 @@ func TestDetailsHaveNoIPOrUA(t *testing.T) {
 }
 
 // TestNoImportOfBot: o pacote não importa internal/bot (sem ciclo) nem nada fora da stdlib, salvo o
-// pkg/fingerprint/ja4 do espelho (derivação do JA4 stable, ADR 0072 item 1.2).
+// pkg/fingerprint/ja4 do espelho (derivação do JA4 stable, ADR 0072 item 1.2) e o pkg/fingerprint/ja4plus (JA4H do
+// `ja4h_library` no pacote isolado da FoxIO License, ADR 0010, task 403).
 func TestNoImportOfBot(t *testing.T) {
 	pkg, err := build.ImportDir(".", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	allowed := map[string]bool{
+		"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4":     true,
+		"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4plus": true,
+	}
 	for _, imp := range pkg.Imports {
-		if strings.Contains(imp, ".") && imp != "github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/ja4" {
+		if strings.Contains(imp, ".") && !allowed[imp] {
 			t.Errorf("import fora da stdlib: %s", imp)
 		}
 	}

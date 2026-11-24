@@ -225,3 +225,55 @@ func FuzzJA4H(f *testing.F) {
 }
 
 var ja4hTail = regexp.MustCompile(`_[0-9a-f]{12}_[0-9a-f]{12}_[0-9a-f]{12}$`)
+
+// TestJA4HABEqualsJA4H: com os códigos, os sinalizadores, os nomes e o Accept-Language da requisição, JA4HAB é igual
+// às partes a e b de JA4H (contagem com teto 99, nomes na caixa recebida, pseudo, Cookie e Referer fora, hash12
+// vazio em zeros), em HTTP/1.1, h2 e h3 (task 403).
+func TestJA4HABEqualsJA4H(t *testing.T) {
+	pool := []string{
+		"Host", "host", "User-Agent", "user-agent", "Accept", "accept-encoding", "Connection", "x-custom", "Origin",
+		"Referer", "REFERER", "referer", "Cookie", "cookie", ":path", "te", "priority", "Accept-Language",
+	}
+	versions := []string{"HTTP/1.0", "HTTP/1.1", "HTTP/2", "HTTP/3"}
+	methods := []string{"GET", "POST", "HEAD", "OPTIONS"}
+	seed := uint64(403)
+	next := func(n int) int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int((seed >> 33) % uint64(n))
+	}
+	for i := range 2000 {
+		n := next(130)
+		if i < 3 {
+			n = []int{0, 1, 120}[i]
+		}
+		in := JA4HInput{Method: methods[i%len(methods)], Version: versions[i%len(versions)]}
+		names := make([]string, n)
+		var cookie, referer bool
+		lang, langSet := "", false
+		for j := range names {
+			names[j] = pool[next(len(pool))]
+			if i%7 == 0 {
+				names[j] = "x-f" + strconv.Itoa(j)
+			}
+			v := "v"
+			switch strings.ToLower(names[j]) {
+			case "cookie":
+				cookie, v = true, "a=1"
+			case "referer":
+				referer = true
+			case "accept-language":
+				v = []string{"pt-BR,pt;q=0.9", "en", ""}[j%3]
+				if !langSet {
+					lang, langSet = v, true
+				}
+			}
+			in.Fields = append(in.Fields, JA4HField{Name: names[j], Value: v})
+		}
+		full := JA4H(in).JA4H
+		want := full[:strings.LastIndexByte(full[:strings.LastIndexByte(full, '_')], '_')]
+		got := JA4HAB(full[:4], cookie, referer, names, lang)
+		if got != want {
+			t.Fatalf("caso %d %v: %s, quer %s", i, names, got, want)
+		}
+	}
+}
