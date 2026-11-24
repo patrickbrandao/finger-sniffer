@@ -1,0 +1,1 @@
+- test(bot): resumo de requisição sem cabeçalhos coberto também no feed (SSE), no webhook e na consulta reavaliada por `connectionVerdict`, sem `ua_missing` (task 315).
