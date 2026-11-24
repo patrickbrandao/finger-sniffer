@@ -10,6 +10,8 @@ export const PLAIN_PORT = 8080;
 export const MAX_ROWS = 500;
 export const WS_OPEN_TIMEOUT_MS = 3000;
 export const MAX_BACKOFF_MS = 30000;
+// com a aba oculta por mais que isso, a página fecha o feed e devolve a vaga ao tempo real do store (spec 014)
+export const HIDDEN_CLOSE_MS = 60000;
 export const LIVE_KINDS = [
   "connection.opened",
   "connection.updated",
@@ -95,7 +97,9 @@ export class LiveFeed {
     this.stopped = true;
   }
 
+  // start é idempotente: com o feed já aberto (ex.: pageshow e visibilitychange juntos) não abre outro transporte.
   start() {
+    if (!this.stopped) return;
     this.stopped = false;
     this.connect();
   }
@@ -214,6 +218,47 @@ export class LiveFeed {
     }
     if (ev && typeof ev === "object" && typeof ev.kind === "string") this.onEvent(ev);
   }
+}
+
+// hiddenGuard fecha o feed depois de delayMs com a aba oculta e o reabre quando ela volta a ficar visível
+// (sem replay). Sem DOM: o boot liga onHidden/onVisible ao visibilitychange. onChange("closed") avisa o
+// fechamento; onVisible devolve true quando reabriu (o boot acrescenta o aviso de eventos possivelmente perdidos).
+export function hiddenGuard(feed, env, delayMs = HIDDEN_CLOSE_MS, onChange = () => {}) {
+  let timer = null;
+  let closed = false;
+  return {
+    get closed() {
+      return closed;
+    },
+    onHidden() {
+      if (closed || timer !== null) return;
+      timer = env.setTimeout(() => {
+        timer = null;
+        closed = true;
+        feed.stop();
+        onChange("closed");
+      }, delayMs);
+    },
+    onVisible() {
+      if (timer !== null) {
+        env.clearTimeout(timer);
+        timer = null;
+      }
+      if (!closed) return false;
+      closed = false;
+      feed.start();
+      onChange("reopened");
+      return true;
+    },
+  };
+}
+
+// hiddenGapRow é a linha de aviso mostrada quando o feed reabre depois de fechado pela aba oculta.
+export function hiddenGapRow(ts) {
+  const row = describeEvent({ kind: "stream.dropped", ts, data: {} }, new Map());
+  row.label = "gap";
+  row.what = "The feed was closed while this tab was hidden; events from that period may be missing";
+  return row;
 }
 
 // ------------------------------------------------------------------ modelo das linhas
@@ -738,6 +783,7 @@ function boot() {
     ui.state.dataset.state = state;
     if (state === "live") setText(ui.state, `live (${transport})`);
     else if (state === "paused") setText(ui.state, "paused");
+    else if (state === "hidden") setText(ui.state, "paused (hidden)");
     else if (state === "reconnecting") setText(ui.state, `reconnecting in ${Math.round(waitMs / 1000)} s`);
     else setText(ui.state, `connecting (${transport})`);
   }
@@ -992,6 +1038,24 @@ function boot() {
     },
   });
   feed.start();
+  const guard = hiddenGuard(feed, feed.env, HIDDEN_CLOSE_MS, (what) => {
+    if (what === "closed") onState("hidden", "", 0);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      guard.onHidden();
+      return;
+    }
+    if (!guard.onVisible()) return;
+    const row = hiddenGapRow(new Date().toISOString());
+    if (paused) {
+      pending.push(row);
+      updatePending();
+      return;
+    }
+    apply(row);
+    trim();
+  });
   window.addEventListener("pagehide", () => feed.stop());
   // volta do bfcache: a conexão foi fechada no pagehide
   window.addEventListener("pageshow", (e) => {

@@ -1,0 +1,1 @@
+- htdocs: com a aba oculta por mais de 60 s a página fecha o feed (`paused (hidden)`) e devolve a vaga do tempo real; ao voltar reabre sem replay, com uma linha de aviso; `LiveFeed.start` idempotente (task 390).
