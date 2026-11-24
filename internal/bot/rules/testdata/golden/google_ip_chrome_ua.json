@@ -1,5 +1,5 @@
 {
-  "rules_version": "v1.5",
+  "rules_version": "v1.6",
   "ja4db": false,
   "input": {
     "IP": "66.249.66.1",

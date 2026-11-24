@@ -331,8 +331,12 @@ func TestOSTCPMismatch(t *testing.T) {
 }
 
 func TestSignalTable(t *testing.T) {
-	if len(signalTable) != 21 {
-		t.Fatalf("%d sinais; a spec 018 (rules v1.5) tem 21", len(signalTable))
+	if len(signalTable) != 23 {
+		t.Fatalf("%d sinais; a spec 018 (rules v1.6) tem 23", len(signalTable))
+	}
+	// os dois sinais da v1.6 (ADR 0078) fecham a tabela, depois de route_breadth, comportamento de peso 10
+	if want := []signalDef{{SignalRouteBreadth, KindBehavior, 15}, {SignalTTLTCPH3Mismatch, KindBehavior, 10}, {SignalRelayRTTGapAgg, KindBehavior, 10}}; !slices.Equal(signalTable[len(signalTable)-3:], want) {
+		t.Fatalf("fim da tabela: %+v", signalTable[len(signalTable)-3:])
 	}
 	// relay_rtt_gap (v1.4, ADR 0065 item 3) entra logo depois de tunnel_mss, incoerência de peso 15
 	if pos := slices.IndexFunc(signalTable, func(d signalDef) bool { return d.id == SignalTunnelMSS }); pos < 0 ||
@@ -359,7 +363,7 @@ func TestSignalTable(t *testing.T) {
 	if _, ok := SignalWeight("nope"); ok {
 		t.Fatal("id desconhecido com peso")
 	}
-	if RulesVersion != "v1.5" {
+	if RulesVersion != "v1.6" {
 		t.Fatalf("RulesVersion %q", RulesVersion)
 	}
 }
@@ -473,5 +477,91 @@ func TestTLSIdentity(t *testing.T) {
 	if i := slices.IndexFunc(got.Signals, func(s Signal) bool { return s.ID == SignalUATLSMismatch }); i < 0 ||
 		got.Signals[i].Detail != "ua chrome, ja4 of measured go" {
 		t.Fatalf("QUIC de biblioteca sem stable: %+v", got.Signals)
+	}
+}
+
+// TestOSClass: classe de SO do ttl_tcp_h3_mismatch (ADR 0078 item 1).
+func TestOSClass(t *testing.T) {
+	for os, want := range map[string]string{
+		OSWindows: "windows", OSLinux: "unix", OSMacOS: "unix", OSAndroid: "unix", OSIOS: "unix", OSOther: "other", "": "other", "bsd": "other",
+	} {
+		if got := OSClass(os); got != want {
+			t.Errorf("OSClass(%q) = %q; quer %q", os, got, want)
+		}
+	}
+}
+
+// TestRelayShape: a forma do relay de uma conexão para o agregado (ADR 0078 item 2), com a validação do relay_rtt_gap.
+func TestRelayShape(t *testing.T) {
+	p := ptr[int64]
+	cases := []struct {
+		name                    string
+		t                       *Timing
+		timed, gap, frac, first bool
+	}{
+		{"nil", nil, false, false, false, false},
+		{"no tcp", &Timing{TLSRTTMicros: p(80_000), EstToFirstMicros: p(9_000)}, false, false, false, false},
+		{"no est", &Timing{TCPRTTMicros: p(2_000), RTTGapMicros: p(80_000)}, false, false, false, false},
+		{"no gap nor tls", &Timing{TCPRTTMicros: p(2_000), EstToFirstMicros: p(9_000)}, false, false, false, false},
+		{"tls out of range", &Timing{TCPRTTMicros: p(2_000), TLSRTTMicros: p(1 << 41), EstToFirstMicros: p(9_000)}, false, false, false, false},
+		{"relay", &Timing{TCPRTTMicros: p(2_000), TLSRTTMicros: p(82_000), RTTGapMicros: p(80_000), EstToFirstMicros: p(80_000)}, true, true, true, true},
+		{"gap from tls", &Timing{TCPRTTMicros: p(20_000), TLSRTTMicros: p(31_000), EstToFirstMicros: p(5_000)}, true, true, true, false},
+		{"gap at limit", &Timing{TCPRTTMicros: p(50_000), RTTGapMicros: p(10_000), EstToFirstMicros: p(5_001)}, true, false, false, true},
+		{"direct", &Timing{TCPRTTMicros: p(12_000), TLSRTTMicros: p(12_400), RTTGapMicros: p(400), EstToFirstMicros: p(1_000)}, true, false, false, false},
+	}
+	for _, c := range cases {
+		timed, gap, frac, first := RelayShape(c.t)
+		if timed != c.timed || gap != c.gap || frac != c.frac || first != c.first {
+			t.Errorf("%s: %v %v %v %v", c.name, timed, gap, frac, first)
+		}
+	}
+}
+
+// TestAggregateBehaviorSignals: limiares dos dois sinais da v1.6 (ADR 0078).
+func TestAggregateBehaviorSignals(t *testing.T) {
+	ev := func(b Behavior, ua string) Result {
+		return Engine{}.Evaluate(withView(Input{HTTP: &HTTP{UserAgent: ua}, Behavior: &b}))
+	}
+	win := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
+	relay := func(n, g, f, s int) Behavior {
+		return Behavior{TimedConnsHour: n, RelayGapConnsHour: g, RelayFracConnsHour: f, RelayFirstConnsHour: s}
+	}
+	for _, c := range []struct {
+		b    Behavior
+		want bool
+	}{
+		{relay(5, 3, 3, 3), true},
+		{relay(4, 4, 4, 4), false},
+		{relay(6, 3, 6, 6), false},
+		{relay(6, 6, 3, 6), false},
+		{relay(6, 6, 6, 3), false},
+		{relay(65535, 65535, 65535, 65535), true},
+	} {
+		if got := hasSignal(ev(c.b, win), SignalRelayRTTGapAgg); got != c.want {
+			t.Errorf("relay %+v: %v", c.b, got)
+		}
+	}
+	ttl := func(seen ...TTLSeen) Behavior { return Behavior{TTLSeen: seen} }
+	for _, c := range []struct {
+		name string
+		b    Behavior
+		ua   string
+		want bool
+	}{
+		{"disjoint", ttl(TTLSeen{OS: "windows", TCP: []int{64}, H3: []int{128}}), win, true},
+		{"no h3", ttl(TTLSeen{OS: "windows", TCP: []int{64, 128}}), win, false},
+		{"no tcp", ttl(TTLSeen{OS: "windows", H3: []int{128}}), win, false},
+		{"overlap", ttl(TTLSeen{OS: "windows", TCP: []int{64, 128}, H3: []int{128}}), win, false},
+		{"other class", ttl(TTLSeen{OS: "unix", TCP: []int{64}, H3: []int{128}}), win, false},
+		{"no ua os", ttl(TTLSeen{OS: "other", TCP: []int{64}, H3: []int{128}}), "curl/8.0", true},
+	} {
+		if got := hasSignal(ev(c.b, c.ua), SignalTTLTCPH3Mismatch); got != c.want {
+			t.Errorf("%s: %v", c.name, got)
+		}
+	}
+	// sem visão HTTP a classe é other
+	r := Engine{}.Evaluate(withView(Input{Behavior: &Behavior{TTLSeen: []TTLSeen{{OS: "other", TCP: []int{128}, H3: []int{64}}}}}))
+	if !hasSignal(r, SignalTTLTCPH3Mismatch) || r.Signals[0].Detail != "ua os other: initial ttl tcp [128], h3 [64] in the hour" {
+		t.Errorf("sem http: %+v", r.Signals)
 	}
 }

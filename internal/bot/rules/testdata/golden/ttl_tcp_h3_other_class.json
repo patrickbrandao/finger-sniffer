@@ -1,0 +1,66 @@
+{
+  "rules_version": "v1.6",
+  "ja4db": false,
+  "input": {
+    "IP": "192.0.2.10",
+    "TCP": null,
+    "TLS": {
+      "JA4": "q13d0312h3_55b375c5d22e_178839b6cec1",
+      "JA4R": "q13d0312h3_1301,1302,1303_000a,000d,001b,002b,002d,0033,0039,44cd,ca34,fe0d_0403,0804,0401,0503,0805,0501,0806,0601,0201",
+      "ALPN": [
+        "h3"
+      ]
+    },
+    "H2": null,
+    "HTTP": {
+      "UserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+      "Version": "3",
+      "JA4H": "ge30nn13ptbr_0c2c1d640f3e_000000000000_000000000000",
+      "FieldOrder": null,
+      "HasAcceptLanguage": true
+    },
+    "Behavior": {
+      "RequestsPerMin": 2,
+      "RequestsHour": 12,
+      "ConnsHour": 4,
+      "IntervalN": 0,
+      "IntervalSum": 0,
+      "IntervalSqSum": 0,
+      "PathsHour": 3,
+      "StaticsHour": 1,
+      "TTLSeen": [
+        {
+          "OS": "windows",
+          "TCP": [
+            64
+          ],
+          "H3": [
+            128
+          ]
+        }
+      ]
+    },
+    "View": {
+      "tcp": false,
+      "tls": true,
+      "http": true,
+      "h2": false,
+      "h3": true,
+      "behavior": true
+    }
+  },
+  "result": {
+    "class": "human",
+    "score": 0,
+    "signals": [
+      {
+        "id": "known_client",
+        "kind": "list",
+        "weight": -20,
+        "detail": "coherent with measured chrome"
+      }
+    ],
+    "ua_family": "chrome",
+    "ua_os": "macos"
+  }
+}

@@ -17,7 +17,7 @@ import (
 // Goldens de veredito ponta a ponta (task 282): um lote TraefikIngestBatch de exemplo (registro de conexão com o
 // ClientHello cru e o prefixo h2, e o resumo da requisição) e a StoreConnection de exemplo da mesma conexão (visão
 // IP/TCP do espelho) dão o veredito esperado pela consulta e pelo forwardAuth. As classes e os sinais são os da
-// tabela da ADR 0057 item 1 (rules v1.5, ja4db desligada, IP residencial, sem comportamento).
+// tabela da ADR 0057 item 1 (rules v1.6, ja4db desligada, IP residencial, sem comportamento).
 //
 // Os arquivos em testdata/verdicts são regravados com FS_BOT_UPDATE_GOLDEN=1 (ADR 0049 item 6: mudança de regra
 // regrava os goldens no mesmo PR); a tabela abaixo é a referência que não muda com eles.
