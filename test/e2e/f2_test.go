@@ -35,13 +35,6 @@ const (
 	closedPort = 7799 // capturada e sem listener: o kernel responde RST
 )
 
-func env(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
-}
-
 // remote roda um comando no servidor.
 func remote(t *testing.T, cmd string) string {
 	t.Helper()
@@ -106,11 +99,6 @@ func get(t *testing.T, path string, out any) []byte {
 		}
 	}
 	return b
-}
-
-type endpoint struct {
-	IP   string `json:"ip"`
-	Port int    `json:"port"`
 }
 
 type connection struct {
@@ -386,13 +374,6 @@ func TestRetention(t *testing.T) {
 		}
 		time.Sleep(15 * time.Second)
 	}
-}
-
-func deref(s *string) string {
-	if s == nil {
-		return "<nil>"
-	}
-	return *s
 }
 
 func derefF(f *float64) float64 {

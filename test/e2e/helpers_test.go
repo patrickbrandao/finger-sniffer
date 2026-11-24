@@ -10,7 +10,6 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,9 +29,6 @@ import (
 
 // zone é a zona dos probes (ADR 0038 item 2).
 var zone = env("FS_E2E_ZONE", "finger-west-01.badblock.net.br")
-
-// vpsHost é o nome do servidor (certificado B da 9000 e das portas web; ADR 0038).
-var vpsHost = env("FS_E2E_HOST", "finger-01.badblock.net.br")
 
 // Portas do web no finger-01 (ADR 0038 item 3): TCP 8080 e 8443, UDP 8443 para o QUIC. A 80/443 é do traefik.
 const (
@@ -334,15 +330,6 @@ func rawStream(t *testing.T, connID, dir string) []byte {
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("raw %s %s: %d %s", connID, dir, resp.StatusCode, b)
-	}
-	return b
-}
-
-func b64(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		t.Fatalf("base64 %q: %v", s, err)
 	}
 	return b
 }

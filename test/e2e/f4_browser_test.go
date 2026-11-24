@@ -555,11 +555,10 @@ func runPageProbe(t *testing.T, name, page string, b browser) {
 		}
 		h3Conn, order, quicSeen = findH3(10 * time.Second)
 	}
-	switch {
-	case h3Conn == nil:
+	if h3Conn == nil {
 		t.Errorf("%s: nenhuma requisição do probe em quic/h3 (conexões na %d: %v; quic/h3 aberta: %v; repetições: %d)",
 			name, portTLS, order, quicSeen, retries)
-	default:
+	} else {
 		via := "Alt-Svc (segunda requisição)"
 		if firstOrder[0] == "quic/h3" {
 			via = "HTTPS RR (já a primeira)"
