@@ -314,15 +314,26 @@ func (m *Manager) RefreshAll(ctx context.Context) map[string]error {
 }
 
 // Refresh baixa uma lista, valida e troca a cópia (lists refresh da CLI, task 283). Conteúdo inválido (formato,
-// vazio, queda > 50% das entradas, > 64 MiB) não substitui a anterior.
+// vazio, queda a menos da metade, > 64 MiB) não substitui a anterior. Queda: nas listas de IP, o espaço coberto de
+// alguma família presente na anterior (ADR 0077 item 3); na ja4db, a contagem de entradas.
 func (m *Manager) Refresh(ctx context.Context, name string) error {
+	return m.refreshNamed(ctx, name, false)
+}
+
+// RefreshForced é o lists refresh --force <nome> (ADR 0077 item 3): valida o formato e a lista não vazia, sem a
+// regra da queda, e registra warn com o espaço anterior e o novo por família.
+func (m *Manager) RefreshForced(ctx context.Context, name string) error {
+	return m.refreshNamed(ctx, name, true)
+}
+
+func (m *Manager) refreshNamed(ctx context.Context, name string, force bool) error {
 	s, ok := m.bySource[name]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownList, name)
 	}
 	m.refreshMu.Lock()
 	defer m.refreshMu.Unlock()
-	err := m.refresh(ctx, s)
+	err := m.refresh(ctx, s, force)
 	now := m.opts.Now()
 	m.mu.Lock()
 	st := m.state[name]
@@ -340,14 +351,12 @@ func (m *Manager) Refresh(ctx context.Context, name string) error {
 	return err
 }
 
-func (m *Manager) refresh(ctx context.Context, s Source) error {
+func (m *Manager) refresh(ctx context.Context, s Source, force bool) error {
 	m.mu.Lock()
 	st := m.state[s.Name]
 	meta := st.meta
-	prev := 0
-	if st.data != nil {
-		prev = st.data.entries
-	} else {
+	prev := st.data // trocado inteiro, nunca alterado: ler fora da trava é seguro
+	if prev == nil {
 		meta = fileMeta{}
 	}
 	m.mu.Unlock()
@@ -370,11 +379,17 @@ func (m *Manager) refresh(ctx context.Context, s Source) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case p.entries == 0:
+	if p.entries == 0 {
 		return errors.New("lists: empty list rejected")
-	case prev > 0 && p.entries*2 < prev:
-		return fmt.Errorf("lists: drop from %d to %d entries rejected", prev, p.entries)
+	}
+	if prev != nil {
+		if force {
+			m.opts.Log.Warn("bot: list refresh forced", "list", s.Name,
+				"prev_ipv4", prev.space[0], "new_ipv4", p.space[0], "prev_ipv6", prev.space[1], "new_ipv6", p.space[1],
+				"prev_entries", prev.entries, "new_entries", p.entries)
+		} else if err := checkDrop(s, prev, &p); err != nil {
+			return err
+		}
 	}
 	if err := m.writeFiles(s, body, newMeta); err != nil {
 		return err
@@ -384,6 +399,23 @@ func (m *Manager) refresh(ctx context.Context, s Source) error {
 	st.data, st.sha, st.meta, st.fetchedAt = &p, sum[:], newMeta, m.opts.Now()
 	m.mu.Unlock()
 	m.rebuild()
+	return nil
+}
+
+// checkDrop recusa a queda a menos da metade (ADR 0077 item 3): nas listas de IP, por família presente na anterior,
+// pelo espaço coberto (a família que some inteira conta como queda); na ja4db, pela contagem de entradas.
+func checkDrop(s Source, prev, p *parsed) error {
+	if s.Kind == KindJA4DB {
+		if p.entries*2 < prev.entries {
+			return fmt.Errorf("lists: drop from %d to %d entries rejected", prev.entries, p.entries)
+		}
+		return nil
+	}
+	for fam, name := range [2]string{"ipv4", "ipv6"} {
+		if prev.space[fam] > 0 && p.space[fam]*2 < prev.space[fam] {
+			return fmt.Errorf("lists: %s covered space drop from %g to %g addresses rejected", name, prev.space[fam], p.space[fam])
+		}
+	}
 	return nil
 }
 

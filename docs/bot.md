@@ -247,7 +247,7 @@ webhook secret: 3f9c...
 Outros comandos: `key list` (sem segredos), `key revoke <id|prefixo>`, `key rotate <id|prefixo>` (nova chave com o
 mesmo id, domínios, limites e webhook; a antiga para de valer em até 2 s), `forget <ip|prefixo>` (direito do
 titular, [abaixo](#retenção-e-dados-pessoais)) e `lists refresh [nome]` (baixa as listas de novo pelo serviço em
-execução).
+execução) ou `lists refresh --force <nome>` (aceita a lista nova sem a regra da queda; ver o health abaixo).
 
 **Domínios.** O `site` de cada recurso (SNI ou `Host` visto pelo traefix; no probe, o host de `Origin`/`Referer`)
 tem de casar com um domínio da chave. Fora deles a resposta é 404 `not_found`, igual a recurso inexistente: a chave
@@ -316,6 +316,15 @@ nos últimos 60 s), `agg full` (agregados em memória no teto de 200 000 entrada
 últimos 60 s) e `public conns` (9002 com as 200 conexões
 ocupadas nos últimos 60 s). O mesmo estado aparece em `services.bot` do
 `/api/v1/health` do store.
+
+Uma lista baixada só substitui a cópia em uso se tiver formato válido e não vier vazia, e se o **espaço coberto**
+(endereços da união dos prefixos) de cada família, IPv4 e IPv6, presente na cópia anterior não cair a menos da
+metade; a família que some conta como queda (ADR 0077 item 3). Trocar muitas faixas pequenas por poucas maiores que
+cobrem o mesmo espaço é aceito. A ja4db segue a regra pela contagem de entradas. Se o operador da lista encolheu as
+faixas de verdade, toda atualização é recusada (o erro aparece em `lists refresh <nome>`, `ipv4 covered space drop
+from ... rejected`) e a lista fica `list <nome> stale` depois de 72 h. A saída é conferir a lista publicada e rodar
+`finger-sniffer-bot lists refresh --force <nome>` (nome obrigatório): o serviço baixa, valida o formato e a lista não
+vazia, sem a regra da queda, e registra `warn` `bot: list refresh forced` com o espaço anterior e o novo por família.
 
 ### `GET /bot/v1/auth` (forwardAuth)
 

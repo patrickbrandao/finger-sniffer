@@ -326,10 +326,106 @@ func TestRefreshConditional(t *testing.T) {
 	if r.ok.Int64 != e.clock.Now().Unix() || r.fetched.Int64 == r.ok.Int64 {
 		t.Errorf("304: ok_at %d fetched_at %d", r.ok.Int64, r.fetched.Int64)
 	}
-	// Metade das entradas (3 → 2) ainda é aceita.
-	e.up.set(src.URL, []byte(`{"prefixes":[{"ipv4Prefix":"192.0.2.0/27"},{"ipv6Prefix":"2001:db8::/32"}]}`))
+	// Metade do espaço IPv4 (96 → 64 endereços) e o IPv6 mantido ainda são aceitos, com menos prefixos (3 → 2).
+	e.up.set(src.URL, []byte(`{"prefixes":[{"ipv4Prefix":"192.0.2.0/26"},{"ipv6Prefix":"2001:db8::/32"}]}`))
 	if err := m.Refresh(ctx, src.Name); err != nil {
 		t.Fatalf("queda de 1/3 rejeitada: %v", err)
+	}
+}
+
+// googleList monta uma lista no formato google com os prefixos dados.
+func googleList(prefixes ...string) []byte {
+	parts := make([]string, 0, len(prefixes))
+	for _, p := range prefixes {
+		key := "ipv4Prefix"
+		if strings.Contains(p, ":") {
+			key = "ipv6Prefix"
+		}
+		parts = append(parts, fmt.Sprintf(`{%q:%q}`, key, p))
+	}
+	return []byte(`{"prefixes":[` + strings.Join(parts, ",") + `]}`)
+}
+
+// coveredSpace conta a união: sobrepostos e repetidos uma vez só, por família; IPv4 mapeado vira IPv4.
+func TestCoveredSpace(t *testing.T) {
+	p, err := parse(FormatGoogle, googleList("10.0.0.0/24", "10.0.0.16/28", "10.0.1.0/28", "10.0.0.0/23",
+		"::ffff:10.0.4.0/120", "2001:db8::/64", "2001:db8::/80", "2001:db8:1::/64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := [2]float64{512 + 256, 2 * (1 << 64)}; p.space != want {
+		t.Fatalf("espaço %v, quer %v", p.space, want)
+	}
+}
+
+// Critério da task 404 (ADR 0077 item 3): a queda vale pelo espaço coberto por família, não pela contagem de
+// prefixos; 40 /28 consolidados em 4 /24 são aceitos; vazia, queda real em IPv4 ou IPv6 e família que some são
+// recusadas (também contra a cópia carregada do disco); o forçar aceita a queda real e não a vazia.
+func TestRefreshCoveredSpace(t *testing.T) {
+	e := newEnv(t)
+	m := e.manager(t, nil)
+	ctx := context.Background()
+	src := source("googlebot")
+	var small []string
+	for i := range 40 {
+		small = append(small, fmt.Sprintf("10.0.%d.%d/28", i/16, (i%16)*16))
+	}
+	e.up.set(src.URL, googleList(append(small, "2001:db8:aa::/48")...))
+	if err := m.Refresh(ctx, src.Name); err != nil {
+		t.Fatal(err)
+	}
+	consolidated := googleList("10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24", "2001:db8:aa::/48")
+	e.up.set(src.URL, consolidated)
+	if err := m.Refresh(ctx, src.Name); err != nil {
+		t.Fatalf("40 /28 → 4 /24 recusada: %v", err)
+	}
+	if got := m.Lookup(netip.MustParseAddr("10.0.3.200")); len(got) != 1 || got[0].List != "googlebot" {
+		t.Fatalf("lista consolidada não vale: %+v", got)
+	}
+
+	rejected := map[string][]byte{
+		"vazia":         []byte(`{"prefixes":[]}`),
+		"queda ipv4":    googleList("10.0.0.0/24", "10.0.1.0/25", "2001:db8:aa::/48"),
+		"queda ipv6":    googleList("10.0.0.0/22", "2001:db8:aa::/50"),
+		"some ipv6":     googleList("10.0.0.0/22"),
+		"some ipv4":     googleList("2001:db8:aa::/48"),
+		"sobreposta v4": googleList("10.0.0.0/24", "10.0.0.0/25", "10.0.0.128/25", "10.0.1.0/26", "2001:db8:aa::/48"),
+	}
+	check := func(m *Manager) {
+		t.Helper()
+		for name, body := range rejected {
+			e.up.set(src.URL, body)
+			if err := m.Refresh(ctx, src.Name); err == nil {
+				t.Errorf("%s: aceita", name)
+			}
+			if got := m.Lookup(netip.MustParseAddr("10.0.3.200")); len(got) != 1 {
+				t.Errorf("%s: cópia anterior perdida", name)
+			}
+		}
+	}
+	check(m)
+
+	// Partida nova com a cópia do disco: a comparação é com ela.
+	m2 := e.manager(t, nil)
+	m2.Load(ctx)
+	check(m2)
+
+	e.up.set(src.URL, []byte(`{"prefixes":[]}`))
+	if err := m2.RefreshForced(ctx, src.Name); err == nil {
+		t.Error("vazia aceita com o forçar")
+	}
+	e.up.set(src.URL, googleList("10.0.0.0/28"))
+	if err := m2.RefreshForced(ctx, src.Name); err != nil {
+		t.Fatalf("queda real recusada com o forçar: %v", err)
+	}
+	if got := m2.Lookup(netip.MustParseAddr("10.0.3.200")); len(got) != 0 {
+		t.Errorf("lista forçada não vale: %+v", got)
+	}
+	if r := readRow(t, e.db, src.Name); r.errorMsg.Valid || r.entries.Int64 != 1 {
+		t.Errorf("linha %+v", r)
+	}
+	if err := m2.RefreshForced(ctx, "nao-existe"); err == nil {
+		t.Error("lista desconhecida aceita com o forçar")
 	}
 }
 
