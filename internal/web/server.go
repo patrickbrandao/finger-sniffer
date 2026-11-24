@@ -40,6 +40,8 @@ type Deps struct {
 	TLS *tls.Config
 	// CertReasons devolve os motivos de degradação dos certificados (pkg/certs).
 	CertReasons func(now time.Time) []string
+	// ACMEReasons devolve os motivos de degradação do ACME (teto de emissões, task 420); nil = nenhum.
+	ACMEReasons func() []string
 	// ACME responde o desafio HTTP-01; nil = 404.
 	ACME ACMEFunc
 	// ACMETLSALPN devolve o certificado de desafio do TLS-ALPN-01 para um ClientHello "acme-tls/1"
@@ -328,7 +330,8 @@ func (s *Server) Close() {
 }
 
 // Status é o estado do heartbeat: degraded quando um listener não abriu ou quando pkg/certs aponta
-// autoassinado ou certificado expirando (spec 015 RF-05).
+// autoassinado ou certificado expirando (spec 015 RF-05) ou quando o ACME parou um slot no teto de emissões de
+// produção ("acme_issue_capped:<slot>", spec 015 RF-06, task 420).
 func (s *Server) Status() (string, []string) {
 	var reasons []string
 	s.mu.Lock()
@@ -342,6 +345,9 @@ func (s *Server) Status() (string, []string) {
 	}
 	if s.deps.CertReasons != nil {
 		reasons = append(reasons, s.deps.CertReasons(s.now())...)
+	}
+	if s.deps.ACMEReasons != nil {
+		reasons = append(reasons, s.deps.ACMEReasons()...)
 	}
 	if len(reasons) > 0 {
 		return event.StatusDegraded, reasons
@@ -389,6 +395,8 @@ func Run(svc *service.Service, cfg Config) error {
 		},
 		TLS:         store.TLSConfig(),
 		CertReasons: store.Reasons,
+		// Reasons aceita receptor nil (ACME desligado).
+		ACMEReasons: acme.Reasons,
 		ACME:        acmeFunc,
 		ACMETLSALPN: acmeTLSALPN,
 	})

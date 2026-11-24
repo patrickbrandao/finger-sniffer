@@ -24,6 +24,7 @@ import (
 	"github.com/caddyserver/certmagic"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/certs"
+	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
@@ -198,6 +199,11 @@ func TestACMEProductionIssueCap(t *testing.T) {
 	if metrics.Get(MetricACMECapped) != 1 || !slices.Equal(m.Reasons(), []string{ReasonACMECapped + ":" + certs.SlotDNS01}) {
 		t.Fatalf("capped metric %v reasons %v", metrics.Get(MetricACMECapped), m.Reasons())
 	}
+	// O motivo chega ao heartbeat do web como degraded (task 420).
+	srv := NewServer(testConfig(t.TempDir()), Deps{ACMEReasons: m.Reasons})
+	if st, r := srv.Status(); st != event.StatusDegraded || !slices.Contains(r, ReasonACMECapped+":"+certs.SlotDNS01) {
+		t.Fatalf("status %q reasons %v", st, r)
+	}
 
 	// Novo processo, mesmo FS_ACME_DIR: o registro guardado mantém o teto.
 	m2 := fakeACMEManager(t, prodCA, iss, st, service.NewMetrics())
@@ -216,6 +222,9 @@ func TestACMEProductionIssueCap(t *testing.T) {
 	}
 	if len(m.Reasons()) != 0 {
 		t.Fatalf("reasons %v", m.Reasons())
+	}
+	if st, r := srv.Status(); st != event.StatusOK {
+		t.Fatalf("status after the window %q reasons %v", st, r)
 	}
 
 	// CA de teste (loopback): sem teto.
