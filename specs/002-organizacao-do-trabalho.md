@@ -100,7 +100,7 @@ Pare e pergunte quando:
 4. a ação tem efeito fora do espelho no finger-01: zona DNS no udns.com.br, configurações do GitHub, o resto do
    host (containers, Docker, sysctls e THP do host, snmpd, opencode; o script do traefik só nos termos da ADR 0038
    item 6), mais de 3 emissões de certificado Let's Encrypt de produção por semana, publicar imagem no Docker Hub,
-   trocar a imagem do `traefik-app` ou ligar o forwardAuth nos sites do humano (ADR 0048);
+   trocar a imagem do `traefik-app` ou ligar o forwardAuth nos sites do humano (ADR 0054 item 9);
 5. uma meta de RNF (spec 000) parece inalcançável — isso aciona a revisão das ADRs 0004 e 0005.
 
 **No finger-01, tudo o que é do espelho pode ser feito sem aprovação** (`/finger-sniffer`, units

@@ -30,9 +30,9 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - RF-04: NTP: systemd-timesyncd ativo; health `degraded` se não sincronizado.
 
 ### Units
-- RF-05: `deploy/systemd/`: `finger-sniffer-net`, `-nats`, `-store`, `-capture`, `-web`, `-raw`, `-dns`, o target
-  `finger-sniffer.target` e a fatia `finger-sniffer.slice` (`Slice=` em todas as units). Ordem: net → nats → store
-  → demais. `Restart=always`, backoff.
+- RF-05: `deploy/systemd/`: `finger-sniffer-net`, `-nats`, `-store`, `-capture`, `-web`, `-raw`, `-dns`, `-bot`
+  (RF-14), a mount unit do banco do store (RF-07a), o target `finger-sniffer.target` e a fatia
+  `finger-sniffer.slice` (`Slice=` em todas as units). Ordem: net → nats → store → demais. `Restart=always`, backoff.
 - RF-06: hardening: usuário de sistema `finger-sniffer` (o mesmo em todas as units; usuário por serviço fora, limite
   conhecido da ADR 0075 item 2.3); `ProtectSystem=strict`, `NoNewPrivileges`, `AmbientCapabilities` mínimas
   (NET_BIND_SERVICE para raw/dns; NET_RAW para capture; nenhuma para web, com portas acima de 1024, e para
@@ -59,7 +59,7 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 - RF-07: limites (ADRs 0039 e 0045): fatia `finger-sniffer.slice` com `MemoryMax=10G` e `CPUQuota=800%`; por unit
   `MemoryMax`/`GOMEMLIMIT`/`CPUQuota`: store 6G/1536MiB/400% (inclui o tmpfs do banco), nats 1G/896MiB/200%, web 768M/512MiB/400%, capture
   512M/384MiB/200%, raw 256M/192MiB/100%, dns 256M/192MiB/100%; todas com `MemorySwapMax=0` e
-  `LimitNOFILE=65536`; as units Go (5 serviços e `nats-server`) com `Environment=GODEBUG=disablethp=1` (o THP do
+  `LimitNOFILE=65536`; as units Go (6 serviços e `nats-server`) com `Environment=GODEBUG=disablethp=1` (o THP do
   host fica `always`). Web com `Environment=QUIC_GO_DISABLE_GSO=true QUIC_GO_DISABLE_ECN=true` (ADR 0019).
 - RF-07a: banco do store em RAM (ADR 0045): mount unit `finger\x2dsniffer-var-store.mount` (tmpfs em
   `/finger-sniffer/var/store`, `size=4G,mode=0700,nosuid,nodev,noexec`, uid/gid numéricos do `finger-sniffer`
@@ -90,7 +90,7 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 ### Layout no servidor
 ```
 /finger-sniffer/
-  bin/        binários (5 serviços + nats-server)
+  bin/        binários (6 serviços + nats-server)
   htdocs/     site estático
   etc/        finger-sniffer.env (instalado de .env.example só se ausente), p0f.fp,
               nats/ (<usuário>.password e auth.conf, 0600, gerados pelo deploy; ADR 0075)
@@ -99,10 +99,10 @@ compartilhado com o traefik e os sites do humano (Docker): o espelho não mexe n
 ```
 
 ### Deploy (`make deploy`, script `deploy/deploy.sh`)
-- RF-10: compila os 5 binários (linux/amd64, ldflags com versão/commit) → rsync do repositório inteiro para
-  `root@finger-01.tmsoft.com.br:/finger-sniffer` (porta 48022), excluindo `.git/`, `tasks/`, `tmp/`, `var/`, `.grill/`,
+- RF-10: compila os binários de `SERVICES` do `Makefile` (os 6 serviços, RF-14; linux/amd64, ldflags com
+  versão/commit) → rsync do repositório inteiro para `root@finger-01.tmsoft.com.br:/finger-sniffer` (porta 48022), excluindo `.git/`, `tasks/`, `tmp/`, `var/`, `.grill/`,
   `etc/*.env` → instala usuário, senhas do NATS (se faltam), units, sysctl, `journald@finger-sniffer.conf`, NATS → aplica rede → `systemctl daemon-reload` →
-  reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 5 serviços presentes e nenhum
+  reinicia (todos ou `SVC=<svc>`) → smoke test (`GET :9001/api/v1/health` com os 6 serviços presentes e nenhum
   `down`; `degraded` só passa por motivo da lista de tolerados do smoke — hoje `cert_self_signed` e, só com
   `SVC=<svc>`, a versão desencontrada (`version X differs from store Y`, que o store marca em quem roda outra
   versão; implantar um serviço só desencontra as versões de propósito) —, com `AVISO` e os `reasons` no log, e

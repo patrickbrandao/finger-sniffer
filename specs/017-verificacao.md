@@ -37,7 +37,7 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
     `go.mod`; mudança na linha `go`/`toolchain` roda `go test ./...` sem `-race`.
   Com essas regras, `make verify-quick` sem mudanças continua < 10 s com tudo pulado.
 - RF-04: não roda build final, e2e, `-race` nem a suíte inteira. Exceção: quando `Makefile` ou
-  `scripts/release*`/`scripts/repro-check.sh` mudam, roda o `release-test` (build dos 5 binários e do pacote de
+  `scripts/release*`/`scripts/repro-check.sh` mudam, roda o `release-test` (build dos binários de `SERVICES` do `Makefile` e do pacote de
   release, ~10 s), único teste desses arquivos (ADR 0023).
 - RF-05: aceita testes explícitos depois de `--`: `make verify-quick ARGS="-- ./pkg/h1 -run TestChunked"`.
 - RF-06: SQLite local: banco-modelo `tmp/testdb/template.sqlite` migrado pelo goose, refeito só quando o hash
@@ -55,7 +55,7 @@ Dois níveis de verificação, criados junto com a estrutura inicial; e a matriz
   arquivo SQLite temporário novo migrado do zero), metas de cobertura (≥ 80% em `pkg/{detect,probe,tlsparse,h1,
   h2passive,quicparse,fingerprint}`, ≥ 60% total sem contar `cmd/`, cujas funções `main` o e2e cobre), fuzz curto (10 s por alvo; 60 s por alvo antes de cada release com `FS_FUZZ_TIME=60s`, registrado no PR de
   release), `govulncheck ./...`,
-  build linux/amd64 dos 5 binários, testes com tag `linux_priv` (AF_PACKET, ethtool) executados no finger-01 por ssh
+  build linux/amd64 dos binários de `SERVICES` do `Makefile`, testes com tag `linux_priv` (AF_PACKET, ethtool) executados no finger-01 por ssh
   (`FS_VPS_SSH`, padrão `root@finger-01.tmsoft.com.br`, porta 48022; ADR 0038).
 - RF-08a: **testes com tag** (passo `testes com tag`, task 359): nenhum arquivo com `//go:build` fica sem
   compilar. O passo roda `go test -tags load -count=1 ./test/load/...` (gerador e monitor de carga, `botload` com o

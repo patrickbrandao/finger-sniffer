@@ -5,7 +5,7 @@ Fonte da verdade do projeto. Carregue cada spec sob demanda. Decisões em [decis
 | Arquivo | Título | Escopo | Depende de | Status |
 | --- | --- | --- | --- | --- |
 | [000-visao-geral.md](000-visao-geral.md) | Visão geral | propósito, usuários, escopo, fora de escopo, MVP, restrições, RNF com números | — | aprovada |
-| [001-arquitetura.md](001-arquitetura.md) | Arquitetura | 5 serviços + NATS, dono de cada dado, correlação, integrações e falhas, contratos, resumo de stack/operação, ameaças | 000 | aprovada |
+| [001-arquitetura.md](001-arquitetura.md) | Arquitetura | 6 serviços + NATS, dono de cada dado, correlação, integrações e falhas, contratos, resumo de stack/operação, ameaças | 000 | aprovada |
 | [002-organizacao-do-trabalho.md](002-organizacao-do-trabalho.md) | Organização do trabalho | papéis, propriedade de pastas, Git/PR, fluxo de tarefas, DoD, escalonamento | 000, 001 | aprovada |
 | [003-capture.md](003-capture.md) | Serviço capture | AF_PACKET, BPF de exclusão, publicação de pacotes no NATS, buffer, perdas | 001, 016 | aprovada |
 | [004-store-e-api.md](004-store-e-api.md) | Serviço store e API | ingest JetStream, `conn_id`/probe, pcap, SQLite com BLOBs, retenção, API 9000/9001, SSE/WS, health, métricas | 001, 003, 013 | aprovada |

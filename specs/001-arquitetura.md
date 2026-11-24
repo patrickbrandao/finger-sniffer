@@ -41,8 +41,8 @@ analisa IP/TCP, guarda em SQLite e serve a API.
 | finger-sniffer-bot.service | finger-sniffer-bot | veredito de bot, listas, agregados de 7 dias, chaves, feed e webhook (F8) | 9002 (HTTPS), 9003 (interna) | nenhuma | 018, 020 |
 
 Fora das units: o traefik modificado é o **traefix**, projeto externo do humano (ADR 0054), que atende aos requisitos
-da spec 019 e roda como o container `traefik-app` do host com a imagem `tmsoftbrasil/traefix` numa tag fixada; a
-troca no finger-01 é só observando (sem forwardAuth nos sites) e o bloqueio por site é do humano.
+da spec 019 (integração com o traefix); a imagem é sempre `tmsoftbrasil/traefix:latest` (ADR 0062 item 7) e entra no
+container `traefik-app` do host pela task 306 (até lá o `traefik-app` roda o traefik upstream); a troca no finger-01 é só observando (sem forwardAuth nos sites) e o bloqueio por site é do humano.
 
 Biblioteca comum (`./pkg/`): detecção de protocolo pelos primeiros bytes, extração de probe ID, parsers
 (TLS ClientHello, HTTP/1, frames h2/HPACK, QUIC Initial), fingerprints, envelope de eventos, base de serviço
@@ -140,7 +140,7 @@ NATS oficial fixado (ADR 0003).
 - Observabilidade: slog JSON → journald (24 h / 200 MB); `/metrics` agregado na 9001; heartbeat a cada 5 s;
   `/api/v1/health` por serviço com sysctls, offloads, certificado, disco/SQLite, versões (ADR 0012, spec 004).
 - Ambiente único: finger-01 (dev = teste; ADR 0038), compartilhado com o traefik e os sites do humano; o espelho
-  roda na fatia `finger-sniffer.slice` (6 GiB, 8 vCPU) e não mexe no resto do host. Testes de ACME com Pebble/LE
+  roda na fatia `finger-sniffer.slice` (10 GiB, 8 vCPU; ADRs 0039 e 0045) e não mexe no resto do host. Testes de ACME com Pebble/LE
   staging.
 - SemVer único, tag `vX.Y.Z`, versão via ldflags; contratos v1 só aditivos, quebra → v2 (ADR 0001).
 - Sem backup (ADR 0012).
@@ -194,6 +194,6 @@ NATS oficial fixado (ADR 0003).
 - specs/decisions/0038-servidor-finger-01-e-coexistencia-com-o-traefik.md
 - specs/decisions/0039-limites-e-metas-no-finger-01.md
 - specs/decisions/0047-fase-de-bots-servico-bot.md
-- specs/decisions/0048-fork-do-traefik.md
+- specs/decisions/0048-fork-do-traefik.md (substituída por 0054)
 - specs/decisions/0054-traefix-projeto-externo.md
 - specs/decisions/0075-isolamento-do-espelho-no-host-compartilhado.md
