@@ -131,8 +131,9 @@ func checkTraefixRecord(t *testing.T, p parsedRecord) {
 		t.Fatalf("headersPriority fora do padrão: %q", h.HeadersPriority)
 	}
 	if v := p.tcp; v != nil {
-		if v.TTL < 0 || v.TTL > 255 || v.TTLInitial < 0 || v.TTLInitial > 255 {
-			t.Fatalf("TTL fora de 0..255: %+v", v)
+		// TTL e TTLInitial são de um byte (0..255 pelo tipo, task 309): o inicial é 0 ou o estimado do recebido
+		if v.TTLInitial != 0 && int(v.TTLInitial) != initialTTL(int(v.TTL)) {
+			t.Fatalf("TTL inicial incoerente: %+v", v)
 		}
 		if v.JA4T != "" && (len(v.JA4T) > maxTCPText || !ja4tPattern.MatchString(v.JA4T)) {
 			t.Fatalf("ja4t fora do padrão: %q", v.JA4T)

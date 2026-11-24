@@ -106,8 +106,9 @@ func checkSample(t *testing.T, file string, fc *ForkConn) {
 			t.Errorf("tls: %+v", fc.TLS)
 		}
 		tc := fc.TCP
-		if tc == nil || tc.JA4T != g.ja4t || tc.P0f != g.p0fSig || tc.TTLInitial != 128 || tc.RTTMicros == nil ||
-			*tc.RTTMicros != 1834 || deref2(tc.SynMSS) != 1460 || deref2(tc.MTUImplied) != 1500 || deref2(tc.MSSReduction) != 0 {
+		// tcp.p0f e tcp.rttMicros não ficam no índice (sem regra; task 309)
+		if tc == nil || tc.JA4T != g.ja4t || tc.TTLInitial != 128 || deref2(tc.SynMSS()) != 1460 ||
+			deref2(tc.MTUImplied()) != 1500 || deref2(tc.MSSReduction()) != 0 {
 			t.Errorf("tcp: %+v", tc)
 		}
 		if len(fc.Requests) != 1 || fc.Requests[0].Fields["User-Agent"] != "curl/8.5.0" || fc.Requests[0].HTTPVersion != "1.1" {
@@ -124,7 +125,7 @@ func checkSample(t *testing.T, file string, fc *ForkConn) {
 		if fc.H2 == nil || fc.H2.Ready || fc.H2.Akamai == "" || fc.H2.HeadersPriority != "1:1:0:256" {
 			t.Errorf("h2: %+v", fc.H2)
 		}
-		if fc.TCP == nil || fc.TCP.JA4T != "64240_2-4-8-1-3_1460_12" || deref2(fc.TCP.MSSReduction) != 0 {
+		if fc.TCP == nil || fc.TCP.JA4T != "64240_2-4-8-1-3_1460_12" || deref2(fc.TCP.MSSReduction()) != 0 {
 			t.Errorf("tcp: %+v", fc.TCP)
 		}
 	case "h3-quic.json":
@@ -132,7 +133,7 @@ func checkSample(t *testing.T, file string, fc *ForkConn) {
 			t.Errorf("tls do QUIC: %+v", fc.TLS)
 		}
 		// em h3, a visão de transporte só com o TTL do udp (ADR 0065 item 4)
-		if fc.TCP == nil || !fc.TCP.UDP || fc.TCP.TTL != 50 || fc.TCP.TTLInitial != 64 || fc.TCP.JA4T != "" || fc.TCP.SynMSS != nil {
+		if fc.TCP == nil || !fc.TCP.UDP || fc.TCP.TTL != 50 || fc.TCP.TTLInitial != 64 || fc.TCP.JA4T != "" || fc.TCP.SynMSS() != nil {
 			t.Errorf("visão de transporte em h3: %+v", fc.TCP)
 		}
 		if tm := fc.Timing; tm == nil || !tm.QUIC || tm.Source != timingUser || tm.QUICRTT != (micros{23500, true}) ||
@@ -159,7 +160,7 @@ func checkSample(t *testing.T, file string, fc *ForkConn) {
 			t.Errorf("h2 pronta: %+v", h)
 		}
 		if fc.TCP == nil || fc.TCP.JA4T != "64240_2-4-8-1-3_1460_12" || fc.TCP.TTLInitial != 128 || fc.TCP.OSGuess != "" ||
-			deref2(fc.TCP.SynMSS) != 1460 {
+			deref2(fc.TCP.SynMSS()) != 1460 {
 			t.Errorf("tcp sem SYN: %+v", fc.TCP)
 		}
 	case "fields-repeated.json":
@@ -309,8 +310,8 @@ func TestTraefixTCPViewGoldenSYNs(t *testing.T) {
 				}
 				// MSS e derivados pelas regras do store (spec 013 RF-06a)
 				mss, ok := ja4tMSS(g.ja4t)
-				if !ok || deref2(v.SynMSS) != mss {
-					t.Errorf("porta %d: syn_mss %v, ja4t %s", g.port, v.SynMSS, g.ja4t)
+				if !ok || deref2(v.SynMSS()) != mss {
+					t.Errorf("porta %d: syn_mss %v, ja4t %s", g.port, deref2(v.SynMSS()), g.ja4t)
 				}
 				if v.TTLInitial == 0 {
 					t.Errorf("porta %d: sem ttl inicial", g.port)

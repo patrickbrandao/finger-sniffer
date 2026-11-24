@@ -21,53 +21,83 @@ import (
 // coisa das duas visões.
 type ForkTCP struct {
 	JA4T string
-	// TTL é o TTL recebido (tcp.ttl); TTLInitial, o inicial estimado como o store (0 = desconhecido).
-	TTL        int
-	TTLInitial int
-	// SynMSS, MTUImplied e MSSReduction saem do MSS do JA4T (spec 013 RF-06a); nil sem a opção MSS.
-	SynMSS       *int
-	MTUImplied   *int
-	MSSReduction *int
 	// OSGuess é o palpite de SO do p0f a partir de tcp.syn com o p0f.fp do bot (FS_BOT_P0F_DB); "" sem SYN, sem
 	// banco ou sem correspondência.
 	OSGuess string
-	// P0f é o raw_sig do traefix (tcp.p0f) e RTTMicros, o tcp.rttMicros: guardados, sem regra (spec 019 RF-07).
-	P0f       string
-	RTTMicros *int64
+	// TTL é o TTL recebido (tcp.ttl); TTLInitial, o inicial estimado como o store (0 = desconhecido). Os dois cabem
+	// num byte (o inicial é 32, 64, 128 ou 255).
+	TTL        uint8
+	TTLInitial uint8
+	// mss é o MSS do JA4T (spec 013 RF-06a), válido com hasMSS; SynMSS, MTUImplied e MSSReduction derivam dele e da
+	// família (v6). Guardar o MSS em vez dos três ponteiros poupa três alocações por conexão (task 309).
+	mss    uint16
+	hasMSS bool
+	v6     bool
 	// UDP marca a visão de transporte de uma conexão h3 (só o TTL do primeiro Initial, ADR 0065 item 4): não é TCP
 	// (view.tcp fica false), mas a parte de TTL de ua_os_tcp_mismatch a lê.
-	UDP  bool
+	UDP bool
+	// tcp.p0f (raw_sig) e tcp.rttMicros do traefix não ficam no índice: nenhuma regra os lê (spec 019 RF-07; task
+	// 309). O SO vem do p0f sobre o SYN cru.
 	cost int64 // estrutura e textos criados (somado ao connCost da conexão)
 }
 
-// forkTCPBytes é o custo fixo da visão TCP do traefix no índice.
+// forkTCPBytes é o custo fixo da visão TCP do traefix no índice (a estrutura; os textos contam pelo interner).
 var forkTCPBytes = allocBytes(unsafe.Sizeof(ForkTCP{}))
+
+// SynMSS é o MSS do SYN (spec 013 RF-06a); ele, MTUImplied e MSSReduction são nil sem a opção MSS no JA4T. Cada
+// chamada devolve ponteiros novos (fora do índice).
+func (t *ForkTCP) SynMSS() *int {
+	s, _, _ := t.mssDerived()
+	return s
+}
+
+// MTUImplied é o MTU implícito no MSS (MSS + cabeçalhos fixos de IP e TCP); ver SynMSS.
+func (t *ForkTCP) MTUImplied() *int {
+	_, m, _ := t.mssDerived()
+	return m
+}
+
+// MSSReduction é quanto o MSS fica abaixo do de um MTU Ethernet de 1500; ver SynMSS.
+func (t *ForkTCP) MSSReduction() *int {
+	_, _, r := t.mssDerived()
+	return r
+}
+
+func (t *ForkTCP) mssDerived() (synMSS, mtu, reduction *int) {
+	if !t.hasMSS {
+		return nil, nil, nil
+	}
+	family := 4
+	if t.v6 {
+		family = 6
+	}
+	return mssDerived(int(t.mss), family)
+}
 
 // rules devolve a visão na forma que as regras leem (a mesma que o store dá).
 func (t *ForkTCP) rules() *rules.TCP {
+	_, mtu, reduction := t.mssDerived()
 	return &rules.TCP{
-		JA4T: t.JA4T, P0fOS: t.OSGuess, TTLInitial: t.TTLInitial, MSSReduction: t.MSSReduction, MTUImplied: t.MTUImplied,
+		JA4T: t.JA4T, P0fOS: t.OSGuess, TTLInitial: int(t.TTLInitial), MSSReduction: reduction, MTUImplied: mtu,
 	}
 }
 
-// traefixTCP é o objeto tcp do registro de conexão traefix.fingerprint/v1.
+// traefixTCP é o objeto tcp do registro de conexão traefix.fingerprint/v1: só o que o bot lê (p0f e rttMicros são
+// ignorados, spec 019 RF-07).
 type traefixTCP struct {
-	JA4T      *string `json:"ja4t"`
-	P0f       *string `json:"p0f"`
-	TTL       *int    `json:"ttl"`
-	RTTMicros *int64  `json:"rttMicros"`
-	SYN       *string `json:"syn"`
+	JA4T *string `json:"ja4t"`
+	TTL  *int    `json:"ttl"`
+	SYN  *string `json:"syn"`
 }
 
 // Formatos aceitos das partes prontas (os do esquema do traefix); fora deles a parte é tratada como ausente.
 var (
 	// O esquema do traefix pede dois dígitos na escala, mas o JA4T da FoxIO (e o do store) escreve a escala sem zero
 	// à esquerda (`..._1430_6`): o bot aceita os dois para não perder o JA4T real.
-	ja4tPattern   = regexp.MustCompile(`^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$`)
-	p0fSigPattern = regexp.MustCompile(`^[46]:[0-9]+\+[0-9?]+:[0-9]+:[0-9*]+:[^:]*,[0-9]+:[^:]*:[^:]*:[0+]$`)
+	ja4tPattern = regexp.MustCompile(`^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$`)
 )
 
-// maxTCPText é o teto dos textos prontos da visão TCP (JA4T e raw_sig têm dezenas de bytes; acima, malformado).
+// maxTCPText é o teto dos textos prontos da visão TCP (o JA4T tem dezenas de bytes; acima, malformado).
 const maxTCPText = 256
 
 // discardTCPOrigin diz se a visão TCP do traefix deve ser descartada pela origem: loopback, link-local, privada
@@ -117,34 +147,21 @@ func buildTCPView(t *traefixTCP, src netip.Addr, db *p0f.DB) tcpViewResult {
 	case ready != "" && ready != v.JA4T:
 		res.mismatches = append(res.mismatches, mismatchJA4T)
 	}
-	switch {
-	case t.TTL != nil && *t.TTL >= 0 && *t.TTL <= 255:
-		v.TTL = *t.TTL
-		v.TTLInitial = initialTTL(v.TTL)
-	case synTTL >= 0:
-		v.TTL = synTTL
-		v.TTLInitial = initialTTL(v.TTL)
+	ttl := synTTL
+	if t.TTL != nil && *t.TTL >= 0 && *t.TTL <= 255 {
+		ttl = *t.TTL
+	}
+	if ttl >= 0 {
+		v.TTL, v.TTLInitial = uint8(ttl), uint8(initialTTL(ttl)) //nolint:gosec // TTL de um byte (0–255)
 	}
 	if mss, ok := ja4tMSS(v.JA4T); ok {
-		v.SynMSS, v.MTUImplied, v.MSSReduction = mssDerived(mss, family)
-	}
-	if t.P0f != nil && len(*t.P0f) <= maxTCPText && p0fSigPattern.MatchString(*t.P0f) {
-		v.P0f = *t.P0f
-	}
-	if t.RTTMicros != nil && *t.RTTMicros >= 0 {
-		v.RTTMicros = ptr(*t.RTTMicros)
-		v.cost += strBytes(int(unsafe.Sizeof(*v.RTTMicros)))
+		v.mss, v.hasMSS, v.v6 = uint16(mss), true, family == 6 //nolint:gosec // ja4tMSS limita a 0–65535
 	}
 	if v.JA4T == "" && v.TTLInitial == 0 && v.OSGuess == "" {
 		return res // nada que as regras leiam
 	}
 	c := &v.cost
-	v.JA4T, v.OSGuess, v.P0f = shared.str(v.JA4T, c), shared.str(v.OSGuess, c), shared.str(v.P0f, c)
-	for _, p := range []*int{v.SynMSS, v.MTUImplied, v.MSSReduction} {
-		if p != nil {
-			*c += strBytes(int(unsafe.Sizeof(*p)))
-		}
-	}
+	v.JA4T, v.OSGuess = shared.str(v.JA4T, c), shared.str(v.OSGuess, c)
 	res.view = v
 	return res
 }
@@ -271,7 +288,7 @@ func udpViewFrom(ttl int, src netip.Addr) *ForkTCP {
 	if ttl < 0 || ttl > 255 || discardTCPOrigin(src) {
 		return nil
 	}
-	return &ForkTCP{TTL: ttl, TTLInitial: initialTTL(ttl), UDP: true, cost: forkTCPBytes}
+	return &ForkTCP{TTL: uint8(ttl), TTLInitial: uint8(initialTTL(ttl)), UDP: true, cost: forkTCPBytes} //nolint:gosec // 0–255
 }
 
 // traefixUDPTTL lê o objeto udp do registro de conexão (h3; ADR 0065 item 4): só o ttl. Fora de inteiro de 0 a 255 (ou
