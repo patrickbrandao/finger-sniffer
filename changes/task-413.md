@@ -1,0 +1,1 @@
+- bot: uso das chaves na 9003 gravado também em `key_usage_daily.internal_requests` (migration 0004) e fora da cota diária da 9002, em memória e depois de reiniciar (ADR 0073 item 4, task 413).

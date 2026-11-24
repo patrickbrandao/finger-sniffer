@@ -160,3 +160,40 @@ func TestIngestLimitsMigration(t *testing.T) {
 		t.Fatalf("uso depois do down: %d %v", n, err)
 	}
 }
+
+// TestInternalUsageMigration: a 0004 acrescenta key_usage_daily.internal_requests (0 nas linhas antigas, não nula) e
+// desce sem perder o uso (ADR 0073 item 4, task 413).
+func TestInternalUsageMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openDB(t)
+	p, err := goose.NewProvider(goose.DialectSQLite3, db, FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, requests, limited, records) VALUES ('k', 1, 5, 1, 7)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Up(ctx); err != nil {
+		t.Fatalf("up da 0004: %v", err)
+	}
+	var internal int64
+	if err := db.QueryRowContext(ctx, `SELECT internal_requests FROM key_usage_daily WHERE key_id = 'k'`).Scan(&internal); err != nil || internal != 0 {
+		t.Fatalf("internal_requests da linha antiga: %d %v", internal, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO key_usage_daily (key_id, day, internal_requests) VALUES ('k', 2, NULL)`); err == nil {
+		t.Error("internal_requests nulo aceito")
+	}
+	if _, err := p.DownTo(ctx, 3); err != nil {
+		t.Fatalf("down da 0004: %v", err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('key_usage_daily') WHERE name = 'internal_requests'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("coluna da 0004 depois do down: %d %v", n, err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT records FROM key_usage_daily WHERE key_id = 'k'`).Scan(&n); err != nil || n != 7 {
+		t.Fatalf("uso depois do down: %d %v", n, err)
+	}
+}
