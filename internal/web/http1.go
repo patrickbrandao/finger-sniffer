@@ -175,6 +175,7 @@ func (s *h1Session) serveOne(idx int) bool {
 	if expect && cont == ContinueLate {
 		resp.interim = append([]h1.Interim{{Status: http.StatusContinue}}, resp.interim...)
 	}
+	forHead(req, resp)
 	werr := s.write(resp)
 	s.finish(req, probeID, outOffset, resp.head.Status)
 	if resp.closeConn {
@@ -290,7 +291,9 @@ func (s *h1Session) headError(req *h1.Request, err error) bool {
 	s.w.Reset()
 	s.t.markWrite()
 	outOffset := s.t.outTotal()
-	werr := s.write(textResponse(status, http.StatusText(status)+"\n"))
+	resp := textResponse(status, http.StatusText(status)+"\n")
+	forHead(req, resp)
+	werr := s.write(resp)
 	s.finish(req, probeID, outOffset, status)
 	if werr == nil {
 		// O registro já saiu: o descarte até o cliente fechar não segura orçamento.
@@ -305,7 +308,9 @@ func (s *h1Session) bodyError(req *h1.Request, probeID string, outOffset int64, 
 	if errors.Is(err, h1.ErrBadContentLength) || errors.Is(err, h1.ErrBadTransferEncoding) ||
 		errors.Is(err, h1.ErrBadChunk) || errors.Is(err, h1.ErrMalformedField) ||
 		errors.Is(err, h1.ErrObsFoldFirst) || errors.Is(err, h1.ErrHeadTooLarge) {
-		werr := s.write(textResponse(http.StatusBadRequest, "invalid request body framing\n"))
+		resp := textResponse(http.StatusBadRequest, "invalid request body framing\n")
+		forHead(req, resp)
+		werr := s.write(resp)
 		s.finish(req, probeID, outOffset, http.StatusBadRequest)
 		if werr == nil {
 			s.hold.releaseAll()
@@ -315,6 +320,15 @@ func (s *h1Session) bodyError(req *h1.Request, probeID string, outOffset int64, 
 	}
 	s.finish(req, probeID, outOffset, 0)
 	return false
+}
+
+// forHead tira o corpo de qualquer resposta a HEAD (RFC 9110 §9.3.2), inclusive as de erro: o cliente não
+// lê esses bytes e os tomaria pelo começo da próxima resposta na mesma conexão. Mantém o Content-Length que o
+// GET teria; headOnly é idempotente, então as rotas que já tratam HEAD não mudam.
+func forHead(req *h1.Request, resp response) {
+	if req.RequestLine.Method == http.MethodHead && resp.head != nil {
+		headOnly(resp.head)
+	}
 }
 
 // finish registra a resposta enviada e publica o evento da requisição.
