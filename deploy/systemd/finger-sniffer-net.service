@@ -10,6 +10,9 @@ PartOf=finger-sniffer.target
 Type=oneshot
 # Mesma fatia das outras units (ADR 0039)
 Slice=finger-sniffer.slice
+# Journal próprio do espelho (spec 016 RF-08, ADR 0075 item 3): 24 h / 200 MB sem tocar o journal do host.
+# Leitura: journalctl --namespace=finger-sniffer -u finger-sniffer-*.
+LogNamespace=finger-sniffer
 RemainAfterExit=yes
 EnvironmentFile=-/finger-sniffer/etc/finger-sniffer.env
 ExecStart=/finger-sniffer/deploy/net/finger-sniffer-net.sh

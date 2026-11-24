@@ -45,7 +45,8 @@ install_if_changed() {
 # 0. Bootstrap (Debian 13 sem /finger-sniffer, com Docker/traefik já rodando; task 225): só instala os pacotes das
 #    ferramentas que faltam. Nada aqui toca outras units, containers, /etc/docker ou os sysctls do host: o espelho
 #    instala apenas o próprio arquivo de sysctl, as próprias units (finger-sniffer-*, finger-sniffer.slice/.target)
-#    e o drop-in do journald, e não cria regra de firewall.
+#    e a configuração do journal próprio (journald@finger-sniffer.conf, ADR 0075 item 3; nada em
+#    /etc/systemd/journald.conf.d/), e não cria regra de firewall.
 missing=$(missing_packages | paste -sd' ' -)
 if [ -n "$missing" ]; then
 	log "instalando pacotes ausentes: $missing"
@@ -117,11 +118,10 @@ if ! echo "$P0F_FP_SHA256  $DEST/etc/p0f.fp" | sha256sum -c --quiet >/dev/null 2
 	log "p0f.fp $P0F_VERSION instalado"
 fi
 
-# 7. sysctl, journald e units
+# 7. sysctl, journal próprio do espelho (só o journald do namespace reinicia; o do host só ao apagar o drop-in
+#    antigo) e units
 install_if_changed "$DEST/deploy/sysctl/90-finger-sniffer.conf" /etc/sysctl.d/90-finger-sniffer.conf 0644 || true
-if install_if_changed "$DEST/deploy/journald/finger-sniffer.conf" /etc/systemd/journald.conf.d/finger-sniffer.conf 0644; then
-	systemctl restart systemd-journald
-fi
+journald_namespace "$DEST/deploy/journald/finger-sniffer.conf"
 for f in "$DEST"/deploy/systemd/*; do
 	case "$f" in *.mount) continue ;; esac
 	install_if_changed "$f" "/etc/systemd/system/$(basename "$f")" 0644 && CHANGED_CONFIG=1
@@ -206,7 +206,7 @@ fi
 echo "  nft: $(grep -o '"nft_ruleset_lines":[0-9]*' "$NET_STATUS" | cut -d: -f2) linhas;" \
 	"conntrack: $(grep -o '"conntrack_loaded":[a-z]*' "$NET_STATUS" | cut -d: -f2)"
 if grep -q '"nat_on_mirror_ports":true' "$NET_STATUS"; then
-	echo "  nat: REGRA DE NAT NUMA PORTA DO ESPELHO (journalctl -u finger-sniffer-net)"
+	echo "  nat: REGRA DE NAT NUMA PORTA DO ESPELHO (journalctl --namespace=finger-sniffer -u finger-sniffer-net)"
 	fail=1
 else
 	echo "  nat: nenhuma regra nas portas do espelho"
@@ -217,7 +217,7 @@ store_tmpfs_check "$MOUNT_UNIT" || fail=1
 SVC="$SVC" bash "$DEST/deploy/smoke.sh" || fail=1
 if [ "$fail" = 1 ]; then
 	log "SMOKE TEST FALHOU"
-	journalctl -u 'finger-sniffer-*' -n 30 --no-pager
+	journalctl --namespace=finger-sniffer -u 'finger-sniffer-*' -n 30 --no-pager
 	exit 1
 fi
 log "ok"

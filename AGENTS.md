@@ -59,7 +59,7 @@ proponha uma nova ADR. Specs, ADRs e contratos só são alterados pelo papel `ar
 - Verificação completa (antes de PR, antes de release, ou quando o humano pedir "rode tudo"): `make verify-full`
   - com ponta a ponta contra o finger-01: `make verify-full ARGS="--e2e"`
 - Lint e formatação: `make lint`, `make fmt`
-- Logs no servidor: `ssh -p 48022 root@finger-01.tmsoft.com.br journalctl -u 'finger-sniffer-*' -f`
+- Logs no servidor: `ssh -p 48022 root@finger-01.tmsoft.com.br journalctl --namespace=finger-sniffer -u 'finger-sniffer-*' -f`
 
 ## Testes e verificação (dois níveis)
 - **Toda mudança vem com o teste que a cobre.** O nível só decide quanto da suíte roda, nunca se o teste é escrito.

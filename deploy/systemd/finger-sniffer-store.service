@@ -22,6 +22,9 @@ RestartMaxDelaySec=30
 # MemoryMax 6G = tmpfs do banco 4G (shmem cobrado do store, sem swap) + GOMEMLIMIT 1536MiB + ~512 MiB de kernel,
 # sock e binário (ADR 0045 item 3): o tmpfs enche (ENOSPC) antes de o cgroup chegar ao MemoryMax.
 Slice=finger-sniffer.slice
+# Journal próprio do espelho (spec 016 RF-08, ADR 0075 item 3): 24 h / 200 MB sem tocar o journal do host.
+# Leitura: journalctl --namespace=finger-sniffer -u finger-sniffer-*.
+LogNamespace=finger-sniffer
 Environment=GOMEMLIMIT=1536MiB GODEBUG=disablethp=1
 MemoryMax=6G
 MemorySwapMax=0

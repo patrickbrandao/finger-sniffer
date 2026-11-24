@@ -443,3 +443,65 @@ func TestRemoteInstallKeepsBotDB(t *testing.T) {
 		t.Error("remote-install.sh não mexe no conteúdo de var/bot")
 	}
 }
+
+// ADR 0075 item 3 (task 352): journald_namespace instala journald@finger-sniffer.conf e reinicia só o journald do
+// namespace quando ele muda; o drop-in antigo do host é apagado e só essa remoção reinicia o journald do sistema.
+func TestJournaldNamespace(t *testing.T) {
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	writeFile(t, filepath.Join(bin, "systemctl"), "#!/bin/sh\necho \"$*\" >>\""+calls+"\"\n", 0o755)
+	dir := filepath.Join(t.TempDir(), "systemd")
+	old := filepath.Join(dir, "journald.conf.d", "finger-sniffer.conf")
+	putFile(t, old, "[Journal]\nSystemMaxUse=200M\n")
+	run := func() string {
+		_ = os.Remove(calls)
+		libBash(t, bin, `journald_namespace "$1" "$2"`, "journald/finger-sniffer.conf", dir)
+		b, _ := os.ReadFile(calls)
+		return strings.TrimSpace(string(b))
+	}
+
+	// primeira vez: apaga o drop-in do host e reinicia os dois journalds
+	if got := run(); got != "restart systemd-journald.service\nrestart systemd-journald@finger-sniffer.service" {
+		t.Errorf("primeira vez: %q", got)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Errorf("drop-in antigo ainda existe: %v", err)
+	}
+	if got, want := slurp(t, filepath.Join(dir, "journald@finger-sniffer.conf")), slurp(t, "journald/finger-sniffer.conf"); got != want {
+		t.Errorf("journald@finger-sniffer.conf = %q, quer %q", got, want)
+	}
+	// sem mudança: nenhum reinício
+	if got := run(); got != "" {
+		t.Errorf("sem mudança: %q", got)
+	}
+	// arquivo mudado: só o journald do namespace
+	putFile(t, filepath.Join(dir, "journald@finger-sniffer.conf"), "x\n")
+	if got := run(); got != "restart systemd-journald@finger-sniffer.service" {
+		t.Errorf("arquivo mudado: %q", got)
+	}
+}
+
+// ADR 0075 item 3 (task 352): o remote-install.sh não escreve em /etc/systemd/journald.conf.d/ nem reinicia o
+// journald do sistema (isso só no journald_namespace, na remoção do drop-in antigo) e lê o journal do espelho com
+// --namespace=finger-sniffer.
+func TestRemoteInstallJournalNamespace(t *testing.T) {
+	b, err := os.ReadFile("remote-install.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `journald_namespace "$DEST/deploy/journald/finger-sniffer.conf"`) {
+		t.Error("remote-install.sh sem journald_namespace")
+	}
+	for i, line := range strings.Split(string(b), "\n") {
+		code := strings.TrimSpace(line)
+		if strings.HasPrefix(code, "#") {
+			continue
+		}
+		if strings.Contains(code, "journald.conf.d") || strings.Contains(code, "restart systemd-journald") {
+			t.Errorf("linha %d mexe no journald do host: %q", i+1, code)
+		}
+		if strings.Contains(code, "journalctl") && !strings.Contains(code, "journalctl --namespace=finger-sniffer ") {
+			t.Errorf("linha %d lê o journal sem --namespace=finger-sniffer: %q", i+1, code)
+		}
+	}
+}

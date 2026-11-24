@@ -277,3 +277,25 @@ load_lock_refuse() {
 	echo "carga em andamento no servidor ($1: $(cat "$1" 2>/dev/null)); deploy recusado (FORCE_DURING_LOAD=1 passa por cima)" >&2
 	return 3
 }
+
+# journald_namespace <conf> [dir]: journal próprio do espelho (spec 016 RF-08, ADR 0075 item 3). Instala <conf> em
+# <dir>/journald@finger-sniffer.conf (padrão /etc/systemd) e, se mudou, reinicia só o journald do namespace; apaga o
+# drop-in antigo <dir>/journald.conf.d/finger-sniffer.conf, que valia para o journal do host inteiro, e só nessa
+# remoção reinicia o systemd-journald do sistema (que volta à configuração do host).
+journald_namespace() {
+	local dir=${2:-/etc/systemd} dst old
+	dst="$dir/journald@finger-sniffer.conf"
+	old="$dir/journald.conf.d/finger-sniffer.conf"
+	if [ -e "$old" ]; then
+		rm -f "$old"
+		echo "[deploy] removido $old (journal do host com a configuração dele)"
+		systemctl restart systemd-journald.service
+	fi
+	if [ -f "$dst" ] && cmp -s "$1" "$dst"; then
+		return 0
+	fi
+	mkdir -p "$dir"
+	install -m 0644 "$1" "$dst"
+	echo "[deploy] atualizado $dst"
+	systemctl restart systemd-journald@finger-sniffer.service
+}

@@ -18,6 +18,9 @@ RestartMaxDelaySec=30
 # Limites no finger-01 (ADR 0039): fatia comum, sem swap, GOMEMLIMIT abaixo do MemoryMax e cota de CPU
 # (o GOMAXPROCS do runtime Go segue o CPUQuota). disablethp: o heap Go fica fora do THP "always" do host.
 Slice=finger-sniffer.slice
+# Journal próprio do espelho (spec 016 RF-08, ADR 0075 item 3): 24 h / 200 MB sem tocar o journal do host.
+# Leitura: journalctl --namespace=finger-sniffer -u finger-sniffer-*.
+LogNamespace=finger-sniffer
 Environment=GOMEMLIMIT=192MiB GODEBUG=disablethp=1
 MemoryMax=256M
 MemorySwapMax=0
