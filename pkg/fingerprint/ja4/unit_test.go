@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"math/big"
 	"net"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -79,9 +80,8 @@ func TestEdgeCases(t *testing.T) {
 		}, "t12i150100_8daaf6152771_" + hash12("000d_0403")},
 		{"ALPN de 1 caractere", func(c *tlsparse.ClientHello) { c.ALPN = []string{"x"} }, "t13d1516xx_"},
 		{"ALPN vazio", func(c *tlsparse.ClientHello) { c.ALPN = []string{""} }, "t13d151600_"},
-		{"ALPN fora do ASCII", func(c *tlsparse.ClientHello) { c.ALPN = []string{"\xab\xcd"} }, "t13d151699_"},
-		{"ALPN UTF-8 de 1 caractere", func(c *tlsparse.ClientHello) { c.ALPN = []string{"é"} }, "t13d151699_"},
-		{"ALPN misto", func(c *tlsparse.ClientHello) { c.ALPN = []string{"a\xff"} }, "t13d1516a9_"},
+		{"ALPN UTF-8 de 1 caractere", func(c *tlsparse.ClientHello) { c.ALPN = []string{"é"} }, "t13d1516c9_"},
+		{"ALPN misto", func(c *tlsparse.ClientHello) { c.ALPN = []string{"a\xff"} }, "t13d15166f_"},
 		{"só GREASE no supported_versions", func(c *tlsparse.ClientHello) { c.SupportedVersions = []uint16{0x1a1a} }, "t00d1516h2_"},
 		{"SSL 3.0", func(c *tlsparse.ClientHello) { c.HandshakeVersion, c.Extensions = 0x0300, nil }, "ts3i1500h2_"},
 		{"assinaturas com GREASE e tamanho maior que os dados", func(c *tlsparse.ClientHello) {
@@ -111,6 +111,46 @@ func TestEdgeCases(t *testing.T) {
 		ch := &tlsparse.ClientHello{HandshakeVersion: v}
 		if got := Compute(ch, DTLS).JA4[1:3]; got != want {
 			t.Errorf("versão 0x%04x: %s", v, got)
+		}
+	}
+}
+
+// TestALPNPublishedDefinition: trecho ALPN da parte a pela definição publicada da FoxIO (JA4.md, igual ao
+// tshark 4.4; spec 008 RF-03), não pelo ja4 0.18.6 ('9' no não ASCII e ASCII cru); a parte a sempre casa o
+// padrão da spec, mesmo com bytes de controle, '_' ou NUL no ALPN (task 387).
+func TestALPNPublishedDefinition(t *testing.T) {
+	head := regexp.MustCompile(`^[tqd][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}$`)
+	for _, c := range []struct {
+		alpn []string
+		want string
+	}{
+		{[]string{"\xab"}, "ab"},
+		{[]string{" "}, "20"},
+		{[]string{"\xab\xcd"}, "ad"},
+		{[]string{" a"}, "21"},
+		{[]string{"0\xab"}, "3b"},
+		{[]string{"a "}, "60"},
+		{[]string{"_x"}, "58"},
+		{[]string{"H2"}, "H2"},
+		{[]string{"h2"}, "h2"},
+		{[]string{"h2", "\xab"}, "h2"},
+		{[]string{"\n\r"}, "0d"},
+		{[]string{"\x00\x00"}, "00"},
+		{[]string{"x"}, "xx"},
+		{nil, "00"},
+		{[]string{""}, "00"},
+	} {
+		for _, tr := range []Transport{TCP, QUIC, DTLS} {
+			ch := base()
+			ch.ALPN = c.alpn
+			got := Compute(ch, tr)
+			a, _, _ := strings.Cut(got.JA4, "_")
+			if a[8:] != c.want || !head.MatchString(a) || strings.Count(got.JA4, "_") != 2 {
+				t.Errorf("ALPN %q (%c): JA4 %q, esperado trecho %q", c.alpn, tr, got.JA4, c.want)
+			}
+			if ra, _, _ := strings.Cut(got.JA4R, "_"); ra != a {
+				t.Errorf("ALPN %q: JA4_r %q com parte a diferente de %q", c.alpn, got.JA4R, a)
+			}
 		}
 	}
 }
