@@ -217,7 +217,7 @@ func TestHTTP3Fields(t *testing.T) {
 func TestAuditF5Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.8.0", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
+			"versão 0.9.0", "## Erros", "de caminho", "rota inexistente", "`OPTIONS`", "204", "500",
 			"invalid conn_id", "`started`", "`ended`", "/api/v1/dns",
 		},
 		"metrics.md": {
@@ -327,7 +327,7 @@ func TestConnectionCloseDocs(t *testing.T) {
 func TestContracts04Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.8.0", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
+			"versão 0.9.0", "`settle`", "`min_conns`", "`wait_met`", "inclusive `wait=0s`",
 			"settle and min_conns require wait", "`settle` fora de `0s`–`10s`", "`min_conns` fora de 1–1000",
 			"`request_started_at`", "`request_ended_at`", "`response_started_at`", "`response_ended_at`",
 			"Cada instante é **independente**", "RST_STREAM", "`ip.packets`", "`first_data`",
@@ -386,7 +386,7 @@ func TestMSSWindowDocs(t *testing.T) {
 func TestContracts05Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.8.0", "contrato (0.8.0)", "ADRs 0029, 0031, 0032, 0066, 0067 e 0076", "### MSS, MTU implícito e tipo da origem",
+			"versão 0.9.0", "contrato (0.9.0)", "ADRs 0029, 0031, 0032, 0066, 0067, 0076 e 0077", "### MSS, MTU implícito e tipo da origem",
 			"`tcp.syn_mss`", "`tcp.mtu_implied`", "`tcp.mss_reduction`", "`ip.src_kind`",
 			"anteriores ao 0.5.0", "`1460 − syn_mss`", "`1440 − syn_mss`", "MSS clamping",
 			"`shared`", "`teredo`", "`6to4`", "`nat64`", "`other`", "`global`", ".tcp.syn_mss", ".ip.src_kind",
@@ -426,14 +426,14 @@ func TestContracts05Docs(t *testing.T) {
 func TestContracts06Docs(t *testing.T) {
 	want := map[string][]string{
 		"api.md": {
-			"versão 0.8.0", "ADR 0032", "**1000 conexões**", "`truncated: true`",
+			"versão 0.9.0", "ADR 0032", "**1000 conexões**", "`truncated: true`",
 			"conjunto inteiro", "`GET /api/v1/connections?probe=<id>`", "**64** esperas `wait` simultâneas",
 			"`Retry-After: 1`", "**4** downloads", "**60 s**", "### Marcas de corte e valores especiais (0.6.0)",
 			"**ausente equivale a `false`**", "`http[].request_line.target_truncated`", "`tls.lists_truncated`",
 			"`http3.transport_params_truncated`", "`http3.h3_settings_truncated`",
 			"**continuam calculados\nsobre o ClientHello completo**", "`frames: []`", "`http2.streams[].stream_id` igual a `0`",
 			"`http2.streams[].status` igual a `0`", "**com o terminador**", "só UDP", "IP do **cliente**", "ADR 0034",
-			"suas conexões fechadas", "`http[].head_too_large`", "`http[].body.chunks_truncated`",
+			"suas conexões (as abertas também", "`http[].head_too_large`", "`http[].body.chunks_truncated`",
 		},
 		"realtime.md": {
 			"`stream.dropped` **não é filtrável**", `invalid kind "stream.dropped"`,
@@ -1007,7 +1007,7 @@ func TestContracts07Docs(t *testing.T) {
 	}
 	s := string(data)
 	for _, w := range []string{
-		"versão 0.8.0", "64 MiB", "256 MiB", "`{\"error\":\"busy\"}`", "`{\"error\":\"shutting down\"}`",
+		"versão 0.9.0", "64 MiB", "256 MiB", "`{\"error\":\"busy\"}`", "`{\"error\":\"shutting down\"}`",
 		"`fs_store_api_rejected_total{route,reason}`", "`fs_store_api_json_bytes_in_flight`", "`http_truncated`",
 		"`http2.streams_truncated`", "`http3.requests_truncated`", "em lotes", "ADR 0068", "\"bot\": \"ok\"",
 		"sexto serviço, `bot`",
@@ -1052,7 +1052,7 @@ func TestDiscardedAndEstablishedDocs(t *testing.T) {
 			"Contrato 0.8.0", "ADR 0076",
 		},
 		"api.md": {
-			"versão 0.8.0", "contrato 0.8.0", "`discarded`", "**nenhuma rota da API o devolve**",
+			"versão 0.9.0", "contrato 0.8.0", "`discarded`", "**nenhuma rota da API o devolve**",
 			"realtime.md#conexão-que-sai-sem-registro-discarded",
 		},
 		"bot.md": {
@@ -1076,5 +1076,29 @@ func TestDiscardedAndEstablishedDocs(t *testing.T) {
 	data, _ := os.ReadFile("api.md")
 	if strings.Contains(string(data), "versão 0.7.0") {
 		t.Error("api.md ainda cita a versão 0.7.0 como a do contrato")
+	}
+}
+
+// TestDNSUntilAndUndeclaredFiltersDocs: contrato 0.9.0 do store (ADR 0077 item 1, task 378): /dns pagina para trás
+// por until inclusivo, com a regra de empate da borda, e os filtros não declarados pela rota dão 400.
+func TestDNSUntilAndUndeclaredFiltersDocs(t *testing.T) {
+	data, err := os.ReadFile("api.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := strings.Join(strings.Fields(string(data)), " ")
+	for _, w := range []string{
+		"versão 0.9.0", "contrato (0.9.0)", "`GET /api/v1/dns?probe=&since=&until=&limit=`",
+		"paginam para trás por `until`/`limit` (ADR 0077)", "como `until` é inclusivo", "mesmo `ts` voltam",
+		"`src_ip` e `dst_port` em `/dns`, `dst_port` e `probe` em `/packets`",
+		"`{\"error\":\"parameter dst_port not supported on /api/v1/packets\"}`", "`_=<cache-buster>`",
+		"as abertas também, ADR 0034 item 8",
+	} {
+		if !strings.Contains(s, w) {
+			t.Errorf("api.md sem %q", w)
+		}
+	}
+	if strings.Contains(s, "suas conexões fechadas") || strings.Contains(s, "paginam por `since`/`until`/`limit`") || strings.Contains(s, "`GET /api/v1/dns?probe=&since=&limit=`") {
+		t.Error("api.md ainda descreve /dns sem until")
 	}
 }

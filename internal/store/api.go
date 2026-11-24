@@ -328,7 +328,12 @@ func (a *API) blob(w http.ResponseWriter, r *http.Request, read func(context.Con
 }
 
 func (a *API) listPackets(w http.ResponseWriter, r *http.Request) {
-	f, err := ParseListFilter(r.URL.Query().Get)
+	qv := r.URL.Query()
+	if err := rejectUndeclared(qv.Has, "/api/v1/packets", "since", "until", "src_ip"); err != nil {
+		writeErr(w, err)
+		return
+	}
+	f, err := ParseListFilter(qv.Get)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -344,7 +349,12 @@ func (a *API) listPackets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listDNS(w http.ResponseWriter, r *http.Request) {
-	f, err := ParseListFilter(r.URL.Query().Get)
+	qv := r.URL.Query()
+	if err := rejectUndeclared(qv.Has, "/api/v1/dns", "probe", "since", "until"); err != nil {
+		writeErr(w, err)
+		return
+	}
+	f, err := ParseListFilter(qv.Get)
 	if err != nil {
 		writeErr(w, err)
 		return

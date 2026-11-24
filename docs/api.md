@@ -1,7 +1,7 @@
 # API de consulta
 
 Derivado da [spec 004](../specs/004-store-e-api.md) e do contrato
-[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.8.0, ADRs 0029, 0031, 0032, 0066, 0067 e 0076,
+[openapi.yaml](../cmd/finger-sniffer-store/openapi.yaml) (versão 0.9.0, ADRs 0029, 0031, 0032, 0066, 0067, 0076 e 0077,
 servido também em `/api/v1/openapi.yaml`). Este guia mostra o uso; os campos de cada objeto estão no contrato.
 
 As saídas abaixo estão resumidas, e o IP do cliente foi trocado por um IP de documentação (`203.0.113.10`). As de
@@ -40,9 +40,9 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
   limite atingido apaga os registros mais antigos (ADR 0012). Depois disso a API responde 404.
 - O banco fica em RAM, num tmpfs de 4G (ADR 0045): sobrevive ao reinício do store (deploy), mas **some no reinício do
   host**; probes e IDs anteriores passam a dar 404, como depois da retenção.
-- `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões fechadas e suas consultas DNS (204).
-  Tudo some na hora de todas as leituras (`/probes/{id}`, `/connections`, `/dns`, tempo real), inclusive as
-  conexões do probe ainda abertas; as linhas saem do banco em lotes logo depois (ADR 0068), e pacotes e eventos
+- `DELETE /api/v1/probes/{id}` apaga antes do prazo o probe, suas conexões (as abertas também, ADR 0034 item 8)
+  e suas consultas DNS (204). Tudo some na hora de todas as leituras (`/probes/{id}`, `/connections`, `/dns`, tempo
+  real); as linhas saem do banco em lotes logo depois (ADR 0068), e pacotes e eventos
   que ainda chegarem para as conexões que estavam abertas são descartados até elas fecharem (ADR 0034). Tráfego novo com o mesmo probe ID depois do `DELETE` cria um
   probe novo.
 - Não há histórico além da retenção nem paginação por cursor: as listas aceitam só `limit` (1 a 1000, padrão 100)
@@ -60,7 +60,7 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
 | `GET /api/v1/connections/{conn_id}` | registro completo (`Connection`) |
 | `GET /api/v1/connections/{conn_id}/pcap` | pcap da conexão, os dois sentidos |
 | `GET /api/v1/connections/{conn_id}/raw?dir=in\|out` | bytes de aplicação de um sentido |
-| `GET /api/v1/dns?probe=&since=&limit=` | consultas DNS da zona |
+| `GET /api/v1/dns?probe=&since=&until=&limit=` | consultas DNS da zona |
 | `GET /api/v1/packets?since=&until=&src_ip=&limit=` | pacotes avulsos (sem conexão) |
 | `GET /api/v1/stream`, `GET /api/v1/ws` | tempo real, ver [realtime.md](realtime.md) |
 | `GET /api/v1/openapi.yaml` | o contrato |
@@ -70,9 +70,9 @@ no servidor anterior e adaptadas aos nomes, IPs e portas do finger-01, e valores
 
 | Parâmetro | Formato | Observação |
 | --- | --- | --- |
-| `probe` | `[a-z0-9]{8,32}` | probe ID |
-| `src_ip` | IPv4 ou IPv6 | IP do cliente (em `/dns`, não existe: filtre por `probe`) |
-| `dst_port` | 0–65535 | porta do espelho em que a conexão chegou |
+| `probe` | `[a-z0-9]{8,32}` | probe ID (só `/connections` e `/dns`; em `/packets` dá 400) |
+| `src_ip` | IPv4 ou IPv6 | IP do cliente (só `/connections` e `/packets`; em `/dns` dá 400: filtre por `probe`) |
+| `dst_port` | 0–65535 | porta do espelho em que a conexão chegou (só `/connections`; em `/dns` e `/packets` dá 400) |
 | `since`, `until` | RFC 3339 | janela de tempo |
 | `limit` | 1–1000 | padrão 100 |
 
@@ -83,7 +83,9 @@ consultas DNS (pelo rótulo mais à esquerda). Como sondar: [probes.md](probes.m
 
 A resposta traz no máximo **1000 conexões** (as mais antigas primeiro) e **1000 consultas DNS** (pela ordem de
 chegada). Acima disso vem `truncated: true` e o restante fica em `GET /api/v1/connections?probe=<id>` e
-`GET /api/v1/dns?probe=<id>`, que paginam por `since`/`until`/`limit`. O mesmo corte, com `truncated: true`,
+`GET /api/v1/dns?probe=<id>`, que paginam para trás por `until`/`limit` (ADR 0077): repita com `until` = `ts` da
+linha mais velha recebida; como `until` é inclusivo, as linhas da borda com o mesmo `ts` voltam e o cliente as
+descarta. O mesmo corte, com `truncated: true`,
 vale quando o corpo chegaria a **64 MiB** (ADR 0066). `all_closed` e o critério do `wait` olham o
 conjunto inteiro, não só o que veio na resposta (ADR 0032).
 
@@ -576,11 +578,11 @@ Sysctls do host que o espelho **não** fixa e que moldam o que o cliente vê do 
 
 ## Erros
 
-Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.8.0):
+Os erros vêm em JSON `{"error": "<texto>"}`, com os códigos declarados em cada rota do contrato (0.9.0):
 
 | Código | Quando |
 | --- | --- |
-| 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, `settle` ou `min_conns` sem `wait`, `settle` fora de `0s`–`10s` ou mal formado, `min_conns` fora de 1–1000, filtro de tempo real inválido |
+| 400 | parâmetro de consulta **ou de caminho** fora do formato do contrato: `conn_id` que não é ULID, probe ID fora de `[a-z0-9]{8,32}`, `limit` fora de 1–1000, `dir` ausente ou diferente de `in`/`out`, `wait` mal formado, `settle` ou `min_conns` sem `wait`, `settle` fora de `0s`–`10s` ou mal formado, `min_conns` fora de 1–1000, filtro de tempo real inválido, filtro do conjunto comum (`src_ip`, `dst_port`, `since`, `until`, `probe`) que a rota não declara (`src_ip` e `dst_port` em `/dns`, `dst_port` e `probe` em `/packets`: `{"error":"parameter dst_port not supported on /api/v1/packets"}`, ADR 0077; outros parâmetros desconhecidos, como `_=<cache-buster>`, são ignorados) |
 | 404 | ID no formato certo mas desconhecido ou expirado (retenção), e qualquer rota inexistente |
 | 503 | em `/stream` e `/ws`, acima de `FS_LIVE_MAX_CLIENTS` (64) clientes ao vivo; em `/probes/{id}?wait=`, acima de 64 esperas simultâneas; em `/pcap` e `/raw`, acima de 4 downloads em andamento; nas rotas JSON finitas (`/probes/{id}`, `/connections`, `/connections/{conn_id}`, `/dns`, `/packets`), com o orçamento de 256 MiB das respostas em andamento esgotado (`{"error":"busy"}`); em todas as rotas finitas, inclusive o `DELETE` de probe, `/pcap` e `/raw`, com o store desligando (`{"error":"shutting down"}`, num deploy). Todos esses, menos o de `/stream` e `/ws`, vêm com `Retry-After: 1` (ADRs 0032 e 0066) |
 | 500 | erro interno nas rotas de consulta |
