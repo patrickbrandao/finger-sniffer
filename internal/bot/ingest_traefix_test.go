@@ -854,3 +854,41 @@ func internerTextBytes(in *interner) int {
 	}
 	return total
 }
+
+// TestTraefixReadyJA4ALPN: task 423 (spec 008 RF-03) — o JA4/JA4_o/JA4_r pronto aceita [0-9A-Za-z]{2} no trecho
+// ALPN (H2 e hex como bd); `_x` ou byte de controle contam como ausentes, sem recusar o registro e sem mismatch.
+func TestTraefixReadyJA4ALPN(t *testing.T) {
+	const tail = "_8daaf6152771_02713d6af862"
+	for i, c := range []struct {
+		alpn string
+		ok   bool
+	}{{"H2", true}, {"bd", true}, {"_x", false}, {"\x01x", false}} {
+		f := newFixture(t)
+		id := fmt.Sprintf("01JC0X3K8V2T7Q9F4M6P1R5T%02d", 30+i)
+		ja4, ja4r := "t13d1516"+c.alpn+tail, "t13d1516"+c.alpn+"_1301,1302"
+		conn := map[string]any{"tls": map[string]any{"ja4": ja4, "ja4o": ja4, "ja4r": ja4r}}
+		if code, got := f.postIngest(traefixBatchJSON(t, id, "198.51.100.72", 50020+i, conn, nil)); code != 202 || got["accepted"] != 1 {
+			t.Fatalf("%q: ingest %d %v", c.alpn, code, got)
+		}
+		fc, _ := f.srv.Index().Fork(id, f.clock.Now())
+		if c.ok {
+			if fc.TLS == nil || fc.TLS.JA4 != ja4 || fc.TLS.JA4O != ja4 || fc.TLS.JA4R != ja4r {
+				t.Errorf("%q: pronta recusada: %+v", c.alpn, fc.TLS)
+			}
+			continue
+		}
+		if fc.TLS != nil {
+			t.Errorf("%q: pronta fora do formato virou visão: %+v", c.alpn, fc.TLS)
+		}
+		// com o ClientHello cru, a pronta fora do formato não entra na comparação
+		conn = map[string]any{"tls": map[string]any{
+			"clientHello": base64.StdEncoding.EncodeToString(goldenBytes("tls/chrome.bin")), "ja4": ja4, "ja4o": ja4, "ja4r": ja4r,
+		}}
+		f.postIngest(traefixBatchJSON(t, id, "198.51.100.72", 50020+i, conn, nil))
+		for _, k := range mismatchKinds {
+			if n := f.metrics.Get(mismatchMetric(k)); n != 0 {
+				t.Errorf("%q: mismatch %s = %v", c.alpn, k, n)
+			}
+		}
+	}
+}

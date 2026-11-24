@@ -818,3 +818,46 @@ func TestOpenAPIDeclaresHandlerErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestForkHeaderJA4ALPN: task 423 (spec 008 RF-03) — X-Traefix-Ja4/-Ja4o/-Ja4r e X-Fs-Ja4 aceitam exatamente
+// [0-9A-Za-z]{2} no trecho ALPN (H2 e hex como bd); `_x` ou byte de controle são ignorados (sem erro).
+func TestForkHeaderJA4ALPN(t *testing.T) {
+	const tail = "_8daaf6152771_02713d6af862"
+	cases := []struct {
+		alpn string
+		ok   bool
+	}{{"h2", true}, {"H2", true}, {"bd", true}, {"_x", false}, {"\x01x", false}, {"h-", false}}
+	for _, c := range cases {
+		ja4 := "t13d1516" + c.alpn + tail
+		want := ""
+		if c.ok {
+			want = ja4
+		}
+		th := http.Header{}
+		for k, v := range traefixAuthHeaders(testForkConnID, 51234, "h2", "curl/8.10.1") {
+			th.Set(k, v)
+		}
+		th.Set("X-Traefix-Ja4", ja4)
+		th.Set("X-Traefix-Ja4o", ja4)
+		th.Set("X-Traefix-Ja4r", "t13d1516"+c.alpn+"_1301,1302")
+		f, code, msg := parseForkHeaders(th)
+		if code != "" {
+			t.Fatalf("%q: %s %s", c.alpn, code, msg)
+		}
+		wantR := ""
+		if c.ok {
+			wantR = "t13d1516" + c.alpn + "_1301,1302"
+		}
+		if f.ja4 != want || f.ja4o != want || f.ja4r != wantR {
+			t.Errorf("traefix %q: ja4 %q ja4o %q ja4r %q", c.alpn, f.ja4, f.ja4o, f.ja4r)
+		}
+		fh := http.Header{}
+		for k, v := range forkHeadersFor() {
+			fh.Set(k, v)
+		}
+		fh.Set("X-Fs-Ja4", ja4)
+		if f, code, msg = parseForkHeaders(fh); code != "" || f.ja4 != want {
+			t.Errorf("X-Fs-Ja4 %q: %q %s %s", c.alpn, f.ja4, code, msg)
+		}
+	}
+}

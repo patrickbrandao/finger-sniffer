@@ -145,11 +145,13 @@ type traefixField struct {
 	Value string `json:"value"`
 }
 
-// Formatos aceitos das fingerprints prontas (os do esquema do traefix); fora deles a parte é ausente.
+// Formatos aceitos das fingerprints prontas (os do esquema do traefix); fora deles a parte é ausente. O trecho ALPN
+// do JA4 e do JA4_r é `[0-9A-Za-z]{2}`, mais estreito de propósito que o `.{2}` do esquema copiado (spec 008 RF-03):
+// o registro segue aceito e a parte fora do formato conta como ausente, sem entrar no mismatch.
 var (
 	md5Pattern     = regexp.MustCompile(`^[0-9a-f]{32}$`)
-	ja4Pattern     = regexp.MustCompile(`^[tqd][0-9a-z?]{2}[di][0-9]{4}.{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
-	ja4rPattern    = regexp.MustCompile(`^[tqd][0-9a-z?]{2}[di][0-9]{4}.{2}_`)
+	ja4Pattern     = regexp.MustCompile(`^[tqd][0-9a-z?]{2}[di][0-9]{4}[0-9A-Za-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
+	ja4rPattern    = regexp.MustCompile(`^[tqd][0-9a-z?]{2}[di][0-9]{4}[0-9A-Za-z]{2}_`)
 	ja3TextPattern = regexp.MustCompile(`^[0-9]+,[0-9-]*,[0-9-]*,[0-9-]*,[0-9-]*$`)
 	akamaiPattern  = regexp.MustCompile(`^[^|]*\|[^|]*\|[^|]*\|[^|]*$`)
 	h2PrioPattern  = regexp.MustCompile(`^[0-9]+:[01]:[0-9]+:[0-9]+$`)

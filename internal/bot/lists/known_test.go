@@ -1,6 +1,7 @@
 package lists
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -41,5 +42,30 @@ func TestKnownClientsStable(t *testing.T) {
 	}
 	if _, ok := k.Coherent("firefox", Observed{JA4Stable: chrome.JA4Stable}); ok || !strings.HasPrefix(chrome.JA4Stable, "t13d") {
 		t.Error("stable do chrome casou com firefox")
+	}
+}
+
+// TestJA4PatternALPN: task 423 (spec 008 RF-03, ADR 0077 item 4) — a base própria e a ja4db aceitam exatamente
+// [0-9A-Za-z]{2} no trecho ALPN do JA4 (H2 e hex como bd); `_x` ou byte de controle ficam de fora.
+func TestJA4PatternALPN(t *testing.T) {
+	const tail = "_8daaf6152771_02713d6af862"
+	cases := map[string]bool{"h2": true, "H2": true, "bd": true, "00": true, "_x": false, "\x01x": false, "h-": false}
+	var recs []string
+	for alpn, ok := range cases {
+		ja4 := "t13d1516" + alpn + tail
+		if ja4Pattern.MatchString(ja4) != ok {
+			t.Errorf("%q: casou %v", alpn, !ok)
+		}
+		b, _ := json.Marshal(ja4)
+		recs = append(recs, `{"application":"App","verified":true,"ja4_fingerprint":`+string(b)+`}`)
+	}
+	p, err := parseJA4DB([]byte("[" + strings.Join(recs, ",") + "]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for alpn, ok := range cases {
+		if got := p.ja4["t13d1516"+alpn+tail] != nil; got != ok {
+			t.Errorf("ja4db %q: presente %v", alpn, got)
+		}
 	}
 }

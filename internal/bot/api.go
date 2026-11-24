@@ -341,7 +341,7 @@ type forkHeaders struct {
 
 // Formatos dos cabeçalhos de fingerprint (openapi do bot 0.4.0, /bot/v1/auth).
 var (
-	ja4HeaderPattern  = regexp.MustCompile(`^[tq][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
+	ja4HeaderPattern  = regexp.MustCompile(`^[tq][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
 	ja4tHeaderPattern = regexp.MustCompile(`^[0-9]+_[0-9-]+_[0-9]{2,}_[0-9]+$`)
 )
 
