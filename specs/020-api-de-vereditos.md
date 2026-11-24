@@ -6,7 +6,8 @@ Depende de: 018, 019
 ## Contexto
 O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, fora da captura (ADRs 0047 e 0051):
 9002 HTTPS pública com chave e 9003 HTTP interna para o traefik do finger-01. Contrato:
-[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1, versão 0.7.0).
+[cmd/finger-sniffer-bot/openapi.yaml](../cmd/finger-sniffer-bot/openapi.yaml) (OpenAPI 3.1; versão no `info.version` do
+arquivo).
 
 ## Requisitos
 - RF-01: 9002 em `FS_LISTEN_IPV4`/`FS_LISTEN_IPV6` com TLS de `FS_CERT_DIR` (`pkg/certs`, A e B por SNI, recarga a
@@ -20,7 +21,7 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
   são só os globais: a chave escolhe domínios e modo, e balde, cota, cobrança por registro e partes por chave não se
   aplicam em nenhuma rota (o uso continua gravado em `key_usage_daily`; ADR 0073 item 4).
 - RF-03: domínios da chave (ADR 0051 item 3): o `site` do recurso pedido tem de casar com um domínio da chave; senão
-  404 `not_found`, igual a recurso inexistente.
+  404 `not_found`, igual a recurso inexistente; vale também para o filtro `site` do feed (task 409).
 - RF-04: limites (ADR 0051 item 4 e ADR 0073; constantes do código):
   - por chave, só na 9002: balde (padrão 20/s, rajada 40) e cota diária (100 000) por requisição → 429
     `rate_limited` com `Retry-After` em segundos; no ingest, também balde de registros (padrão 500/s, rajada 2 048;
@@ -95,8 +96,8 @@ O serviço bot (spec 018) oferece os vereditos por HTTP em portas próprias, for
 ## Clientes externos
 Os dois casos valem (resposta do humano à antiga pendência P3, ADR 0054 item 7): (a) veredito por probe, com o site
 externo fazendo o navegador do visitante abrir uma conexão a `<id>.finger-west-01.badblock.net.br:8443`; e (b) o
-site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `export.url` na 9002 (perfil da spec 019 RF-03) e a própria chave
-(visão de aplicação sem a visão IP/TCP, que só existe para o tráfego que chega ao finger-01).
+site externo rodando a imagem pública do traefix (`tmsoftbrasil/traefix`) com `export.url` na 9002 (perfil da spec 019
+RF-03) e a própria chave (visão de aplicação sem a visão IP/TCP, que só existe para o tráfego que chega ao finger-01).
 
 ## Decisões relacionadas
 - specs/decisions/0051-api-de-vereditos-e-chaves.md

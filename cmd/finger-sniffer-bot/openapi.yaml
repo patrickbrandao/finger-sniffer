@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: finger-sniffer bot API
-  version: 0.7.0
+  version: 0.7.1
   summary: Vereditos de bot do espelho de análise de conexões.
   description: |
     API do serviço bot (specs 018 e 020, ADRs 0047–0053). Servida em 9002 (HTTPS, pública, com chave) e 9003
@@ -26,6 +26,11 @@ info:
     0.7.0 (ADR 0074, **não aditiva** no 403 do `/bot/v1/auth`, exceção aceita pelo humano): o 403 do modo `block`
     passa a ter corpo `Error` `{"error":"forbidden"}`, sem os cabeçalhos de veredito, só com `X-Traefix-Deny: 1`;
     código `forbidden`.
+
+    0.7.1 (task 409, documental): o 403 `forbidden_origin` da 9003 declarado em todas as rotas (resposta
+    `ForbiddenOrigin`; no `/bot/v1/auth`, junto do 403 do modo `block`), o 500 `internal` de `/bot/v1/ip/{ip}` e
+    `/bot/v1/fingerprints/{kind}/{value}` (falha do banco) e o 404 do feed com `site` fora dos domínios da chave
+    (spec 020 RF-03).
 
     Uso não comercial (ADR 0053): JA4 é BSD-3-Clause; JA4H e JA4T seguem a FoxIO License 1.1; uso comercial exige
     licença da FoxIO.
@@ -68,6 +73,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BotHealth" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
   /bot/v1/openapi.yaml:
     get:
       tags: [health]
@@ -80,6 +86,7 @@ paths:
           content:
             application/yaml:
               schema: { type: string }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
   /bot/v1/auth:
     get:
       tags: [verdicts]
@@ -193,12 +200,14 @@ paths:
         "401": { $ref: "#/components/responses/InvalidKey" }
         "403":
           description: |
-            Modo `block` e `class=bot` (ADR 0074): corpo mínimo `{"error":"forbidden"}`, sem `X-Traefix-Verdict`,
+            Dois casos, ambos com corpo `Error` e sem os cabeçalhos do veredito. (1) Origem fora das redes
+            permitidas, só na 9003 (`forbidden_origin`, sem `X-Traefix-Deny`: o traefix trata como fail-open).
+            (2) Modo `block` e `class=bot` (ADR 0074): corpo mínimo `{"error":"forbidden"}`, sem `X-Traefix-Verdict`,
             `X-Traefix-Score`, `X-Traefix-Signals` nem os `X-Fs-*`; só o marcador `X-Traefix-Deny`, que o traefix usa
             (`failOpen.denyRequiresResponseHeader: X-Traefix-Deny`, spec 019 RF-04) para devolver o 403 ao visitante.
           headers:
             X-Traefix-Deny:
-              description: Marcador do bloqueio; só nesta resposta.
+              description: Marcador do bloqueio; só no caso (2).
               schema: { type: string, const: "1" }
           content:
             application/json:
@@ -222,6 +231,7 @@ paths:
               schema: { $ref: "#/components/schemas/Verdict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
   /bot/v1/verdict/conn/{fs_conn_id}:
@@ -240,6 +250,7 @@ paths:
               schema: { $ref: "#/components/schemas/Verdict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
   /bot/v1/probes/{id}/verdict:
@@ -259,6 +270,7 @@ paths:
               schema: { $ref: "#/components/schemas/Verdict" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
   /bot/v1/ip/{ip}:
@@ -276,7 +288,9 @@ paths:
               schema: { $ref: "#/components/schemas/IPReputation" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
   /bot/v1/fingerprints/{kind}/{value}:
     get:
       tags: [reputation]
@@ -293,7 +307,9 @@ paths:
               schema: { $ref: "#/components/schemas/FingerprintStats" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/InvalidKey" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
         "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
   /bot/v1/stream:
     get:
       tags: [realtime]
@@ -313,6 +329,14 @@ paths:
             text/event-stream:
               schema: { type: string }
         "401": { $ref: "#/components/responses/InvalidKey" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
+        "404":
+          description: |
+            `site` fora dos domínios da chave (`not_found`, spec 020 RF-03), como nas outras rotas; sem `site`, o
+            feed entrega os vereditos de todos os domínios da chave.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "503":
           description: Acima de 64 clientes do feed, ou dos 48 da 9002 (`internal`).
@@ -367,11 +391,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/InvalidKey" }
-        "403":
-          description: Origem fora das redes permitidas na 9003 (`forbidden_origin`).
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
         "413":
           description: Lote acima de 4 MiB (`payload_too_large`).
           content:
@@ -469,6 +489,18 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: Desconhecido, expirado (10 min) ou fora dos domínios da chave (`not_found`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ForbiddenOrigin:
+      description: |
+        Só na 9003: origem fora do loopback e das redes permitidas (`FS_BOT_INTERNAL_ALLOW`), em qualquer rota,
+        inclusive `health` e `openapi.yaml` (`forbidden_origin`). Nunca na 9002.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Internal:
+      description: Falha ao consultar o banco do bot (`internal`).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
