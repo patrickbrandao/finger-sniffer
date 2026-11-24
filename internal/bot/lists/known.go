@@ -63,7 +63,7 @@ type KnownClients struct {
 }
 
 var (
-	ja4Pattern    = regexp.MustCompile(`^[tqd][0-9a-z]{2}[di][0-9]{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
+	ja4Pattern    = regexp.MustCompile(`^[tqd][0-9a-z]{2}[di][0-9]{4}[0-9A-Za-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
 	ja4hABPattern = regexp.MustCompile(`^[a-z]{2}[0-9]{2}[cn][rn][0-9]{2}[0-9a-z]{4}_[0-9a-f]{12}$`)
 	ja4tPattern   = regexp.MustCompile(`^[0-9]+_[0-9-]+_[0-9]+_[0-9]+$`)
 	protos        = map[string]bool{"h1": true, "h2": true, "h3": true}
