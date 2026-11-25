@@ -37,14 +37,17 @@ func checkTrackerInvariants(t *testing.T, tr *initTracker) {
 	t.Helper()
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	if len(tr.m) > initMaxEntries || tr.bytes < 0 || tr.bytes > initMaxBytes {
+	if tr.n != len(trackerEntries(tr)) {
+		t.Fatalf("contador %d, entradas %d", tr.n, len(trackerEntries(tr)))
+	}
+	if tr.n > initMaxEntries || tr.bytes < 0 || tr.bytes > initMaxBytes {
 		t.Fatalf("tetos: %d entradas, %d bytes", len(tr.m), tr.bytes)
 	}
-	if n := tr.evictNoCH.Len() + tr.evictCH.Len(); n > len(tr.m) {
-		t.Fatalf("fila de despejo %d > tabela %d", n, len(tr.m))
+	if n := tr.evictNoCH.Len() + tr.evictCH.Len(); n > tr.n {
+		t.Fatalf("fila de despejo %d > tabela %d", n, tr.n)
 	}
 	sum := 0
-	for _, e := range tr.m {
+	for _, e := range trackerEntries(tr) {
 		sum += e.bytes
 		if e.claimed && e.evict != nil {
 			t.Fatal("reclamada na fila de despejo")
@@ -135,7 +138,7 @@ func TestInitTrackerEvictPrefersNoClientHello(t *testing.T) {
 
 	// tabela cheia só de reclamadas e em análise: a 5-tupla nova fica sem análise e o contador sobe
 	tr.mu.Lock()
-	for _, e := range tr.m {
+	for _, e := range trackerEntries(tr) {
 		e.claimed = true
 		tr.unevictLocked(e)
 	}

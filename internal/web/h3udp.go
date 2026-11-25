@@ -40,6 +40,8 @@ var initOrphanAfter = 10 * time.Second
 type udpConn struct {
 	c   *net.UDPConn
 	obs func(local, remote net.Addr, b []byte)
+	// out vê cada datagrama do servidor antes de sair (só lê os cabeçalhos longos: SCID do servidor e do Retry).
+	out func(remote net.Addr, b []byte)
 }
 
 func (u *udpConn) ReadFrom(b []byte) (int, net.Addr, error) {
@@ -50,12 +52,17 @@ func (u *udpConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	return n, addr, err
 }
 
-func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) { return u.c.WriteTo(b, addr) }
-func (u *udpConn) Close() error                                 { return u.c.Close() }
-func (u *udpConn) LocalAddr() net.Addr                          { return u.c.LocalAddr() }
-func (u *udpConn) SetDeadline(t time.Time) error                { return u.c.SetDeadline(t) }
-func (u *udpConn) SetReadDeadline(t time.Time) error            { return u.c.SetReadDeadline(t) }
-func (u *udpConn) SetWriteDeadline(t time.Time) error           { return u.c.SetWriteDeadline(t) }
+func (u *udpConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	if u.out != nil {
+		u.out(addr, b)
+	}
+	return u.c.WriteTo(b, addr)
+}
+func (u *udpConn) Close() error                       { return u.c.Close() }
+func (u *udpConn) LocalAddr() net.Addr                { return u.c.LocalAddr() }
+func (u *udpConn) SetDeadline(t time.Time) error      { return u.c.SetDeadline(t) }
+func (u *udpConn) SetReadDeadline(t time.Time) error  { return u.c.SetReadDeadline(t) }
+func (u *udpConn) SetWriteDeadline(t time.Time) error { return u.c.SetWriteDeadline(t) }
 
 // h3UDPSocketBuf é o maior SO_RCVBUF/SO_SNDBUF do socket UDP do QUIC (ADR 0037): o kernel dobra (2 MiB por
 // sentido, cobrados do cgroup do web). O sysctl rmem_max/wmem_max de 7 MiB (ADR 0019) fica como teto global.
@@ -66,13 +73,28 @@ const h3UDPSocketBuf = 1 << 20
 func (u *udpConn) SetReadBuffer(n int) error  { return u.c.SetReadBuffer(min(n, h3UDPSocketBuf)) }
 func (u *udpConn) SetWriteBuffer(n int) error { return u.c.SetWriteBuffer(min(n, h3UDPSocketBuf)) }
 
-// initEntry é a análise dos Initials de uma 5-tupla.
+// initCIDsMax é o teto de SCIDs do servidor guardados por entrada (o do Initial/Handshake e o do Retry).
+const initCIDsMax = 4
+
+// initEntry é a análise dos Initials de uma conexão QUIC: a 5-tupla (key) e o DCID original do primeiro
+// Initial do cliente (task 425). Uma 5-tupla pode ter mais de uma entrada quando o cliente ou o NAT reusa a
+// porta de origem com a conexão anterior ainda viva no web.
 type initEntry struct {
 	key   string
 	first time.Time
-	asm   *quicparse.Assembler
-	bytes int
-	flow  event.Flow
+	// dcid é o DCID do primeiro Initial do cliente e scid o SCID que o cliente escolheu; cids são os SCIDs do
+	// servidor (Initial, Handshake e Retry) vistos na saída. O Initial do cliente com DCID ou SCID conhecidos é
+	// da entrada (retransmissão, ACK depois da resposta, Initial depois do Retry).
+	dcid string
+	scid string
+	cids []string
+	// accepted: o quic-go aceitou a conexão desta entrada (pelo DCID original, accepted); claim a prefere.
+	accepted bool
+	// dropped: saiu da tabela.
+	dropped bool
+	asm     *quicparse.Assembler
+	bytes   int
+	flow    event.Flow
 	// connID é pedido no primeiro Initial decifrado (ou no claim, se nenhum decifrou); nil até lá.
 	connID *connIDFuture
 	// done fecha quando a análise termina (ClientHello completo, erro, teto ou janela de 2 s).
@@ -93,13 +115,26 @@ func (e *initEntry) stop() {
 	}
 }
 
-// initTracker acompanha, por 5-tupla, os datagramas do cliente até o ClientHello do Initial completar.
+// owns informa se o cabeçalho longo do cliente é desta entrada (DCID original, SCID do servidor ou SCID do
+// cliente).
+func (e *initEntry) owns(h *quicparse.LongHeader) bool {
+	d := string(h.DCID)
+	if d == e.dcid || slices.Contains(e.cids, d) {
+		return true
+	}
+	return len(h.SCID) > 0 && string(h.SCID) == e.scid
+}
+
+// initTracker acompanha, por conexão QUIC (5-tupla e DCID original), os datagramas do cliente até o
+// ClientHello do Initial completar.
 type initTracker struct {
 	srv *Server
 	ctx context.Context
 
-	mu        sync.Mutex
-	m         map[string]*initEntry
+	mu sync.Mutex
+	// m são as entradas de cada 5-tupla, na ordem de criação; n é o total de entradas (teto initMaxEntries).
+	m         map[string][]*initEntry
+	n         int
 	bytes     int
 	lastSweep time.Time
 	// evictNoCH e evictCH são as entradas não reclamadas com a análise encerrada, na ordem em que
@@ -113,7 +148,7 @@ type initTracker struct {
 }
 
 func newInitTracker(ctx context.Context, srv *Server) *initTracker {
-	return &initTracker{srv: srv, ctx: ctx, m: map[string]*initEntry{}}
+	return &initTracker{srv: srv, ctx: ctx, m: map[string][]*initEntry{}}
 }
 
 // udpFlow monta a 5-tupla UDP do ponto de vista do cliente.
@@ -145,25 +180,29 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 	now := t.srv.now()
 	key := remote.String()
 	var orphans []*initEntry
+	h, herr := quicparse.ParseLongHeader(b)
+	if herr != nil {
+		h = nil
+	}
 	t.mu.Lock()
 	if now.Sub(t.lastSweep) >= initSweepEvery {
 		orphans = t.sweepLocked(now)
 	}
-	e := t.m[key]
-	if e != nil && e.closed {
-		t.dropLocked(e)
-		e = nil
+	for _, old := range slices.Clone(t.m[key]) {
+		if old.closed {
+			t.dropLocked(old)
+		}
 	}
+	e := t.pickLocked(key, h)
 	if e == nil {
-		// só um cabeçalho longo legível e com versão abre uma 5-tupla nova (o quic-go cuida do resto): a
+		// só um cabeçalho longo legível e com versão abre uma entrada nova (o quic-go cuida do resto): a
 		// entrada sem versão nunca publica nada (orphanLocked), então não ocupa a tabela (task 350)
-		h, err := quicparse.ParseLongHeader(b)
-		if err != nil || h.Version == 0 {
+		if h == nil || h.Version == 0 {
 			t.mu.Unlock()
 			t.publishOrphans(orphans)
 			return
 		}
-		if len(t.m) >= initMaxEntries {
+		if t.n >= initMaxEntries {
 			// tabela cheia: despeja a não reclamada encerrada mais antiga; sem nenhuma, a 5-tupla fica sem
 			// análise do Initial (o h3 continua)
 			t.srv.metrics.Add(MetricH3InitTableFull, 1)
@@ -177,7 +216,9 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 			InlineMax: t.srv.cfg.EventInlineMax,
 		}), flow: udpFlow(local, remote), done: make(chan struct{})}
 		e.flow.QUICDCIDHex = hex.EncodeToString(h.DCID)
-		t.m[key] = e
+		e.dcid, e.scid = string(h.DCID), string(h.SCID)
+		t.m[key] = append(t.m[key], e)
+		t.n++
 	}
 	if !e.stopped {
 		switch {
@@ -201,23 +242,90 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 	t.publishOrphans(orphans)
 }
 
+// pickLocked acha a entrada da 5-tupla a que o datagrama do cliente pertence. O cabeçalho longo vai à entrada
+// que conhece um dos seus CIDs; o Initial com CIDs que nenhuma conhece é de uma conexão nova (nil: o quic-go
+// também abre uma, task 425). O resto (cabeçalho curto, ilegível, Handshake ou 0-RTT sem CID conhecido) vai à
+// entrada mais nova.
+func (t *initTracker) pickLocked(key string, h *quicparse.LongHeader) *initEntry {
+	list := t.m[key]
+	if len(list) == 0 {
+		return nil
+	}
+	if h != nil {
+		for i := len(list) - 1; i >= 0; i-- {
+			if list[i].owns(h) {
+				return list[i]
+			}
+		}
+		if h.Type == quicparse.PacketInitial && h.Version != 0 {
+			return nil
+		}
+	}
+	return list[len(list)-1]
+}
+
+// sent vê um datagrama do servidor para remote: o SCID de um cabeçalho longo (Initial, Handshake ou Retry)
+// cujo DCID é o SCID do cliente de uma entrada passa a ser dela. O cliente usa esse SCID como DCID nos
+// Initials seguintes da mesma conexão (ACK, retransmissão depois da resposta, Initial depois do Retry).
+func (t *initTracker) sent(remote net.Addr, b []byte) {
+	if len(b) == 0 || b[0]&0x80 == 0 {
+		return // cabeçalho curto: o caminho comum, sem trava
+	}
+	h, err := quicparse.ParseLongHeader(b)
+	if err != nil || len(h.SCID) == 0 {
+		return
+	}
+	d, s := string(h.DCID), string(h.SCID)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	list := t.m[remote.String()]
+	for i := len(list) - 1; i >= 0; i-- {
+		e := list[i]
+		if e.scid != d {
+			continue
+		}
+		if !slices.Contains(e.cids, s) && len(e.cids) < initCIDsMax {
+			e.cids = append(e.cids, s)
+		}
+		return
+	}
+}
+
+// accepted marca a entrada da conexão aceita pelo quic-go (5-tupla e DCID original): o claim dela pega esta
+// entrada e não a de outra conexão da mesma 5-tupla ainda sem accept (handshake recusado, por exemplo).
+func (t *initTracker) accepted(remote net.Addr, odcid []byte) {
+	if odcid == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, e := range t.m[remote.String()] {
+		if e.dcid == string(odcid) && !e.claimed && !e.closed {
+			e.accepted = true
+			return
+		}
+	}
+}
+
 // sweepLocked tira as entradas fechadas, as não reclamadas sem ClientHello depois de initWindow e as não
 // reclamadas com ClientHello depois de initOrphanAfter; devolve as órfãs a publicar.
 func (t *initTracker) sweepLocked(now time.Time) []*initEntry {
 	t.lastSweep = now
 	var orphans []*initEntry
-	for _, e := range t.m {
-		age := now.Sub(e.first)
-		if e.closed {
-			t.dropLocked(e)
-			continue
-		}
-		if age > initWindow {
-			t.stopLocked(e)
-		}
-		if !e.claimed && (age > initOrphanAfter || (age > initWindow && !e.asm.Complete())) {
-			t.orphanLocked(e, &orphans)
-			t.dropLocked(e)
+	for _, list := range t.m {
+		for _, e := range slices.Clone(list) {
+			age := now.Sub(e.first)
+			if e.closed {
+				t.dropLocked(e)
+				continue
+			}
+			if age > initWindow {
+				t.stopLocked(e)
+			}
+			if !e.claimed && (age > initOrphanAfter || (age > initWindow && !e.asm.Complete())) {
+				t.orphanLocked(e, &orphans)
+				t.dropLocked(e)
+			}
 		}
 	}
 	return orphans
@@ -226,7 +334,7 @@ func (t *initTracker) sweepLocked(now time.Time) []*initEntry {
 // stopLocked encerra a análise da entrada e, se ninguém a reclamou, a põe na fila de despejo.
 func (t *initTracker) stopLocked(e *initEntry) {
 	e.stop()
-	if e.claimed || e.evict != nil || t.m[e.key] != e {
+	if e.claimed || e.evict != nil || e.dropped {
 		return
 	}
 	if e.asm.Complete() {
@@ -276,8 +384,15 @@ func (t *initTracker) orphanLocked(e *initEntry, orphans *[]*initEntry) {
 
 func (t *initTracker) dropLocked(e *initEntry) {
 	t.unevictLocked(e)
-	if t.m[e.key] == e {
-		delete(t.m, e.key)
+	if !e.dropped {
+		e.dropped = true
+		t.n--
+		list := slices.DeleteFunc(t.m[e.key], func(x *initEntry) bool { return x == e })
+		if len(list) == 0 {
+			delete(t.m, e.key)
+		} else {
+			t.m[e.key] = list
+		}
 	}
 	t.bytes -= e.bytes
 	e.bytes = 0
@@ -300,10 +415,24 @@ func (t *initTracker) sweep() {
 	t.publishOrphans(orphans)
 }
 
-// claim entrega a entrada da 5-tupla à conexão aceita, esperando a análise terminar por até wait.
+// claim entrega à conexão aceita a entrada dela, esperando a análise terminar por até wait: a marcada por
+// accepted (mesmo DCID original) ou, sem ela, a mais antiga não reclamada da 5-tupla. A entrada de uma conexão
+// anterior ainda viva já está reclamada e nunca é entregue de novo (task 425).
 func (t *initTracker) claim(remote net.Addr, wait time.Duration) (*initEntry, *quicparse.Info) {
 	t.mu.Lock()
-	e := t.m[remote.String()]
+	var e *initEntry
+	for _, x := range t.m[remote.String()] {
+		if x.claimed || x.closed {
+			continue
+		}
+		if x.accepted {
+			e = x
+			break
+		}
+		if e == nil {
+			e = x
+		}
+	}
 	if e != nil {
 		e.claimed = true
 		t.unevictLocked(e) // reclamada nunca é despejada
@@ -328,8 +457,8 @@ func (t *initTracker) claim(remote net.Addr, wait time.Duration) (*initEntry, *q
 	return e, snapshotInfo(e.asm)
 }
 
-// release marca a 5-tupla como encerrada: o próximo Initial dela abre uma entrada nova (conexão nova no
-// store, spec 004).
+// release marca a entrada como encerrada: sai da tabela no próximo datagrama da 5-tupla ou na limpeza, e o
+// Initial seguinte abre uma entrada nova (conexão nova no store, spec 004).
 func (t *initTracker) release(e *initEntry) {
 	if e == nil {
 		return
