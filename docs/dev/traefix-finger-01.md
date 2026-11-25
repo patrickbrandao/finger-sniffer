@@ -310,14 +310,28 @@ serviços `ok` e `versions_match`.
 
 ## Como rodar de novo o e2e
 
-Com o container de teste no ar (configuração acima):
+O ambiente das tasks 273 e 313 está versionado em [`test/traefix/`](../../test/traefix/README.md) (task 406):
+`static.yml` (entradas `fstest`, `fsnoraw`, `fsh3o`, `fsplain`, `fsmetrics`), `dynamic.yml` (routers e forwardAuth
+acima, com `denyRequiresResponseHeader: X-Traefix-Deny` da ADR 0074 e as chaves postas só no servidor), o gravador
+`recorder/` (`127.0.0.1:18090`) e os scripts que sobem e desfazem tudo por ssh, sem tocar no `traefik-app`:
 
 ```sh
-B=https://finger-01.badblock.net.br
-FS_E2E_TRAEFIX_URL=$B:18443/observe FS_E2E_TRAEFIX_BLOCK_URL=$B:18443/block \
-FS_E2E_TRAEFIX_REVOKED_URL=$B:18443/revoked FS_E2E_TRAEFIX_PLAIN_URL=$B:18444 \
-FS_E2E_TRAEFIK_UPSTREAM_URL=$B:18445 FS_E2E_TRAEFIX_STOP_BOT=1 FS_E2E_TRAEFIX_SOCKS=127.0.0.1:18491 \
+ssh -p 48022 -N -D 127.0.0.1:18491 root@finger-01.tmsoft.com.br &   # só para o caso relay
+eval "$(FS_TRAEFIX_STOP_BOT=1 FS_TRAEFIX_SOCKS=127.0.0.1:18491 test/traefix/up.sh)"
 go test -tags e2e -count=1 -v -run TestF8TraefixReal ./test/e2e/
+test/traefix/down.sh
 ```
 
-O caso `relay` (task 313) precisa do túnel aberto antes: `ssh -p 48022 -N -D 127.0.0.1:18491 root@finger-01.tmsoft.com.br`.
+O `up.sh` espera a trava `/tmp/fs-load-running` sumir e a segura até o `down.sh`; faz o `docker pull` da `latest` e
+mostra o digest e o `sender`; cria as chaves de teste pela CLI do bot. O `down.sh` remove o container, para o
+gravador, traz os lotes para `tmp/traefix-test/`, revoga as chaves, apaga a imagem (se não existia antes) e a pasta,
+solta a trava e confere que nada ficou e que o `traefik-app` tem o mesmo `StartedAt`. Sem o container de paridade
+(`traefik:latest`), o caso `upstream-parity` pula.
+
+Toda entrega nova do traefix (aviso do humano ou `latest` com digest novo) passa por essa rodada antes de o `PT-nn`
+virar `entregue`; um `sender` novo sem a rodada verde é regressão da spec 019 RF-14.
+
+Primeira rodada pelo ambiente versionado (2026-11-24, task 406): `tmsoftbrasil/traefix@sha256:20ce5ca3…1737`
+(`v3.8.0-rc.3-traefix.1`, `sender traefix/v3.8.0-rc.3-traefix.1`), `TestF8TraefixReal` verde com 10 casos e o
+`upstream-parity` pulado; `relay_rtt_gap` em 10 de 10 conexões por relay e 0 de 10 diretas (o e2e passou a conferir
+os limiares do adendo da ADR 0065, 15 ms e 5 ms); 217 lotes gravados; `down.sh` sem sobras.

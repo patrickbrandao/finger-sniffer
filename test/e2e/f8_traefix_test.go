@@ -739,11 +739,12 @@ func hasIPv6Route() bool {
 // isRelaySignal diz se o sinal é o relay_rtt_gap, que varia com os tempos de cada conexão.
 func isRelaySignal(s botSignal) bool { return s.ID == "relay_rtt_gap" }
 
-// Limiares do relay_rtt_gap (ADR 0065 item 3), repetidos aqui para conferir a decisão do bot conexão a conexão.
+// Limiares do relay_rtt_gap (ADR 0065 item 3, revistos no adendo da task 313: rtt_gap > 15 ms e > 30% da volta TCP,
+// primeiro byte depois de 5 ms), repetidos aqui para conferir a decisão do bot conexão a conexão.
 const (
-	relayGapMicros   = 20_000
+	relayGapMicros   = 15_000
 	relayGapFrac     = 0.3
-	relayFirstMicros = 10_000
+	relayFirstMicros = 5_000
 )
 
 // relayRun é uma conexão da rodada direto × relay: os tempos e os sinais do veredito.

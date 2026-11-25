@@ -1,0 +1,74 @@
+# Configuração estática do traefix de teste no finger-01 (task 406; tasks 273 e 313). Container fs-traefix-test,
+# --network host, montada em /etc/traefik/traefik.yml pelo up.sh. Perfil da spec 019 RF-03 em fstest; as outras
+# entradas variam só o que a medida de custo (RF-11) e os lotes reais precisam. Nada do traefik-app é tocado: as
+# portas 18xxx não são de ninguém no host (ADR 0038 item 9).
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+
+ping:
+  entryPoint: fsmetrics
+
+metrics:
+  prometheus:
+    entryPoint: fsmetrics
+
+providers:
+  file:
+    # dynamic.yml com as chaves de teste já postas pelo up.sh (modo 600, só no servidor)
+    filename: /etc/traefix/dynamic.yml
+    watch: false
+
+entryPoints:
+  # perfil da spec 019 RF-03: tcp, headerDetail full, rawBytes, http3 sem http3HeaderOrder
+  fstest:
+    address: ":18443"
+    http:
+      tls: {}
+    http3: {}
+    fingerprint:
+      tcp: true
+      headerDetail: full
+      export:
+        # gravador (recorder/) que guarda cada lote e o repassa ao ingest do bot na 9003 sem mudança
+        url: http://127.0.0.1:18090/bot/v1/ingest/traefik
+        rawBytes: true
+
+  # igual a fstest, sem os bytes crus (custo e lote real sem rawBytes)
+  fsnoraw:
+    address: ":18446"
+    http:
+      tls: {}
+    fingerprint:
+      tcp: true
+      headerDetail: full
+      export:
+        url: http://127.0.0.1:18090/bot/v1/ingest/traefik
+        rawBytes: false
+
+  # igual a fstest com http3HeaderOrder (custo e registro h3 com fields/JA4H)
+  fsh3o:
+    address: ":18447"
+    http:
+      tls: {}
+    http3: {}
+    fingerprint:
+      tcp: true
+      headerDetail: full
+      http3HeaderOrder: true
+      export:
+        url: http://127.0.0.1:18090/bot/v1/ingest/traefik
+        rawBytes: true
+
+  # sem o bloco fingerprint (paridade com o upstream e custo-base)
+  fsplain:
+    address: ":18444"
+    http:
+      tls: {}
+
+  # /metrics (Prometheus) e /ping, só no loopback
+  fsmetrics:
+    address: "127.0.0.1:18082"
