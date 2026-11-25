@@ -3,6 +3,10 @@
 #
 #   test/load/run.sh [flags do loadgen run]
 #
+# Sem -rate/-max-active, o perfil é o oficial do RNF-01: 100 novas/s e 400 simultâneas (padrão do loadgen run,
+# ADR 0046, task 256). O relatório (loadgen report) classifica erro no cliente e puladas pelo critério da ADR 0046
+# item 2 (falha do cliente aceita ou do espelho).
+#
 # Variáveis:
 #   OUT          pasta dos resultados (padrão: test/load/results/<data UTC>)
 #   FS_VPS_SSH   destino ssh (padrão root@finger-01.tmsoft.com.br)

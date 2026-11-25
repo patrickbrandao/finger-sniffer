@@ -4,8 +4,8 @@
 > cgroups em `system.slice`) e ficam como registro. Desde a ADR 0038/0039 os scripts (`run.sh`, `budget.sh`,
 > `loadgen`, `budgetload`, `loadmon`) apontam para o finger-01: alvo `finger-01.badblock.net.br`, zona
 > `finger-west-01.badblock.net.br`, web em 8080/8443 (TCP) e 8443 (UDP), cgroups em
-> `/sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>`, perfil padrão de 200 simultâneas e 50 novas/s (o
-> oficial da ADR 0042; o de 400/100, meta da fase F7, é `-rate 100 -max-active 400`), h3 por IPv6 (`-h3-family`),
+> `/sys/fs/cgroup/finger.slice/finger-sniffer.slice/<unit>`, perfil padrão de 400 simultâneas e 100 novas/s (o
+> oficial da ADR 0046, padrão do `loadgen run` desde a task 256; até ela era 200/50, da ADR 0042), h3 por IPv6 (`-h3-family`),
 > `nr_throttled` por unit e `conntrack -S` antes e depois. As rodadas no finger-01 entram numa seção própria.
 
 Resultado da rodada atual (`c1aefd8`, `v0.1.0-13-gc1aefd8`, candidata à v0.2.0; task 120), com os limites do modo
@@ -16,6 +16,54 @@ anterior (`official-50j`) também teve `degraded` = 0 e passou em todas as metas
 cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `official-50i` (`90c86d8`, limites
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
+
+## Gerador fora do Mac: padrão 400/100 e falhas do gerador pelo critério da ADR 0046 (task 256)
+
+**Padrão.** `loadgen run` sem flags gera o perfil oficial do RNF-01, 100 novas/s e 400 simultâneas (ADR 0046;
+`TestRunDefaultsOfficialProfile`, que também confere que o `run.sh` não fixa outro perfil). O `run.sh` não passa
+`-rate`/`-max-active`, então herda o padrão.
+
+**Relatório.** O `loadgen report` ganhou a linha "falhas do gerador (erro no cliente, puladas) pelo critério do
+item 2" e a seção "Falhas do gerador (ADR 0046 item 2)" no `summary.md` (campo `generator_failures` no
+`summary.json`): as condições do servidor na janela (degradado 0, `kernel_drops`, `flows_dropped`, `conntrack -S`
+drop/insert_failed/early_drop e `nr_throttled` das units do espelho sem crescer, backlog do ingest < 1 s), a tabela
+dos erros por caminho (família/transporte), tipo e serviço, e o veredito: "sem falha do gerador", "falha do
+cliente aceita" (com as condições que a sustentam) ou "falha do espelho" (com as que faltaram). Os erros contam
+como de um caminho do cliente quando ≥ 80% estão numa família/transporte (`tcp/ipv4`, `udp/ipv6`) ou quando se
+espalham por mais de um serviço (web e raw); num só serviço por vários caminhos, a falha é do espelho. Condição não
+medida (bruto sem a coleta) não sustenta a aceitação. O backlog vem do `/metrics` lido a cada 5 s junto do health
+(`ingest_backlog_s` em `gen.json`; brutos anteriores não têm o campo). Casos da `official-f7` (135 erros só em
+`tcp/ipv4`, web e raw) e da `official-051` (87% em `udp/ipv6`) dão "falha do cliente aceita" (`TestClassifyGenFailure`).
+
+**Medida oficial fora do Mac: pendente, escalada ao humano** (não há host fora do Mac indicado). A rodada abaixo é
+**medida complementar, não oficial** (ADR 0046, alternativas): gerador no próprio finger-01.
+
+### Rodada complementar `local-256` (gerador no finger-01, não oficial)
+
+`v0.5.2-115-gfc8dd3e` (`versions_match`), 2026-11-25 00:06:54–00:16:54 UTC (medida desde 00:07:54), perfil padrão
+(400/100, mix e vida do `official-50k`), sozinha no servidor (trava da task 422), banco já em regime (cargas das tasks
+422 e 296 na hora anterior), sem conferência de expurgo. Gerador em scope próprio `fs-load-gen-256.scope`
+(`systemd-run --scope --slice=system.slice -p CPUQuota=400%`, fora de `finger-sniffer.slice`), contra o IP público
+do próprio host; `loadmon` e `conntrack -S` como no `run.sh`. Brutos em [`results/local-256`](results/local-256/)
+(`gen_scope.txt`: CPU e memória do scope a cada 5 s).
+
+| Meta do gerador | `local-256` (finger-01) | `official-422` (Mac, 2026-11-24) | `official-f7` (Mac) |
+| --- | --- | --- | --- |
+| conexões com erro no cliente 0 | **0 de 60 000** (todos os tipos) | 0 de 60 000 | 135 de 57 280 (só `tcp/ipv4`) |
+| puladas pelo teto do gerador 0 | **0** (máx 384 simultâneas) | 0 (máx 393) | 2 720 |
+| veredito do critério (item 2) | sem falha do gerador; condições do servidor todas atendidas (backlog máx 0,09 s em 108 amostras, `conntrack -S` 0/0/0, `nr_throttled` 0) | sem falha do gerador | falha do cliente aceita (ADR 0046) |
+
+CPU do gerador à parte: média 31,3% / p95 33,0% / máx 33,7% de um núcleo, memória máx 190 MiB; host 187 / 218 /
+254% de um núcleo (11,7% dos 16 vCPU) com o gerador; fatia 139,4%, store 64,3 / 98,8 / 114,4%, web 37,7%.
+
+**Por que não serve para as metas do espelho.** O tráfego do host para ele mesmo passa pela loopback, não pela
+`ens192` capturada (como já anotado no `test/golden/collect.sh`): o capture fica fora (1,3% de CPU) e o store grava
+conexões só de eventos. Por isso, nesta rodada e só por ela, o feed p99 sobe a 2,2 s (a espera `pendingWait` de 2 s
+do evento sem pacotes), o registro p95 a 30 s (as só de eventos fecham por `eventOnlyIdle`), o `ingest_lag` p99 a
+4,3 s e há 1 543 probes sem registro (o defeito da task 424 no caminho só de eventos, que junta conexões TCP e QUIC
+que reusam a porta de origem). Essas linhas do `summary.md` não medem o espelho; as metas do espelho ficam com a
+`official-422` (Mac), que passou todas. O que a rodada mostra é que, sem o enlace e o NAT do Mac, o gerador abre
+as 60 000 conexões sem erro e sem pulo, e que nenhum contador do servidor acompanha.
 
 ## Probe h3 sem registro (task 296; observação da carga da F8)
 

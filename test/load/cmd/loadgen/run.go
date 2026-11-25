@@ -152,7 +152,10 @@ type healthSample struct {
 	DBBytes       float64                       `json:"db_bytes"`
 	Connections   float64                       `json:"connections"`
 	Aggregating   bool                          `json:"aggregating_offload"`
-	Err           string                        `json:"err,omitempty"`
+	// Backlog é o fs_store_ingest_backlog_seconds lido do /metrics junto do health (task 256: a condição
+	// "backlog < 1 s" da ADR 0046 item 2); nil quando a leitura falhou ou o bruto é de antes da task 256.
+	Backlog *float64 `json:"ingest_backlog_s,omitempty"`
+	Err     string   `json:"err,omitempty"`
 }
 
 type healthDoc struct {
@@ -240,10 +243,9 @@ func runFlags(c *config) (*flag.FlagSet, *string) {
 	fs.StringVar(&c.Host, "host", "finger-01.badblock.net.br", "servidor")
 	fs.StringVar(&c.API, "api", "https://finger-01.badblock.net.br:9000/api/v1", "base da API (feed e amostragem)")
 	fs.StringVar(&c.MetricsURL, "metrics", "http://finger-01.badblock.net.br:9001/metrics", "/metrics do store")
-	// perfil oficial do RNF-01 (ADR 0042): 200 simultâneas, 50 novas/s; o de 400/100 é meta da fase F7
-	// (-rate 100 -max-active 400)
-	fs.IntVar(&c.Rate, "rate", 50, "conexões novas por segundo")
-	fs.IntVar(&c.MaxActive, "max-active", 200, "teto de conexões simultâneas do gerador")
+	// perfil oficial do RNF-01 (ADR 0046, que substituiu o 200/50 da ADR 0042): 400 simultâneas, 100 novas/s
+	fs.IntVar(&c.Rate, "rate", 100, "conexões novas por segundo")
+	fs.IntVar(&c.MaxActive, "max-active", 400, "teto de conexões simultâneas do gerador")
 	fs.StringVar(&c.H3Family, "h3-family", "6", "família do h3 (4 ou 6): do Mac ao finger-01 o UDP IPv4 grande se perde")
 	fs.DurationVar(&c.Life, "life", 3800*time.Millisecond, "duração de cada conexão")
 	fs.IntVar(&c.Reqs, "reqs", 3, "trocas por conexão (requisições HTTP ou linhas no raw)")
@@ -373,6 +375,7 @@ func runCmd(args []string) error {
 			case <-tick.C:
 			}
 			h := getHealth(httpc, c.API)
+			h.Backlog = backlogOf(scrape(httpc, c.MetricsURL))
 			hmu.Lock()
 			g.Health = append(g.Health, h)
 			hmu.Unlock()
@@ -539,6 +542,22 @@ func scrape(c *http.Client, url string) []byte {
 	defer resp.Body.Close() //nolint:errcheck // leitura
 	b, _ := io.ReadAll(resp.Body)
 	return b
+}
+
+// backlogOf extrai fs_store_ingest_backlog_seconds de uma coleta do /metrics; nil se a coleta falhou ou não tem a
+// métrica.
+func backlogOf(prom []byte) *float64 {
+	ss, err := loadstat.ParseProm(string(prom))
+	if err != nil {
+		return nil
+	}
+	for _, s := range ss {
+		if s.Matches("fs_store_ingest_backlog_seconds", nil) {
+			v := s.Value
+			return &v
+		}
+	}
+	return nil
 }
 
 func getHealth(c *http.Client, api string) healthSample {
