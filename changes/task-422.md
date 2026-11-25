@@ -1,0 +1,1 @@
+- test: carga oficial 400/100 com o `UPDATE` do opened do bot (task 341): todas as metas da ADR 0046 passaram, inclusive 0 erro e 0 pulada no gerador; `ingest_tx` 1,40 ms por conexão e CPU do store 44%, abaixo da F7/F8 (task 422).

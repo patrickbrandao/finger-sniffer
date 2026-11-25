@@ -17,6 +17,85 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
+## finger-01, `UPDATE` do opened do bot sob carga (task 422; task 341, ADRs 0046 e 0076)
+
+A task 341 (ADR 0076) regrava o `record_json` com o estado de estabelecida quando sai o `opened` do bot: um
+`UPDATE` a mais por conexão estabelecida, dentro da transação do ingest (`fs_store_writer_seconds{op="ingest_tx"}`).
+Carga oficial 400/100 com o build da `main` (`v0.5.2-115-gfc8dd3e`, `versions_match`, conferido no health antes e
+pelo `loadgen` a cada 5 s), sozinha no finger-01 (`/tmp/fs-load-running` com token próprio de 23:14:07 ao fim),
+bot no ar assinando o `fs.v1.store.connection` sem forwardAuth (como a `cpu-f8-on`), clientes no Mac (h1/raw por
+IPv4, h3 por IPv6), vida e mix do `official-50k`, `QUIC_TARGET=500ms`. Pré-aquecimento de 9 min emendado na janela;
+vigia lateral no finger-01 ([`official-422-side/side422.sh`](results/official-422-side/side422.sh): o `side247.sh`
+mais `io.stat`, `io.pressure` some, `nr_throttled` e o escritor) e o feed global lido no finger-01 pelo
+`botload feed` (unit transitória `finger-sniffer-load-f8-feed-422`, ADR 0071).
+
+| Rodada (UTC) | Perfil | Papel |
+| --- | --- | --- |
+| [`prefill-422`](results/prefill-422/) 23:14:35–23:23:35 | 400/100, 9 min (30 s de aquecimento) | pré-aquecimento: 54 000 abertas, 0 erro, 0 pulada, 0 probe sem registro, todas as metas medidas ok |
+| [`official-422`](results/official-422/) 23:24:04–23:34:04 (medida 23:25:04–23:34:04) | 400/100, 10 min | **janela oficial** |
+
+**Resultado: todas as metas da ADR 0046 passaram, inclusive as do gerador** (0 erro no cliente e 0 pulada pela
+primeira vez a 400/100 com o Mac: o enlace estava em ~140 Mbit/s para baixo e o load average do Mac 3–5). O `UPDATE`
+a mais não aparece no custo do escritor nem na CPU do store: as duas ficaram abaixo da F7, da F8 e da `v0.5.1`.
+
+| Meta / medida | `official-422` | `official-f7` (F7) | `official-f8` (F8) | `official-051` | Resultado |
+| --- | --- | --- | --- | --- | --- |
+| feed p99 ws / sse < 1 s (Mac) | 344 / 344 ms (máx 573), 0 `stream.dropped` | 352 / 351 ms | 7 934 / 8 193 ms (cliente) | 44 564 / 34 410 ms (cliente) | ok |
+| feed global no finger-01 (p50 / p95 / p99 / máx) | 52 / 293 / 335 / 565 ms (403 303 eventos, 0 `stream.dropped`) | — | p99 327 ms | p99 330 ms | ok |
+| API p95 < 100 ms (cliente) | 20,3 / 20,5 ms, 0 erro (servidor 1,0 / 1,3 ms) | 19,3 / 19,5 ms | 511 / 510 ms (cliente) | 1 106 / 1 203 ms (cliente) | ok |
+| registro p95 ≤ 500 ms, TCP / QUIC (Mac) | 123 / 181 ms | 193 / 188 ms | 7 166 / 7 291 ms (cliente) | 24 333 / 24 913 ms (cliente) | ok |
+| `record_ready` p95 `close` / `quic_close` (servidor) | 139 / 265 ms | 172 / 253 ms | 156 / 166 ms | 158 / 242 ms | ok |
+| `ingest_lag` p95 / p99 | 143 / 276 ms | 145 / 158 ms | 142 ms | 143 ms | — |
+| probes sem registro 0 | 0 de 60 000 (ws e sse 60 000) | 0 de 57 145 | 0 no espelho | ≤ 6 no espelho | ok |
+| conexões com erro no cliente 0 | **0 de 60 000** | 135 (cliente) | 0 | 67 (cliente) | ok |
+| puladas pelo teto do gerador 0 | **0** (máx 393 simultâneas) | 2 720 (cliente) | 9 (cliente) | 357 (cliente) | ok |
+| `degraded` 0, `dropped_events_total` 0, `kernel_drops` 0 | 0, 0, 0 | 0, 0, 0 | 0, 0, 0 | 0, 0, 0 | ok |
+| `flows_dropped` Δ 0, `conntrack -S` drop/insert_failed/early_drop | 0; 0 / 0 / 0 (`error` 0) | 0; 0 / 0 / 0 | 0 | — | ok |
+| `nr_throttled` (units do espelho) | 0 em todas (bot +118, informativo) | 0 | 0 | 0 | ok |
+| backlog máx do ingest (vigia, 5 s) | **0,071 s** na janela (0,18 s de 23:14 a 23:37), pendentes máx 11 | 0,11 s | 0,07 s | 0,085 s | ok |
+| `stream_lost` Δ 0; health do store sem `ingest backlog`/`stream lost` | 0 (pré-aquecimento → fim); 0 serviços fora de `ok` em 272 amostras | 0; 0 | 0; 0 | 0; 0 | ok |
+| `memory.events` do store max / oom_kill, `db_full` | 0 / 0, 0 | 0 / 0, 0 | 0 / 0, 0 | 0 / 0, 0 | ok |
+| `anon` < `MemoryMax` (MiB) | capture 10/512, web 41/768, raw 17/256, dns 3/256, store 154/6 144, nats 307/1 024, bot 339/1 024, fatia 869/10 240 | store 132 | store 179 | store 159 | ok |
+| maior frame ≤ 1514, `offload_suspect` 0 | 1514, 0 | 1514, 0 | 1514, 0 | 1514, 0 | ok |
+| expurgo depois de 10 min | 20 primeiros 404; ~9 min 20 presentes; `purged_total{age}` 96,0/s | ok (96,4/s) | ok no espelho | ok no espelho | ok |
+
+Custo do `UPDATE` (sem meta; Δ aquecimento → fim do `/metrics`, mesma conta nas quatro janelas):
+
+| Janela | conexões | `ingest_tx` (s / transações, ms méd., ms por conexão) | `ingest_commit` ms por conexão | `finalize_tx` ms por conexão | CPU do store méd / p95 / máx (% de um núcleo) |
+| --- | --- | --- | --- | --- | --- |
+| `official-422` (com o `UPDATE`) | 54 470 | 76,0 s / 8 146, 9,34 ms, **1,40 ms** | 0,089 | 0,315 | **44,2 / 48,0 / 54,3** |
+| `official-051` | 54 121 | 102,4 s / 8 119, 12,62 ms, 1,89 ms | 0,121 | 0,328 | 48,1 / 56,6 / 61,4 |
+| `official-f8` | 54 468 | 91,5 s / 8 175, 11,19 ms, 1,68 ms | 0,109 | 0,298 | 45,0 / 48,9 / 56,1 |
+| `official-f7` (sem bot) | 51 883 | 122,1 s / 7 947, 15,36 ms, 2,35 ms | 0,138 | 0,390 | 50,6 / 58,2 / 64,2 |
+
+IO e memória do store na janela: `io.stat` sem leitura nem escrita de bloco (banco no tmpfs, ADR 0045),
+`io.pressure` full avg10 máx 0,14% (F7: ≤ 0,24%), some 0,14%; `memory.pressure` 0; `pgscan`/`pgsteal`/
+`workingset_refault_file` Δ 0; `memory.current` máx 2 464 MiB (`shmem` 2 304, `anon` 154); banco 2 301 → 2 385 MB,
+WAL 37,9 MB, tmpfs com no mínimo 1 838 MB livres de 4 096 (45%). Fatia 136,8 / 155,3 / 169,2% (com o bot a 29,0%),
+host 153 / 179 / 212% de um núcleo (9,6% dos 16 vCPU), web 38,0%, nats 15,9%.
+
+Leitura: o `UPDATE` do opened entra na mesma transação do lote do ingest e regrava um `record_json` que já está nas
+páginas quentes do tmpfs; o tempo por conexão do `ingest_tx` caiu de 1,68–1,89 ms (F8, `v0.5.1`) para 1,40 ms com
+ele, então o custo dele fica abaixo da variação entre builds e rodadas (as tasks entre a `v0.5.1` e a `fc8dd3e`
+também mexeram no ingest). Nenhuma meta da ADR 0046 mudou de margem: backlog, registro e feed ficaram iguais ou
+melhores que na F7/F8.
+
+```sh
+TOK="tester-422 $(date -u +%FT%TZ)"
+ssh -p 48022 root@finger-01.tmsoft.com.br "set -C; echo '$TOK' > /tmp/fs-load-running"            # trava própria
+scp -P 48022 test/load/results/official-422-side/side422.sh root@finger-01.tmsoft.com.br:/tmp/fs-load-422/
+ssh -p 48022 root@finger-01.tmsoft.com.br "cd /tmp/fs-load-422 && (setsid ./side422.sh /tmp/fs-load-422/side '$TOK' &)"
+ssh -p 48022 root@finger-01.tmsoft.com.br 'cd /tmp/fs-load-f8 && ./f8-remote.sh install && ./f8-remote.sh start-nokey feed-422 feed -duration 50m'
+FS_LOAD_LOCK_HELD=1 OUT=tmp/load/raw/prefill-422 test/load/run.sh -commit v0.5.2-115-gfc8dd3e -rate 100 -max-active 400 -duration 9m -warmup 30s -retention-check=false
+FS_LOAD_LOCK_HELD=1 OUT=tmp/load/raw/official-422 test/load/run.sh -commit v0.5.2-115-gfc8dd3e -rate 100 -max-active 400
+go run -tags load ./test/load/cmd/botload report -dir <out-feed-422> -from 2026-11-24T23:25:04Z -to 2026-11-24T23:34:04Z
+```
+
+Brutos: `official-422/` como nas rodadas anteriores (`summary.md`, `metrics_*.prom`, `conns.csv.gz`, `cgroup.csv.gz`,
+`gen.json.gz`, `run.txt`); `prefill-422/` só o `summary`; `official-422-side/` com o vigia, `health_watch.jsonl.gz`,
+`metrics.txt.gz`, `store_mem.txt.gz`, `foreign_watch.txt.gz` e o `report-feed.md` do feed lido no finger-01 (o
+`feed_samples.csv`, 37 MB, ficou fora do Git).
+
 ## finger-01, v0.5.1 (traefix.fingerprint/v1)
 
 Carga da F8 repetida para a release v0.5.1 com o método da task 285 (seção seguinte): bot `v0.5.0-7-g20e513b`
