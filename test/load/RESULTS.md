@@ -84,6 +84,41 @@ dos 4 procurados, 2 estavam no registro anterior da mesma porta. O caso do Mac �
 21 000): a hipótese de perda de UDP pelo IPv6 do Mac fica descartada. A loopback não exercita o capture nem o
 caminho de produção (sem pacotes, a conexão é só de eventos), mas mostra o mesmo defeito de correlação ampliado.
 
+## Registros por probe h3 depois da task 432
+
+Método da seção seguinte (registros por probe cruzados com o `conns.csv`), com o store em `v0.5.2-137-g7b95d4d`
+(`main` `7b95d4d`, task 432) e os demais serviços em `v0.5.2-135-gddd1620`: só o store foi reimplantado, então o
+health tinha `versions_match=false` e os outros serviços `degraded` só pelo motivo "version … differs from store"
+durante as duas rodadas (estável do começo ao fim). Por isso o `loadgen` da rodada foi compilado sem a exigência
+de `versions_match` (mudança local, não versionada; o `run.sh` foi repetido à mão com esse binário, mesmos passos)
+e as linhas "health fora de ok" e "versão estável" do `summary.md` falham por isso. 2026-11-25 05:27–05:39 UTC,
+sozinha no finger-01 (`/tmp/fs-load-running` com token `tester-432b`). Brutos em
+[`results/h3-432b`](results/h3-432b/).
+
+| Origem | Probes | Sem registro | 1 registro com 3 requisições | Mais de 1 registro | `quic` sem probe |
+| --- | --- | --- | --- | --- | --- |
+| Mac por IPv6, só h3, 5 min (05:27:39–05:32:39) | 30 000 (0 erro, 0 pulada) | **0** (feed 29 997, só API 3) | 29 999 | **1** (2 registros) | 0 |
+| finger-01 pela loopback, só h3, 5 min (05:33:13–05:38:13) | 30 000 (0 erro, 0 pulada) | **0** (feed 28 027, só API 1 973) | **30 000** | **0** | **0** |
+
+Contadores: Mac `connections_total{quic/h3}` +29 998 e `event_only_connections` +1, `web` h3 +30 000 / +90 000
+requisições; loopback `event_only_connections` +30 000 para 30 000 (na 427, +24 005 para 24 000). **Os dois casos
+da 432 sumiram** (nenhuma requisição em registro alheio: as 90 000 do web estão nos registros dos seus probes nas
+duas origens; nenhum 2º registro na loopback).
+
+**Caso novo (Mac, 1 em 30 000; [`splits.txt`](results/h3-432b/splits.txt)):** o CONNECTION_CLOSE do cliente não
+chegou (perda no enlace do Mac); o registro gravado fechou por `timeout` no último pacote (05:32:04.683), e o web só
+fechou a conexão pela ociosidade negociada de 30 s, publicando o fim (`by: server`, `timeout`) **30,000470 s depois**,
+logo além do `lateSlack` de 30 s do `locate`. Esse close virou um registro só de eventos do mesmo probe e DCID, com 0
+requisição. Tarefa aberta para o dono: **task 433** (implementer-store).
+
+```sh
+# loadgen local sem a exigência de versions_match (não versionado): no run.go, `if h0.Err != "" || !h0.VersionsMatch`
+# virou `if h0.Err != ""`; passos do run.sh repetidos à mão (loadmon sample, conntrack -S, loadgen run, report)
+loadgen run -out tmp/load/raw/h3-432b-mac -commit v0.5.2-137-g7b95d4d -mix h3=1 -duration 5m -warmup 30s -retention-check=false \
+  -clock-cmd "ssh -p 48022 -o BatchMode=yes root@finger-01.tmsoft.com.br /tmp/fs-load/loadmon clock"
+# no finger-01: systemd-run --scope --slice=system.slice -p CPUQuota=400% loadgen run -origin finger-01 (mesmos flags)
+```
+
 ## Registros por probe h3 depois das tasks 424, 427 e 430 (remedida da 427)
 
 Método da seção seguinte, em `v0.5.2-135-gddd1620` (`versions_match`, conferido no health e pelo `loadgen`; inclui a

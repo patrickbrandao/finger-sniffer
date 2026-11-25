@@ -1,0 +1,16 @@
+Running as unit: run-p455232-i455532.scope; invocation ID: 79e72d0dfe9749809000ae6053649e28
+00:33:11 relógio: servidor − local = -283ns (ida e volta 21.39µs)
+00:33:11 servidor na versão v0.5.2-137-g7b95d4d (versions_match=true)
+00:33:13 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 5m0s (aquecimento 30s), mix h3=1, origem finger-01
+00:33:43 t= 30s abertas=3001 simultâneas=381 (máx 381) eventos ws=19491
+00:34:13 t= 60s abertas=6002 simultâneas=381 (máx 381) eventos ws=43111
+00:34:43 t= 90s abertas=9003 simultâneas=381 (máx 381) eventos ws=67208
+00:35:13 t=120s abertas=12004 simultâneas=381 (máx 381) eventos ws=91228
+00:35:43 t=150s abertas=15005 simultâneas=381 (máx 381) eventos ws=115290
+00:36:13 t=180s abertas=18006 simultâneas=381 (máx 383) eventos ws=139311
+00:36:43 t=210s abertas=21007 simultâneas=381 (máx 383) eventos ws=163407
+00:37:13 t=240s abertas=24008 simultâneas=381 (máx 383) eventos ws=187390
+00:37:43 t=270s abertas=27008 simultâneas=381 (máx 383) eventos ws=211425
+00:38:13 fim da geração: 30000 abertas, 0 puladas (teto), esperando as conexões terminarem
+00:38:28 relógio no fim: -2.286µs (deriva -2.003µs)
+00:38:28 dados em /tmp/fs-load-432b/h3

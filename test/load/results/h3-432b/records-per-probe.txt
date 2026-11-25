@@ -1,0 +1,6 @@
+# Registros por probe: (tipo, erro no cliente, registros do probe, requisições no registro quando 1, requisições do cliente) contagem; método da seção de h3-427b
+# h3-432b-mac
+('h3', 'ok', 1, 3, '3') 29999
+('h3', 'ok', 2, None, '3') 1
+# h3-432b-local
+('h3', 'ok', 1, 3, '3') 30000
