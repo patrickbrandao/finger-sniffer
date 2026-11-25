@@ -84,6 +84,84 @@ dos 4 procurados, 2 estavam no registro anterior da mesma porta. O caso do Mac �
 21 000): a hipótese de perda de UDP pelo IPv6 do Mac fica descartada. A loopback não exercita o capture nem o
 caminho de produção (sem pacotes, a conexão é só de eventos), mas mostra o mesmo defeito de correlação ampliado.
 
+## Registros por probe h3 depois das tasks 424, 427 e 430 (remedida da 427)
+
+Método da seção seguinte, em `v0.5.2-135-gddd1620` (`versions_match`, conferido no health e pelo `loadgen`; inclui a
+424 refeita, a 427, a 430 e o teto do índice do bot em 320 MiB da ADR 0079), 2026-11-25 04:29–05:06 UTC, sozinha no
+finger-01 (`/tmp/fs-load-running` com token `tester-427b`). Além de "probe com registro" do `loadgen`, **cada probe
+foi cruzado com todos os seus registros**: `GET /api/v1/connections?src_ip=<origem>&since&until&limit=1000`,
+paginado por `started` logo depois de cada rodada, contra o `conns.csv` (registros por probe, requisições no registro
+e registros sem probe da mesma origem). Brutos em [`results/h3-427b`](results/h3-427b/)
+(`records-per-probe.txt`, `splits.txt`, `metrics-delta-*.txt`, `summary-*.md`).
+
+**A divisão da h3 (task 427) acabou e não há registro `quic` órfão em nenhuma origem.** No caminho de produção
+(Mac, com pacotes) a rodada limpa deu 30 000 de 30 000 com 1 registro e 3 requisições; a carga oficial do Mac
+também (30 000, todos os tipos). Sobraram dois casos raros, fora do critério: **1 requisição h3 aplicada à conexão
+anterior da mesma porta de origem** (Mac, rodada com o enlace ruim) e **5 de 24 000 h3 com um 2º registro só com o
+`quic_close`** (loopback, só de eventos). Tarefa aberta para o dono: **task 432** (implementer-store).
+
+| Origem | Probes | Sem registro | 1 registro (com 3 requisições) | Mais de 1 registro | `quic` sem probe |
+| --- | --- | --- | --- | --- | --- |
+| Mac por IPv6, só h3, 4 min (`h3-427b-mac`, 04:30:14–04:34:14) | 23 074 abertas (**470 erro no cliente, 926 puladas**: enlace do Mac; "falha do cliente aceita") | 0 dos 22 604 sem erro; 294 com erro sem registro (handshake sem resposta no cliente) | 22 603 de 22 604 sem erro; **1 com 2 requisições** (`ldalgwi2x72b50wf`) | 0 | 0 |
+| Mac por IPv6, só h3, 5 min, repetida (`h3-427b-mac2`, 04:53:00–04:58:00) | **30 000** (0 erro, 0 pulada) | **0** | **30 000 (todos com 3)** | **0** | **0** |
+| finger-01 pela loopback, só h3, 4 min (`h3-427b-local`, 04:36:24–04:40:24) | **24 000** (0 erro, 0 pulada) | **0** (feed 22 037, só API 1 963) | 23 995 (todos com 3) | **5** (2 registros) | 0 |
+| finger-01 pela loopback, mix 400/100, 10 min (04:41:39–04:51:39) | **60 000** (0 erro, 0 pulada) | **0** (feed 58 156, só API 1 844) | 56 055 listados, todos com 1 (h1/h1tls/h2/h3 com 3; h3 11 386); os 3 945 dos primeiros 43,5 s já tinham saído pela retenção na listagem | 0 (`event_only_connections` +60 000 para 60 000) | 0 |
+| Mac, carga oficial 400/100, 5 min (`bot-427b`, 04:59:18–05:04:18, passo 4) | 30 000 (0 erro, 0 pulada) | 0 | 30 000 (h3 6 000 com 3) | 0 | 0 |
+
+Contadores (Δ por rodada, `metrics-delta-*.txt`): na `h3-427b-mac2`, `connections_total{quic/h3}` +30 000 e
+`quic` +0 (na 309: `quic/h3` +23 343 e `quic` +17 660 para 24 000), `web` h3 +30 000 / +90 000 requisições; na
+loopback só h3, `event_only_connections` +24 005 para 24 000 (na 309, +71 552) e `web` h3 +24 000 / +72 000.
+
+**Os dois casos restantes** ([`splits.txt`](results/h3-427b/splits.txt)):
+- **Mac (1 em 22 780).** Porta 52126: a conexão `ldthzo7735nfxl3b` terminou por `timeout` (o CONNECTION_CLOSE do
+  cliente não chegou nessa rodada ruim); 2,7 s depois a `ldalgwi2x72b50wf` abriu na mesma porta e o `http3.request`
+  do stream 0 dela foi parar no registro da anterior, sobrescrevendo o stream 0 próprio (mesmo `stream_id`): a
+  anterior fica com 3 requisições, uma delas da nova, e a nova com 2. O web contou 68 109 requisições h3 e os
+  registros somam 68 108. Hipótese: o evento chegou antes dos pacotes da nova e o fallback do `locate` casou a
+  conexão gravada da 5-tupla (até 30 s) sem olhar o DCID. Não apareceu na rodada limpa de 30 000.
+- **Loopback (5 em 24 000).** A conexão seguinte na mesma porta (24–66 ms depois do fim do cliente) tira a só de
+  eventos anterior do conjunto antes de o `quic_close` dela chegar; o close vira um registro novo do mesmo probe e
+  DCID, com 0 requisição e duração 0, e o primeiro fica com close `timeout`. Não apareceu no mix (60 000).
+
+As linhas do `summary.md` da loopback que falham (feed p99 ≈ 2,1 s, `connection.closed` p95 ≈ 30 s) são as do
+caminho só de eventos (`pendingWait` 2 s, `eventOnlyIdle` 30 s), como na `local-256`; "expurgo" falha porque a
+conferência foi desligada (`-retention-check=false`) e o RNF-04 TCP das rodadas só h3 não tem amostra.
+
+### Bot com o teto de 320 MiB (passo 4; ADR 0079)
+
+Carga oficial 400/100 do Mac por 5 min (aquecimento de 30 s; `bot-427b`) com o forwardAuth simulado a 200/s e
+20 consultas/s (`f8-remote.sh start auth427 auth -duration 7m -rate 200 -query-rate 20`, desde 04:58:51) e o vigia
+`f8-side.sh`; janela medida 04:59:48–05:04:18. `FS_BOT_INDEX_MAX_BYTES=335544320` conferido no `.env` do finger-01,
+`GOMEMLIMIT=768MiB`. Brutos: [`bot-report.md`](results/h3-427b/bot-report.md) (`botload report` na janela),
+[`bot_series.csv`](results/h3-427b/bot_series.csv) (health a cada 5 s), [`summary-bot-mac.md`](results/h3-427b/summary-bot-mac.md).
+No fim, units paradas, a chave `load-f8-auth427` revogada e o binário apagado.
+
+| Medida | Valor | Gatilho da ADR 0079 item 3 |
+| --- | --- | --- |
+| `bot_index_bytes` máx na janela | **199,8 MiB** (62% do teto; começou em 142 MiB, sobra das rodadas anteriores) | > 288 MiB (90% do teto) na janela oficial: não |
+| despejos (`bot_conns_evicted_total` bytes / count / key) | 0 / 0 / 0 | — |
+| health do bot | `ok` nas 53 amostras da janela (e em toda a rodada) | — |
+| forwardAuth no cliente p50 / p95 / p99 / máx | 0,54 / 0,93 / **23,57** / 189,8 ms (n = 54 000, 0 erro); p99 por minuto 3,35 / 14,26 / 17,25 / 29,02 / 33,87 / 23,79 | p99 > 50 ms: não |
+| espera da visão TCP | 3 de 54 000 (0,006%; `view.tcp` em 53 997) | > 1%: não |
+| `memory.current` máx / `anon` máx | 537,5 / 533,9 MiB (52% do `MemoryMax`; `anon` 70% do `GOMEMLIMIT`) | > 90% do `MemoryMax`: não |
+| `memory.events` max / oom_kill (Δ) | 0 / 0 | > 0: não |
+| CPU do bot, `nr_throttled` (Δ) | média 49,3%, p95 77,0%, máx 102% de um núcleo; **+96** | — |
+| consulta `GET /verdict` p95 | 0,37 ms (n = 5 437) | — |
+
+**Leitura.** Nenhum gatilho da ADR 0079 disparou. A janela é curta (5 min, sem o pré-aquecimento de 9 min da F8),
+então o índice de 199,8 MiB não substitui a medida da janela oficial de 10 min (233,9–237,1 MiB na v0.5.1/F8); a
+próxima carga da F8 confere. O p99 do forwardAuth (23,57 ms) passou, mas ficou bem acima do da `official-051`
+(4,01 ms) e subiu minuto a minuto, com `nr_throttled` +96 no bot na janela: fica anotado para a próxima carga da F8, sem tarefa por enquanto (abaixo da meta e sem gatilho).
+
+```sh
+# rodadas do Mac (trava segurada pela sessão):
+FS_LOAD_LOCK_HELD=1 OUT=tmp/load/raw/h3-427b-mac2 test/load/run.sh -commit v0.5.2-135-gddd1620 -mix h3=1 -duration 5m -warmup 30s -retention-check=false
+FS_LOAD_LOCK_HELD=1 OUT=tmp/load/raw/bot-427b test/load/run.sh -commit v0.5.2-135-gddd1620 -duration 5m -warmup 30s -retention-check=false
+# loopback: como na seção seguinte (systemd-run --scope ... loadgen run -origin finger-01 ...), em /tmp/fs-load-427b
+# registros por probe (logo depois da rodada, antes da retenção de 10 min):
+curl -s "https://finger-01.badblock.net.br:9000/api/v1/connections?src_ip=<origem>&since=<t0>&until=<t>&limit=1000"   # repetir com until = menor started da página
+```
+
 ## Probe h3 sem registro depois das tasks 424 e 425 (reconferência da 296, task 309)
 
 Mesmo método da seção seguinte, em `v0.5.2-126-g5830de3` (`versions_match`, conferido no health e pelo `loadgen`;
