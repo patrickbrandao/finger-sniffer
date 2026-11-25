@@ -74,6 +74,8 @@ type summaryDoc struct {
 	Health    map[string]float64    `json:"health_deltas"`
 	AllPass   bool                  `json:"all_pass"`
 	Generator results               `json:"generator"`
+	// GenFailure classifica erro no cliente e puladas pelo critério da ADR 0046 item 2 (task 256).
+	GenFailure genFailure `json:"generator_failures"`
 }
 
 // defaultQUICTarget é a meta p95 do registro QUIC (ADR 0026, que substituiu os 3 s da ADR 0024).
@@ -269,6 +271,30 @@ func reportCmd(args []string) error {
 		ld := loadstat.Sum(endM, "fs_store_live_dropped_total", nil) - loadstat.Sum(warmM, "fs_store_live_dropped_total", nil)
 		sd.Health["fs_store_live_dropped_total"] = ld
 	}
+	// falhas do gerador pelo critério da ADR 0046 item 2 (task 256)
+	gin := genFailureIn{
+		Errors: map[string]int{}, Skipped: g.Skipped, H3Family: g.Config.H3Family,
+		Degraded: float64(cv.Degraded) + sd.Health["fs_store_connections_degraded_total"], KernelDrops: kd,
+		FlowsDropped: -1, Throttled: map[string]int64{},
+	}
+	for k, ks := range r.Conns {
+		gin.Errors[k] = ks.Launched - ks.OK
+	}
+	if err1 == nil && err2 == nil {
+		gin.FlowsDropped = loadstat.Sum(endM, "fs_store_flows_dropped_total", nil) - loadstat.Sum(warmM, "fs_store_flows_dropped_total", nil)
+		sd.Health["fs_store_flows_dropped_total"] = gin.FlowsDropped
+	}
+	gin.Conntrack = conntrackDeltas(*dir)
+	for _, u := range []string{"capture", "web", "raw", "dns", "store", "nats"} {
+		if us, ok := usage[u]; ok {
+			gin.Throttled[u] = us.Throttled
+		}
+	}
+	gin.BacklogMax, gin.BacklogN = backlogMax(g.Health, g.WarmLocal, g.LoadEndLocal)
+	sd.GenFailure = classifyGenFailure(gin)
+	add("ADR 0046", "falhas do gerador (erro no cliente, puladas) pelo critério do item 2", "sem falha ou falha do cliente aceita",
+		sd.GenFailure.Verdict, sd.GenFailure.Verdict != genMirrorFault)
+
 	cf := r.FeedDelayMs["ws"]
 	sd.Decomp["cliente /ws (ts → chegada)"] = [3]float64{cf.P50, cf.P95, cf.P99}
 
@@ -337,17 +363,43 @@ func hostCPUText(h hostUsage) string {
 // conntrackDelta lê conntrack-antes.txt e conntrack-depois.txt (saída do conntrack -S gravada pelo run.sh) e
 // devolve os deltas dos contadores de perda; vazio se os arquivos não existem.
 func conntrackDelta(dir string) string {
+	d := conntrackDeltas(dir)
+	if d == nil {
+		return ""
+	}
+	var out []string
+	for _, k := range []string{"drop", "insert_failed", "early_drop", "error"} {
+		out = append(out, fmt.Sprintf("%s %d", k, d[k]))
+	}
+	return strings.Join(out, ", ")
+}
+
+// conntrackDeltas devolve depois − antes de cada contador do conntrack -S; nil se os arquivos não existem.
+func conntrackDeltas(dir string) map[string]int64 {
 	before, err1 := os.ReadFile(filepath.Join(dir, "conntrack-antes.txt")) //nolint:gosec // pasta do operador
 	after, err2 := os.ReadFile(filepath.Join(dir, "conntrack-depois.txt")) //nolint:gosec // pasta do operador
 	if err1 != nil || err2 != nil {
-		return ""
+		return nil
 	}
 	b, a := loadstat.ParseConntrackS(string(before)), loadstat.ParseConntrackS(string(after))
-	var out []string
-	for _, k := range []string{"drop", "insert_failed", "early_drop", "error"} {
-		out = append(out, fmt.Sprintf("%s %d", k, a[k]-b[k]))
+	out := map[string]int64{}
+	for k, v := range a {
+		out[k] = v - b[k]
 	}
-	return strings.Join(out, ", ")
+	return out
+}
+
+// backlogMax é o maior fs_store_ingest_backlog_seconds nas amostras de health em [from, to] (relógio local) e
+// quantas amostras tinham o valor (0 nos brutos de antes da task 256).
+func backlogMax(hs []healthSample, from, to int64) (float64, int) {
+	m, n := 0.0, 0
+	for _, h := range hs {
+		if h.Backlog == nil || h.T < from || h.T > to {
+			continue
+		}
+		m, n = math.Max(m, *h.Backlog), n+1
+	}
+	return m, n
 }
 
 // cgroupUsage calcula CPU (% de um núcleo por segundo), memória e nr_throttled por unit no intervalo [from, to]
@@ -549,6 +601,7 @@ func renderMD(sd summaryDoc, g gen) string {
 		}
 		fmt.Fprintf(&b, "| %s | %d | %d | %d | %s | %s |\n", k, ks.Launched, ks.OK, ks.Degraded, strings.Join(protos, " "), strings.Join(errs, "; "))
 	}
+	renderGenFailure(&b, sd.GenFailure)
 	b.WriteString("\nOutros contadores (Δ durante a medição):\n\n")
 	for _, k := range keys(sd.Health) {
 		fmt.Fprintf(&b, "- `%s`: %s\n", k, fmtF(sd.Health[k]))

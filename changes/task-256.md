@@ -1,0 +1,1 @@
+- test: `loadgen run` passa ao perfil 400/100 por padrão (ADR 0046) e o `loadgen report` classifica erro no cliente e puladas pelo critério da ADR 0046 item 2 (backlog lido a cada 5 s); rodada complementar com o gerador no finger-01: 0 erro e 0 pulada em 60 000; gerador oficial fora do Mac pendente com o humano (task 256).
