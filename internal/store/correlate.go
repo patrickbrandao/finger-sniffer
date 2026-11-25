@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
@@ -108,20 +109,40 @@ type dirtyConn struct {
 	app *appState // nil = recarregar de app_events
 }
 
-// openFor devolve a conexão aberta da 5-tupla que contém ts (com folga antes do início).
-func (t *flowTable) openFor(k flowKey, ts int64, dcid string) (target, bool) {
+// openFor devolve a conexão aberta da 5-tupla que contém ts (com folga antes do início). newer=true diz que o
+// evento QUIC é de uma conexão nova na 5-tupla que os pacotes ainda não abriram (task 432): nem ela nem um registro
+// gravado são dele.
+func (t *flowTable) openFor(k flowKey, ts int64, dcid string) (tg target, ok, newer bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	c := t.conns[k]
 	if c == nil || ts < c.started-eventSlack.Nanoseconds() {
-		return target{}, false
+		return target{}, false, false
 	}
-	// Evento atrasado da conexão QUIC anterior na mesma 5-tupla (DCID diferente, anterior ao início desta):
-	// pertence à conexão já gravada.
-	if dcid != "" && c.quicDCID != "" && dcid != c.quicDCID && ts < c.started {
-		return target{}, false
+	if dcid != "" && c.quicDCID != "" && dcid != c.quicDCID {
+		// Evento atrasado da conexão QUIC anterior na mesma 5-tupla (DCID diferente, anterior ao início desta):
+		// pertence à conexão já gravada.
+		if ts < c.started {
+			return target{}, false, false
+		}
+		// Depois do início desta, com DCID que não é CID dela nem o dos eventos dela: o evento de uma conexão nova
+		// chegou antes dos pacotes do Initial dela (a anterior ainda na tabela, sem o close). Os dois lados precisam
+		// dizer que é outra, para um Initial perdido na captura (quicDCID de outro Initial) não dividir a conexão.
+		if !c.knownQUICCID(dcid) && c.app != nil {
+			if d := c.app.h3DCID(); d != "" && d != dcid {
+				return target{}, false, true
+			}
+		}
 	}
-	return target{id: c.id, open: true, degraded: c.degraded}, true
+	return target{id: c.id, open: true, degraded: c.degraded}, true, false
+}
+
+// h3DCID é o dcid_hex do nível de conexão h3 dos eventos (o DCID do primeiro Initial visto pelo web), "" sem ele.
+func (l *layers) h3DCID() string {
+	if s, ok := l.http3["dcid_hex"].(string); ok {
+		return strings.ToLower(s)
+	}
+	return ""
 }
 
 // addApp aplica um evento ao estado em memória de uma conexão aberta; devolve se o probe foi definido agora, o
@@ -256,17 +277,25 @@ func (t *flowTable) resetClaimed(restore bool) {
 // locate acha a conexão de um evento: aberta na tabela, criada só por eventos, ou já gravada (até a retenção).
 func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target, bool, error) {
 	k := ev.key()
-	if tg, ok := in.flows.openFor(k, ev.ts, ev.quicDCID()); ok {
+	dcid := ev.quicDCID()
+	tg, ok, newer := in.flows.openFor(k, ev.ts, dcid)
+	if ok {
 		return tg, true, nil
+	}
+	eo := in.eventOnly[k]
+	if eo != nil && (ev.ts < eo.started-eventSlack.Nanoseconds() || ev.ts > eo.last+eventOnlyIdle.Nanoseconds()) {
+		eo = nil
 	}
 	// Sem conexão aberta, a reserva de conn_id de um accept até o ts do evento é de uma conexão nova na 5-tupla,
 	// ainda sem registro: o evento é dela (espera os pacotes ou cria a só de eventos com o ID reservado), nunca de
-	// uma anterior gravada ou só de eventos (task 424).
-	if in.flows.acceptAfter(k, ev.ts) {
+	// uma anterior gravada ou só de eventos (task 424). Exceção: evento QUIC com o DCID da só de eventos da 5-tupla
+	// é dela (o close atrasado publicado depois de o web pedir o conn_id da seguinte, com ts dentro de acceptSlack
+	// antes desse pedido, task 432); o owner ainda separa a nova que repete o DCID depois do fim h3.
+	if in.flows.acceptAfter(k, ev.ts) && (dcid == "" || eo == nil || eo.dcid != dcid) {
 		return target{}, false, nil
 	}
 	exclude := "" // conexão só de eventos da 5-tupla que não é a do evento (ownerOlder)
-	if eo := in.eventOnly[k]; eo != nil && ev.ts >= eo.started-eventSlack.Nanoseconds() && ev.ts <= eo.last+eventOnlyIdle.Nanoseconds() {
+	if eo != nil {
 		switch eo.owner(ev) {
 		case ownerNewer:
 			// Conexão nova sem registro: o evento espera e cria a dela (createEventOnly tira esta do conjunto).
@@ -275,7 +304,7 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 			exclude = eo.id
 		}
 	}
-	if eo := in.eventOnly[k]; eo != nil && exclude == "" && ev.ts >= eo.started-eventSlack.Nanoseconds() && ev.ts <= eo.last+eventOnlyIdle.Nanoseconds() {
+	if eo != nil && exclude == "" {
 		// Mesma conexão (ownerSame).
 		ok, err := in.eventOnlyStored(ctx, tx, eo.id)
 		if err != nil {
@@ -293,13 +322,25 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 		}
 		in.flows.dropReservation(k, eo.id)
 	}
-	var tg target
+	if newer {
+		// Conexão nova que os pacotes ainda vão abrir (openFor): espera por eles.
+		return target{}, false, nil
+	}
+	// Registro gravado da 5-tupla: evento QUIC só cai num de mesmo DCID (o dcid_hex do http3 do registro) ou sem
+	// DCID conhecido; o de outro DCID é de outra conexão (task 432).
+	dcidCond := ""
+	args := []any{
+		l4Name(ev.l4), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(), int(ev.server.Port()),
+		ev.ts + eventSlack.Nanoseconds(), ev.ts - lateSlack.Nanoseconds(), exclude,
+	}
+	if dcid != "" {
+		dcidCond = " AND coalesce(lower(json_extract(record_json, '$.http3.dcid_hex')), '') IN ('', ?)"
+		args = append(args, dcid)
+	}
 	var degraded int
 	err := tx.QueryRowContext(ctx, `SELECT conn_id, degraded FROM connections
 		WHERE l4 = ? AND src_ip = ? AND src_port = ? AND dst_ip = ? AND dst_port = ? AND started_ns <= ? AND ended_ns IS NOT NULL
-		AND ended_ns >= ? AND conn_id <> ? ORDER BY started_ns DESC LIMIT 1`,
-		l4Name(ev.l4), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(), int(ev.server.Port()),
-		ev.ts+eventSlack.Nanoseconds(), ev.ts-lateSlack.Nanoseconds(), exclude).Scan(&tg.id, &degraded)
+		AND ended_ns >= ? AND conn_id <> ?`+dcidCond+` ORDER BY started_ns DESC LIMIT 1`, args...).Scan(&tg.id, &degraded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return target{}, false, nil
 	}

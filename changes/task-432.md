@@ -1,0 +1,1 @@
+- store: evento h3 de conexão nova que chega antes dos pacotes dela não cai mais na anterior da mesma 5-tupla (aberta sem o close ou gravada há menos de 30 s, DCID diferente), e o `quic_close` atrasado de uma conexão só de eventos volta ao registro dela mesmo depois de a seguinte pedir o conn_id, em vez de virar um segundo registro do probe com 0 requisição (task 432).
