@@ -174,9 +174,10 @@ func LoadConfig() (Config, error) {
 	return c, c.validate()
 }
 
-// Teto de bytes do índice (FS_BOT_INDEX_MAX_BYTES, ADR 0057 item 2): 384 MiB por padrão, nunca abaixo de 16 MiB.
+// Teto de bytes do índice (FS_BOT_INDEX_MAX_BYTES, ADR 0057 item 2): 320 MiB por padrão (ADR 0079), nunca abaixo
+// de 16 MiB.
 const (
-	DefaultIndexMaxBytes = 384 << 20
+	DefaultIndexMaxBytes = 320 << 20
 	MinIndexMaxBytes     = 16 << 20
 )
 

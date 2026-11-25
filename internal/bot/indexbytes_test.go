@@ -318,13 +318,13 @@ func TestIndexBytesShared(t *testing.T) {
 	}
 }
 
-// TestLoadConfigIndexMaxBytes: padrão de 384 MiB, inteiro em bytes, abaixo de 16 MiB a configuração falha.
+// TestLoadConfigIndexMaxBytes: padrão de 320 MiB, inteiro em bytes, abaixo de 16 MiB a configuração falha.
 func TestLoadConfigIndexMaxBytes(t *testing.T) {
 	for _, k := range []string{"FS_LISTEN_IPV4", "FS_LISTEN_IPV6", "FS_BOT_INTERNAL_LISTEN", "FS_BOT_INTERNAL_ALLOW", "FS_BOT_INDEX_MAX_BYTES"} {
 		t.Setenv(k, "")
 	}
 	c, err := LoadConfig()
-	if err != nil || c.IndexMaxBytes != 402653184 {
+	if err != nil || c.IndexMaxBytes != 335544320 {
 		t.Fatalf("padrão: %d %v", c.IndexMaxBytes, err)
 	}
 	t.Setenv("FS_BOT_INDEX_MAX_BYTES", "16777216")
@@ -350,7 +350,7 @@ func heapObjects() float64 {
 // BenchmarkIndexFullMemory: memória do índice cheio (tasks 277 e 290). `typical` com 100 000 conexões nas duas
 // visões (FS_BOT_MAX_CONNS) e `hostile` com 10 000, sem teto de bytes: reporta bytes por conexão, o total para
 // 100 000 e a razão entre o contabilizado (bot_index_bytes) e o heap medido, que tem de ficar em ±25%.
-// `hostile_cap` põe 20 000 conexões hostis com o teto padrão (384 MiB): o heap do índice fica ≤ teto + 25%.
+// `hostile_cap` põe 20 000 conexões hostis com o teto padrão (320 MiB): o heap do índice fica ≤ teto + 25%.
 // `hostile_long` é o hostil com textos acima dos tetos do ingest (cortados, task 332), também em ±25%.
 func BenchmarkIndexFullMemory(b *testing.B) {
 	for _, tc := range []struct {
