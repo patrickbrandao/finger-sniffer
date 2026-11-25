@@ -1,0 +1,16 @@
+# Casos fora de "1 registro por probe com 3 requisições" (IPs omitidos; horários UTC)
+
+## h3-427b-mac (rodada 1, enlace do Mac ruim: 470 erros no cliente, 926 puladas), porta de origem 52126
+01M88FKT4G9Z4GNAMS3XZGH479 ldthzo7735nfxl3b 04:32:23.18 -> 04:32:47.13 close timeout, 3 requisições: streams 0 (04:32:49.828!), 4 (04:32:24.45), 8 (04:32:25.72)
+01M88FMM4DYS07K9GBB51HWBGC ldalgwi2x72b50wf 04:32:49.81 -> 04:32:53.60 close quic_close, 2 requisições: streams 4, 8 (cliente sem erro, 3 requisições)
+web: http3_requests +68 109; soma dos registros 68 108 (o stream 0 próprio da ldthzo sumiu, sobrescrito pelo da ldalgwi)
+
+## h3-427b-local (loopback, só de eventos): 5 probes com 2 registros
+porta 49954: 01M88FY7K6ZRZPPPD6AE8XX6FW ld1ozewygsovgodh 04:38:04.652 -> 04:38:07.179 timeout, 3 req, DCID a4f00187d4440110
+             01M88FYBBTEJKWKEVCGZQCPB3M ld1ozewygsovgodh 04:38:08.446 (0 ms) quic_close, 0 req, DCID a4f00187d4440110
+             01M88FYBBZ8P7DK8C2506NTH2B ldcoatjdxg1biw3z 04:38:08.511 -> 04:38:12.308 quic_close, 3 req (conexão seguinte da porta)
+porta 45150: 01M88FZ09G31PJHK0XTEH44KYR / 01M88FZ40WYC6HJCEQ7MH09YEX (ldlhsxg4jaf1f5ef), seguinte 01M88FZ410DM7RKM7099FQ3WN2 a +24 ms
+porta 49585: 01M88FZDW63VA773VNM0T0EYE8 / 01M88FZHMG6RKG6NXWRB6G1KSP (ldqhpv7scmsxvrqa), seguinte 01M88FZHMNHGCB7NSNY7KJT00P a +55 ms
+porta 42283: 01M88G1ZJW5HCHG0BN4F3VZ8WE / 01M88G23A8AE24D0S1NPJXBM25 (ld67w5j2i11f20hs)
+porta 41497: 01M88G28DC0Z8M4WT72HS4K81P / 01M88G2C4R9W7AV2SSSHS316F3 (ldxhkzov55rw7ox1)
+event_only_connections +24 005 para 24 000 conexões

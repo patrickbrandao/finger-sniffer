@@ -1,0 +1,15 @@
+01:59:16 relógio: servidor − local = 1.034844ms (ida e volta 16.840834ms)
+01:59:16 servidor na versão v0.5.2-135-gddd1620 (versions_match=true)
+01:59:18 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 5m0s (aquecimento 30s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem mac
+01:59:48 t= 30s abertas=3002 simultâneas=381 (máx 387) eventos ws=21158
+02:00:18 t= 60s abertas=6002 simultâneas=381 (máx 387) eventos ws=43565
+02:00:48 t= 90s abertas=9003 simultâneas=381 (máx 387) eventos ws=65961
+02:01:18 t=120s abertas=12004 simultâneas=381 (máx 387) eventos ws=88376
+02:01:48 t=150s abertas=15005 simultâneas=381 (máx 387) eventos ws=110763
+02:02:18 t=180s abertas=18005 simultâneas=381 (máx 387) eventos ws=133190
+02:02:48 t=210s abertas=21005 simultâneas=381 (máx 387) eventos ws=155594
+02:03:18 t=240s abertas=24006 simultâneas=381 (máx 387) eventos ws=178052
+02:03:48 t=270s abertas=27007 simultâneas=382 (máx 387) eventos ws=200474
+02:04:18 fim da geração: 30000 abertas, 0 puladas (teto), esperando as conexões terminarem
+02:04:33 relógio no fim: 1.019463ms (deriva -15.381µs)
+02:04:33 dados em tmp/load/raw/bot-427b
