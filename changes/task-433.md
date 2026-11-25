@@ -1,0 +1,1 @@
+- store: evento QUIC com o DCID de um registro gravado ainda sem close h3 vai para ele até a ociosidade QUIC da tabela (`FS_IDLE_DEFAULT` + 30 s), não só até 30 s do fim: o close por ociosidade do web, que sai 30 s depois do último pacote, não vira mais um segundo registro do probe com 0 requisição, mesmo com uma conexão nova na 5-tupla (task 433).
