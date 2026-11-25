@@ -1,0 +1,104 @@
+{
+  "config": {
+    "rate": 100,
+    "max_active": 400,
+    "duration_ns": 500000000000,
+    "mix": "h3=1",
+    "origin": "finger-01",
+    "h3_ip": "<ipv6-do-finger-01>"
+  },
+  "launched": 50000,
+  "skipped": 0,
+  "max_active_seen": 383,
+  "coverage": {
+    "probes": 50000,
+    "seen_ws": 43274,
+    "seen_sse": 43274,
+    "seen_api_only": 1739,
+    "missing": 4987,
+    "degraded": 0
+  },
+  "missing_sample": [
+    "ld6c0goadyqc5vsx h3",
+    "ld7bjmqb1ww34u85 h3",
+    "lduma3rchj7dtldy h3",
+    "ldx8vi3884ktb9q9 h3",
+    "lddcxehhgi50r1ch h3",
+    "ldgrx12nmnzlj8m6 h3",
+    "ld095372c9ygciad h3",
+    "lda227y1a1cxfih1 h3",
+    "ldrk244kj2pih7bj h3",
+    "ldz654b6me6rgvj4 h3",
+    "ld69cnp4a2crwo23 h3",
+    "ldqnjhciudy62s26 h3",
+    "ldmvo71iz3jert2o h3",
+    "ldbzrxw45o3b3e4r h3",
+    "ldl2v36em4sp4uoi h3",
+    "ldfcxnxro028lnh6 h3",
+    "ldh68vzp9mooxbep h3",
+    "ldcd09ye7cm17rsj h3",
+    "ldu7otlbu8008e7v h3",
+    "ldrfnhlsgo1jpxw0 h3"
+  ],
+  "conns": {
+    "h3": {
+      "launched": 50000,
+      "ok": 50000,
+      "errors": {},
+      "degraded": 0,
+      "proto": {
+        "quic/h3": 43402
+      }
+    }
+  }
+}
+18:54:49 relógio: servidor − local = -635ns (ida e volta 22.886µs)
+18:54:49 servidor na versão v0.5.2-115-gfc8dd3e (versions_match=true)
+18:54:51 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 8m20s (aquecimento 30s), mix h3=1, origem finger-01
+18:55:21 t= 30s abertas=3001 simultâneas=381 (máx 381) eventos ws=19312
+18:55:51 t= 60s abertas=6002 simultâneas=381 (máx 381) eventos ws=42768
+18:56:21 t= 90s abertas=9003 simultâneas=381 (máx 381) eventos ws=66443
+18:56:51 t=120s abertas=12004 simultâneas=381 (máx 381) eventos ws=90246
+18:57:21 t=150s abertas=15004 simultâneas=381 (máx 381) eventos ws=114040
+18:57:51 t=180s abertas=18005 simultâneas=381 (máx 382) eventos ws=137715
+18:58:21 t=210s abertas=21006 simultâneas=381 (máx 383) eventos ws=161502
+18:58:51 t=240s abertas=24006 simultâneas=381 (máx 383) eventos ws=185223
+18:59:21 t=270s abertas=27007 simultâneas=381 (máx 383) eventos ws=208919
+18:59:51 t=300s abertas=30008 simultâneas=381 (máx 383) eventos ws=232765
+19:00:21 t=330s abertas=33009 simultâneas=380 (máx 383) eventos ws=256543
+19:00:51 t=360s abertas=36010 simultâneas=381 (máx 383) eventos ws=280245
+19:01:21 t=390s abertas=39010 simultâneas=381 (máx 383) eventos ws=303939
+19:01:51 t=420s abertas=42011 simultâneas=381 (máx 383) eventos ws=327724
+19:02:21 t=450s abertas=45011 simultâneas=381 (máx 383) eventos ws=351470
+19:02:51 t=480s abertas=48011 simultâneas=381 (máx 383) eventos ws=375229
+19:03:11 fim da geração: 50000 abertas, 0 puladas (teto), esperando as conexões terminarem
+19:03:29 relógio no fim: -473ns (deriva 162ns)
+19:03:29 dados em /tmp/fs-load-296/h3-296-local
+
+fs_store_conn_id_requests_total{service="store"} 105617
+fs_store_connections_total{l4="tcp",proto="http1.1"} 17106
+fs_store_connections_total{l4="tcp",proto="raw"} 34708
+fs_store_connections_total{l4="tcp",proto="tcp"} 226
+fs_store_connections_total{l4="tcp",proto="tls"} 10
+fs_store_connections_total{l4="tcp",proto="tls/h2"} 22800
+fs_store_connections_total{l4="tcp",proto="tls/http1.1"} 17101
+fs_store_connections_total{l4="udp",proto="quic/h3"} 46795
+fs_store_connections_total{l4="udp",proto="udp"} 1845
+fs_store_event_only_connections_total{service="store"} 1790
+fs_store_pending_events_total{service="store"} 29701
+fs_web_http3_connections_total{service="web"} 48601
+fs_web_http3_requests_total{service="web"} 145801
+
+fs_store_conn_id_requests_total{service="store"} 155618
+fs_store_connections_total{l4="tcp",proto="http1.1"} 17107
+fs_store_connections_total{l4="tcp",proto="raw"} 34769
+fs_store_connections_total{l4="tcp",proto="tcp"} 240
+fs_store_connections_total{l4="tcp",proto="tls"} 10
+fs_store_connections_total{l4="tcp",proto="tls/h2"} 22800
+fs_store_connections_total{l4="tcp",proto="tls/http1.1"} 17101
+fs_store_connections_total{l4="udp",proto="quic/h3"} 46795
+fs_store_connections_total{l4="udp",proto="udp"} 46862
+fs_store_event_only_connections_total{service="store"} 46803
+fs_store_pending_events_total{service="store"} 74714
+fs_web_http3_connections_total{service="web"} 98601
+fs_web_http3_requests_total{service="web"} 295801

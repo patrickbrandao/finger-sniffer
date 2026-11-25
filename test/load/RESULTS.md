@@ -17,6 +17,25 @@ cliente no minuto de aquecimento (descartado). As janelas `official-50f` a `offi
 200/50), que falharam só no `degraded` = 0 por tráfego alheio e motivaram a ADR 0030, seguem abaixo como histórico,
 junto com a rodada de `899ade1` (v0.1.0).
 
+## Probe h3 sem registro (task 296; observação da carga da F8)
+
+Medida em `v0.5.2-115-gfc8dd3e` (`versions_match`), sozinha no finger-01 (mesma trava da task 422), perfil do
+`loadgen` só com h3 (`-mix h3=1`, 100 novas/s, até 400 simultâneas, vida 3,8 s, 3 requisições), conferência por
+probe no feed e na API e `fs_store_connections_total`/`fs_web_http3_*` antes e depois. **A falta reproduz nas duas
+origens e não é perda do caminho nem do web**: em todos os casos o cliente terminou sem erro e o web contou a
+conexão e as 3 requisições; a conexão nova reusou a 5-tupla de uma anterior (porta UDP de origem reaproveitada) e o
+store pôs os eventos dela no registro da anterior. Tarefa aberta para o dono: **task 424** (implementer-store).
+
+| Origem | Probes gerados | Sem registro | web h3 (Δ conexões / requisições) | store | Onde sumiu |
+| --- | --- | --- | --- | --- | --- |
+| Mac por IPv6, com pacotes no capture ([`h3-296/summary-mac.md`](results/h3-296/summary-mac.md), 23:45:24–23:49:24 UTC) | 24 000 (0 erro, 0 pulada) | **6** (0,025%) | +24 000 / +72 000 | `connections_total{quic/h3}` +23 995; `conn_id_requests` +23 996 | os 6 achados no registro anterior da mesma porta de origem, começado 19–29 s antes (ex.: o registro de 23:46:00.66 termina 23:46:23.71 e traz o probe iniciado às 23:46:19.9 seis vezes); o fluxo da anterior não estava fechado e o Initial com DCID novo não separou |
+| finger-01 pela loopback (`systemd-run --scope`, `system.slice`, sem pacotes na `ens192`: conexões só de eventos; [`h3-296/local-finger01.txt`](results/h3-296/local-finger01.txt), 23:54:51–00:03:11 UTC; horários do log em UTC−5) | 50 000 (0 erro, 0 pulada) | **4 987** (10%) | +50 000 / +150 000 | `event_only_connections` +45 013 = 50 000 − 4 987 | no registro só de eventos anterior da mesma 5-tupla (janela `eventOnlyIdle` de 30 s, sem olhar DCID nem o fim h3); a taxa acompanha o reuso de porta efêmera do Linux a 100/s |
+
+Total 74 000 probes (≥ 70 000). Ensaio prévio na loopback: 2 de 600 a 20/s e 16 de 1 200 a 20/s sem registro;
+dos 4 procurados, 2 estavam no registro anterior da mesma porta. O caso do Mac é o mesmo da `cpu-f8-on` (1 em
+21 000): a hipótese de perda de UDP pelo IPv6 do Mac fica descartada. A loopback não exercita o capture nem o
+caminho de produção (sem pacotes, a conexão é só de eventos), mas mostra o mesmo defeito de correlação ampliado.
+
 ## finger-01, `UPDATE` do opened do bot sob carga (task 422; task 341, ADRs 0046 e 0076)
 
 A task 341 (ADR 0076) regrava o `record_json` com o estado de estabelecida quando sai o `opened` do bot: um

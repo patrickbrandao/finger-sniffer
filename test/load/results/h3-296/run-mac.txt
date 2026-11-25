@@ -1,0 +1,13 @@
+20:45:21 relógio: servidor − local = 2.630922ms (ida e volta 16.765667ms)
+20:45:22 servidor na versão v0.5.2-115-gfc8dd3e (versions_match=true)
+20:45:24 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 4m0s (aquecimento 30s), mix h3=1, origem mac
+20:45:54 t= 30s abertas=3001 simultâneas=381 (máx 382) eventos ws=28301
+20:46:24 t= 60s abertas=6002 simultâneas=381 (máx 388) eventos ws=58413
+20:46:54 t= 90s abertas=9002 simultâneas=381 (máx 389) eventos ws=88454
+20:47:24 t=120s abertas=12003 simultâneas=381 (máx 394) eventos ws=118515
+20:47:54 t=150s abertas=15003 simultâneas=381 (máx 394) eventos ws=148570
+20:48:24 t=180s abertas=18003 simultâneas=381 (máx 394) eventos ws=178581
+20:48:54 t=210s abertas=21004 simultâneas=381 (máx 394) eventos ws=208641
+20:49:24 fim da geração: 24000 abertas, 0 puladas (teto), esperando as conexões terminarem
+20:49:38 relógio no fim: 3.745202ms (deriva 1.11428ms)
+20:49:39 dados em tmp/load/raw/h3-296-mac
