@@ -1,0 +1,1 @@
+- `TestQueryP99` do cache de comportamento: limite de 1 ms só com `FS_STRICT_TIMING=1`; fora dele, 10 ms (falso vermelho com -race no CI).
