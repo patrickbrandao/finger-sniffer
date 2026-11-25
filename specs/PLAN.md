@@ -23,10 +23,9 @@ na spec ou na ADR citada.
 | 256 | tarefa (tester) | só o passo 3, escalado ao humano: host fora do Mac | carga oficial 400/100 sem NAT doméstico |
 | 287 | tarefa (docs) | bloqueada até P5 e P6 | página de privacidade |
 | 306 | tarefa (infra) | bloqueada até o PT-12 e a escolha do `headerDetail` pelo humano | troca do `traefik-app` |
-| 309 | tarefa (tester, bot) | aberta, só o passo 2 (passo 1 feito); o passo 3 propõe o teto ao architect | teto do índice com a visão TCP (ADR 0064) |
-| 406 | tarefa (tester) | em andamento | conferência reproduzível do `traefix:latest` |
-| 425 | tarefa (implementer-web) | em andamento | `initTracker` do h3 por DCID (porta reaproveitada, task 424) |
-| 426 | tarefa (tester) | em andamento | `TestForwardAuthLatency` instável |
+| 309 | tarefa (tester) | em revisão (PR #412); teto decidido na ADR 0079 | teto do índice com a visão TCP |
+| 427 | tarefa (implementer-store) | em andamento, prioridade alta (revert da 424 no PR #413 até ela) | conexão h3 dividida em 2–3 registros depois da 424 |
+| 428 | tarefa (infra) | aberta, depois do merge da ADR 0079 | teto padrão do índice do bot em 320 MiB, também no env do finger-01 |
 | P4 | humano | sem resposta (`FS_BOT_JA4DB_ENABLE=false`) | termos da ja4db, spec 018 |
 | P5, P6 | humano | sem resposta; travam a 287 | base legal (LGPD), controlador e canal do titular, spec 018 |
 | `X-Traefix-Deny` | questão | provisório até o humano confirmar e conferir no traefix | 403 mínimo do `block`, ADR 0074 |
