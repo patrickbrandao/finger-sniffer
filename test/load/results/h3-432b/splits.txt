@@ -1,0 +1,5 @@
+# Caso fora de "1 registro por probe" (IPs omitidos; UTC). h3-432b-mac, porta de origem 63706
+01M88K114J0E4P42BBRQGB59PC ldgorerwico4yc07 05:32:02.066 -> 05:32:04.683 close timeout (by unknown), 3 req (0/4/8), DCID 98f321ba41d13b0c26cd0382a35af7
+01M88K20GAS7SGG4ABS2TVJVS2 ld96s7l8fgc43nyt 05:32:34.186 -> 05:32:37.986, 3 req (conexão seguinte da porta)
+01M88K20ZVTYX60D41RGZYGXKB ldgorerwico4yc07 05:32:34.683254580 (0 ms) close timeout (by server), 0 req, DCID 98f321ba41d13b0c26cd0382a35af7
+fim gravado 05:32:04.682784584; close por ociosidade (30 s negociados) 30,000470 s depois; lateSlack = 30 s

@@ -1,0 +1,15 @@
+02:27:37 relógio: servidor − local = 2.086083ms (ida e volta 16.377542ms)
+02:27:37 servidor na versão v0.5.2-137-g7b95d4d (versions_match=true)
+02:27:39 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 5m0s (aquecimento 30s), mix h3=1, origem mac
+02:28:09 t= 30s abertas=3002 simultâneas=381 (máx 382) eventos ws=28429
+02:28:39 t= 60s abertas=6003 simultâneas=381 (máx 386) eventos ws=58488
+02:29:09 t= 90s abertas=9004 simultâneas=381 (máx 386) eventos ws=88566
+02:29:39 t=120s abertas=12005 simultâneas=381 (máx 386) eventos ws=118608
+02:30:09 t=150s abertas=15005 simultâneas=381 (máx 386) eventos ws=148592
+02:30:39 t=180s abertas=18005 simultâneas=381 (máx 386) eventos ws=178671
+02:31:09 t=210s abertas=21006 simultâneas=381 (máx 386) eventos ws=208743
+02:31:39 t=240s abertas=24007 simultâneas=381 (máx 392) eventos ws=238843
+02:32:09 t=270s abertas=27007 simultâneas=381 (máx 392) eventos ws=268914
+02:32:39 fim da geração: 30000 abertas, 0 puladas (teto), esperando as conexões terminarem
+02:32:53 relógio no fim: 2.618078ms (deriva 531.995µs)
+02:32:54 dados em tmp/load/raw/h3-432b-mac
