@@ -73,8 +73,9 @@ o Initial.
 
 ## Interfaces e contratos
 - Eventos `fs.v1.web.http3.connection` e `fs.v1.web.http3.request`; campo `http3` do registro (`HTTP3Info`,
-  `HTTP3Request`, `QPACKField` no openapi). Correlação no store pela 5-tupla UDP; DCID novo depois de um `close`
-  abre conexão nova (spec 004).
+  `HTTP3Request`, `QPACKField` no openapi). Correlação no store pela 5-tupla UDP; Initial do cliente com DCID novo
+  abre conexão nova depois de um `close` e, sem ele, quando o DCID não pode ser da mesma conexão (spec 004 RF-02,
+  task 424).
 
 ## Critérios de aceite
 - [ ] `curl --http3-only https://<id>.finger-west-01.badblock.net.br:8443/p/<id>/` funciona e o registro traz os parâmetros

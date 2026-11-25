@@ -9,8 +9,9 @@ Regra: uma fase só começa quando a anterior atinge o critério de saída; o ar
 todo agente.
 
 ## Fase atual
-Nenhuma fase aberta: F8 concluída (releases `v0.5.0`–`v0.5.2`); trabalho por tarefas avulsas da revisão de
-2026-11-21 (`fase: revisao-2026-11`) e pendências da F8. A próxima release junta o que entrar na `main`.
+Nenhuma fase aberta: F8 concluída (releases `v0.5.0`–`v0.5.2`). As tarefas da revisão de 2026-11-21
+(`fase: revisao-2026-11`) foram entregues, salvo as da tabela abaixo; restam elas e as pendências da F8, quase todas
+à espera do humano ou do traefix. A próxima release junta o que entrar na `main`.
 
 ## Pendências abertas
 Mantida pelo architect (atualizar ao criar, bloquear ou remover tarefa). Detalhe no arquivo da tarefa em `tasks/`,
@@ -19,15 +20,13 @@ na spec ou na ADR citada.
 | Id | Tipo | Bloqueio / estado | Detalhe |
 | --- | --- | --- | --- |
 | 221 | tarefa (humano) | bloqueada com o humano | carga contra o teto da tabela de fluxos |
+| 256 | tarefa (tester) | só o passo 3, escalado ao humano: host fora do Mac | carga oficial 400/100 sem NAT doméstico |
 | 287 | tarefa (docs) | bloqueada até P5 e P6 | página de privacidade |
 | 306 | tarefa (infra) | bloqueada até o PT-12 e a escolha do `headerDetail` pelo humano | troca do `traefik-app` |
-| 256, 296, 308, 309, 315, 406 | tarefa (tester, bot) | abertas, baixa prioridade | gerador fora do Mac, probe h3, fuzz e teto do índice com o traefix, feed sem cabeçalhos, `latest` reproduzível |
-| 314 | tarefa (implementer-bot) | aberta, baixa prioridade (ADR 0078 escrita) | rules `v1.6`: `ttl_tcp_h3_mismatch` e `relay_rtt_gap_agg` |
-| 299, 400, 401, 403, 404, 409, 413 | tarefa (implementer-bot) | abertas | `forget`/webhook e IP no arquivo, flush final, JA4H, lista que encolhe, 404 do feed, cota 9002/9003 |
-| 342, 379–381, 384, 416 | tarefa (implementer-store) | abertas | revisão de 2026-11-21 |
-| 345, 346–351, 376, 377, 385, 386 | tarefa (raw, web, capture, dns) | abertas | revisão de 2026-11-21 |
-| 341, 378, 383, 387, 407 | tarefa (architect primeiro) | abertas | decisão ou contrato antes do código |
-| 391–393, 395 | tarefa (docs, infra) | em andamento | CSP, termos da ADR 0053, deploy delta, toolchain fixa |
+| 309 | tarefa (tester, bot) | aberta, só o passo 2 (passo 1 feito); o passo 3 propõe o teto ao architect | teto do índice com a visão TCP (ADR 0064) |
+| 406 | tarefa (tester) | em andamento | conferência reproduzível do `traefix:latest` |
+| 425 | tarefa (implementer-web) | em andamento | `initTracker` do h3 por DCID (porta reaproveitada, task 424) |
+| 426 | tarefa (tester) | em andamento | `TestForwardAuthLatency` instável |
 | P4 | humano | sem resposta (`FS_BOT_JA4DB_ENABLE=false`) | termos da ja4db, spec 018 |
 | P5, P6 | humano | sem resposta; travam a 287 | base legal (LGPD), controlador e canal do titular, spec 018 |
 | `X-Traefix-Deny` | questão | provisório até o humano confirmar e conferir no traefix | 403 mínimo do `block`, ADR 0074 |

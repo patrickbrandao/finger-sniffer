@@ -71,7 +71,7 @@ implementer-store (base de serviço/envelope), conforme spec 002.
 ## Correlação
 - Toda conexão recebe `conn_id` (ULID) no store pela 5-tupla (`l4`, src ip:porta, dst ip:porta) e janela de tempo
   (primeiro SYN / primeiro datagrama). Eventos de aplicação trazem a 5-tupla e são associados ao mesmo `conn_id`.
-- QUIC: 4-tupla UDP + DCID do Initial.
+- QUIC: 4-tupla UDP + DCID do Initial; um Initial com DCID fora dos CIDs da conexão abre outra (spec 004 RF-02).
 - Probe ID `[a-z0-9]{8,32}` extraído de: rótulo mais à esquerda do host em `<id>.finger-west-01.badblock.net.br`
   ou `<id>.finger-01.badblock.net.br` (SNI, `Host`, `:authority`, CONNECT, qname DNS, depois de pular os rótulos
   iniciados por `_`); caminho `/p/<id>/...`; primeira linha `PROBE <id>\r\n` em TCP cru.
