@@ -11,6 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/fingerprint/p0f"
+	"github.com/patrickbrandao/finger-sniffer/pkg/quicparse"
 )
 
 // lateLinger é quanto, depois do último pacote, uma conexão TCP ou QUIC fechada continua recebendo pacotes tardios (ACK
@@ -258,6 +259,12 @@ func (c *conn) noteQUICCIDs(fi frameInfo) {
 	c.quicSCIDs = append(c.quicSCIDs, scid)
 }
 
+// quicCIDsKnown informa se o fluxo já viu os CIDs de que um Initial do cliente da mesma conexão poderia vir (task
+// 424): o espelho já mandou cabeçalho longo (SCID dele, inclusive o do Retry), ou nunca respondeu (o fluxo não
+// tem handshake a continuar). Não basta para dividir: o cliente ainda pode usar no Initial um CID emitido em
+// NEW_CONNECTION_ID, que o store não vê (quicFirstInitial, task 427).
+func (c *conn) quicCIDsKnown() bool { return len(c.quicSCIDs) > 0 || !c.serverSeen }
+
 // closing informa se a conexão já viu o fechamento (FIN dos dois lados ou RST).
 func (c *conn) closing() bool { return c.closeAt != 0 }
 
@@ -310,6 +317,11 @@ type flowTable struct {
 	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
 	hidden   map[string]struct{}
 	reserved map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
+	// late são os conn_id das conexões só de eventos guardados para os pacotes atrasados delas (reserveFor). Ficam
+	// fora de reserved: o accept de uma conexão nova na mesma 5-tupla ganha uma reserva própria (task 424).
+	late map[flowKey]reservation
+	// claimed são as reservas consumidas por conexões só de eventos no lote em curso, repostas no rollback.
+	claimed []claimedReservation
 	// maxReserved é o teto de reservas pedidas por fs.v1.store.conn_id (0: maxReservations; testes trocam) e
 	// reservedSwept o instante da última varredura das vencidas feita pelo teto (task 421).
 	maxReserved   int
@@ -355,7 +367,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 	return &flowTable{
 		quicIdle: quicIdle, maxFlows: maxFlows, half: list.New(), answered: list.New(), maxAnswered: maxAnsweredUDP,
 		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]*conn{}, hidden: map[string]struct{}{},
-		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
+		reserved: map[flowKey]reservation{}, late: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
 	}
@@ -557,12 +569,17 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 
 	isSYN := fi.proto == protoTCP && fi.tcpFlags&tcpSYN != 0 && fi.tcpFlags&tcpACK == 0
 	// Um SYN novo sobre uma conexão que já fechou abre outra conexão (reuso da 5-tupla).
-	// No QUIC, um Initial do cliente com DCID novo depois do close da conexão anterior abre outra (ADR 0019).
+	// No QUIC, um Initial do cliente com DCID novo depois do close da conexão anterior abre outra (ADR 0019); sem o
+	// close (CONNECTION_CLOSE perdido: o web só fecha na ociosidade), também, quando o DCID não pode ser da mesma
+	// conexão (quicCIDsKnown, task 424) e o Initial é o primeiro de uma conexão (quicFirstInitial, task 427): o
+	// cliente pode passar ainda no Initial a um CID que o espelho emitiu em NEW_CONNECTION_ID, fora da vista do
+	// store, mas esse Initial continua cifrado com as chaves do DCID original.
 	newQUIC := false
 	dcid, isInitial := "", false
 	if fi.proto == protoUDP {
 		dcid, isInitial = quicInitialDCID(fi.l4)
-		newQUIC = c != nil && isInitial && c.closing() && c.fromClient(fi) && c.newQUICInitial(dcid, ts)
+		newQUIC = c != nil && isInitial && c.fromClient(fi) && c.newQUICInitial(dcid, ts) &&
+			(c.closing() || (c.quicCIDsKnown() && quicFirstInitial(fi.l4)))
 	}
 	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
 		t.drop(k, c)
@@ -597,7 +614,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 			}
 		}
 		c = &conn{
-			id: t.takeReserved(k, ts),
+			id: t.takeFor(k, ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
 			ana: newAnalysis(), app: newAppState(),
 		}
@@ -717,6 +734,11 @@ func (t *flowTable) due(now int64) []*conn {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.expireReservations(now)
+	for k, r := range t.late {
+		if now > r.expires {
+			delete(t.late, k)
+		}
+	}
 	var out []*conn
 	for k, c := range t.conns {
 		idle := t.tcpIdle
@@ -797,6 +819,29 @@ func quicInitialDCID(udp []byte) (string, bool) {
 		return "", false
 	}
 	return hex.EncodeToString(p[6 : 6+n]), true
+}
+
+// quicFirstInitial informa se o primeiro pacote do datagrama (udp é o cabeçalho UDP com os dados) é um Initial do
+// cliente que decifra com as chaves derivadas do próprio DCID (RFC 9001 seção 5.2). As chaves Initial de uma
+// conexão vêm do DCID do primeiro Initial dela (ou do SCID do Retry, que o store já conhece), então só o Initial
+// de uma conexão que começa passa; o da mesma conexão com outro DCID (SCID do espelho ou CID de NEW_CONNECTION_ID)
+// não decifra. Versão sem chaves conhecidas não passa. Só roda no caso raro do Initial com DCID fora dos
+// conhecidos num fluxo aberto (task 427).
+func quicFirstInitial(udp []byte) bool {
+	if len(udp) < 8 {
+		return false
+	}
+	p := udp[8:]
+	h, err := quicparse.ParseLongHeader(p)
+	if err != nil || h.Type != quicparse.PacketInitial {
+		return false
+	}
+	keys, err := quicparse.NewInitialKeys(h.Version, h.DCID, false)
+	if err != nil {
+		return false
+	}
+	_, err = keys.Open(p, h, -1)
+	return err == nil
 }
 
 // quicLongSCID devolve o SCID (hex) de um pacote QUIC de cabeçalho longo (Initial, 0-RTT, Handshake ou Retry,

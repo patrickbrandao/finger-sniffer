@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
+	"github.com/patrickbrandao/finger-sniffer/pkg/service"
 )
 
 // Janelas da correlação de eventos de aplicação (spec 004 "Comportamento").
@@ -23,6 +24,9 @@ const (
 	eventOnlyIdle = 30 * time.Second
 	// lateSlack é a folga depois do fim de uma conexão gravada para eventos publicados no fechamento.
 	lateSlack = 30 * time.Second
+	// acceptSlack é a folga antes da chegada do pedido de conn_id (o accept no web vem antes dela, e o primeiro
+	// evento da conexão pode vir antes também): a espera máxima do web pela resposta (ADR 0017).
+	acceptSlack = service.ConnIDTimeout
 )
 
 // target é a conexão a que um evento pertence.
@@ -49,6 +53,53 @@ type eventOnlyConn struct {
 	app *appState
 	// rec é o registro da criação: base do closed com discarded se a linha sumir antes da expiração (ADR 0076).
 	rec connectionJSON
+	// O que identifica a conexão entre outras da mesma 5-tupla (task 424): accept é o início estimado pela reserva
+	// de conn_id consumida na criação (0 = sem reserva); dcid é o flow.quic_dcid_hex dos eventos QUIC.
+	accept int64
+	dcid   string
+	// prev são os DCID das conexões só de eventos anteriores na mesma 5-tupla, trocadas por esta (no máximo
+	// maxPrevDCIDs, a mais recente no fim): evento com um deles é da anterior, nunca de uma conexão nova (task 427).
+	prev []string
+}
+
+// maxPrevDCIDs é o teto de eventOnlyConn.prev.
+const maxPrevDCIDs = 4
+
+// Resultado de eventOnlyConn.owner.
+const (
+	ownerSame  = iota // o evento é da conexão
+	ownerNewer        // de uma conexão nova na mesma 5-tupla, ainda sem registro
+	ownerOlder        // de uma conexão anterior na mesma 5-tupla, já gravada
+)
+
+// owner decide se o evento é da conexão só de eventos ou de outra com a mesma 5-tupla (porta de origem
+// reaproveitada pelo cliente ou pelo NAT, task 424). Sem pacotes, só os eventos e a reserva de conn_id dizem:
+//   - antes do accept dela (reserva consumida na criação), é de uma conexão anterior;
+//   - QUIC com DCID diferente do dela é outra conexão: anterior se for de antes do início dela ou se o DCID for o
+//     de uma só de eventos anterior trocada por ela (prev: o web publicou com outro DCID algo que não abria
+//     conexão, e os eventos seguintes da conexão de verdade voltam ao DCID original, task 427), nova nos demais
+//     casos (a migração de caminho troca a 5-tupla, não o DCID do envelope, que é o do primeiro Initial);
+//   - depois do fim h3 dela (com a folga dos eventos publicados no fechamento), é de uma conexão nova.
+func (eo *eventOnlyConn) owner(ev appEvent) int {
+	if eo.accept > 0 && ev.ts < eo.accept {
+		return ownerOlder
+	}
+	if d := ev.quicDCID(); d != "" && eo.dcid != "" && d != eo.dcid {
+		if ev.ts < eo.started || slices.Contains(eo.prev, d) {
+			return ownerOlder
+		}
+		return ownerNewer
+	}
+	if a := eo.app; a != nil && a.h3Close != nil && ev.ts > a.h3CloseTs+eventSlack.Nanoseconds() {
+		return ownerNewer
+	}
+	return ownerSame
+}
+
+// claimedReservation é uma reserva consumida por uma conexão só de eventos, guardada para o rollback do lote.
+type claimedReservation struct {
+	k flowKey
+	r reservation
 }
 
 // dirtyConn é uma conexão gravada cujo registro precisa ser refeito no fim do lote.
@@ -120,27 +171,86 @@ func (t *flowTable) setApp(c *conn, a *appState) {
 	c.app = a
 }
 
-// claimReserved consome a reserva de conn_id da 5-tupla, se houver, ou gera um ID novo.
-func (t *flowTable) claimReserved(k flowKey, ts int64) string {
+// claimReserved consome a reserva de conn_id da 5-tupla para uma conexão só de eventos, se houver, ou gera um ID
+// novo; devolve também o início estimado da conexão pela reserva (0 sem reserva). O ID guardado para os pacotes
+// atrasados de outra conexão só de eventos (late) nunca serve: a linha dela já existe.
+func (t *flowTable) claimReserved(k flowKey, ts int64) (id string, accept int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if r, ok := t.reserved[k]; ok && ts <= r.expires {
+		t.claimed = append(t.claimed, claimedReservation{k: k, r: r})
+		delete(t.reserved, k)
+		return r.id, r.accept()
+	}
+	return t.takeReserved(k, ts), 0
+}
+
+// accept é o início estimado da conexão dona da reserva: a reserva vale reservationTTL desde a chegada do pedido
+// de conn_id (ou desde o início da conexão desfeita pelo rollback), menos acceptSlack.
+func (r reservation) accept() int64 {
+	return r.expires - reservationTTL.Nanoseconds() - acceptSlack.Nanoseconds()
+}
+
+// acceptAfter informa se a 5-tupla tem reserva de conn_id de uma conexão que começou até ts (accept de uma conexão
+// nova ainda sem registro, task 424).
+func (t *flowTable) acceptAfter(k flowKey, ts int64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	r, ok := t.reserved[k]
+	return ok && ts <= r.expires && ts >= r.accept()
+}
+
+// takeFor dá o conn_id de uma conexão criada pelos pacotes: a reserva do pedido de conn_id (a conexão nova da
+// 5-tupla) ou, para os pacotes de antes dela, o ID guardado de uma conexão só de eventos (adotada); senão um ID
+// novo. Chamado com a trava.
+func (t *flowTable) takeFor(k flowKey, ts int64) string {
+	l, late := t.late[k]
+	if r, ok := t.reserved[k]; ok && (!late || ts >= r.accept()) {
+		return t.takeReserved(k, ts)
+	}
+	if late {
+		delete(t.late, k)
+		if ts <= l.expires {
+			return l.id
+		}
+	}
 	return t.takeReserved(k, ts)
 }
 
-// reserveFor reserva um ID já usado (conexão só de eventos) para os pacotes que chegarem atrasados.
+// reserveFor guarda o ID já usado (conexão só de eventos) para os pacotes que chegarem atrasados.
 func (t *flowTable) reserveFor(k flowKey, id string, now int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.reserved[k] = reservation{id: id, expires: now + eventOnlyIdle.Nanoseconds()}
+	t.late[k] = reservation{id: id, expires: now + eventOnlyIdle.Nanoseconds()}
 }
 
-// dropReservation apaga a reserva da 5-tupla se ela ainda for do conn_id.
+// dropReservation apaga o ID guardado (ou a reserva) da 5-tupla se ainda for do conn_id.
 func (t *flowTable) dropReservation(k flowKey, id string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if r, ok := t.late[k]; ok && r.id == id {
+		delete(t.late, k)
+	}
 	if r, ok := t.reserved[k]; ok && r.id == id {
 		delete(t.reserved, k)
 	}
+}
+
+// resetClaimed esquece as reservas consumidas pelo lote (gravado); com restore, as devolve (lote desfeito: a
+// reentrega recria a conexão só de eventos com o mesmo ID), sem passar por cima de uma reserva mais nova.
+func (t *flowTable) resetClaimed(restore bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := len(t.claimed) - 1; restore && i >= 0; i-- {
+		c := t.claimed[i]
+		if _, ok := t.reserved[c.k]; !ok {
+			t.reserved[c.k] = c.r
+		}
+		if l, ok := t.late[c.k]; ok && l.id == c.r.id {
+			delete(t.late, c.k)
+		}
+	}
+	t.claimed = t.claimed[:0]
 }
 
 // locate acha a conexão de um evento: aberta na tabela, criada só por eventos, ou já gravada (até a retenção).
@@ -149,7 +259,24 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	if tg, ok := in.flows.openFor(k, ev.ts, ev.quicDCID()); ok {
 		return tg, true, nil
 	}
+	// Sem conexão aberta, a reserva de conn_id de um accept até o ts do evento é de uma conexão nova na 5-tupla,
+	// ainda sem registro: o evento é dela (espera os pacotes ou cria a só de eventos com o ID reservado), nunca de
+	// uma anterior gravada ou só de eventos (task 424).
+	if in.flows.acceptAfter(k, ev.ts) {
+		return target{}, false, nil
+	}
+	exclude := "" // conexão só de eventos da 5-tupla que não é a do evento (ownerOlder)
 	if eo := in.eventOnly[k]; eo != nil && ev.ts >= eo.started-eventSlack.Nanoseconds() && ev.ts <= eo.last+eventOnlyIdle.Nanoseconds() {
+		switch eo.owner(ev) {
+		case ownerNewer:
+			// Conexão nova sem registro: o evento espera e cria a dela (createEventOnly tira esta do conjunto).
+			return target{}, false, nil
+		case ownerOlder:
+			exclude = eo.id
+		}
+	}
+	if eo := in.eventOnly[k]; eo != nil && exclude == "" && ev.ts >= eo.started-eventSlack.Nanoseconds() && ev.ts <= eo.last+eventOnlyIdle.Nanoseconds() {
+		// Mesma conexão (ownerSame).
 		ok, err := in.eventOnlyStored(ctx, tx, eo.id)
 		if err != nil {
 			return target{}, false, err
@@ -170,9 +297,9 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	var degraded int
 	err := tx.QueryRowContext(ctx, `SELECT conn_id, degraded FROM connections
 		WHERE l4 = ? AND src_ip = ? AND src_port = ? AND dst_ip = ? AND dst_port = ? AND started_ns <= ? AND ended_ns IS NOT NULL
-		AND ended_ns >= ? ORDER BY started_ns DESC LIMIT 1`,
+		AND ended_ns >= ? AND conn_id <> ? ORDER BY started_ns DESC LIMIT 1`,
 		l4Name(ev.l4), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(), int(ev.server.Port()),
-		ev.ts+eventSlack.Nanoseconds(), ev.ts-lateSlack.Nanoseconds()).Scan(&tg.id, &degraded)
+		ev.ts+eventSlack.Nanoseconds(), ev.ts-lateSlack.Nanoseconds(), exclude).Scan(&tg.id, &degraded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return target{}, false, nil
 	}
@@ -308,7 +435,23 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 	k := ev.key()
 	// updated_ns é o relógio do store (settle do long-poll, ADR 0029), não o ts do evento.
 	now := in.now().UnixNano()
-	id := in.flows.claimReserved(k, ev.ts)
+	// Conexão só de eventos anterior na mesma 5-tupla (o evento é de outra, eventOnlyConn.owner): sai do conjunto
+	// com o closed antes de a nova tomar o lugar (ADR 0076 item 2); eventos atrasados dela vão ao registro gravado.
+	var prev []string
+	if old := in.eventOnly[k]; old != nil {
+		prev = slices.Clone(old.prev)
+		if old.dcid != "" && old.dcid != ev.quicDCID() && !slices.Contains(prev, old.dcid) {
+			prev = append(prev, old.dcid)
+		}
+		if len(prev) > maxPrevDCIDs {
+			prev = prev[len(prev)-maxPrevDCIDs:]
+		}
+		if err := in.closeEventOnly(ctx, tx, k, old); err != nil {
+			return target{}, err
+		}
+		in.flows.dropReservation(k, old.id)
+	}
+	id, accept := in.flows.claimReserved(k, ev.ts)
 	eo := eventOnlyRecord(id, ev, ev.ts)
 	rec, _ := json.Marshal(eo)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO connections (conn_id, l4, family, src_ip, src_port, dst_ip, dst_port,
@@ -317,7 +460,7 @@ func (in *Ingestor) createEventOnly(ctx context.Context, tx *sql.Tx, ev appEvent
 		int(ev.server.Port()), l4Name(ev.l4), ev.ts, ev.ts, string(rec), max(ev.ts, now), eo.Requests); err != nil {
 		return target{}, fmt.Errorf("insert event-only connection: %w", err)
 	}
-	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState(), rec: eo})
+	in.setEventOnly(k, &eventOnlyConn{id: id, started: ev.ts, last: ev.ts, app: newAppState(), rec: eo, accept: accept, dcid: ev.quicDCID(), prev: prev})
 	in.liveConn(LiveConnOpened, summaryFrom(eo), ev.ts)
 	in.pubConn(event.StageOpened, ev.ts, rec, &eo)
 	in.prom.connection(l4Name(ev.l4), l4Name(ev.l4))
@@ -405,6 +548,9 @@ func (in *Ingestor) applyEvent(ctx context.Context, tx *sql.Tx, ev appEvent, tg 
 			if ev.ts > eo.last {
 				eo.last = ev.ts
 			}
+			if eo.dcid == "" {
+				eo.dcid = ev.quicDCID()
+			}
 			if eo.app != nil {
 				eo.app.add(ev)
 			}
@@ -469,6 +615,7 @@ func (in *Ingestor) beginBatch() {
 	in.batchEvicted = in.batchEvicted[:0]
 	clear(in.batchApp)
 	clear(in.eoChecked)
+	in.flows.resetClaimed(false)
 }
 
 // commitBatch esquece o que só servia ao rollback: o lote está gravado.
@@ -486,6 +633,7 @@ func (in *Ingestor) commitBatch() {
 	in.botOpenUndo = in.botOpenUndo[:0]
 	in.batchEvicted = in.batchEvicted[:0]
 	clear(in.batchApp)
+	in.flows.resetClaimed(false)
 	in.commitPkts()
 }
 
@@ -536,6 +684,7 @@ func (in *Ingestor) discardBatchState() {
 		}
 	}
 	in.eoUndo = in.eoUndo[:0]
+	in.flows.resetClaimed(true)
 	for _, eo := range in.eventOnly {
 		eo.app = nil
 	}
