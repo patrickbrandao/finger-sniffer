@@ -1,0 +1,1 @@
+- web: o Initial com CID desconhecido só abre entrada nova no `initTracker` se decifrar com as chaves do próprio DCID; o Initial com o CID de NEW_CONNECTION_ID fica na entrada da conexão e não sai mais como órfã `handshake_failed` (regressão da task 425). Defesa: entrada de versão conhecida que nada decifrou não vira órfã (task 430).

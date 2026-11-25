@@ -75,8 +75,8 @@ func TestInitTracker(t *testing.T) {
 }
 
 // TestInitTrackerMemory: datagramas grandes param no teto de bytes global (só as primeiras 5-tuplas chegam a
-// ser analisadas, sem vazamento) e a
-// limpeza devolve os bytes.
+// ser analisadas, sem vazamento) e a limpeza devolve os bytes; o lixo que nada decifrou não sai como
+// handshake_failed (task 430).
 func TestInitTrackerMemory(t *testing.T) {
 	tr := newTestTracker(t)
 	now := time.Unix(1000, 0)
@@ -98,7 +98,7 @@ func TestInitTrackerMemory(t *testing.T) {
 	tr.orphans = func(*initEntry, *quicparse.Info) { orphans++ }
 	now = now.Add(initOrphanAfter + time.Second)
 	tr.sweep()
-	if len(tr.m) != 0 || tr.bytes != 0 || orphans == 0 || orphans >= 400 {
+	if len(tr.m) != 0 || tr.bytes != 0 || orphans != 0 {
 		t.Fatalf("depois da limpeza: %d entradas, %d bytes, %d órfãs", len(tr.m), tr.bytes, orphans)
 	}
 }

@@ -193,7 +193,7 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 			t.dropLocked(old)
 		}
 	}
-	e := t.pickLocked(key, h)
+	e := t.pickLocked(key, h, b)
 	if e == nil {
 		// só um cabeçalho longo legível e com versão abre uma entrada nova (o quic-go cuida do resto): a
 		// entrada sem versão nunca publica nada (orphanLocked), então não ocupa a tabela (task 350)
@@ -242,11 +242,12 @@ func (t *initTracker) observe(local, remote net.Addr, b []byte) {
 	t.publishOrphans(orphans)
 }
 
-// pickLocked acha a entrada da 5-tupla a que o datagrama do cliente pertence. O cabeçalho longo vai à entrada
-// que conhece um dos seus CIDs; o Initial com CIDs que nenhuma conhece é de uma conexão nova (nil: o quic-go
-// também abre uma, task 425). O resto (cabeçalho curto, ilegível, Handshake ou 0-RTT sem CID conhecido) vai à
-// entrada mais nova.
-func (t *initTracker) pickLocked(key string, h *quicparse.LongHeader) *initEntry {
+// pickLocked acha a entrada da 5-tupla a que o datagrama b do cliente pertence. O cabeçalho longo vai à entrada
+// que conhece um dos seus CIDs; o Initial com CIDs que nenhuma conhece só é de uma conexão nova (nil: o quic-go
+// também abre uma, task 425) se decifrar com as chaves do próprio DCID, como o primeiro Initial de toda conexão.
+// O Initial com um CID que o espelho emitiu em NEW_CONNECTION_ID (cifrado com as chaves do DCID original, task
+// 430) e o resto (cabeçalho curto, ilegível, Handshake ou 0-RTT sem CID conhecido) vão à entrada mais nova.
+func (t *initTracker) pickLocked(key string, h *quicparse.LongHeader, b []byte) *initEntry {
 	list := t.m[key]
 	if len(list) == 0 {
 		return nil
@@ -257,11 +258,24 @@ func (t *initTracker) pickLocked(key string, h *quicparse.LongHeader) *initEntry
 				return list[i]
 			}
 		}
-		if h.Type == quicparse.PacketInitial && h.Version != 0 {
+		if h.Type == quicparse.PacketInitial && h.Version != 0 && firstInitial(h, b) {
 			return nil
 		}
 	}
 	return list[len(list)-1]
+}
+
+// firstInitial diz se o Initial h (o primeiro pacote de b) decifra com as chaves derivadas do próprio DCID.
+func firstInitial(h *quicparse.LongHeader, b []byte) bool {
+	if h.Size > len(b) {
+		return false
+	}
+	keys, err := quicparse.NewInitialKeys(h.Version, h.DCID, false)
+	if err != nil {
+		return false
+	}
+	_, err = keys.Open(b[:h.Size], h, -1)
+	return err == nil
 }
 
 // sent vê um datagrama do servidor para remote: o SCID de um cabeçalho longo (Initial, Handshake ou Retry)
@@ -373,9 +387,13 @@ func (t *initTracker) evictLocked(orphans *[]*initEntry) bool {
 	return true
 }
 
-// orphanLocked marca a entrada sem conexão aceita como handshake_failed (uma vez, só com versão legível).
+// orphanLocked marca a entrada sem conexão aceita como handshake_failed (uma vez, só com versão legível). Com
+// versão conhecida (v1, v2), só se algum Initial decifrou: a que nada decifrou não é de um cliente que tentou o
+// handshake (o Initial com o CID de NEW_CONNECTION_ID, lixo forjado; task 430). A versão desconhecida, que nunca
+// decifra, continua registrada só com o cabeçalho (spec 011).
 func (t *initTracker) orphanLocked(e *initEntry, orphans *[]*initEntry) {
-	if !e.orphan && e.asm.Version() != 0 {
+	v := e.asm.Version()
+	if !e.orphan && v != 0 && (!quicparse.KnownVersion(v) || e.asm.Info().InitialPacketNumber >= 0) {
 		e.orphan = true
 		t.stopLocked(e)
 		*orphans = append(*orphans, e)
