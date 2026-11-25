@@ -1,0 +1,1 @@
+- test(bot): `TestForwardAuthLatency` com aquecimento e o menor p99 de até 5 rodadas; o limite de 5 ms só falha com `FS_STRICT_TIMING=1`, fora dele vale um teto folgado de 50 ms (task 426).

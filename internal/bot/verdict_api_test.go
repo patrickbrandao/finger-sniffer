@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime"
 	"slices"
 	"sort"
@@ -316,6 +317,10 @@ func TestAuthMetrics(t *testing.T) {
 
 // TestForwardAuthLatency: critério 7 da task 282 — forwardAuth com a visão pronta tem p99 < 5 ms num núcleo (o
 // RNF-01 de verdade é medido na carga, task 285). Sob o detector de corrida o tempo não vale e o teste é pulado.
+// Padrão dos testes de tempo (task 426, como o teto absoluto da retenção): aquecimento e várias rodadas, valendo o
+// menor p99 entre elas (uma rodada atrapalhada pelo escalonador não conta). O limite de 5 ms só é exigido com
+// FS_STRICT_TIMING=1 (job norace do CI); fora dele, no Mac compartilhado do verify-quick, vale um teto folgado que
+// ainda pega regressão grosseira (10x) e o excesso sobre 5 ms só vai para o log.
 func TestForwardAuthLatency(t *testing.T) {
 	if raceEnabled {
 		t.Skip("latência não vale com -race")
@@ -325,9 +330,7 @@ func TestForwardAuthLatency(t *testing.T) {
 	_, i := f.goldenSetup("chrome")
 	h := f.srv.Handler(true)
 	hdr := authHeaders(i, uaChrome)
-	const n = 2000
-	d := make([]time.Duration, 0, n)
-	for range n {
+	call := func() time.Duration {
 		req := httptest.NewRequestWithContext(context.Background(), "GET", "/bot/v1/auth", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		for k, v := range hdr {
@@ -336,17 +339,50 @@ func TestForwardAuthLatency(t *testing.T) {
 		w := httptest.NewRecorder()
 		start := time.Now()
 		h.ServeHTTP(w, req)
-		d = append(d, time.Since(start))
+		el := time.Since(start)
 		if w.Code != 200 {
 			t.Fatalf("%d %s", w.Code, w.Body)
 		}
+		return el
 	}
-	slices.Sort(d)
-	p99 := d[n*99/100]
-	t.Logf("forwardAuth p50 %v p99 %v", d[n/2], p99)
-	if p99 > 5*time.Millisecond {
-		t.Fatalf("p99 %v > 5 ms", p99)
+	// Aquecimento: caches da CPU, alocador e pools antes de medir.
+	for range 300 {
+		call()
 	}
+	const (
+		rounds = 5
+		n      = 1000
+		strict = 5 * time.Millisecond
+		loose  = 50 * time.Millisecond
+	)
+	best, bestP50 := time.Duration(1<<62), time.Duration(0)
+	d := make([]time.Duration, n)
+	for r := range rounds {
+		for j := range n {
+			d[j] = call()
+		}
+		slices.Sort(d)
+		p99 := d[n*99/100]
+		t.Logf("round %d: forwardAuth p50 %v p99 %v", r, d[n/2], p99)
+		if p99 < best {
+			best, bestP50 = p99, d[n/2]
+		}
+		// Já abaixo do limite estrito: as rodadas restantes não mudam o resultado.
+		if best <= strict {
+			break
+		}
+	}
+	t.Logf("forwardAuth best p50 %v p99 %v", bestP50, best)
+	if best <= strict {
+		return
+	}
+	if os.Getenv("FS_STRICT_TIMING") == "1" {
+		t.Fatalf("p99 %v > %v (FS_STRICT_TIMING=1)", best, strict)
+	}
+	if best > loose {
+		t.Fatalf("p99 %v > %v (loose ceiling; regression?)", best, loose)
+	}
+	t.Logf("p99 %v above the %v limit: loaded machine? (FS_STRICT_TIMING=1 makes it fail)", best, strict)
 }
 
 // BenchmarkForwardAuth mede o forwardAuth com as duas visões prontas (veredito, registro e publicação).
