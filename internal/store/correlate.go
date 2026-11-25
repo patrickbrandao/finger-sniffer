@@ -282,6 +282,15 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	if ok {
 		return tg, true, nil
 	}
+	// Nas saídas que mandariam o evento esperar por uma conexão nova (ou não achariam o registro dentro de
+	// lateSlack): o registro gravado com o mesmo DCID e sem o close h3 é a conexão do evento (o close por
+	// ociosidade do web, task 433).
+	sameDCID := func(exclude string) (target, bool, error) {
+		if dcid == "" {
+			return target{}, false, nil
+		}
+		return in.storedSameDCID(ctx, tx, ev, dcid, exclude)
+	}
 	eo := in.eventOnly[k]
 	if eo != nil && (ev.ts < eo.started-eventSlack.Nanoseconds() || ev.ts > eo.last+eventOnlyIdle.Nanoseconds()) {
 		eo = nil
@@ -292,14 +301,14 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	// é dela (o close atrasado publicado depois de o web pedir o conn_id da seguinte, com ts dentro de acceptSlack
 	// antes desse pedido, task 432); o owner ainda separa a nova que repete o DCID depois do fim h3.
 	if in.flows.acceptAfter(k, ev.ts) && (dcid == "" || eo == nil || eo.dcid != dcid) {
-		return target{}, false, nil
+		return sameDCID("")
 	}
 	exclude := "" // conexão só de eventos da 5-tupla que não é a do evento (ownerOlder)
 	if eo != nil {
 		switch eo.owner(ev) {
 		case ownerNewer:
 			// Conexão nova sem registro: o evento espera e cria a dela (createEventOnly tira esta do conjunto).
-			return target{}, false, nil
+			return sameDCID(eo.id)
 		case ownerOlder:
 			exclude = eo.id
 		}
@@ -324,7 +333,7 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	}
 	if newer {
 		// Conexão nova que os pacotes ainda vão abrir (openFor): espera por eles.
-		return target{}, false, nil
+		return sameDCID(exclude)
 	}
 	// Registro gravado da 5-tupla: evento QUIC só cai num de mesmo DCID (o dcid_hex do http3 do registro) ou sem
 	// DCID conhecido; o de outro DCID é de outra conexão (task 432).
@@ -341,6 +350,34 @@ func (in *Ingestor) locate(ctx context.Context, tx *sql.Tx, ev appEvent) (target
 	err := tx.QueryRowContext(ctx, `SELECT conn_id, degraded FROM connections
 		WHERE l4 = ? AND src_ip = ? AND src_port = ? AND dst_ip = ? AND dst_port = ? AND started_ns <= ? AND ended_ns IS NOT NULL
 		AND ended_ns >= ? AND conn_id <> ?`+dcidCond+` ORDER BY started_ns DESC LIMIT 1`, args...).Scan(&tg.id, &degraded)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sameDCID(exclude)
+	}
+	if err != nil {
+		return target{}, false, err
+	}
+	tg.degraded = degraded == 1
+	return tg, true, nil
+}
+
+// quicLateSlack é a folga depois do fim gravado para um evento QUIC com o DCID do registro: o close por
+// ociosidade do web sai a ociosidade negociada depois do último pacote, até FS_IDLE_DEFAULT (a do web no QUIC,
+// spec 011 RF-06), coberta pela ociosidade QUIC da tabela (FS_IDLE_DEFAULT + 30 s); nunca menos que lateSlack.
+func (in *Ingestor) quicLateSlack() time.Duration { return max(lateSlack, in.flows.quicIdle) }
+
+// storedSameDCID acha o registro gravado da 5-tupla cujo http3.dcid_hex é o DCID do evento e que ainda não tem o
+// close h3, com fim até quicLateSlack antes do evento (task 433): o DCID do primeiro Initial identifica a
+// conexão, então o evento é dela mesmo além de lateSlack ou com uma conexão nova na 5-tupla. Registro com o close
+// fica na regra geral (lateSlack): uma conexão nova que repetisse o DCID depois dele não cai nele.
+func (in *Ingestor) storedSameDCID(ctx context.Context, tx *sql.Tx, ev appEvent, dcid, exclude string) (target, bool, error) {
+	var tg target
+	var degraded int
+	err := tx.QueryRowContext(ctx, `SELECT conn_id, degraded FROM connections
+		WHERE l4 = ? AND src_ip = ? AND src_port = ? AND dst_ip = ? AND dst_port = ? AND started_ns <= ? AND ended_ns IS NOT NULL
+		AND ended_ns >= ? AND conn_id <> ? AND lower(json_extract(record_json, '$.http3.dcid_hex')) = ?
+		AND json_extract(record_json, '$.http3.close') IS NULL ORDER BY started_ns DESC LIMIT 1`,
+		l4Name(ev.l4), ev.client.Addr().String(), int(ev.client.Port()), ev.server.Addr().String(), int(ev.server.Port()),
+		ev.ts+eventSlack.Nanoseconds(), ev.ts-in.quicLateSlack().Nanoseconds(), exclude, dcid).Scan(&tg.id, &degraded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return target{}, false, nil
 	}
