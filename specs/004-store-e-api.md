@@ -12,11 +12,16 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
 - RF-01: consumidor durável `store` do stream JetStream `FS_EVENTS`; cria/ajusta o stream no start
   (`MemoryStorage`, `max_age` 60 s, `max_bytes` 128 MiB, `DiscardOld` — ADRs 0016 e 0039), com a lista explícita de subjects
   de eventos da ADR 0017 (request/reply fica fora).
-- RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC pela 5-tupla UDP, e um Initial com
-  DCID novo depois do fim da conexão QUIC anterior abre conexão nova (ADR 0019); associação ao probe assim que o
-  ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
+- RF-02: correlação por 5-tupla + janela de tempo → `conn_id` (ULID); QUIC pela 5-tupla UDP. Um Initial do
+  cliente cujo DCID não é nenhum CID da conexão QUIC da 5-tupla (o DCID original, o SCID do espelho ou o do Retry)
+  abre conexão nova depois do fim da anterior (ADR 0019) e também sem o fim (CONNECTION_CLOSE perdido: o web só
+  fecha na ociosidade), quando o espelho já mandou nela cabeçalho longo com SCID ou nunca respondeu (task 424).
+  Initial com o DCID original ou com um CID do espelho continua na mesma conexão (retransmissão, Retry, pausa), e a
+  migração de caminho também. Associação ao probe assim que o ID aparecer (SNI, Host, caminho, DNS, `PROBE`).
 - RF-02a: responde o request/reply `fs.v1.store.conn_id` (ADR 0017): devolve o ID da conexão aberta com a 5-tupla
-  ou reserva um ULID por 30 s para a próxima conexão criada pelos pacotes com essa 5-tupla.
+  ou reserva um ULID por 30 s para a próxima conexão criada pelos pacotes com essa 5-tupla. A reserva é de um
+  accept: o ID de uma conexão só de eventos guardado para os pacotes atrasados dela fica à parte e nunca é a
+  resposta ao accept seguinte na mesma 5-tupla, que ganha reserva própria (task 424).
 - RF-03: pacotes que não formam conexão (SYN sem resposta, RST avulso, ICMP, UDP solto, quadro não IP; o ARP nem
   chega, é descartado no BPF do capture, ADR 0040) ficam como "pacotes avulsos",
   consultáveis por janela de tempo. Regra: fluxo TCP que nunca completou o handshake (sem SYN-ACK — inclui
@@ -140,14 +145,21 @@ API JSON, o tempo real e as métricas agregadas em portas não capturadas.
   `C`); um pacote novo devolve o prazo normal.
 - Pacotes tardios: até 2 s depois do fim (instante de captura), pacotes da mesma 5-tupla (TCP: ACK, RST depois do
   FIN; QUIC: datagramas da mesma 5-tupla/DCID) entram no pcap e nos totais do registro já gravado e contam em
-  `fs_store_late_packets_total`; não viram conexão nova nem avulso. SYN novo (TCP) ou Initial com DCID novo (QUIC)
-  abre conexão nova. Fluxo que virou avulso não recebe tardios.
+  `fs_store_late_packets_total`; não viram conexão nova nem avulso. SYN novo (TCP) ou Initial com DCID novo (QUIC,
+  pela regra da RF-02) abre conexão nova. Fluxo que virou avulso não recebe tardios.
 - Eventos de aplicação (`fs.v1.web.*`, `fs.v1.raw.*`, `fs.v1.dns.query`) são associados pela `flow` do envelope à
   conexão com a mesma 5-tupla cujo intervalo contém o `ts` do evento (com folga de 2 s antes do início, porque o
   evento pode chegar antes do lote de pacotes do SYN):
   - evento sem conexão ainda: espera até 2 s numa fila pendente; depois disso, cria a conexão só com os dados do
     evento (sem pacotes: `times.syn` nulo, sem `ip`/`tcp`, sem pcap) — é o caso do capture fora do ar;
   - evento de conexão já finalizada (até `FS_RETENTION`): atualiza o registro gravado;
+  - porta de origem reaproveitada sem pacotes (task 424): sem conexão aberta, uma reserva de `conn_id` de um accept
+    até o `ts` do evento indica conexão nova ainda sem registro, e o evento é dela (espera na fila pendente e cria
+    a só de eventos com o ID reservado). Com uma conexão só de eventos aberta na 5-tupla, o evento é de outra
+    quando é de antes do accept dela (anterior, vai ao registro gravado), quando o DCID QUIC do envelope difere do
+    dela (anterior se de antes do início dela, nova se depois) ou quando é de depois do fim h3 dela + 2 s (nova).
+    A anterior sai do conjunto das só de eventos com o `closed` (ADR 0076 item 2) antes de a nova tomar o lugar;
+    a reserva consumida na criação volta se o lote for desfeito;
   - evento cuja conexão não existe mais no banco (expurgada): segue a regra do evento sem conexão; evento de
     conexão aberta de um probe apagado pelo `DELETE` é descartado (ADR 0034);
   - todo evento é guardado em `app_events`; os fluxos (`stream.bytes`, `raw.read`) vão para `raw_streams`.
