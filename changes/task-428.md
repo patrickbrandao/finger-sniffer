@@ -1,0 +1,1 @@
+- bot: teto padrão do índice 384 → 320 MiB (`FS_BOT_INDEX_MAX_BYTES=335544320`, ADR 0079), também no finger-01 (task 428).
