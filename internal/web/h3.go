@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/qlogwriter"
 
 	"github.com/patrickbrandao/finger-sniffer/pkg/event"
 	"github.com/patrickbrandao/finger-sniffer/pkg/quicparse"
@@ -78,7 +79,38 @@ func (s *Server) quicConfig() *quic.Config {
 		// no padrão, então os transport parameters anunciados não mudam.
 		MaxStreamReceiveWindow:     h3MaxStreamReceiveWindow,
 		MaxConnectionReceiveWindow: h3MaxConnReceiveWindow,
+		// O Tracer não grava qlog: só guarda o DCID original da conexão na caixa posta por h3ConnContext.
+		Tracer: h3NoteODCID,
 	}
+}
+
+// odcidKey é a chave, no contexto da conexão QUIC, da caixa com o DCID original do primeiro Initial do
+// cliente (task 425): é ele que liga a conexão aceita à entrada dela no initTracker quando a 5-tupla tem mais
+// de uma conexão.
+type odcidKey struct{}
+
+type odcidBox struct{ id []byte }
+
+// h3ConnContext põe a caixa vazia no contexto de cada conexão nova (Transport.ConnContext).
+func h3ConnContext(ctx context.Context, _ *quic.ClientInfo) (context.Context, error) {
+	return context.WithValue(ctx, odcidKey{}, &odcidBox{}), nil
+}
+
+// h3NoteODCID recebe do quic-go o DCID original da conexão do servidor (o do primeiro Initial, também com Retry)
+// antes de ela existir e o guarda na caixa; devolve nil (sem qlog).
+func h3NoteODCID(ctx context.Context, isClient bool, connID quic.ConnectionID) qlogwriter.Trace {
+	if b, ok := ctx.Value(odcidKey{}).(*odcidBox); ok && !isClient {
+		b.id = connID.Bytes()
+	}
+	return nil
+}
+
+// odcidOf devolve o DCID original guardado no contexto da conexão (nil sem ele).
+func odcidOf(qc *quic.Conn) []byte {
+	if b, ok := qc.Context().Value(odcidKey{}).(*odcidBox); ok {
+		return b.id
+	}
+	return nil
 }
 
 // h3TLS é a configuração TLS do QUIC: a mesma de pkg/certs (SNI, recarga a quente), ALPN h3, TLS 1.3.
@@ -157,7 +189,10 @@ func (s *Server) ServeQUIC(ctx context.Context, pc *net.UDPConn) error {
 		s.h3.tracker.orphans = s.publishOrphan
 	}
 	addr := pc.LocalAddr().String()
-	tr := &quic.Transport{Conn: &udpConn{c: pc, obs: s.h3.tracker.observe}}
+	tr := &quic.Transport{
+		Conn:        &udpConn{c: pc, obs: s.h3.tracker.observe, out: s.h3.tracker.sent},
+		ConnContext: h3ConnContext,
+	}
 	ln, err := tr.ListenEarly(s.h3TLS(), s.quicConfig())
 	if err != nil {
 		_ = tr.Close()
@@ -183,6 +218,8 @@ func (s *Server) ServeQUIC(ctx context.Context, pc *net.UDPConn) error {
 			}
 			return err
 		}
+		// a entrada desta conexão no initTracker é a do DCID original (task 425)
+		s.h3.tracker.accepted(qc.RemoteAddr(), odcidOf(qc))
 		// Vaga de FS_MAX_CONNS (a mesma do TCP): o accept espera em vez de recusar.
 		select {
 		case s.sem <- struct{}{}:

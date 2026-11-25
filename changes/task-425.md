@@ -1,0 +1,1 @@
+- web: conexão QUIC nova na 5-tupla de uma ainda viva (porta de origem reaproveitada) tem entrada própria no `initTracker`, chaveada também pelo DCID original: DCID, ClientHello, probe e `conn_id` próprios; retransmissões, o Initial com o SCID do servidor ou do Retry e o accept (DCID original pelo `Tracer` do quic-go) continuam na entrada certa (task 425).

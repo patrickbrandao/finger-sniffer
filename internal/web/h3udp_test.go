@@ -89,7 +89,7 @@ func TestInitTrackerMemory(t *testing.T) {
 	if tr.bytes > initMaxBytes {
 		t.Fatalf("%d bytes guardados > %d", tr.bytes, initMaxBytes)
 	}
-	for _, e := range tr.m {
+	for _, e := range trackerEntries(tr) {
 		if e.asm.Datagrams() > quicparse.DefaultMaxDatagrams {
 			t.Fatalf("%d datagramas", e.asm.Datagrams())
 		}
@@ -162,7 +162,7 @@ func TestInitTrackerConnIDOnlyOnDecryptedInitial(t *testing.T) {
 		}
 	}
 	tr.mu.Lock()
-	for _, e := range tr.m {
+	for _, e := range trackerEntries(tr) {
 		if e.connID != nil {
 			t.Fatalf("entrada %s com pedido de conn_id", e.key)
 		}
@@ -178,7 +178,7 @@ func TestInitTrackerConnIDOnlyOnDecryptedInitial(t *testing.T) {
 	var orphans []*quicparse.Info
 	tr.orphans = func(_ *initEntry, info *quicparse.Info) { orphans = append(orphans, info) }
 	tr.observe(local, udpAddr(1), rfcInitial(t))
-	e := tr.m[udpAddr(1).String()]
+	e := trackerEntry(tr, udpAddr(1))
 	if e == nil || e.connID == nil {
 		t.Fatal("Initial válido sem pedido de conn_id no primeiro datagrama")
 	}
@@ -191,7 +191,7 @@ func TestInitTrackerConnIDOnlyOnDecryptedInitial(t *testing.T) {
 		t.Fatalf("Initial pequeno com %d bytes", len(small))
 	}
 	tr.observe(local, udpAddr(2), small)
-	e2 := tr.m[udpAddr(2).String()]
+	e2 := trackerEntry(tr, udpAddr(2))
 	if e2 == nil || e2.connID == nil {
 		t.Fatal("Initial pequeno sem pedido de conn_id")
 	}
@@ -201,7 +201,7 @@ func TestInitTrackerConnIDOnlyOnDecryptedInitial(t *testing.T) {
 	}
 	// reclamada sem Initial decifrado: o pedido sai no claim
 	tr.observe(local, udpAddr(3), fakeInitial(3, 40))
-	if tr.m[udpAddr(3).String()].connID != nil {
+	if trackerEntry(tr, udpAddr(3)).connID != nil {
 		t.Fatal("Initial com lixo pediu conn_id")
 	}
 	e3, _ := tr.claim(udpAddr(3), 0)
@@ -236,7 +236,7 @@ func FuzzInitTracker(f *testing.F) {
 		if tr.bytes > initMaxBytes || len(tr.m) > initMaxEntries || tr.bytes < 0 {
 			t.Fatalf("tetos: %d bytes, %d entradas", tr.bytes, len(tr.m))
 		}
-		for _, e := range tr.m {
+		for _, e := range trackerEntries(tr) {
 			if e.asm.Datagrams() > quicparse.DefaultMaxDatagrams {
 				t.Fatalf("%d datagramas", e.asm.Datagrams())
 			}
@@ -244,7 +244,7 @@ func FuzzInitTracker(f *testing.F) {
 		}
 		if len(tr.m) > 1000 {
 			tr.mu.Lock()
-			for _, e := range tr.m {
+			for _, e := range trackerEntries(tr) {
 				e.closed = true
 			}
 			tr.sweepLocked(time.Now())
