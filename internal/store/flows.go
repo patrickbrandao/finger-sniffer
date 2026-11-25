@@ -258,11 +258,6 @@ func (c *conn) noteQUICCIDs(fi frameInfo) {
 	c.quicSCIDs = append(c.quicSCIDs, scid)
 }
 
-// quicCIDsKnown informa se o fluxo já não pode receber, da mesma conexão, um Initial do cliente com DCID fora dos
-// CIDs conhecidos (task 424): o espelho já mandou cabeçalho longo (depois dele o cliente só usa o DCID original
-// ou um SCID do espelho, inclusive o do Retry), ou nunca respondeu (o fluxo não tem handshake a continuar).
-func (c *conn) quicCIDsKnown() bool { return len(c.quicSCIDs) > 0 || !c.serverSeen }
-
 // closing informa se a conexão já viu o fechamento (FIN dos dois lados ou RST).
 func (c *conn) closing() bool { return c.closeAt != 0 }
 
@@ -315,11 +310,6 @@ type flowTable struct {
 	// e o ingest descarta os pacotes e eventos delas até a conexão fechar.
 	hidden   map[string]struct{}
 	reserved map[flowKey]reservation // conn_id reservados por fs.v1.store.conn_id (ADR 0017)
-	// late são os conn_id das conexões só de eventos guardados para os pacotes atrasados delas (reserveFor). Ficam
-	// fora de reserved: o accept de uma conexão nova na mesma 5-tupla ganha uma reserva própria (task 424).
-	late map[flowKey]reservation
-	// claimed são as reservas consumidas por conexões só de eventos no lote em curso, repostas no rollback.
-	claimed []claimedReservation
 	// maxReserved é o teto de reservas pedidas por fs.v1.store.conn_id (0: maxReservations; testes trocam) e
 	// reservedSwept o instante da última varredura das vencidas feita pelo teto (task 421).
 	maxReserved   int
@@ -365,7 +355,7 @@ func newFlowTable(cfg IngestConfig) *flowTable {
 	return &flowTable{
 		quicIdle: quicIdle, maxFlows: maxFlows, half: list.New(), answered: list.New(), maxAnswered: maxAnsweredUDP,
 		conns: map[flowKey]*conn{}, closed: map[flowKey]*conn{}, byID: map[string]*conn{}, finalizing: map[string]*conn{}, hidden: map[string]struct{}{},
-		reserved: map[flowKey]reservation{}, late: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
+		reserved: map[flowKey]reservation{}, grace: cfg.CloseGrace, tcpIdle: cfg.TCPIdle,
 		udpIdle: cfg.UDPIdle, maxOpen: cfg.MaxOpen, maxNewPerS: cfg.MaxNewPerS, newID: newULID,
 		segTracked: seg, p0f: db,
 	}
@@ -567,14 +557,12 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 
 	isSYN := fi.proto == protoTCP && fi.tcpFlags&tcpSYN != 0 && fi.tcpFlags&tcpACK == 0
 	// Um SYN novo sobre uma conexão que já fechou abre outra conexão (reuso da 5-tupla).
-	// No QUIC, um Initial do cliente com DCID novo depois do close da conexão anterior abre outra (ADR 0019); sem o
-	// close (CONNECTION_CLOSE perdido: o web só fecha na ociosidade), também, quando o DCID não pode ser da mesma
-	// conexão (quicCIDsKnown, task 424).
+	// No QUIC, um Initial do cliente com DCID novo depois do close da conexão anterior abre outra (ADR 0019).
 	newQUIC := false
 	dcid, isInitial := "", false
 	if fi.proto == protoUDP {
 		dcid, isInitial = quicInitialDCID(fi.l4)
-		newQUIC = c != nil && isInitial && (c.closing() || c.quicCIDsKnown()) && c.fromClient(fi) && c.newQUICInitial(dcid, ts)
+		newQUIC = c != nil && isInitial && c.closing() && c.fromClient(fi) && c.newQUICInitial(dcid, ts)
 	}
 	if c != nil && (newQUIC || (isSYN && (c.closing() || (c.established != 0 && c.fromClient(fi))))) {
 		t.drop(k, c)
@@ -609,7 +597,7 @@ func (t *flowTable) handle(fi frameInfo, ts int64) result {
 			}
 		}
 		c = &conn{
-			id: t.takeFor(k, ts),
+			id: t.takeReserved(k, ts),
 			l4: fi.proto, family: fi.family, client: fi.srcAP(), server: fi.dstAP(), started: ts,
 			ana: newAnalysis(), app: newAppState(),
 		}
@@ -729,11 +717,6 @@ func (t *flowTable) due(now int64) []*conn {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.expireReservations(now)
-	for k, r := range t.late {
-		if now > r.expires {
-			delete(t.late, k)
-		}
-	}
 	var out []*conn
 	for k, c := range t.conns {
 		idle := t.tcpIdle
