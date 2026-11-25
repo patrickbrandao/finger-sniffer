@@ -823,6 +823,8 @@ func TestPanicRecovered(t *testing.T) {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	_ = ok.Close()
+	// a conexão pode fechar por outro defer antes de recoverConn contar o pânico: espera a métrica
+	waitFor(t, 5*time.Second, func() bool { return h.srv.metrics.Get(MetricPanics) == 1 }, func() string { return "web_panics_total" })
 	if got := h.srv.metrics.Get(MetricPanics); got != 1 {
 		t.Fatalf("web_panics_total = %v", got)
 	}

@@ -1,0 +1,1 @@
+- Teste `TestPanicRecovered` espera a métrica do pânico em vez de ler logo após o fechamento (falso vermelho no CI).
