@@ -1,0 +1,97 @@
+# Configuração dinâmica do traefix de teste (task 406; routers das tasks 273 e 313, forwardAuth da spec 019 RF-04 com
+# o marcador da ADR 0074). Modelo: o up.sh troca __FS_BLOCK_KEY__ e __FS_REVOKED_KEY__ pelas chaves de teste criadas
+# pela CLI do bot no próprio servidor e grava o resultado em /finger-sniffer/var/traefix-test/run/dynamic.yml (modo
+# 600). Nenhuma chave entra no repositório nem passa pelo Mac.
+#
+# Backend: o web do espelho na 8080, com stripPrefix e um serversTransport sem conexões ociosas, para cada requisição
+# abrir uma conexão nova ao web e a página /p/<id>/ devolver o conn_id dela.
+http:
+  middlewares:
+    fs-strip:
+      stripPrefix:
+        prefixes: ["/observe", "/block", "/revoked"]
+
+    # sem chave: modo observe
+    fs-bot-observe:
+      forwardAuth:
+        address: http://10.249.255.254:9003/bot/v1/auth
+        timeout: 200ms
+        authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]
+        authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
+        failOpen:
+          denyRequiresResponseHeader: X-Traefix-Deny
+          header: { name: X-Traefix-Verdict, value: unavailable }
+
+    # chave --mode block
+    fs-bot-block:
+      forwardAuth:
+        address: http://10.249.255.254:9003/bot/v1/auth
+        timeout: 200ms
+        authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]
+        requestHeaders:
+          Authorization: "Bearer __FS_BLOCK_KEY__"
+        authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
+        failOpen:
+          denyRequiresResponseHeader: X-Traefix-Deny
+          header: { name: X-Traefix-Verdict, value: unavailable }
+
+    # chave revogada na criação: fail-open de 4xx
+    fs-bot-revoked:
+      forwardAuth:
+        address: http://10.249.255.254:9003/bot/v1/auth
+        timeout: 200ms
+        authRequestHeaders: [User-Agent, Accept, Accept-Language, Accept-Encoding]
+        requestHeaders:
+          Authorization: "Bearer __FS_REVOKED_KEY__"
+        authResponseHeaders: [X-Traefix-Verdict, X-Traefix-Score, X-Traefix-Signals]
+        failOpen:
+          denyRequiresResponseHeader: X-Traefix-Deny
+          header: { name: X-Traefix-Verdict, value: unavailable }
+
+  routers:
+    fs-observe:
+      entryPoints: [fstest, fsnoraw, fsh3o]
+      rule: PathPrefix(`/observe/`)
+      middlewares: [fs-bot-observe, fs-strip]
+      service: fs-web
+    fs-block:
+      entryPoints: [fstest]
+      rule: PathPrefix(`/block/`)
+      middlewares: [fs-bot-block, fs-strip]
+      service: fs-web
+    fs-revoked:
+      entryPoints: [fstest]
+      rule: PathPrefix(`/revoked/`)
+      middlewares: [fs-bot-revoked, fs-strip]
+      service: fs-web
+    # sem fingerprint: tudo ao web, como faria o traefik upstream com a mesma configuração
+    fs-plain:
+      entryPoints: [fsplain]
+      rule: PathPrefix(`/`)
+      service: fs-web
+    fs-ping:
+      entryPoints: [fstest, fsnoraw, fsh3o, fsplain]
+      rule: Path(`/ping`)
+      priority: 1000
+      service: ping@internal
+
+  services:
+    fs-web:
+      loadBalancer:
+        serversTransport: fs-fresh
+        servers:
+          - url: http://170.247.40.86:8080
+
+  serversTransports:
+    fs-fresh:
+      maxIdleConnsPerHost: -1
+
+tls:
+  certificates:
+    - certFile: /certs/tls.crt
+      keyFile: /certs/tls.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/tls.crt
+        keyFile: /certs/tls.key
