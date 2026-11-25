@@ -1,6 +1,6 @@
 # 0064 — Limite conhecido da v0.5.1: forwardAuth acima da meta com o índice do bot no teto
 
-Status: provisória (revisar na task 309, com o teto do índice remedido)
+Status: substituída por 0079 (teto de 320 MiB e condição de memória pelo cgroup, task 309)
 Data: 2026-11-18
 
 ## Contexto

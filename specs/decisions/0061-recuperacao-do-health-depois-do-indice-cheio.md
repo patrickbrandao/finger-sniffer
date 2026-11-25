@@ -1,6 +1,6 @@
 # 0061 — Recuperação do health do bot depois do índice cheio
 
-Status: aceita (teto do índice provisório: revisar se a cauda do forwardAuth passar da meta com o índice no teto) (revisão do teto acionada na carga da v0.5.1: ver 0064)
+Status: aceita (teto do índice provisório: revisar se a cauda do forwardAuth passar da meta com o índice no teto) (revisão do teto acionada na carga da v0.5.1: ver 0064; item 3, teto e gatilhos de revisão, substituído por 0079)
 Data: 2026-11-17
 
 ## Contexto

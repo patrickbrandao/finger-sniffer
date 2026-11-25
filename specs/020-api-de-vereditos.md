@@ -118,3 +118,4 @@ RF-03) e a própria chave (visão de aplicação sem a visão IP/TCP, que só ex
 - specs/decisions/0065-tempos-do-traefix-relay-e-ttl-em-h3.md
 - specs/decisions/0073-limites-de-entrada-da-api-de-vereditos.md
 - specs/decisions/0074-resposta-minima-do-403-no-modo-block.md
+- specs/decisions/0079-teto-do-indice-do-bot-320-mib-e-condicao-de-memoria.md
