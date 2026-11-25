@@ -1,0 +1,1 @@
+- test: probe h3 sem registro reproduzido (6 de 24 000 pelo Mac, 4 987 de 50 000 só de eventos pela loopback do finger-01): QUIC nova na 5-tupla reusada entra no registro da anterior; task 424 para o store (task 296).
