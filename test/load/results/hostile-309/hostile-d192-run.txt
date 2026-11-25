@@ -1,0 +1,14 @@
+2026/11/24 21:31:56 hostile: 80 conexões únicas/s, 40 por lote, 2m0s, sufixo hostile.fs-load.example (início 2026-11-25T02:31:56.955789194Z)
+2026/11/24 21:32:07 hostile 10s: conexões 800, registros aceitos 12920 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:32:17 hostile 10s: conexões 1600, registros aceitos 26520 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:32:27 hostile 10s: conexões 2400, registros aceitos 40120 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:32:37 hostile 10s: conexões 3200, registros aceitos 53720 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:32:47 hostile 10s: conexões 4000, registros aceitos 67320 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:32:57 hostile 10s: conexões 4800, registros aceitos 80920 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:07 hostile 10s: conexões 5600, registros aceitos 94520 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:17 hostile 10s: conexões 6400, registros aceitos 108120 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:27 hostile 10s: conexões 7200, registros aceitos 121720 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:37 hostile 10s: conexões 8000, registros aceitos 135320 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:47 hostile 10s: conexões 8800, registros aceitos 148920 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:57 hostile 10s: conexões 9600, registros aceitos 162520 recusados 0, erros 0, lotes pulados 0
+2026/11/24 21:33:57 hostile fim: conexões 9600, registros aceitos 163200 recusados 0, erros 0, lotes pulados 0, amostras perdidas 0

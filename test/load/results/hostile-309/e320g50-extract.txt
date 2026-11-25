@@ -1,0 +1,8 @@
+amostras 24 health antes 2026-11-25T02:42:06Z depois 2026-11-25T02:44:09Z
+bot_index_bytes max 335543780
+evicted bytes delta 32164
+primeiro degraded 2026-11-25T02:42:47Z
+ok de novo em 2026-11-25T02:48:14Z
+bot anon max MiB 671.1 em 2026-11-25T02:44:04Z (87.4% de 768 MiB); memory.current max MiB 797.6
+nr_throttled delta 210 events max/oom_kill delta 0 0
+bot CPU média % de um núcleo 92.8

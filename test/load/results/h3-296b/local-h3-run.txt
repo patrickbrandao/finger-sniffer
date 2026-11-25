@@ -1,0 +1,13 @@
+20:43:16 relógio: servidor − local = -179ns (ida e volta 20.478µs)
+20:43:16 servidor na versão v0.5.2-126-g5830de3 (versions_match=true)
+20:43:18 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 4m0s (aquecimento 30s), mix h3=1, origem finger-01
+20:43:48 t= 30s abertas=3001 simultâneas=381 (máx 381) eventos ws=30357
+20:44:18 t= 60s abertas=6002 simultâneas=381 (máx 381) eventos ws=67344
+20:44:48 t= 90s abertas=9002 simultâneas=381 (máx 381) eventos ws=104660
+20:45:18 t=120s abertas=12003 simultâneas=381 (máx 381) eventos ws=142040
+20:45:48 t=150s abertas=15003 simultâneas=381 (máx 381) eventos ws=179314
+20:46:18 t=180s abertas=18004 simultâneas=381 (máx 382) eventos ws=216734
+20:46:48 t=210s abertas=21004 simultâneas=381 (máx 382) eventos ws=254032
+20:47:18 fim da geração: 24000 abertas, 0 puladas (teto), esperando as conexões terminarem
+20:47:32 relógio no fim: -261ns (deriva -82ns)
+20:47:33 dados em /tmp/fs-load-296b/h3

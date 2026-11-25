@@ -84,6 +84,109 @@ dos 4 procurados, 2 estavam no registro anterior da mesma porta. O caso do Mac �
 21 000): a hipótese de perda de UDP pelo IPv6 do Mac fica descartada. A loopback não exercita o capture nem o
 caminho de produção (sem pacotes, a conexão é só de eventos), mas mostra o mesmo defeito de correlação ampliado.
 
+## Probe h3 sem registro depois das tasks 424 e 425 (reconferência da 296, task 309)
+
+Mesmo método da seção seguinte, em `v0.5.2-126-g5830de3` (`versions_match`, conferido no health e pelo `loadgen`;
+inclui as tasks 424 e 425), 2026-11-25, sozinha no finger-01 (`/tmp/fs-load-running` com token `tester-309b` de
+01:37:29 ao fim das rodadas da 309). Loopback: `loadgen` em `systemd-run --scope --slice=system.slice
+-p CPUQuota=400%`, `-origin finger-01`, `loadmon sample` e `conntrack -S` como no `run.sh`; `/metrics` do store e do
+web antes e 40 s depois. Brutos em [`results/h3-296b`](results/h3-296b/).
+
+**Os probes sem registro zeraram nas três origens, mas a 424 trouxe uma regressão: a conexão h3 agora vira dois ou
+três registros com o mesmo probe** (a cobertura do `loadgen` conta "probe com registro" e não a pega). As conexões
+TCP ficaram com um registro só (amostras de 450 em 8080 e 1 000 em 8443 na rodada do mix: 1 registro por probe,
+3 requisições). Tarefa aberta para o dono: **task 427** (implementer-store).
+
+| Origem | Probes | Sem registro antes (296/256) | Sem registro agora | Registros a mais |
+| --- | --- | --- | --- | --- |
+| Mac por IPv6, só h3 (`-mix h3=1`, 4 min, 01:37:48–01:41:48 UTC; [`summary-mac.md`](results/h3-296b/summary-mac.md)) | 24 000 (0 erro, 0 pulada) | 6 de 24 000 | **0** | `connections_total` `quic/h3` +23 343 e `quic` +17 660 (41 003 para 24 000 conexões; na 296, `quic/h3` +23 995); amostra de 1 000 registros (01:40:00–01:40:30): 408 de 580 probes com 2 registros; `web` h3 +24 000 conexões, `conn_id_requests` +24 000; QUIC fim → `connection.closed` p50 −3 642 ms (o 1º pedaço fecha por `timeout` antes do cliente) |
+| finger-01 pela loopback, só h3 (4 min, 01:43:18–01:47:18; [`local-h3-summary.md`](results/h3-296b/local-h3-summary.md)) | 24 000 (0 erro, 0 pulada) | 4 987 de 50 000 | **0** (feed 23 979, só API 21) | `event_only_connections` +71 552 para 24 000 conexões (≈ 3 por conexão; na 296, +45 013 para 50 000); `web` h3 +24 000 / +72 000 requisições |
+| finger-01 pela loopback, mix 400/100 (10 min, 01:49:43–01:59:43; [`local-mix-summary.md`](results/h3-296b/local-mix-summary.md)) | 60 000 (0 erro, 0 pulada) | 1 543 de 60 000 (`local-256`) | **0** (feed 58 552, só API 1 448) | `event_only_connections` +83 839 (`local-256`: +52 861); só as h3 se dividem (amostra de 1 000 h3: 270 de 394 probes com 2 registros, 336 registros `quic` sem probe) |
+
+**Como a h3 se divide** ([`splits.txt`](results/h3-296b/splits.txt), IPs omitidos):
+- Com pacotes (Mac): o cliente quic-go do `loadgen` (CID de origem de tamanho 0) manda o ClientHello em dois
+  Initial (DCID original), o espelho responde com Initial e Handshake de SCID `264d6744`, e o Initial seguinte do
+  cliente (1 280 bytes, coalescido com 1-RTT) já vem com **DCID `32595fe3`**, um CID que o espelho emitiu e que não
+  aparece em claro; todos os cabeçalhos curtos seguintes usam esse DCID. O `flows.go` da 424 (`quicCIDsKnown`
+  verdadeiro porque o espelho já mandou SCID, DCID fora de `quicDCID`/`quicSCIDs`) abre conexão nova: o 1º registro
+  fica com o handshake, 3 ms e close `timeout`, o 2º com o resto e o `quic_close`. Igual no segundo par da amostra
+  (SCID `9bd2c57c`, depois DCID `2410bf30`).
+- Sem pacotes (loopback): registro com as 2 primeiras requisições, registro `quic` sem probe e sem requisição no
+  mesmo instante (ao µs) em várias portas, e registro com a 3ª requisição (`eventOnlyConn.owner`).
+
+```sh
+FS_LOAD_LOCK_HELD=1 OUT=tmp/load/raw/h3-296b-mac test/load/run.sh -commit v0.5.2-126-g5830de3 -mix h3=1 -duration 4m -warmup 30s -retention-check=false
+# no finger-01 (loadgen e loadmon linux/amd64 em /tmp/fs-load-296b):
+systemd-run --scope --slice=system.slice -p CPUQuota=400% /tmp/fs-load-296b/loadgen run -out /tmp/fs-load-296b/h3 -origin finger-01 \
+  -duration 4m -warmup 30s -mix h3=1 -retention-check=false -clock-cmd "/tmp/fs-load-296b/loadmon clock" -commit v0.5.2-126-g5830de3
+# mix: igual, -duration 10m e o -mix padrão (h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8)
+curl -s "https://finger-01.badblock.net.br:9000/api/v1/connections?limit=1000&src_ip=<origem>&dst_port=8443&since=<t0>&until=<t1>"   # registros por probe
+```
+
+## finger-01, teto do índice do bot no trecho hostil (task 309, passo 2; ADRs 0061 item 3 e 0064 item 3)
+
+Trecho hostil da carga da F8 (método da seção "finger-01, v0.5.1"), repetido com o teto atual e com tetos menores,
+em `v0.5.2-126-g5830de3` (`versions_match`; bot com a visão TCP enxuta do passo 1 e regras `v1.6`), 2026-11-25,
+sozinha no finger-01 (mesma trava da seção anterior). Por rodada: `FS_BOT_INDEX_MAX_BYTES` trocado só no
+`/finger-sniffer/etc/finger-sniffer.env` do finger-01 e reinício só do bot (índice vazio no começo, como o
+~0,3 MiB da `hostile-051`); `botload auth` a 200/s e 20 consultas/s (unit transitória, ADR 0071, alvo
+`10.249.255.254:9003`); carga 400/100 de 6 min do Mac (`run.sh`, 0 erro e 0 pulada em todas, backlog máx 0,07 s,
+`nr_throttled` 0 nas units do espelho); 1 min 30 s depois, `botload hostile` a 80 conexões/s por 2 min; vigia
+`f8-side.sh` a cada 5 s. Demais limites do bot iguais (`MemoryMax=1G`, `GOMEMLIMIT=768MiB`, `CPUQuota=200%`,
+`FS_BOT_VIEW_WAIT=100ms`, `FS_BOT_CONN_TTL=10m`). A última rodada repetiu 320 MiB com `GOGC=50` (drop-in em `/run`
+só no bot). No fim, o `.env` voltou idêntico ao original (`cmp`), o drop-in saiu, o bot reiniciou com
+`FS_BOT_INDEX_MAX_BYTES=402653184` e o health ficou com os 6 serviços `ok` e `versions_match`; as 10 chaves
+`load-f8-*` foram revogadas. Brutos em [`results/hostile-309`](results/hostile-309/) (`<rodada>-report.md` do
+`botload report` na janela hostil, `<rodada>-extract.txt`, `bot_series.csv` com índice, despejos, status, `anon` e
+`nr_throttled` do bot a cada 5 s, logs das units e `summary-mac-<rodada>.md`).
+
+forwardAuth no cliente = `GET /bot/v1/auth` medido na unit do `botload` (no finger-01); servidor = fração de
+`bot_auth_seconds` (heartbeat). Janela = os 2 min do lote hostil; "rodada" = do início do hostil ao fim do `auth`
+(~7 min, o índice no teto o tempo todo).
+
+| Teto (`FS_BOT_INDEX_MAX_BYTES`) | forwardAuth cliente p50 / p95 / p99 / máx (ms), n = 23 800–24 000, 0 erro | servidor ≤ 10 / ≤ 50 ms | sem visão TCP (espera de 100 ms) | `anon` máx do bot: janela / rodada (MiB, % do `GOMEMLIMIT`) | `nr_throttled` Δ janela, CPU média | teto atingido, despejos por bytes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 384 MiB (atual) | 0,46 / 2,48 / **43,16** / 99,9 (p99 por minuto 3,5 / 38,4 / 62,2) | 99,69 / 99,90% | 0 | 732,7 (95,4%) / **735,0 (95,7%)** | +164, 83% | 53 s, 28 691 |
+| 320 MiB | 0,46 / 1,11 / **37,00** / 91,8 (3,1 / 30,5 / 46,8) | 99,54 / 99,93% | 0 | 730,8 (95,2%) / **730,8 (95,2%)** | +150, 81% | 42 s, 31 927 |
+| 256 MiB | 0,45 / 0,84 / **26,97** / 101,4 (6,2 / 26,6 / 41,2) | 99,68 / 99,95% | 4 | 715,2 (93,1%) / **756,3 (98,5%)** | +112, 80% | 32 s, 34 147 |
+| 192 MiB | 0,46 / 3,51 / **100,50** / 169,0 (3,3 / 100,5 / 100,6) | 98,34 / 98,78% | **292** (e 5 consultas com erro) | 593,5 (77,3%) / **664,4 (86,5%)** | +159, 90% | 26 s, 36 662 |
+| 320 MiB com `GOGC=50` | 0,45 / 9,23 / **53,99** / 146,7 (29,8 / 60,1 / 65,4) | 98,99 / 99,68% | 4 | 671,1 (87,4%) / **716,0 (93,2%)** | +210, 93% | 41 s, 32 164 |
+
+Em todas: `memory.events` max/oom_kill Δ 0/0, `memory.current` máx 694–800 MiB (< 1 GiB), ingest hostil 163 200
+registros aceitos e 0 recusado, `mismatch` Δ 0, 0 sem veredito no feed. Com 192 MiB e com `GOGC=50` o health
+voltou a `ok` em 4 min 4 s e 4 min 8 s depois do fim do trecho; nas outras a rodada seguinte reiniciou o bot antes.
+
+**Leitura.**
+- **p99 ≤ 50 ms no cliente:** passou em 384, 320 e 256 MiB e falhou em 192 MiB. Em 384 MiB a margem é pequena e
+  instável (43 ms aqui, 52,47 ms na `hostile-051`; o último minuto do trecho chega a 62 ms). Abaixo de ~256 MiB o
+  teto passa a despejar as conexões legítimas do `auth` (as do traefix simulado, abertas há até 30 s): o forwardAuth
+  não acha a visão TCP e espera os 100 ms do `FS_BOT_VIEW_WAIT` (292 de 24 000), e o p99 vai a 100 ms.
+- **`anon` ≤ 90% do `GOMEMLIMIT`:** falhou em todo teto ≥ 256 MiB (93–98%, sem OOM) e só passou em 192 MiB, que
+  falha o p99. O `anon` não acompanha o teto: com o índice no teto, o runtime do Go deixa o heap subir até perto do
+  `GOMEMLIMIT` (em 256 MiB ele continuou subindo depois do lote hostil, até 756 MiB). `GOGC=50` não resolve: o `anon`
+  ficou em 93% na rodada e o GC a mais (CPU 93%, `nr_throttled` +210) piorou o p99 para 54 ms.
+
+**Proposta ao architect (sem mudar spec nem padrão aqui):** nenhum teto entre 192 e 384 MiB atende às duas condições
+com o `GOMEMLIMIT` de 768 MiB. O maior teto com o p99 ≤ 50 ms com folga é **256 MiB** (`268435456`: p99 26,97 ms, no
+máximo 41 ms por minuto, sem espera da visão TCP). Com ele o `anon` fica em 93% na janela e até 98,5% na rodada, sem
+OOM e com `memory.current` < `MemoryMax`. Para a condição do `anon`, a ADR nova precisa escolher entre subir o
+`GOMEMLIMIT` dentro do `MemoryMax=1G` (não medido aqui) ou trocar a condição por uma que o runtime do Go respeite:
+`memory.events` max/oom_kill 0 e `memory.current` < `MemoryMax`, ou o heap vivo depois do GC em vez do `anon`.
+384 MiB fica como está até essa ADR: passou no p99 nesta rodada, mas não na `hostile-051`.
+
+```sh
+# no finger-01: troca do teto só do bot (restaurado com "restore"; o .env original guardado ao lado)
+sed -i "s/^FS_BOT_INDEX_MAX_BYTES=.*/FS_BOT_INDEX_MAX_BYTES=335544320/" /finger-sniffer/etc/finger-sniffer.env && systemctl restart finger-sniffer-bot
+cd /tmp/fs-load-f8 && ./f8-remote.sh install && (setsid ./f8-side.sh /tmp/fs-load-f8/side &)
+./f8-remote.sh start auth-b320 auth -duration 9m -rate 200 -query-rate 20
+# no Mac, 20 s depois (trava segurada pelo vigia):
+FS_LOAD_LOCK_HELD=1 OUT=tmp/load/raw/hostile-309-b320 test/load/run.sh -commit v0.5.2-126-g5830de3 -duration 6m -retention-check=false
+# no finger-01, 1 min 30 s depois do início da carga:
+./f8-remote.sh start hostile-b320 hostile -duration 2m -rate 80
+./botload report -dir out-auth-b320 -from <início do hostil> -to <+2 min> -health-before b320-hb.json -health-after b320-ha.json
+./f8-remote.sh cleanup   # units, chaves load-f8-* e binário
+```
+
 ## finger-01, `UPDATE` do opened do bot sob carga (task 422; task 341, ADRs 0046 e 0076)
 
 A task 341 (ADR 0076) regrava o `record_json` com o estado de estabelecida quando sai o `opened` do bot: um

@@ -1,0 +1,25 @@
+20:49:41 relógio: servidor − local = 2.85µs (ida e volta 15.758µs)
+20:49:41 servidor na versão v0.5.2-126-g5830de3 (versions_match=true)
+20:49:43 carga: 100 novas/s, até 400 simultâneas, vida 3.8s, 10m0s (aquecimento 30s), mix h1=15,h1tls=15,h2=20,h3=20,raw-echo=10,raw-banner=12,raw-sink=8, origem finger-01
+20:50:13 t= 30s abertas=3001 simultâneas=381 (máx 384) eventos ws=16557
+20:50:43 t= 60s abertas=6001 simultâneas=381 (máx 384) eventos ws=37702
+20:51:13 t= 90s abertas=9002 simultâneas=381 (máx 384) eventos ws=59002
+20:51:43 t=120s abertas=12002 simultâneas=381 (máx 384) eventos ws=80355
+20:52:13 t=150s abertas=15003 simultâneas=381 (máx 384) eventos ws=101589
+20:52:43 t=180s abertas=18004 simultâneas=381 (máx 384) eventos ws=122789
+20:53:13 t=210s abertas=21004 simultâneas=381 (máx 384) eventos ws=144116
+20:53:43 t=240s abertas=24004 simultâneas=381 (máx 384) eventos ws=165407
+20:54:13 t=270s abertas=27005 simultâneas=381 (máx 384) eventos ws=186662
+20:54:43 t=300s abertas=30005 simultâneas=381 (máx 384) eventos ws=207949
+20:55:13 t=330s abertas=33005 simultâneas=381 (máx 384) eventos ws=229294
+20:55:43 t=360s abertas=36005 simultâneas=381 (máx 384) eventos ws=250663
+20:56:13 t=390s abertas=39005 simultâneas=381 (máx 384) eventos ws=272028
+20:56:43 t=420s abertas=42006 simultâneas=381 (máx 384) eventos ws=293346
+20:57:13 t=450s abertas=45007 simultâneas=381 (máx 384) eventos ws=314656
+20:57:43 t=480s abertas=48007 simultâneas=381 (máx 384) eventos ws=335924
+20:58:13 t=510s abertas=51008 simultâneas=382 (máx 384) eventos ws=357223
+20:58:43 t=540s abertas=54009 simultâneas=383 (máx 384) eventos ws=378504
+20:59:13 t=570s abertas=57009 simultâneas=383 (máx 384) eventos ws=399883
+20:59:43 fim da geração: 60000 abertas, 0 puladas (teto), esperando as conexões terminarem
+20:59:57 relógio no fim: 2.57µs (deriva -280ns)
+20:59:58 dados em /tmp/fs-load-296b/mix
