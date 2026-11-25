@@ -53,6 +53,27 @@ func longPacket(typ byte, dcid, scid []byte, n int) []byte {
 	return append(b, make([]byte, n)...)
 }
 
+// sealedInitial monta um Initial v1 com DCID e SCID dados, cifrado com as chaves derivadas de keyDCID, com n
+// bytes de PADDING: decifra quando keyDCID é o próprio DCID (primeiro Initial de uma conexão); com o DCID
+// original e outro DCID no cabeçalho, é o Initial com o CID de NEW_CONNECTION_ID (task 430).
+func sealedInitial(t testing.TB, keyDCID, dcid, scid []byte, n int) []byte {
+	t.Helper()
+	k, err := quicparse.NewInitialKeys(quicparse.Version1, keyDCID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hdr := []byte{0xc1, 0, 0, 0, 1, byte(len(dcid))}
+	hdr = append(hdr, dcid...)
+	hdr = append(hdr, byte(len(scid)))
+	hdr = append(hdr, scid...)
+	hdr = append(hdr, 0) // token vazio
+	length := 2 + n + 16
+	hdr = append(hdr, byte(length>>8)|0x40, byte(length))
+	pnOff := len(hdr)
+	hdr = append(hdr, 0, 0)
+	return k.Seal(hdr, pnOff, 0, make([]byte, n))
+}
+
 // TestInitTrackerSplitsByDCID: com a conexão anterior viva (reclamada, sem release), o Initial de uma conexão
 // nova na mesma 5-tupla (DCID e SCID novos) abre entrada própria, com DCID e conn_id próprios, e o claim da
 // conexão nova pega essa entrada; a retransmissão do Initial da anterior continua na dela (task 425).
@@ -73,7 +94,8 @@ func TestInitTrackerSplitsByDCID(t *testing.T) {
 	}
 
 	// conexão nova na mesma porta de origem, a anterior ainda viva
-	n := longPacket(0, []byte{9, 9, 9, 9, 9, 9, 9, 9}, []byte{7, 7, 7, 7}, 1200)
+	d9 := []byte{9, 9, 9, 9, 9, 9, 9, 9}
+	n := sealedInitial(t, d9, d9, []byte{7, 7, 7, 7}, 1200)
 	tr.observe(local, remote, n)
 	e2, _ := tr.claim(remote, 0)
 	if e2 == nil || e2 == e1 {
@@ -150,8 +172,14 @@ func TestInitTrackerSameConnCIDs(t *testing.T) {
 		t.Fatal("Initial depois do Retry abriu entrada")
 	}
 
-	// CIDs desconhecidos: conexão nova na mesma 5-tupla
-	tr.observe(local, remote, longPacket(0, []byte{6, 6, 6, 6, 6, 6, 6, 6}, nil, 1200))
+	// CIDs desconhecidos, Initial que não decifra com as chaves do próprio DCID: fica na mais nova (task 430)
+	d6 := []byte{6, 6, 6, 6, 6, 6, 6, 6}
+	tr.observe(local, remote, longPacket(0, d6, nil, 1200))
+	if count() != 1 || trackerEntry(tr, remote) != e {
+		t.Fatalf("Initial que não decifra abriu entrada: %d", count())
+	}
+	// CIDs desconhecidos e decifra com as chaves do próprio DCID: conexão nova na mesma 5-tupla
+	tr.observe(local, remote, sealedInitial(t, d6, d6, nil, 1200))
 	if count() != 2 || trackerEntry(tr, remote) == e {
 		t.Fatalf("Initial novo sem entrada própria: %d", count())
 	}
@@ -169,8 +197,8 @@ func TestInitTrackerClaimPrefersAccepted(t *testing.T) {
 	tr := newTestTracker(t)
 	local, remote := udpAddr(443), udpAddr(3000)
 	d1, d2 := []byte{1, 1, 1, 1, 1, 1, 1, 1}, []byte{2, 2, 2, 2, 2, 2, 2, 2}
-	tr.observe(local, remote, longPacket(0, d1, []byte{1}, 1200))
-	tr.observe(local, remote, longPacket(0, d2, []byte{2}, 1200))
+	tr.observe(local, remote, sealedInitial(t, d1, d1, []byte{1}, 1200))
+	tr.observe(local, remote, sealedInitial(t, d2, d2, []byte{2}, 1200))
 	tr.accepted(remote, nil)                   // sem DCID original: nada
 	tr.accepted(remote, []byte{3, 3, 3, 3, 3}) // DCID que não está na tabela: nada
 	tr.accepted(remote, d2)
@@ -184,6 +212,73 @@ func TestInitTrackerClaimPrefersAccepted(t *testing.T) {
 	}
 	if e, _ := tr.claim(remote, 0); e != nil {
 		t.Fatal("claim de entrada já reclamada")
+	}
+}
+
+// TestInitTrackerNewConnectionIDInitial: o cliente (quic-go) passa, ainda no Initial, a um CID que o espelho
+// emitiu em NEW_CONNECTION_ID, mas cifra com as chaves do DCID original. Esse Initial fica na entrada da
+// conexão (sem entrada nova nem pedido de conn_id) e a varredura não publica órfã; uma conexão nova de verdade
+// na mesma 5-tupla continua com entrada própria (task 430).
+func TestInitTrackerNewConnectionIDInitial(t *testing.T) {
+	var reqs atomic.Int64
+	srv := NewServer(testConfig(t.TempDir()), Deps{})
+	srv.deps.ConnID = func(_ context.Context, f event.Flow, _ time.Time) (string, error) {
+		reqs.Add(1)
+		return "c-" + f.QUICDCIDHex, nil
+	}
+	now := time.Now() // o prazo do pedido de conn_id sai deste relógio
+	srv.now = func() time.Time { return now }
+	tr := newInitTracker(context.Background(), srv)
+	var orphans []*initEntry
+	tr.orphans = func(e *initEntry, _ *quicparse.Info) { orphans = append(orphans, e) }
+	local, remote := udpAddr(443), udpAddr(4000)
+	count := func() int {
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		return len(tr.m[remote.String()])
+	}
+	odcid := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	ncid := []byte{0xc, 0xc, 0xc, 0xc}
+	tr.observe(local, remote, sealedInitial(t, odcid, odcid, nil, 1200))
+	e, _ := tr.claim(remote, 0)
+	if e == nil || e.connID == nil || e.connID.get() != "c-0102030405060708" || reqs.Load() != 1 {
+		t.Fatalf("primeira conexão: %+v, %d pedidos", e, reqs.Load())
+	}
+	tr.observe(local, remote, sealedInitial(t, odcid, ncid, nil, 1200))
+	if count() != 1 || trackerEntry(tr, remote) != e || reqs.Load() != 1 {
+		t.Fatalf("Initial com o CID de NEW_CONNECTION_ID: %d entradas, %d pedidos", count(), reqs.Load())
+	}
+	now = now.Add(initOrphanAfter + time.Second)
+	tr.sweep()
+	if len(orphans) != 0 {
+		t.Fatalf("%d órfãs (DCID %s)", len(orphans), orphans[0].flow.QUICDCIDHex)
+	}
+
+	// conexão nova de verdade na mesma 5-tupla: entrada e conn_id próprios
+	d2 := []byte{2, 2, 2, 2, 2, 2, 2, 2}
+	tr.observe(local, remote, sealedInitial(t, d2, d2, nil, 1200))
+	if e2 := trackerEntry(tr, remote); count() != 2 || e2 == e || e2.connID == nil ||
+		e2.connID.get() != "c-0202020202020202" || reqs.Load() != 2 {
+		t.Fatalf("conexão nova: %d entradas, %d pedidos", count(), reqs.Load())
+	}
+	checkTrackerInvariants(t, tr)
+}
+
+// TestInitTrackerUndecryptedNoOrphan: entrada de versão conhecida que nada decifrou não sai como
+// handshake_failed na varredura; a de versão desconhecida continua saindo (spec 011, task 430).
+func TestInitTrackerUndecryptedNoOrphan(t *testing.T) {
+	tr := newTestTracker(t)
+	now := time.Unix(1000, 0)
+	tr.srv.now = func() time.Time { return now }
+	var orphans []string
+	tr.orphans = func(e *initEntry, _ *quicparse.Info) { orphans = append(orphans, e.key) }
+	local := udpAddr(443)
+	tr.observe(local, udpAddr(1), longPacket(0, []byte{1, 1, 1, 1, 1, 1, 1, 1}, nil, 1200))
+	tr.observe(local, udpAddr(2), unknownVersion(2))
+	now = now.Add(initOrphanAfter + time.Second)
+	tr.sweep()
+	if len(tr.m) != 0 || len(orphans) != 1 || orphans[0] != udpAddr(2).String() {
+		t.Fatalf("%d entradas, órfãs %v", len(tr.m), orphans)
 	}
 }
 

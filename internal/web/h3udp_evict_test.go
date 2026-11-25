@@ -155,7 +155,8 @@ func TestInitTrackerEvictPrefersNoClientHello(t *testing.T) {
 }
 
 // TestInitTrackerShortLife: a não reclamada sem ClientHello sai ao fim de initWindow (com handshake_failed
-// se tem versão legível); com ClientHello fica até initOrphanAfter; reclamada só sai fechada.
+// se tem versão legível e, sendo conhecida, algum Initial decifrado; task 430); com ClientHello fica até
+// initOrphanAfter; reclamada só sai fechada.
 func TestInitTrackerShortLife(t *testing.T) {
 	tr := newTestTracker(t)
 	now := time.Unix(1000, 0)
@@ -164,7 +165,7 @@ func TestInitTrackerShortLife(t *testing.T) {
 	tr.orphans = func(e *initEntry, _ *quicparse.Info) { orphans = append(orphans, e.key) }
 	local := udpAddr(443)
 	tr.observe(local, udpAddr(1), unknownVersion(1))  // sem CH, versão legível
-	tr.observe(local, udpAddr(2), fakeInitial(2, 10)) // em análise, sem CH
+	tr.observe(local, udpAddr(2), fakeInitial(2, 10)) // em análise, sem CH, nada decifrado: sem órfã
 	tr.observe(local, udpAddr(3), rfcInitial(t))      // com CH
 	tr.observe(local, udpAddr(4), fakeInitial(4, 10)) // reclamada
 	if e, _ := tr.claim(udpAddr(4), 0); e == nil {
@@ -175,12 +176,12 @@ func TestInitTrackerShortLife(t *testing.T) {
 	if len(tr.m) != 2 || tr.m[udpAddr(3).String()] == nil || tr.m[udpAddr(4).String()] == nil {
 		t.Fatalf("depois de initWindow: %d entradas", len(tr.m))
 	}
-	if len(orphans) != 2 {
+	if len(orphans) != 1 || orphans[0] != udpAddr(1).String() {
 		t.Fatalf("órfãs %v", orphans)
 	}
 	now = now.Add(initOrphanAfter)
 	tr.sweep()
-	if len(tr.m) != 1 || tr.m[udpAddr(4).String()] == nil || len(orphans) != 3 {
+	if len(tr.m) != 1 || tr.m[udpAddr(4).String()] == nil || len(orphans) != 2 {
 		t.Fatalf("depois de initOrphanAfter: %d entradas, órfãs %v", len(tr.m), orphans)
 	}
 	checkTrackerInvariants(t, tr)
